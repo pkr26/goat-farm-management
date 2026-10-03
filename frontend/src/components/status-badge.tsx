@@ -35,6 +35,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
   PENDING: "warning",
   PROCESSING: "info",
   HEALTHY: "success",
+  UNASSESSABLE: "warning",
   FLAGGED: "destructive",
   PENDING_REVIEW: "warning",
   AWAITING_VERIFICATION: "warning",

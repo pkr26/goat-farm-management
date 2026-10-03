@@ -181,26 +181,39 @@ def build_metric_explanations(
             title="Subsidy",
             explanation=(
                 (
-                    f"National Livestock Mission (NLM) back-ended capital subsidy: 50% of the "
-                    f"eligible capital (capped per unit size — the scheme's published bands run "
-                    f"from a 100F+5M unit's ~₹10 lakh to a 500F+25M unit's ~₹50 lakh, roughly "
-                    f"₹10,000 per breeding head; shed, animals, fodder, equipment and insurance "
-                    f"are all eligible). This run books {_inr(m.subsidy_amount)} — money you do "
-                    f"not have to invest or repay."
+                    "National Livestock Mission (NLM), January 2025 policy: 50% of explicitly "
+                    "eligible capital, with maximum SUBSIDY bands of ₹10 lakh for 100F+5M "
+                    "through ₹50 lakh for 500F+25M. Working capital, personal vehicles and "
+                    "land purchase/rent/lease are excluded. "
+                    + (
+                        f"Conditional estimate: {_inr(m.subsidy_estimate_amount)}. "
+                        if m.subsidy_estimate_amount is not None
+                        else "No estimate: the unit or eligible-item budget is not supported. "
+                    )
+                    + f"Status: {m.subsidy_status}. This run includes {_inr(m.subsidy_amount)} "
+                    "of explicitly scheduled, declared approved installments within the "
+                    "horizon. The scheme uses two equal installments after financing/verified "
+                    "expenditure and completion milestones. No future grant reduces the "
+                    "opening equity; arrange bridge funding until the scheduled receipts. "
+                    "An estimate is not an applicant approval or guaranteed payment."
                 )
-                if fin.nlm_subsidy and m.subsidy_amount > 0.0
+                if fin.nlm_subsidy
                 else (
-                    f"Capital subsidy at {_pct(fin.subsidy_fraction)} of the project cost: "
-                    f"{_inr(m.subsidy_amount)}. This is money you do not have to invest or repay."
+                    f"User-assumed up-front capital subsidy at {_pct(fin.subsidy_fraction)} "
+                    f"of project cost: {_inr(m.subsidy_amount)}. Its timing is explicitly "
+                    "assumed at the opening date; it is not an NLM approval."
                     if m.subsidy_amount > 0.0
-                    else "No capital subsidy is assumed. Set a subsidy fraction or enable the "
-                    "NLM scheme toggle if your scheme (e.g. NABARD/NLM) provides one."
+                    else "No capital subsidy is booked."
                 )
             ),
             figures={
                 "subsidy_amount": m.subsidy_amount,
                 "subsidy_fraction": fin.subsidy_fraction,
                 "nlm_subsidy": "on" if fin.nlm_subsidy else "off",
+                "subsidy_estimate_amount": m.subsidy_estimate_amount,
+                "subsidy_status": m.subsidy_status,
+                "subsidy_policy_version": m.subsidy_policy_version,
+                "subsidy_policy_source": m.subsidy_policy_source,
             },
         )
     )
@@ -210,8 +223,14 @@ def build_metric_explanations(
             title="Your investment (equity)",
             explanation=(
                 f"What you pay out of pocket at the start: project cost {_inr(m.project_cost)} "
-                f"− loan {_inr(m.loan_amount)} − subsidy {_inr(m.subsidy_amount)} "
-                f"= {_inr(m.equity)}. All returns below are measured against this outflow."
+                f"− loan {_inr(m.loan_amount)} "
+                + ("" if fin.nlm_subsidy else f"− up-front subsidy {_inr(m.subsidy_amount)} ")
+                + f"= {_inr(m.equity)}. All returns below are measured against this outflow. "
+                + (
+                    "NLM installments arrive later and do not fund this opening shortfall."
+                    if fin.nlm_subsidy
+                    else ""
+                )
             ),
             figures={"equity": m.equity},
         )
@@ -288,12 +307,17 @@ def build_metric_explanations(
                     f"{_pct(fin.discount_rate_annual)} discount rate, so the project falls "
                     f"short of the required return."
                     if m.irr is not None
-                    else "IRR is undefined for this cash-flow pattern: the flows either "
-                    "never cross zero or admit several mathematically valid rates. "
-                    "Judge the project on NPV and MIRR instead."
+                    else f"IRR is undefined or unproven for this cash-flow pattern "
+                    f"(status: {m.irr_status}). A unique root has not been established "
+                    "inside the declared solver domain. Judge the project on NPV and MIRR instead."
                 )
             ),
-            figures={"irr": m.irr, "discount_rate_annual": fin.discount_rate_annual},
+            figures={
+                "irr": m.irr,
+                "irr_status": m.irr_status,
+                "irr_solver_domain": m.irr_solver_domain,
+                "discount_rate_annual": fin.discount_rate_annual,
+            },
         )
     )
     out.append(
@@ -751,8 +775,12 @@ def build_narrative_report(
                 )
                 + f" — {start.total_herd:.0f} head on the ground in month 1.{events_text}",
                 f"The project needs {_inr(m.project_cost)} in total: {_inr(m.loan_amount)} "
-                f"from the bank, {_inr(m.subsidy_amount)} subsidy and {_inr(m.equity)} "
-                f"from your own pocket.",
+                f"from the bank and {_inr(m.equity)} from your own pocket"
+                + (
+                    f"; declared approved NLM receipts of {_inr(m.subsidy_amount)} arrive later."
+                    if a.finance.nlm_subsidy
+                    else f", with {_inr(m.subsidy_amount)} assumed up-front subsidy."
+                ),
             ],
             figures={
                 "horizon_months": horizon,
@@ -963,7 +991,9 @@ def build_narrative_report(
     if m.bcr is not None and m.bcr < 1.0:
         problems.append("the benefit-cost ratio is below 1.0")
     if m.irr is None:
-        problems.append("the IRR is undefined for this cash-flow pattern")
+        problems.append(
+            f"a unique IRR is not established (assessment: {m.irr_status}); use NPV and MIRR"
+        )
     elif m.irr < a.finance.discount_rate_annual:
         problems.append("the IRR is below your discount rate")
     # None means "no debt year at all"; every number below 1.0 — including the
@@ -1140,12 +1170,12 @@ def build_narrative_report(
     # Model-coverage caveats from the run itself (e.g. a horizon past the
     # embedded Bakrid calendar) belong beside the risk discussion, not only in
     # the machine-readable warnings list.
-    risk_paragraphs.extend(result.warnings)
-    if not risk_paragraphs:
+    if result.monte_carlo is None and result.sensitivity is None:
         risk_paragraphs.append(
             "Run with Monte Carlo and sensitivity enabled to see how robust these results "
             "are to price swings, disease and poor breeding years."
         )
+    risk_paragraphs.extend(result.warnings)
     sections.append(
         ReportSection(
             key="risks",

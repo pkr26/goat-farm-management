@@ -228,12 +228,51 @@ async def _require_linked_animal_active(
         return
     animal = await db.get(Animal, policy.animal_id)
     if animal is None or animal.farm_id != farm.id:
-        return  # the tenant FK makes this unreachable; fail permissively
+        raise ValueError(f"Cannot {action}: covered animal is not on this farm")
     if animal.status != AnimalStatus.ACTIVE.value:
         raise ValueError(
             f"Cannot {action}: covered animal {animal.tag_number} has left the herd "
             f"({animal.status.lower()})"
         )
+
+
+async def lock_insurance_policy(
+    db: AsyncSession, farm: Farm, policy_id: int
+) -> InsurancePolicy | None:
+    """Serialize policy work in the same Animal → Policy order as herd exit.
+
+    The immutable animal link can be read without a lock first. Refresh both
+    rows under their locks so a preloaded identity-map snapshot cannot hide a
+    sale/death/claim committed while this transaction waited.
+    """
+    animal_id_row = (
+        await db.execute(
+            select(InsurancePolicy.animal_id).where(
+                InsurancePolicy.id == policy_id, InsurancePolicy.farm_id == farm.id
+            )
+        )
+    ).one_or_none()
+    if animal_id_row is None:
+        return None
+    if animal_id_row.animal_id is not None:
+        animal = (
+            await db.execute(
+                select(Animal)
+                .where(Animal.id == animal_id_row.animal_id, Animal.farm_id == farm.id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if animal is None:
+            raise ValueError("Covered animal is not on this farm")
+    return (
+        await db.execute(
+            select(InsurancePolicy)
+            .where(InsurancePolicy.id == policy_id, InsurancePolicy.farm_id == farm.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
 
 
 async def _lock_new_policy_animal_active(db: AsyncSession, farm: Farm, animal_id: int) -> Animal:
@@ -355,6 +394,10 @@ async def renew_insurance_policy(
     keeps its identity and audit trail instead of being rewritten into a new
     fact.
     """
+    locked = await lock_insurance_policy(db, farm, policy.id)
+    if locked is None:
+        raise ValueError("Insurance policy not found on this farm")
+    policy = locked
     # A claim is the register's documented terminal event (see
     # claim_insurance_policy) — renewal "re-activates" the row, so without
     # this guard a renewal resurrected claimed cover into active and reopened

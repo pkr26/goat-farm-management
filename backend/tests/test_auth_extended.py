@@ -18,7 +18,7 @@ import os
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import jwt
@@ -26,6 +26,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import Response
+from pydantic import SecretStr
 from sqlalchemy import delete, event, func, insert, select, text, update
 
 import app.api.auth as auth_api
@@ -46,9 +47,11 @@ from app.security import (
     password_policy_error,
     verify_password,
 )
-from app.utils import today
+from app.utils import today, utcnow
 
 from .conftest import OWNER_PW, login, login_and_rotate, owner_with_farm, register
+from .token_forgery import forge_hs256
+from .type_helpers import Headers, json_int, json_string
 
 ALREADY_REGISTERED = "That email is already registered."
 HISTORY_CEILING_DETAIL = (
@@ -63,11 +66,13 @@ MOVER_PRESET = next(r for r in ROLE_PRESETS if r["code"] == "MOVER")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
 def forge_token(
     user_id: int | str,
     kind: str = "access",
     ttl_seconds: int = 600,
-    key: object = None,
+    key: str | bytes | rsa.RSAPrivateKey | None = None,
     algorithm: str = "RS256",
     **extra: object,
 ) -> str:
@@ -81,15 +86,22 @@ def forge_token(
         "exp": now + timedelta(seconds=ttl_seconds),
         "iss": get_settings().jwt_issuer,
         "aud": get_settings().jwt_audience,
+        "scv": 2,
+        "origin": "PASSWORD",
+        "fid": "test-family",
     } | extra
     if kind == "access" and "ver" not in claims:
         claims["ver"] = 0
     if key is None:
         key = get_settings().jwt_private_key_path.read_text()
+    if algorithm == "HS256":
+        assert isinstance(key, (bytes, str))
+        return forge_hs256(claims, key.encode() if isinstance(key, str) else key)
     return jwt.encode(claims, key, algorithm=algorithm)
 
 
-def bearer(token: str) -> dict[str, Any]:
+def bearer(token: str | None) -> Headers:
+    assert token is not None
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -120,7 +132,7 @@ async def user_password_hash(user_id: int) -> str:
 
 async def add_worker(
     client: httpx.AsyncClient,
-    owner: dict,
+    owner: dict[str, str],
     role_code: str,
     email: str,
     password: str = "workerpass123",
@@ -135,7 +147,7 @@ async def add_worker(
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    return json_int(resp.json()["id"])
 
 
 async def worker_login(
@@ -146,7 +158,8 @@ async def worker_login(
     return await login_and_rotate(client, email, password)
 
 
-def set_refresh_cookie(client: httpx.AsyncClient, token: str) -> None:
+def set_refresh_cookie(client: httpx.AsyncClient, token: str | None) -> None:
+    assert token is not None
     client.cookies.clear()
     # httpx normalizes response cookies from the single-label test host to
     # ``test.local``. Match that browser scope so a rotated Set-Cookie replaces
@@ -239,8 +252,8 @@ def test_production_refresh_cookie_is_host_bound(monkeypatch: pytest.MonkeyPatch
         allowed_hosts=["api.example.com"],
         db_sslmode="verify-full",
         min_password_length=12,
-        idempotency_request_hmac_secret="independent-production-hmac-secret-123456789",
-        totp_encryption_key="VFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFQ",
+        idempotency_request_hmac_secret=SecretStr("independent-production-hmac-secret-123456789"),
+        totp_encryption_key=SecretStr("VFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFQ"),
     )
     monkeypatch.setattr(auth_api, "get_settings", lambda: settings)
     response = Response()
@@ -727,7 +740,7 @@ async def test_refresh_with_valid_cookie_returns_new_tokens(client: httpx.AsyncC
 
 async def test_refresh_rotates_the_cookie(client: httpx.AsyncClient) -> None:
     await register(client, "rot@farm.in")
-    old = client.cookies.get(COOKIE)
+    old = json_string(client.cookies.get(COOKIE))
     assert old
     resp = await client.post("/api/auth/refresh")
     assert resp.status_code == 200, resp.text
@@ -744,7 +757,7 @@ async def test_refresh_old_token_reuse_revokes_family(client: httpx.AsyncClient)
     the whole rotation family is revoked — the legitimate client's current
     token dies with it, forcing re-login everywhere."""
     await register(client, "reuse@farm.in")
-    old = client.cookies.get(COOKIE)
+    old = json_string(client.cookies.get(COOKIE))
     resp = await client.post("/api/auth/refresh")
     assert resp.status_code == 200, resp.text
     rotated = client.cookies.get(COOKIE)
@@ -784,7 +797,7 @@ async def test_refresh_rotation_and_family_history_are_hard_bounded(
 
     predecessor = first
     for _index in range(6):
-        predecessor = client.cookies.get(COOKIE)
+        predecessor = json_string(client.cookies.get(COOKIE))
         response = await client.post("/api/auth/refresh")
         assert response.status_code == 200, response.text
     successor = client.cookies.get(COOKIE)
@@ -990,12 +1003,12 @@ async def test_rotation_compaction_never_evicts_another_family(
     """
     monkeypatch.setattr(get_settings(), "refresh_max_sessions_per_family", 2)
     await register(client, "family-local-compaction@farm.in")
-    other_family_token = client.cookies.get(COOKIE)
+    other_family_token = json_string(client.cookies.get(COOKIE))
     assert other_family_token
     other_claims = decode_refresh_claims(other_family_token)
     assert other_claims is not None
     await login(client, "family-local-compaction@farm.in", OWNER_PW)
-    rotating_token = client.cookies.get(COOKIE)
+    rotating_token = json_string(client.cookies.get(COOKIE))
     assert rotating_token and rotating_token != other_family_token
 
     rotated = await client.post("/api/auth/refresh")
@@ -1637,7 +1650,7 @@ async def test_immediate_refresh_replay_returns_exact_successor(
         "/api/auth/register", json={"email": "tabs@farm.in", "password": OWNER_PW}
     )
     user_id = resp.json()["user"]["id"]
-    old = client.cookies.get(COOKIE)
+    old = json_string(client.cookies.get(COOKIE))
     assert old
 
     assert (await client.post("/api/auth/refresh")).status_code == 200
@@ -1670,7 +1683,7 @@ async def test_refresh_grace_tolerates_small_backward_wall_clock_step(
         json={"email": "backward-clock-grace@farm.in", "password": OWNER_PW},
     )
     assert registered.status_code == 201, registered.text
-    predecessor = client.cookies.get(COOKIE)
+    predecessor = json_string(client.cookies.get(COOKIE))
     assert predecessor
     predecessor_claims = decode_refresh_claims(predecessor)
     assert predecessor_claims is not None
@@ -1720,7 +1733,7 @@ async def test_unknown_refresh_jti_is_cached_as_the_presented_bad_token(
     )
     assert registered.status_code == 201, registered.text
     unknown = forge_token(registered.json()["user"]["id"], kind="refresh")
-    real_decode = auth_api.decode_refresh_claims
+    real_decode = decode_refresh_claims
     decode_calls = 0
 
     def counted_decode(token: str) -> object:
@@ -1817,7 +1830,7 @@ async def test_compacted_refresh_expiry_while_waiting_does_not_revoke_family(
     )
     assert registered.status_code == 201, registered.text
     user_id = registered.json()["user"]["id"]
-    predecessor = client.cookies.get(COOKIE)
+    predecessor = json_string(client.cookies.get(COOKIE))
     assert predecessor
     predecessor_claims = decode_refresh_claims(predecessor)
     assert predecessor_claims is not None and predecessor_claims.family_id is not None
@@ -1939,7 +1952,7 @@ async def test_refresh_is_rate_limited_per_ip_before_repeated_jwt_work(
     assert valid_cookie
     limit = get_settings().auth_rate_limit_max_attempts
     broad_limit = auth_api._refresh_preverification_limit(limit)
-    real_decode = auth_api.decode_refresh_claims
+    real_decode = decode_refresh_claims
     decode_calls = 0
 
     def counted_decode(token: str) -> object:
@@ -2156,7 +2169,7 @@ async def test_refresh_expired_token_is_401(client: httpx.AsyncClient) -> None:
 
 async def test_refresh_tampered_token_is_401(client: httpx.AsyncClient) -> None:
     await register(client, "tamp@farm.in")
-    token = client.cookies.get(COOKIE)
+    token = json_string(client.cookies.get(COOKIE))
     head, payload, sig = token.split(".")
     forged = f"{head}.{payload}.{sig[:-4]}{'A' if sig[-4] != 'A' else 'B'}aaa"
     set_refresh_cookie(client, forged)
@@ -2204,7 +2217,7 @@ async def test_refresh_alg_none_is_401(client: httpx.AsyncClient) -> None:
             "iat": now,
             "exp": now + timedelta(seconds=600),
         },
-        None,
+        "",
         algorithm="none",
     )
     set_refresh_cookie(client, unsigned)
@@ -2314,7 +2327,7 @@ async def test_logout_revokes_successor_when_presented_refresh_already_rotated(
     successor, rather than only marking the predecessor.
     """
     await register(client, "refresh-wins-logout@farm.in")
-    predecessor = client.cookies.get(COOKIE)
+    predecessor = json_string(client.cookies.get(COOKIE))
     assert predecessor
     rotated = await client.post("/api/auth/refresh")
     assert rotated.status_code == 200, rotated.text
@@ -2339,7 +2352,7 @@ async def test_logout_with_compacted_predecessor_revokes_live_family_once(
     )
     assert registered.status_code == 201, registered.text
     user_id = registered.json()["user"]["id"]
-    predecessor = client.cookies.get(COOKIE)
+    predecessor = json_string(client.cookies.get(COOKIE))
     assert predecessor
 
     assert (await client.post("/api/auth/refresh")).status_code == 200
@@ -2390,7 +2403,7 @@ async def test_logout_rechecks_signed_expiry_after_wait_before_family_revocation
     )
     assert registered.status_code == 201, registered.text
     user_id = registered.json()["user"]["id"]
-    predecessor = client.cookies.get(COOKIE)
+    predecessor = json_string(client.cookies.get(COOKIE))
     assert predecessor
     predecessor_claims = decode_refresh_claims(predecessor)
     assert predecessor_claims is not None and predecessor_claims.family_id is not None
@@ -2421,8 +2434,8 @@ async def test_logout_rechecks_signed_expiry_after_wait_before_family_revocation
     assert (predecessor_row is None) is compacted
 
     decoded = asyncio.Event()
-    real_decode = auth_api.decode_refresh_claims
-    real_utcnow = auth_api.utcnow
+    real_decode = decode_refresh_claims
+    real_utcnow = utcnow
 
     def mark_decode(token: str) -> object:
         result = real_decode(token)
@@ -2712,7 +2725,7 @@ async def test_account_delete_requires_password_rejects_owners_and_cleans_worker
     assert resp.status_code == 409
     assert resp.json()["detail"] == (
         "Account deletion is unavailable while this account owns a farm; "
-        "farm ownership cannot currently be transferred or deleted."
+        "transfer ownership to a password-enabled active team member first."
     )
 
     team = (await client.get("/api/team", headers=owner)).json()
@@ -2852,7 +2865,7 @@ async def test_me_malformed_token_is_401(client: httpx.AsyncClient) -> None:
 
 async def test_me_refresh_token_is_not_an_access_token(client: httpx.AsyncClient) -> None:
     await register(client, "kindme@farm.in")
-    refresh_token = client.cookies.get(COOKIE)
+    refresh_token = json_string(client.cookies.get(COOKIE))
     resp = await client.get("/api/auth/me", headers=bearer(refresh_token))
     assert resp.status_code == 401
 
@@ -3342,7 +3355,9 @@ def test_password_policy_error_boundaries() -> None:
         f"Password must be at least {MIN_LEN} characters."
     )
     assert password_policy_error("") == f"Password must be at least {MIN_LEN} characters."
-    assert password_policy_error(None) == f"Password must be at least {MIN_LEN} characters."
+    assert (
+        password_policy_error(cast(str, None)) == f"Password must be at least {MIN_LEN} characters."
+    )
     assert password_policy_error(" " * MIN_LEN) == "Password cannot be only whitespace."
     assert password_policy_error("ok password 1") is None
 
@@ -3449,7 +3464,7 @@ def test_decode_token_rejects_alg_none() -> None:
     now = datetime.now(UTC)
     unsigned = jwt.encode(
         {"sub": "1", "kind": "access", "jti": "x", "iat": now, "exp": now + timedelta(seconds=60)},
-        None,
+        "",
         algorithm="none",
     )
     assert decode_access_claims_result(unsigned).claims is None

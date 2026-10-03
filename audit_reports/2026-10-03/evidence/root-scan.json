@@ -1,0 +1,38 @@
+{
+  "files": 1343,
+  "syntax_errors": [],
+  "test_stats": {
+    "backend test files": 130,
+    "backend assertions": 14081,
+    "backend named test functions": 3777,
+    "e2e spec files": 23,
+    "frontend test files": 314
+  },
+  "extensions": {
+    "(no extension)": 9,
+    ".example": 2,
+    ".yml": 6,
+    ".py": 377,
+    ".toml": 2,
+    ".compose-images": 1,
+    ".md": 22,
+    ".ini": 1,
+    ".mako": 1,
+    ".json": 9,
+    ".jsonl": 2,
+    ".in": 1,
+    ".txt": 2,
+    ".sh": 5,
+    ".lock": 1,
+    ".template": 2,
+    ".ts": 539,
+    ".mjs": 11,
+    ".yaml": 1,
+    ".png": 4,
+    ".js": 1,
+    ".tsx": 342,
+    ".css": 1,
+    ".svg": 1
+  },
+  "python_version": "3.13.15"
+}

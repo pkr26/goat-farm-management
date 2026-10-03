@@ -404,6 +404,46 @@ export function authSessionEpochValue(): number {
   return authSessionEpoch;
 }
 
+/** Identity and selection at the point a device write is accepted. Epochs
+ * also fence signing back in as the same actor or leaving and returning to
+ * the same farm while an asynchronous replay is preparing its request. */
+export type RequestScope = {
+  actorScope: string;
+  farmScope: string;
+  sessionEpoch: number;
+  farmEpoch: number;
+};
+
+export function currentRequestScope(): RequestScope | null {
+  if (accessTokenActorScope === null || currentFarmId === null) return null;
+  return {
+    actorScope: accessTokenActorScope,
+    farmScope: currentFarmId,
+    sessionEpoch: authSessionEpoch,
+    farmEpoch: farmScopeEpoch,
+  };
+}
+
+/** Cancel an abandoned cookie-free setup grant without altering the current
+ * browser session. The bearer may belong to an older response. */
+export async function revokeTabletSetupSession(token: string): Promise<void> {
+  await fetch("/api/auth/logout-session", {
+    method: "POST", credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    signal: composeRequestSignal(undefined, REQUEST_TIMEOUT_MS),
+  });
+}
+
+function assertRequestScope(scope: RequestScope | undefined): void {
+  if (scope === undefined) return;
+  const live = currentRequestScope();
+  if (live === null || Object.keys(scope).some(
+    (key) => live[key as keyof RequestScope] !== scope[key as keyof RequestScope],
+  )) {
+    throw new DOMException("The worker or farm changed before this request.", "AbortError");
+  }
+}
+
 /** Delta-seconds `Retry-After` parsing (the only form the backend and edge
  * emit). HTTP-date forms and junk answer null — callers fall back to their
  * own cadence rather than blocking forever on an unparseable hint. */
@@ -713,7 +753,7 @@ function timeoutAbortReason(): unknown {
  * classified non-queueable, so the failure is a visible toast instead of a
  * false "Saved": fail-visible degradation, never silent misclassification
  * (2026-10-01 audit, 07-M3). */
-function composeRequestSignal(
+export function composeRequestSignal(
   callerSignal: AbortSignal | null | undefined,
   timeoutMs: number,
 ): AbortSignal {
@@ -755,6 +795,7 @@ async function rawFetch(
   init: RequestInit = {},
   farmScope: string | null = currentFarmId,
   sessionScope: number = authSessionEpoch,
+  requiredScope?: RequestScope,
 ): Promise<Response> {
   const headers = new Headers(init.headers);
   const requestAccessToken = accessToken;
@@ -771,6 +812,7 @@ async function rawFetch(
   // committing twice.
   const cookieMutation = isRefreshCookieMutation(path, init.method);
   const execute = () => {
+    assertRequestScope(requiredScope);
     // Stryker disable next-line ConditionalExpression: entering the block with an unchanged epoch only adds an assertAuthSession that cannot trip there, and a changed epoch enters the block in both variants
     if (cookieMutation && authSessionEpoch !== sessionScope) {
       // AuthProvider intentionally starts logout with the old bearer, then
@@ -800,7 +842,9 @@ async function rawFetch(
     // and the bounded lifetime still applies (with a pre-17.4-Safari
     // fallback inside — see composeRequestSignal, 2026-10-01 audit, 07-M3).
     const signal = composeRequestSignal(init.signal, timeoutMs);
-    return fetch(path, { ...init, headers, credentials: "include", signal });
+    const sessionLogout = (init.method ?? "GET").toUpperCase() === "POST" &&
+      requestPathname.replace(/\/$/, "") === "/api/auth/logout-session";
+    return fetch(path, { ...init, headers, credentials: sessionLogout ? "omit" : "include", signal });
   };
   if (!cookieMutation) return execute();
   try {
@@ -819,9 +863,10 @@ async function rawFetch(
   }
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiFetch<T>(path: string, init: RequestInit = {}, requiredScope?: RequestScope): Promise<T> {
+  assertRequestScope(requiredScope);
   const sessionScope = authSessionEpoch;
-  const resp = await apiResponse(path, init);
+  const resp = await apiResponse(path, init, requiredScope);
   assertAuthSession(sessionScope);
   if (resp.status === 204) return undefined as T;
   // Response bodies are asynchronous streams. The actor can change after
@@ -857,6 +902,9 @@ const NO_REFRESH_PATHS = new Set([
   "/api/auth/register",
   "/api/auth/refresh",
   "/api/auth/logout",
+  // This bearer revokes its exact family. A rejected old grant must never
+  // refresh, alter a replacement session or participate in cookie locking.
+  "/api/auth/logout-session",
   // A 401 from the TOTP challenge IS the answer (wrong/expired code), same
   // class as login's bad credentials — triggering the refresh machinery here
   // would rotate a live session token just to re-fail the code entry
@@ -879,10 +927,11 @@ async function apiResponseOnce(
   farmScope: string | null,
   sessionScope: number,
   bufferSuccess: boolean,
+  requiredScope?: RequestScope,
 ): Promise<Response> {
   assertAuthSession(sessionScope);
   let resp = await runScopedToAuthSession(
-    () => rawFetch(path, init, farmScope, sessionScope),
+    () => rawFetch(path, init, farmScope, sessionScope, requiredScope),
     sessionScope,
   );
   assertAuthSession(sessionScope);
@@ -897,7 +946,7 @@ async function apiResponseOnce(
     assertAuthSession(sessionScope);
     if (outcome.kind === "session") {
       resp = await runScopedToAuthSession(
-        () => rawFetch(path, init, farmScope, sessionScope),
+        () => rawFetch(path, init, farmScope, sessionScope, requiredScope),
         sessionScope,
       );
       assertAuthSession(sessionScope);
@@ -949,7 +998,8 @@ async function apiResponseOnce(
   return resp;
 }
 
-async function apiResponse(path: string, init: RequestInit = {}): Promise<Response> {
+async function apiResponse(path: string, init: RequestInit = {}, requiredScope?: RequestScope): Promise<Response> {
+  assertRequestScope(requiredScope);
   assertSafeApiPath(path);
   // A farm switch must not move a 401/network replay into a different tenant.
   // Farm creation is the one actor-scoped protected mutation: it deliberately
@@ -967,8 +1017,8 @@ async function apiResponse(path: string, init: RequestInit = {}): Promise<Respon
     sessionScope,
     actorScope,
     execute: (preparedInit) =>
-      apiResponseOnce(path, preparedInit, farmScope, sessionScope, protectedMutation),
-    assertRequestScope: () => assertAuthSession(sessionScope),
+      apiResponseOnce(path, preparedInit, farmScope, sessionScope, protectedMutation, requiredScope),
+    assertRequestScope: () => { assertAuthSession(sessionScope); assertRequestScope(requiredScope); },
     // The registry owns the untouched canonical response. Every concurrent
     // consumer gets an independent body stream.
     cloneResult: (response) => response.clone(),

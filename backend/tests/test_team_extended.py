@@ -33,6 +33,7 @@ from .conftest import (
     provisioned_worker_login,
     register,
 )
+from .type_helpers import checked_out_connections, json_int, json_object
 
 WORKER_PW = "workerpass123"
 COOKIE = get_settings().refresh_cookie_name
@@ -219,6 +220,8 @@ TEAM_ENDPOINTS: list[tuple[str, str]] = [
 # ---------------------------------------------------------------------------
 # Helpers (same patterns as tests/test_rbac.py)
 # ---------------------------------------------------------------------------
+
+
 async def login_user(client: httpx.AsyncClient, email: str, password: str) -> dict[str, Any]:
     """Log in an account that has completed any forced rotation already.
 
@@ -232,25 +235,25 @@ async def login_user(client: httpx.AsyncClient, email: str, password: str) -> di
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def team_page(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def team_page(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/team", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def role_id(client: httpx.AsyncClient, owner: dict, code: str) -> int:
+async def role_id(client: httpx.AsyncClient, owner: dict[str, str], code: str) -> int:
     page = await team_page(client, owner)
-    return next(r["id"] for r in page["roles"] if r["code"] == code)
+    return json_int(next(r["id"] for r in page["roles"] if r["code"] == code))
 
 
-async def membership_id(client: httpx.AsyncClient, owner: dict, email: str) -> int:
+async def membership_id(client: httpx.AsyncClient, owner: dict[str, str], email: str) -> int:
     page = await team_page(client, owner)
-    return next(m["id"] for m in page["memberships"] if m["email"] == email)
+    return json_int(next(m["id"] for m in page["memberships"] if m["email"] == email))
 
 
 async def add_worker(
     client: httpx.AsyncClient,
-    owner: dict,
+    owner: dict[str, str],
     rid: int,
     email: str,
     name: str | None = "Worker",
@@ -266,7 +269,7 @@ async def add_worker(
 
 async def set_worker_active(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     membership_id: int,
     is_active: bool,
 ) -> httpx.Response:
@@ -278,7 +281,7 @@ async def set_worker_active(
 
 
 async def worker_headers(
-    client: httpx.AsyncClient, owner: dict, code: str, email: str
+    client: httpx.AsyncClient, owner: dict[str, str], code: str, email: str
 ) -> dict[str, Any]:
     """Owner adds a worker with preset role `code`; returns farm headers."""
     rid = await role_id(client, owner, code)
@@ -288,7 +291,7 @@ async def worker_headers(
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
-async def make_animal(client: httpx.AsyncClient, owner: dict, tag: str = "A-001") -> int:
+async def make_animal(client: httpx.AsyncClient, owner: dict[str, str], tag: str = "A-001") -> int:
     dob = today() - timedelta(days=800)
     resp = await client.post(
         "/api/animals",
@@ -305,11 +308,11 @@ async def make_animal(client: httpx.AsyncClient, owner: dict, tag: str = "A-001"
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    return json_int(resp.json()["id"])
 
 
 async def create_duty(
-    client: httpx.AsyncClient, owner: dict, title: str, rid: int | None = None
+    client: httpx.AsyncClient, owner: dict[str, str], title: str, rid: int | None = None
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "title": title,
@@ -320,12 +323,12 @@ async def create_duty(
         payload["assigned_role_id"] = rid
     resp = await client.post("/api/tasks", json=payload, headers=owner)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def create_custom_role(
     client: httpx.AsyncClient,
-    owner: dict,
+    owner: dict[str, str],
     name: str,
     permissions: list[str],
     description: str | None = None,
@@ -335,21 +338,21 @@ async def create_custom_role(
         payload["description"] = description
     resp = await client.post("/api/team/roles", json=payload, headers=owner)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def permissions_of(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def permissions_of(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/auth/permissions", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def team_manager_headers(
     client: httpx.AsyncClient,
-    owner: dict,
+    owner: dict[str, str],
     email: str = "tm@farm.in",
     extra_perms: list[str] | None = None,
-) -> tuple[dict, int]:
+) -> tuple[dict[str, str], int]:
     """A worker whose ONLY power is team.manage (+ extras); returns (headers, membership id)."""
     role = await create_custom_role(
         client, owner, "Team Clerk", ["team.manage"] + (extra_perms or [])
@@ -1022,7 +1025,7 @@ async def test_owner_password_hashing_keeps_only_required_claim_transaction(
     request = asyncio.create_task(client.post(path, json=payload, headers=owner))
     try:
         await asyncio.wait_for(started.wait(), timeout=2)
-        assert get_engine().sync_engine.pool.checkedout() == 0
+        assert checked_out_connections(get_engine()) == 0
         # Both paths release the caller SHARE pin before hashing, so account
         # revocation remains immediately writable throughout Argon work.
         async with get_sessionmaker()() as probe:
@@ -1177,7 +1180,7 @@ async def test_create_worker_invalid_email_rejected(client: httpx.AsyncClient, e
     ],
 )
 async def test_create_worker_schema_validation(
-    client: httpx.AsyncClient, payload: dict, expected: int
+    client: httpx.AsyncClient, payload: dict[str, object], expected: int
 ) -> None:
     owner = await owner_with_farm(client)
     resp = await client.post("/api/team/workers", json=payload, headers=owner)
@@ -2334,7 +2337,7 @@ async def test_create_role_same_name_on_different_farms_ok(client: httpx.AsyncCl
     ],
 )
 async def test_create_role_validation(
-    client: httpx.AsyncClient, payload: dict, expected: int
+    client: httpx.AsyncClient, payload: dict[str, object], expected: int
 ) -> None:
     owner = await owner_with_farm(client)
     resp = await client.post("/api/team/roles", json=payload, headers=owner)
@@ -2877,7 +2880,9 @@ async def test_team_manager_cannot_provision_password_controlled_accounts(
     assert (await client.get("/api/animals", headers=tm)).status_code == 403
 
 
-async def _second_team_manager(client: httpx.AsyncClient, owner: dict) -> tuple[dict, int]:
+async def _second_team_manager(
+    client: httpx.AsyncClient, owner: dict[str, str]
+) -> tuple[dict[str, str], int]:
     """A second team.manage holder (distinct role name — they are unique per farm)."""
     role = await create_custom_role(client, owner, "Team Clerk 2", ["team.manage"])
     resp = await add_worker(client, owner, role["id"], "tm2@farm.in")

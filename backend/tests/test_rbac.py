@@ -25,6 +25,7 @@ from app.services import complete_task
 from app.utils import today
 
 from .conftest import owner_with_farm, provisioned_worker_login
+from .type_helpers import JsonObject, json_int, json_object
 
 WORKER_PW = "workerpass123"
 
@@ -48,7 +49,11 @@ PAGE_URLS = {
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-async def login_user(client: httpx.AsyncClient, email: str, password: str) -> tuple[dict, int]:
+
+
+async def login_user(
+    client: httpx.AsyncClient, email: str, password: str
+) -> tuple[JsonObject, int]:
     """Login → (bearer headers, user id)."""
     resp = await client.post("/api/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200, resp.text
@@ -56,21 +61,21 @@ async def login_user(client: httpx.AsyncClient, email: str, password: str) -> tu
     return {"Authorization": f"Bearer {body['access_token']}"}, body["user"]["id"]
 
 
-async def role_id(client: httpx.AsyncClient, owner: dict, code: str) -> int:
+async def role_id(client: httpx.AsyncClient, owner: dict[str, str], code: str) -> int:
     resp = await client.get("/api/team", headers=owner)
     assert resp.status_code == 200, resp.text
-    return next(r["id"] for r in resp.json()["roles"] if r["code"] == code)
+    return json_int(next(r["id"] for r in resp.json()["roles"] if r["code"] == code))
 
 
-async def membership_id(client: httpx.AsyncClient, owner: dict, email: str) -> int:
+async def membership_id(client: httpx.AsyncClient, owner: dict[str, str], email: str) -> int:
     resp = await client.get("/api/team", headers=owner)
     assert resp.status_code == 200, resp.text
-    return next(m["id"] for m in resp.json()["memberships"] if m["email"] == email)
+    return json_int(next(m["id"] for m in resp.json()["memberships"] if m["email"] == email))
 
 
 async def add_worker(
     client: httpx.AsyncClient,
-    owner: dict,
+    owner: dict[str, str],
     rid: int,
     email: str,
     name: str = "Worker",
@@ -84,8 +89,8 @@ async def add_worker(
 
 
 async def worker_headers(
-    client: httpx.AsyncClient, owner: dict, code: str, email: str
-) -> tuple[dict, int]:
+    client: httpx.AsyncClient, owner: dict[str, str], code: str, email: str
+) -> tuple[JsonObject, int]:
     """Owner adds a worker with preset role `code`; returns (farm headers, user id)."""
     rid = await role_id(client, owner, code)
     resp = await add_worker(client, owner, rid, email)
@@ -95,7 +100,7 @@ async def worker_headers(
 
 
 async def make_animal(
-    client: httpx.AsyncClient, owner: dict, tag: str = "A-001", sex: str = "F"
+    client: httpx.AsyncClient, owner: dict[str, str], tag: str = "A-001", sex: str = "F"
 ) -> int:
     """An ACTIVE purchased doe in FOUNDATION (v1 used a direct DB insert)."""
     resp = await client.post(
@@ -113,12 +118,12 @@ async def make_animal(
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    return json_int(resp.json()["id"])
 
 
 async def create_duty(
     client: httpx.AsyncClient,
-    owner: dict,
+    owner: dict[str, str],
     title: str,
     rid: int | None = None,
     recur_days: int | None = None,
@@ -134,16 +139,16 @@ async def create_duty(
         payload["recur_days"] = recur_days
     resp = await client.post("/api/tasks", json=payload, headers=owner)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def get_tabs(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def get_tabs(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/tasks", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-def task_titles(tabs: dict) -> set[str]:
+def task_titles(tabs: JsonObject) -> set[str]:
     # Pagination metadata is scalar; only these fields contain task rows.
     return {
         task["title"]

@@ -9,13 +9,14 @@ from app.utils import today
 
 from .conftest import owner_with_farm, provisioned_worker_login
 from .test_tasks_extended import add_worker, make_custom_role
+from .type_helpers import json_object
 
 WORKER_PW = "workerpass123"
 
 
 async def create_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     *,
     sex: str = "F",
@@ -38,10 +39,12 @@ async def create_animal(
         }
     response = await client.post("/api/animals", json=payload, headers=headers)
     assert response.status_code == 201, response.text
-    return response.json()
+    return json_object(response.json())
 
 
-async def set_status(client: httpx.AsyncClient, headers: dict, animal_id: int, status: str) -> None:
+async def set_status(
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int, status: str
+) -> None:
     response = await client.post(
         f"/api/animals/{animal_id}/status",
         json={"new_status": status},
@@ -51,7 +54,7 @@ async def set_status(client: httpx.AsyncClient, headers: dict, animal_id: int, s
 
 
 async def create_batch(
-    client: httpx.AsyncClient, headers: dict, supplier: str, *, count: int = 1
+    client: httpx.AsyncClient, headers: dict[str, str], supplier: str, *, count: int = 1
 ) -> dict[str, Any]:
     response = await client.post(
         "/api/purchases/new",
@@ -59,12 +62,12 @@ async def create_batch(
         headers=headers,
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    return json_object(response.json())
 
 
 async def limited_worker(
     client: httpx.AsyncClient,
-    owner: dict,
+    owner: dict[str, str],
     *,
     name: str,
     email: str,

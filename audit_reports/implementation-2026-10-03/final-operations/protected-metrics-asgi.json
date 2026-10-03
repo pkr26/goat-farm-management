@@ -1,0 +1,26 @@
+{
+  "command": ".venv/bin/python -m pytest -q tests/test_platform_ops_20261003.py::test_private_metrics_authentication_and_collection_are_independent",
+  "argv": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/test_platform_ops_20261003.py::test_private_metrics_authentication_and_collection_are_independent"
+  ],
+  "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+  "env_override": {
+    "GOATFARM_TEST_DB": "herdly_platform_metrics_20261003_test"
+  },
+  "started_at": "2026-10-03T19:00:40.229753+00:00",
+  "finished_at": "2026-10-03T19:00:43.314806+00:00",
+  "exit_code": 0,
+  "stdout": ".                                                                        [100%]\n1 passed in 2.17s\n",
+  "stderr": "",
+  "source_sha256": {
+    "app/api/operational_metrics.py": "c475d5598c5fd941b146575f7c96ce4068bdb12858ff04e3e9482ec1b8a1ec51",
+    "app/metrics.py": "61a6aadd0c9601af696c3a2bb4064aa1272bf342d6157603b27b6f5e54a29e4f",
+    "app/core/config.py": "2a42f895c890f7e05a094c81513bf333aa5017f7819fc4ffe91b6556ef168a5c",
+    "tests/test_platform_ops_20261003.py": "9a4214889377e61228b18c6d01606364bf6caf6e342ed3632f1fdde3be3c5c4f"
+  },
+  "scope": "Actual local ASGI application/private-metrics authorization and collection using validated production Settings and fake bearer-file fixture; no production container boot, external scrape or received external alert."
+}

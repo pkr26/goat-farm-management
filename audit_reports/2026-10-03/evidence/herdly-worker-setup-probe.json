@@ -1,0 +1,18 @@
+{
+  "calls": [
+    [
+      "step",
+      null
+    ],
+    [
+      "signIn",
+      "manager"
+    ],
+    [
+      "step",
+      "choose-farm"
+    ]
+  ],
+  "finalStep": "choose-farm",
+  "managerSetupRef": true
+}

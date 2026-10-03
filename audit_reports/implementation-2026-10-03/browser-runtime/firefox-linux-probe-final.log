@@ -1,0 +1,25 @@
+checkpoint: connect start
+checkpoint: connected Firefox 153.0
+checkpoint: data URL title Herdly Firefox runtime probe
+{
+  "started_at": "2026-10-03T19:45:37.680Z",
+  "endpoint": "ws://127.0.0.1:61880/",
+  "image": "mcr.microsoft.com/playwright:v1.62.1-noble",
+  "client_version": "1.62.1",
+  "exposeNetwork": "<loopback>",
+  "authenticated": false,
+  "javaScriptEnabled": false,
+  "requests": [
+    {
+      "origin": "http://localhost:3000",
+      "path": "/login"
+    }
+  ],
+  "browser_version": "153.0",
+  "data_url_title": "Herdly Firefox runtime probe",
+  "app_url": "http://localhost:3000/login",
+  "app_status": 200,
+  "result": "passed",
+  "elapsed_ms": 843,
+  "finished_at": "2026-10-03T19:45:38.523Z"
+}

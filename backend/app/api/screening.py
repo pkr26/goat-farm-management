@@ -16,10 +16,10 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import case, func, literal, select, update
-from sqlalchemy.engine import CursorResult
+from sqlalchemy import case, exists, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
 from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
@@ -36,6 +36,7 @@ from ..models.enums import (
     ScreeningRunStatus,
     ScreeningStage,
 )
+from ..models.screening import ScreeningFindingReview
 from ..schemas.common import (
     COMMON_ERROR_RESPONSES,
     MAX_INT32_ID,
@@ -55,6 +56,8 @@ from ..schemas.screening import (
     ScreeningDatasetExportOut,
     ScreeningDatasetRecordOut,
     ScreeningFindingOut,
+    ScreeningFindingReviewHistoryListOut,
+    ScreeningFindingReviewHistoryOut,
     ScreeningFindingReviewIn,
     ScreeningFindingReviewOut,
     ScreeningFindingStatusStr,
@@ -169,9 +172,10 @@ async def list_images(
 ) -> ScreeningImageListOut:
     """A page of screening images, newest first, with each image's latest
     gate verdict and pending-review finding count."""
+    effective_status = _effective_image_status()
     filters = [ScreeningImage.farm_id == farm.id]
     if status is not None:
-        filters.append(ScreeningImage.status == status)
+        filters.append(effective_status == status)
     if bucket is not None:
         filters.append(ScreeningImage.bucket == bucket)
     total = (
@@ -180,21 +184,21 @@ async def list_images(
     images = list(
         (
             await db.execute(
-                select(ScreeningImage)
+                select(ScreeningImage, effective_status)
                 .where(*filters)
                 .order_by(ScreeningImage.created_at.desc(), ScreeningImage.id.desc())
                 .offset(offset)
                 .limit(limit)
             )
-        ).scalars()
+        ).all()
     )
-    image_ids = [image.id for image in images]
+    image_ids = [image.id for image, _status in images]
     latest = await _latest_runs_by_image(db, farm.id, image_ids)
     pending = await _pending_finding_counts(db, farm.id, image_ids)
     rows = [
         ScreeningImageRowOut(
             id=image.id,
-            status=cast(ScreeningImageStatusStr, image.status),
+            status=cast(ScreeningImageStatusStr, status_value),
             bucket=cast(ScreeningBucketStr | None, image.bucket),
             batch_id=image.batch_id,
             s3_key=image.s3_key,
@@ -202,14 +206,18 @@ async def list_images(
             width=image.width,
             height=image.height,
             byte_size=image.byte_size,
-            error=image.error,
+            error=(
+                "Photo cannot be assessed; upload a clearer photo (QUALITY_PROBLEM)"
+                if status_value == "UNASSESSABLE"
+                else image.error
+            ),
             created_at=image.created_at,
             latest_run=(
                 ScreeningRunOut.model_validate(latest[image.id]) if image.id in latest else None
             ),
             pending_findings=pending.get(image.id, 0),
         )
-        for image in images
+        for image, status_value in images
     ]
     return ScreeningImageListOut(images=rows, total=total, limit=limit, offset=offset)
 
@@ -260,6 +268,18 @@ async def get_image(
     )
 
     detail = ScreeningImageDetailOut.model_validate(image)
+    latest_gates: dict[int | None, ScreeningRun] = {}
+    for run in sorted(image.runs, key=lambda run: (run.created_at, run.id)):
+        if run.stage == "GATE" and run.run_status == "OK":
+            latest_gates[run.crop_id] = run
+    quality_crops = {
+        crop_id
+        for crop_id, run in latest_gates.items()
+        if run.detail is not None and run.detail.get("quality_problem") is True
+    }
+    if image.status == "HEALTHY" and quality_crops:
+        detail.status = "UNASSESSABLE"
+        detail.error = "Photo cannot be assessed; upload a clearer photo (QUALITY_PROBLEM)"
     detail.image_url = image_url
     detail.crops = [
         ScreeningCropOut.model_validate(crop).model_copy(
@@ -268,7 +288,17 @@ async def get_image(
                     storage.presign_get(crop.normalized_key)
                     if storage and crop.normalized_key
                     else None
-                )
+                ),
+                "status": (
+                    "UNASSESSABLE"
+                    if crop.status == "HEALTHY" and crop.id in quality_crops
+                    else crop.status
+                ),
+                "error": (
+                    "Photo cannot be assessed; upload a clearer photo (QUALITY_PROBLEM)"
+                    if crop.status == "HEALTHY" and crop.id in quality_crops
+                    else crop.error
+                ),
             }
         )
         for crop in sorted(image.crops, key=lambda crop: crop.crop_index)
@@ -297,12 +327,8 @@ async def review_finding(
 ) -> ScreeningFindingReviewOut:
     """Record a vet verdict on one finding (confirm / reject).
 
-    ``expected_status`` is optimistic concurrency: the transition runs as
-    one guarded UPDATE (``WHERE status = expected_status``), so a review
-    racing another reviewer — or a re-screen — fails with 409 instead of
-    silently overwriting the corpus, no matter how the requests interleave.
-    Re-reviewing a settled finding re-submits with its current status as
-    ``expected_status``.
+    The locked revision detects same-status edits and ABA transitions. Each
+    accepted decision appends an audit event in the same transaction.
     """
     # screening_findings.id is bigint (2026-09-28 audit, D1): the int8
     # ceiling bounds the id guard now, like the image_id guard above.
@@ -310,40 +336,53 @@ async def review_finding(
         raise HTTPException(status_code=404, detail="Screening finding not found")
     finding = (
         await db.execute(
-            select(ScreeningFinding).where(
+            select(ScreeningFinding)
+            .where(
                 ScreeningFinding.farm_id == farm.id,
                 ScreeningFinding.id == finding_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if finding is None:
         # Missing and cross-farm ids deliberately share one response.
         raise HTTPException(status_code=404, detail="Screening finding not found")
-    result = cast(
-        CursorResult[Any],
-        await db.execute(
-            update(ScreeningFinding)
-            .where(
-                ScreeningFinding.farm_id == farm.id,
-                ScreeningFinding.id == finding_id,
-                ScreeningFinding.status == payload.expected_status,
-            )
-            .values(
-                status=payload.status,
-                reviewed_by_id=user.id,
-                reviewed_at=utcnow(),
-                review_note=payload.review_note,
-            )
-        ),
-    )
-    if result.rowcount != 1:
-        # The row exists (checked above) but its status moved between the
-        # read and the write: another reviewer won the race.
+    if (
+        finding.review_revision != payload.expected_revision
+        or finding.status != payload.expected_status
+    ):
         raise stale_state_conflict(
-            detail=(
-                f"Finding was already reviewed (status {finding.status}); "
-                "reload and re-submit with the current status as expected_status"
-            ),
+            detail="Finding review changed; reload its current revision before reviewing again",
+        )
+    reviewed_at = utcnow()
+    revision = finding.review_revision + 1
+    db.add(
+        ScreeningFindingReview(
+            farm_id=farm.id,
+            finding_id=finding.id,
+            revision=revision,
+            previous_status=finding.status,
+            status=payload.status,
+            reviewed_by_id=user.id,
+            reviewed_at=reviewed_at,
+            review_note=payload.review_note,
+        )
+    )
+    finding.status = payload.status
+    finding.reviewed_by_id = user.id
+    finding.reviewed_at = reviewed_at
+    finding.review_note = payload.review_note
+    finding.review_revision = revision
+    if payload.status == "CONFIRMED":
+        from ..services.notifications.outbox import enqueue_alert
+
+        await enqueue_alert(
+            db,
+            farm.id,
+            "SCREENING_FLAG",
+            f"Herdly: screening finding #{finding.id} "
+            f"({sms_safe_text(finding.label)}) was CONFIRMED by the vet.",
+            f"finding:{finding.id}:review:{revision}:CONFIRMED",
         )
     await db.commit()
     await db.refresh(finding)
@@ -360,9 +399,55 @@ async def review_finding(
             "SCREENING_FLAG",
             f"Herdly: screening finding #{finding.id} "
             f"({sms_safe_text(finding.label)}) was CONFIRMED by the vet.",
-            f"finding:{finding.id}:CONFIRMED",
+            f"finding:{finding.id}:review:{revision}:CONFIRMED",
         )
     return ScreeningFindingReviewOut.model_validate(finding)
+
+
+@router.get("/findings/{finding_id}/reviews")
+async def finding_review_history(
+    finding_id: int,
+    db: DbSession,
+    farm: CurrentFarm,
+    _perms: VIEW,
+    limit: Annotated[int, Query(ge=1, le=SCREENING_LIST_MAX_LIMIT)] = SCREENING_LIST_DEFAULT_LIMIT,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
+) -> ScreeningFindingReviewHistoryListOut:
+    finding = (
+        await db.execute(
+            select(ScreeningFinding).where(
+                ScreeningFinding.id == finding_id,
+                ScreeningFinding.farm_id == farm.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if finding is None:
+        raise HTTPException(status_code=404, detail="Screening finding not found")
+    filters = (
+        ScreeningFindingReview.farm_id == farm.id,
+        ScreeningFindingReview.finding_id == finding_id,
+    )
+    total = (
+        await db.execute(select(func.count()).select_from(ScreeningFindingReview).where(*filters))
+    ).scalar_one()
+    reviews = (
+        await db.execute(
+            select(ScreeningFindingReview)
+            .where(*filters)
+            .order_by(ScreeningFindingReview.revision.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars()
+    return ScreeningFindingReviewHistoryListOut(
+        finding_id=finding_id,
+        review_revision=finding.review_revision,
+        legacy_review=finding.review_revision == 0 and finding.reviewed_at is not None,
+        reviews=[ScreeningFindingReviewHistoryOut.model_validate(row) for row in reviews],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 SCREENING_STATS_MAX_DAYS = 365
@@ -392,6 +477,9 @@ async def provider_stats(
                 func.count().label("gate_runs"),
                 func.sum(case((ScreeningRun.verdict == "flagged", 1), else_=0)).label(
                     "gate_flagged"
+                ),
+                func.sum(case((ScreeningRun.verdict == "unassessable", 1), else_=0)).label(
+                    "gate_unassessable"
                 ),
                 func.sum(case((ScreeningRun.run_status == "ERROR", 1), else_=0)).label(
                     "gate_errors"
@@ -461,6 +549,7 @@ async def provider_stats(
             {
                 "gate_runs": 0,
                 "gate_flagged": 0,
+                "gate_unassessable": 0,
                 "gate_errors": 0,
                 "avg_gate_latency_ms": None,
                 "avg_gate_confidence": None,
@@ -472,10 +561,20 @@ async def provider_stats(
             },
         )
 
-    for provider, model, runs, flagged, errors, avg_latency, avg_confidence in gate_rows:
+    for (
+        provider,
+        model,
+        runs,
+        flagged,
+        unassessable,
+        errors,
+        avg_latency,
+        avg_confidence,
+    ) in gate_rows:
         slot = _slot(provider, model)
         slot["gate_runs"] = int(runs or 0)
         slot["gate_flagged"] = int(flagged or 0)
+        slot["gate_unassessable"] = int(unassessable or 0)
         slot["gate_errors"] = int(errors or 0)
         slot["avg_gate_latency_ms"] = int(avg_latency) if avg_latency is not None else None
         slot["avg_gate_confidence"] = (
@@ -590,7 +689,35 @@ SCREENING_BATCH_LIST_MAX_LIMIT = 50
 # The S3 key generator guarantees uniqueness per photo; the extension is
 # derived from the declared content type, never taken verbatim.
 _UPLOAD_EXTENSION_BY_CONTENT_TYPE = {"image/jpeg": ".jpg", "image/png": ".png"}
-_TERMINAL_SCREENED_STATUSES = ("HEALTHY", "FLAGGED", "SKIPPED", "ERROR")
+_TERMINAL_SCREENED_STATUSES = ("HEALTHY", "FLAGGED")
+
+
+def _effective_image_status() -> ColumnElement[str]:
+    """Read legacy quality evidence truthfully without rewriting historical rows."""
+    gate = aliased(ScreeningRun)
+    newer = aliased(ScreeningRun)
+    bad_latest_gate = exists(
+        select(gate.id).where(
+            gate.image_id == ScreeningImage.id,
+            gate.farm_id == ScreeningImage.farm_id,
+            gate.stage == "GATE",
+            gate.run_status == "OK",
+            gate.detail["quality_problem"].astext == "true",
+            ~exists(
+                select(newer.id).where(
+                    newer.image_id == gate.image_id,
+                    newer.crop_id.is_not_distinct_from(gate.crop_id),
+                    newer.stage == "GATE",
+                    newer.run_status == "OK",
+                    newer.id > gate.id,
+                )
+            ),
+        )
+    )
+    return case(
+        ((ScreeningImage.status == "HEALTHY") & bad_latest_gate, literal("UNASSESSABLE")),
+        else_=ScreeningImage.status,
+    )
 
 
 async def _batch_progress(
@@ -599,19 +726,20 @@ async def _batch_progress(
     """Hydrate batch outs with per-bucket progress from the image rows."""
     if not batch_ids:
         return {}
+    effective_status = _effective_image_status()
     rows = (
         await db.execute(
             select(
                 ScreeningImage.batch_id,
                 ScreeningImage.bucket,
-                ScreeningImage.status,
+                effective_status,
                 func.count(),
             )
             .where(
                 ScreeningImage.farm_id == farm_id,
                 ScreeningImage.batch_id.in_(batch_ids),
             )
-            .group_by(ScreeningImage.batch_id, ScreeningImage.bucket, ScreeningImage.status)
+            .group_by(ScreeningImage.batch_id, ScreeningImage.bucket, effective_status)
         )
     ).all()
     aggregates: dict[int, dict[str, Any]] = {}
@@ -622,6 +750,7 @@ async def _batch_progress(
                 "images_uploaded": 0,
                 "images_screened": 0,
                 "images_flagged": 0,
+                "images_unassessable": 0,
                 "buckets": {},
             },
         )
@@ -630,19 +759,23 @@ async def _batch_progress(
             progress["images_screened"] += int(count)
         if status == "FLAGGED":
             progress["images_flagged"] += int(count)
+        if status == "UNASSESSABLE":
+            progress["images_unassessable"] += int(count)
         # Batch-linked rows always carry a bucket (the upload flow requires
         # it); a NULL-bucket row (hand-written data, a future writer bug)
         # still counts toward the totals but has no per-pen entry — "UNKNOWN"
         # is not a bucket and would fail the output vocabulary.
         if bucket is not None:
             bucket_progress = progress["buckets"].setdefault(
-                bucket, {"uploaded": 0, "screened": 0, "flagged": 0}
+                bucket, {"uploaded": 0, "screened": 0, "flagged": 0, "unassessable": 0}
             )
             bucket_progress["uploaded"] += int(count)
             if status in _TERMINAL_SCREENED_STATUSES:
                 bucket_progress["screened"] += int(count)
             if status == "FLAGGED":
                 bucket_progress["flagged"] += int(count)
+            if status == "UNASSESSABLE":
+                bucket_progress["unassessable"] += int(count)
 
     outs: dict[int, ScreeningBatchOut] = {}
     for batch_id, progress in aggregates.items():
@@ -653,6 +786,7 @@ async def _batch_progress(
             images_uploaded=progress["images_uploaded"],
             images_screened=progress["images_screened"],
             images_flagged=progress["images_flagged"],
+            images_unassessable=progress["images_unassessable"],
             buckets=[
                 ScreeningBatchBucketProgressOut(
                     bucket=cast(ScreeningBucketStr, bucket),

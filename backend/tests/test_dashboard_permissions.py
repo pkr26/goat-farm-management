@@ -246,3 +246,29 @@ async def test_move_suggestions_withheld_without_animals_view(
     mover_dash = await get_dashboard(client, mover)
     assert mover_dash["suggestions_total"] >= 1
     assert "MOVE-GATE" in str(mover_dash["suggestions"])
+
+
+async def test_status_aggregates_follow_inventory_and_clinical_permissions(
+    client: httpx.AsyncClient,
+) -> None:
+    """Status dictionaries must not reconstruct withheld herd totals (D21)."""
+    owner = await owner_with_farm(client, email="status-matrix-owner@farm.in")
+    await make_animal(client, owner, tag="INVENTORY-ACTIVE")
+    dead = await make_animal(client, owner, tag="CLINICAL-DEATH")
+    await change_status(client, owner, dead["id"], "DEAD")
+    for i, extra in enumerate(
+        [[], ["animals.view"], ["health.view"], ["animals.view", "health.view"]]
+    ):
+        role = await custom_role_id(
+            client, owner, f"Status matrix {i}", ["dashboard.view", "reports.view", *extra]
+        )
+        worker = await worker_headers(client, owner, role, f"status-matrix-{i}@farm.in")
+        for response, field in [
+            (await get_dashboard(client, worker), "status_totals"),
+            (await get_reports(client, worker), "status_counts"),
+        ]:
+            counts = response[field]
+            assert ("ACTIVE" in counts) is ("animals.view" in extra)
+            assert ("DEAD" in counts) is ("health.view" in extra)
+            if "animals.view" not in extra:
+                assert response["total_active"] is None

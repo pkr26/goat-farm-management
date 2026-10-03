@@ -1,0 +1,7 @@
+
+> frontend@0.1.0 audit:verified /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
+> node scripts/audit-dependencies.mjs
+
+Patched braces: 19 depth-guard checks and 4 ordinary-pattern checks passed.
+Locally mitigated, upstream still unresolved: https://github.com/advisories/GHSA-vfj7-8cjw-p6xm
+Dependency scan: 0 unmitigated, 1 locally mitigated.

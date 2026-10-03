@@ -1,0 +1,10 @@
+
+Running 3 tests using 1 worker
+
+(node:14266) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › e2e/ownership-transfer.spec.ts:18:1 › an owner transfers a separate farm to a password-rotated member through Team (2.2s)
+  ✓  2 [chromium] › e2e/worker-onboarding.spec.ts:43:1 › task-only password worker completes first password rotation on the worker board (2.2s)
+  ✓  3 [chromium] › e2e/worker-onboarding.spec.ts:70:1 › owner creates and resets a PIN worker through Team and pins the tablet through the UI (2.2s)
+
+  3 passed (8.4s)

@@ -13,10 +13,10 @@ headline reports the true duty total (03-4).
 """
 
 import asyncio
-import importlib
 import logging
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from typing import Literal, TypedDict
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -41,12 +41,19 @@ from app.services.notifications import (
     send_notification,
 )
 from app.services.notifications.providers import DeliveryResult, NotificationDeliveryError
-from app.services.notifications.service import payload_hash
+from app.services.notifications.service import SendOutcome, payload_hash
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm, register
+from .type_helpers import Headers, json_int
 
-DEFAULTS = {"environment": "development", "notifications_enabled": True}
+
+class NotificationDefaults(TypedDict):
+    environment: Literal["development"]
+    notifications_enabled: bool
+
+
+DEFAULTS: NotificationDefaults = {"environment": "development", "notifications_enabled": True}
 
 
 def midday(farm: Farm) -> datetime:
@@ -63,21 +70,21 @@ class RecordingProvider:
     def __init__(self) -> None:
         self.sent: list[tuple[str, str]] = []
 
-    async def send_sms(self, phone: str, message: str):
+    async def send_sms(self, phone: str, message: str) -> DeliveryResult:
         self.sent.append((phone, message))
         from app.services.notifications.providers import DeliveryResult
 
         return DeliveryResult(ok=True, message_id=f"rec-{len(self.sent)}")
 
 
-async def _farm(db, farm_id: int) -> Farm:
+async def _farm(db: AsyncSession, farm_id: int) -> Farm:
     farm = await db.get(Farm, farm_id)
     assert farm is not None
     return farm
 
 
 async def _recipient(
-    db, farm_id: int, membership_id: int, phone: str = "+919999999999"
+    db: AsyncSession, farm_id: int, membership_id: int, phone: str = "+919999999999"
 ) -> NotificationRecipient:
     recipient = NotificationRecipient(
         farm_id=farm_id,
@@ -97,7 +104,7 @@ async def _recipient(
 _worker_seq = 0
 
 
-async def _membership_id(client: httpx.AsyncClient, owner: dict) -> int:
+async def _membership_id(client: httpx.AsyncClient, owner: Headers) -> int:
     """Create one worker (the notification target) and return its membership."""
     global _worker_seq
     _worker_seq += 1
@@ -118,7 +125,7 @@ async def _membership_id(client: httpx.AsyncClient, owner: dict) -> int:
         headers=owner,
     )
     assert worker.status_code == 201, worker.text
-    return worker.json()["id"]
+    return json_int(worker.json()["id"])
 
 
 # --- send path guards --------------------------------------------------------
@@ -275,7 +282,7 @@ async def test_concurrent_same_fact_delivery_sends_exactly_once(
         recipient = await _recipient(db, farm_id, membership_id)
         recipient_id = recipient.id
 
-    async def send_once():
+    async def send_once() -> SendOutcome:
         async with get_sessionmaker()() as db:
             farm = await _farm(db, farm_id)
             recipient = await db.get(NotificationRecipient, recipient_id)
@@ -323,16 +330,17 @@ async def test_emit_alert_closes_the_provider_transport(client: httpx.AsyncClien
             self.closed += 1
 
     provider = ClosingProvider()
-    import app.services.notifications.hooks as hooks
+    from app.services.notifications.hooks import emit_alert
 
-    original = hooks.build_notification_provider
-    hooks.build_notification_provider = lambda _s: provider
     try:
         # No recipients opted in: the provider is still built and must still
         # be closed.
-        await hooks.emit_alert(farm_id, "SCREENING_FLAG", "m", "finding:close:1")
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(
+                "app.services.notifications.hooks.build_notification_provider", lambda _s: provider
+            )
+            await emit_alert(farm_id, "SCREENING_FLAG", "m", "finding:close:1")
     finally:
-        hooks.build_notification_provider = original
         get_settings().notifications_enabled = False
 
     assert provider.closed == 1
@@ -350,7 +358,9 @@ class FlakyProvider:
     async def send_sms(self, phone: str, message: str) -> DeliveryResult:
         self.calls += 1
         if self.calls <= self.failures_before_success:
-            raise NotificationDeliveryError(f"gateway 502 (attempt {self.calls})")
+            raise NotificationDeliveryError(
+                f"gateway 502 (attempt {self.calls})", safe_to_retry=True
+            )
         return DeliveryResult(ok=True, message_id=f"flaky-{self.calls}")
 
 
@@ -679,7 +689,7 @@ async def test_mid_fanout_crash_cannot_rollback_earlier_recipients(
             super().__init__()
             self.calls = 0
 
-        async def send_sms(self, phone: str, message: str):  # type: ignore[override]
+        async def send_sms(self, phone: str, message: str) -> DeliveryResult:
             self.calls += 1
             if self.calls == 2:
                 raise RuntimeError("simulated mid-fan-out crash (not a delivery error)")
@@ -1418,7 +1428,7 @@ async def test_screening_confirm_hook_fires_the_alert(client: httpx.AsyncClient)
     sent: list[tuple[str, str]] = []
 
     class HookProvider(ConsoleNotificationProvider):
-        async def send_sms(self, phone: str, message: str):
+        async def send_sms(self, phone: str, message: str) -> DeliveryResult:
             sent.append((phone, message))
             return await super().send_sms(phone, message)
 
@@ -1426,18 +1436,22 @@ async def test_screening_confirm_hook_fires_the_alert(client: httpx.AsyncClient)
 
     logging.getLogger("app.services.notifications.hooks").setLevel(logging.DEBUG)
 
-    import app.services.notifications.hooks as hooks
-
-    original = hooks.build_notification_provider
-    hooks.build_notification_provider = lambda _s: HookProvider()
     try:
-        review = await client.post(
-            f"/api/screening/findings/{finding_id}/review",
-            json={"status": "CONFIRMED", "expected_status": "PENDING_REVIEW"},
-            headers=owner,
-        )
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(
+                "app.services.notifications.hooks.build_notification_provider",
+                lambda _s: HookProvider(),
+            )
+            review = await client.post(
+                f"/api/screening/findings/{finding_id}/review",
+                json={
+                    "status": "CONFIRMED",
+                    "expected_status": "PENDING_REVIEW",
+                    "expected_revision": 0,
+                },
+                headers=owner,
+            )
     finally:
-        hooks.build_notification_provider = original
         get_settings().notifications_enabled = False
         get_settings().notifications_quiet_start_hour = 21
         get_settings().notifications_quiet_end_hour = 6
@@ -1473,27 +1487,30 @@ class _MovementHooks:
         self._settings.notifications_quiet_start_hour = 4
         self._settings.notifications_quiet_end_hour = 4
 
-        hooks = importlib.import_module("app.services.notifications.hooks")
-        self._hooks = hooks
-        self._original = hooks.build_notification_provider
+        self._patch = pytest.MonkeyPatch()
         capturing = self
 
         class CapturingProvider(ConsoleNotificationProvider):
-            async def send_sms(self, phone: str, message: str):
+            async def send_sms(self, phone: str, message: str) -> DeliveryResult:
                 capturing.sent.append((phone, message))
                 return await super().send_sms(phone, message)
 
-        hooks.build_notification_provider = lambda _s: CapturingProvider()
+        self._patch.setattr(
+            "app.services.notifications.hooks.build_notification_provider",
+            lambda _s: CapturingProvider(),
+        )
         return self
 
     def __exit__(self, *_exc: object) -> None:
-        self._hooks.build_notification_provider = self._original
+        self._patch.undo()
         self._settings.notifications_enabled = False
         self._settings.notifications_quiet_start_hour = 21
         self._settings.notifications_quiet_end_hour = 6
 
 
-async def _movement_recipient(db, farm_id: int, membership_id: int, *, opted_in: bool) -> None:
+async def _movement_recipient(
+    db: AsyncSession, farm_id: int, membership_id: int, *, opted_in: bool
+) -> None:
     db.add(
         NotificationRecipient(
             farm_id=farm_id,
@@ -1898,7 +1915,11 @@ async def test_screening_confirm_alert_neutralizes_urlish_label(
     with _MovementHooks() as hooks:
         review = await client.post(
             f"/api/screening/findings/{finding_id}/review",
-            json={"status": "CONFIRMED", "expected_status": "PENDING_REVIEW"},
+            json={
+                "status": "CONFIRMED",
+                "expected_status": "PENDING_REVIEW",
+                "expected_revision": 0,
+            },
             headers=owner,
         )
 

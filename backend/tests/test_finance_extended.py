@@ -36,6 +36,7 @@ from app.models import (
 from app.utils import add_months, today, utcnow
 
 from .conftest import create_farm, owner_with_farm, provisioned_worker_login, register
+from .type_helpers import JsonObject, json_int, json_object
 
 WORKER_PW = "workerpass123"
 
@@ -82,10 +83,12 @@ def txn_payload(**overrides: object) -> dict[str, Any]:
     return payload | overrides
 
 
-async def add_txn(client: httpx.AsyncClient, headers: dict, **overrides: object) -> dict[str, Any]:
+async def add_txn(
+    client: httpx.AsyncClient, headers: dict[str, str], **overrides: object
+) -> dict[str, Any]:
     resp = await client.post("/api/finance/new", json=txn_payload(**overrides), headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def dairy_owner(
@@ -107,27 +110,29 @@ def correction_payload(**overrides: object) -> dict[str, Any]:
     return payload | overrides
 
 
-async def get_finance(client: httpx.AsyncClient, headers: dict, **params: str) -> dict[str, Any]:
+async def get_finance(
+    client: httpx.AsyncClient, headers: dict[str, str], **params: str
+) -> dict[str, Any]:
     resp = await client.get("/api/finance", params=params, headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def get_dashboard(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def get_dashboard(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/dashboard", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def get_reports(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def get_reports(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/dashboard/reports", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str = "A-001",
     sex: str = "F",
     bucket: str = "FOUNDATION",
@@ -153,10 +158,12 @@ async def make_animal(
     keyed.setdefault("Idempotency-Key", f"test-{uuid4()}")
     resp = await client.post("/api/animals", json=payload, headers=keyed)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-1") -> dict[str, Any]:
+async def make_doe(
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "D-1"
+) -> dict[str, Any]:
     """A mature doe with weight history predating backdated breeding fixtures."""
     dob = today() - timedelta(days=800)
     return await make_animal(
@@ -171,7 +178,9 @@ async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-1") -
     )
 
 
-async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-1") -> dict[str, Any]:
+async def make_buck(
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "B-1"
+) -> dict[str, Any]:
     dob = today() - timedelta(days=800)
     return await make_animal(
         client,
@@ -187,7 +196,7 @@ async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-1") 
 
 async def make_breeding(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     doe_id: int,
     buck_id: int,
     breeding_date: date | None = None,
@@ -204,11 +213,15 @@ async def make_breeding(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def ultrasound(
-    client: httpx.AsyncClient, headers: dict, br_id: int, pregnant: bool, kid_count: int = 2
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    br_id: int,
+    pregnant: bool,
+    kid_count: int = 2,
 ) -> dict[str, Any]:
     detail = await client.get(f"/api/breeding/{br_id}", headers=headers)
     assert detail.status_code == 200, detail.text
@@ -223,11 +236,15 @@ async def ultrasound(
         payload["kid_count"] = kid_count
     resp = await client.post(f"/api/breeding/{br_id}/ultrasound", json=payload, headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def record_kidding(
-    client: httpx.AsyncClient, headers: dict, br_id: int, kidding_date: date, kids: list[dict]
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    br_id: int,
+    kidding_date: date,
+    kids: list[JsonObject],
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/kidding",
@@ -240,11 +257,15 @@ async def record_kidding(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def change_status(
-    client: httpx.AsyncClient, headers: dict, animal_id: int, new_status: str, **overrides: object
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    animal_id: int,
+    new_status: str,
+    **overrides: object,
 ) -> dict[str, Any]:
     resp = await client.post(
         f"/api/animals/{animal_id}/status",
@@ -252,12 +273,12 @@ async def change_status(
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def create_duty(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     title: str,
     due_date: date,
     category: str = "OTHER",
@@ -268,7 +289,7 @@ async def create_duty(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def login_user(client: httpx.AsyncClient, email: str, password: str) -> dict[str, Any]:
@@ -277,24 +298,24 @@ async def login_user(client: httpx.AsyncClient, email: str, password: str) -> di
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def preset_role_id(client: httpx.AsyncClient, owner: dict, code: str) -> int:
+async def preset_role_id(client: httpx.AsyncClient, owner: dict[str, str], code: str) -> int:
     resp = await client.get("/api/team", headers=owner)
     assert resp.status_code == 200, resp.text
-    return next(r["id"] for r in resp.json()["roles"] if r["code"] == code)
+    return json_int(next(r["id"] for r in resp.json()["roles"] if r["code"] == code))
 
 
 async def custom_role_id(
-    client: httpx.AsyncClient, owner: dict, name: str, perms: list[str]
+    client: httpx.AsyncClient, owner: dict[str, str], name: str, perms: list[str]
 ) -> int:
     resp = await client.post(
         "/api/team/roles", json={"name": name, "permissions": perms}, headers=owner
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    return json_int(resp.json()["id"])
 
 
 async def worker_headers(
-    client: httpx.AsyncClient, owner: dict, role_id: int, email: str
+    client: httpx.AsyncClient, owner: dict[str, str], role_id: int, email: str
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/team/workers",
@@ -915,20 +936,22 @@ async def test_correction_rejects_foreign_animal_without_voiding_original(
 # Corrections of system-generated rows — the ledger and the record that
 # produced it must never drift apart.
 # ---------------------------------------------------------------------------
-async def sale_transaction(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def sale_transaction(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     rows = (await get_finance(client, headers))["transactions"]
     return next(row for row in rows if row["source_type"] == "ANIMAL_SALE")
 
 
 async def animal_profile(
-    client: httpx.AsyncClient, headers: dict, animal_id: int
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int
 ) -> dict[str, Any]:
     resp = await client.get(f"/api/animals/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["animal"]
+    return json_object(resp.json()["animal"])
 
 
-async def sale_txn_for(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
+async def sale_txn_for(
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int
+) -> dict[str, Any]:
     """The ANIMAL_SALE row of one animal, on a farm that sold more than one."""
     rows = (await get_finance(client, headers))["transactions"]
     return next(
@@ -938,7 +961,7 @@ async def sale_txn_for(client: httpx.AsyncClient, headers: dict, animal_id: int)
 
 async def kid_on_dam(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     dam_id: int,
     sex: str = "F",
@@ -971,7 +994,7 @@ async def kid_on_dam(
             .values(dam_id=dam_id, current_bucket=bucket)
         )
         await db.commit()
-    return kid
+    return json_object(kid)
 
 
 async def insert_bucket_move(
@@ -1757,6 +1780,7 @@ async def test_purchase_batch_correction_will_not_reach_another_farms_batch(
         row = (
             await db.execute(select(PurchaseBatch).where(PurchaseBatch.id == foreign.json()["id"]))
         ).scalar_one()
+        assert row.total_price is not None
         assert float(row.total_price) == 1234.0
     still_there = await client.get(f"/api/purchases/{foreign.json()['id']}", headers=other)
     assert still_there.json()["batch"]["total_price"] == 1234.0
@@ -1912,7 +1936,9 @@ async def test_health_event_correction_response_keeps_animal_tag(
     assert corrected.json()["animal_tag"] == animal["tag_number"]
 
 
-async def health_event_transaction(client: httpx.AsyncClient, headers: dict) -> tuple[dict, dict]:
+async def health_event_transaction(
+    client: httpx.AsyncClient, headers: dict[str, str]
+) -> tuple[JsonObject, JsonObject]:
     """A vaccination and the EXPENSE/MEDICINE row its submission booked."""
     animal = await make_animal(client, headers, tag="HEALTH-SHARED-SOURCE")
     event = await client.post(
@@ -1965,6 +1991,7 @@ async def test_health_event_amount_correction_is_refused(client: httpx.AsyncClie
     async with get_sessionmaker()() as db:
         stored = await db.get(HealthEvent, booked["source_id"])
         assert stored is not None
+        assert stored.cost is not None
         assert float(stored.cost) == 125.0
 
 
@@ -2789,7 +2816,7 @@ async def test_dashboard_suggestion_breeding_ready_doe(client: httpx.AsyncClient
 
 async def pregnant_doe_in_bucket(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     *,
     gestation_days: int,

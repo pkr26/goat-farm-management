@@ -1,0 +1,39 @@
+{
+  "recorded_at": "2026-10-03T19:11:08.071593+00:00",
+  "finding": "ADD-09",
+  "actual_browser_observation": "Native production SW remains installing with zero cached entries; three HTML fetches deliver 200 headers while the manifest fetch remains pending. Immediate per-response clone consumption in the same worker makes the manifest resolve and installation activate with cache entries.",
+  "unit_tests": {
+    "command": "pnpm exec vitest run src/test/adversarial/adv-sw-update.test.ts",
+    "passed": 17,
+    "exit_code": 0
+  },
+  "lint": {
+    "command": "pnpm exec eslint src/test/adversarial/adv-sw-update.test.ts",
+    "exit_code": 0
+  },
+  "typecheck": {
+    "command": "pnpm typecheck",
+    "exit_code": 0
+  },
+  "changed_paths": [
+    "frontend/public/sw.js",
+    "frontend/src/test/adversarial/adv-sw-update.test.ts"
+  ],
+  "source_sha256": {
+    "frontend/public/sw.js": "f8d649307f1225adcb6fc3df3c6dc2b27fdf6c2d24b55baf4128bf33637615f2",
+    "frontend/src/test/adversarial/adv-sw-update.test.ts": "7cb3ae4bb39b8dca26d84ef4ef837e37914ef96d79ee8b5f899404e98f337910"
+  },
+  "limits": "Independent diagnostics do not run E2E globalSetup or domain writes. The root rebuilt revised source and all three production correction journeys pass; complete three-browser matrix/full frontend integration is still pending.",
+  "production_corrections": {
+    "browser_tests_passed": 3,
+    "seconds": 13.3,
+    "log": "production-corrections.log",
+    "actual_cases": [
+      "English simulation axe",
+      "Telugu simulation axe",
+      "Mobile Chrome cold offline completion/reload/reconnect/attribution"
+    ],
+    "served_worker_sha256": "f8d649307f1225adcb6fc3df3c6dc2b27fdf6c2d24b55baf4128bf33637615f2",
+    "matches_revised_source": true
+  }
+}

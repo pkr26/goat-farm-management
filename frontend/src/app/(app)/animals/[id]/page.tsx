@@ -420,7 +420,7 @@ function EditPhenotypeDialog({
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="edit-coat-color">{t("animals.coatColor")}</Label>
-              <Select value={coatColor} onValueChange={setCoatColor} items={coatColorItems}>
+              <Select value={coatColor} onValueChange={setCoatColor} items={coatColorItems} disabled={actionFlight.pending || profileSettling}>
                 <SelectTrigger id="edit-coat-color" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -435,7 +435,7 @@ function EditPhenotypeDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-horned">{t("animals.horned")}</Label>
-              <Select value={horned} onValueChange={setHorned} items={hornedItems}>
+              <Select value={horned} onValueChange={setHorned} items={hornedItems} disabled={actionFlight.pending || profileSettling}>
                 <SelectTrigger id="edit-horned" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -2094,7 +2094,7 @@ function ProfileBody({
             >
               {canManageHealth && (
                 <Link
-                  href={withReturnTo("/health/new", `/animals/${a.id}`)}
+                  href={withReturnTo(`/health/new?animal_id=${a.id}`, `/animals/${a.id}`)}
                   className={buttonVariants({ variant: "outline", size: "sm" })}
                 >
                   {t("animalDetail.healthEvents.addEvent")}

@@ -1,0 +1,241 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade f4a8c2e6d1b9 -> f5b9d3e7a2c0, Bind PIN refresh families to the authenticating farm and membership.
+INFO  [alembic.runtime.migration] Running upgrade f5b9d3e7a2c0 -> f6c0e4f8b3d1, Truthful screening review, durable call budgets and treatment-round evidence.
+Traceback (most recent call last):
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 550, in _prepare_and_execute
+    self._rows = deque(await prepared_stmt.fetch(*parameters))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py", line 177, in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py", line 268, in __bind_execute
+    data, status, _ = await self.__do_execute(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda protocol: protocol.bind_execute(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            self._state, args, '', limit, True, timeout))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py", line 257, in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 205, in bind_execute
+asyncpg.exceptions.RaiseError: Clinical preflight: inconsistent screening review metadata. Export and reconcile original records; no reviewer is fabricated.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self._prepare_and_execute(operation, parameters)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.Error: <class 'asyncpg.exceptions.RaiseError'>: Clinical preflight: inconsistent screening review metadata. Export and reconcile original records; no reviewer is fabricated.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/__main__.py", line 4, in <module>
+    main(prog="alembic")
+    ~~~~^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/config.py", line 1039, in main
+    CommandLine(prog=prog).main(argv=argv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/config.py", line 1029, in main
+    self.run_cmd(cfg, options)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/config.py", line 963, in run_cmd
+    fn(
+    ~~^
+        config,
+        ^^^^^^^
+        *[getattr(options, k, None) for k in positional],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **{k: getattr(options, k, None) for k in kwarg},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/command.py", line 487, in upgrade
+    script.run_env()
+    ~~~~~~~~~~~~~~^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/script/base.py", line 550, in run_env
+    util.load_python_file(self.dir, "env.py")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/util/pyfiles.py", line 114, in load_python_file
+    module = load_module_py(module_id, path)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/util/pyfiles.py", line 132, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/alembic/env.py", line 156, in <module>
+    asyncio.run(run_migrations_online())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/.local/share/uv/python/cpython-3.13.15-macos-aarch64-none/lib/python3.13/asyncio/runners.py", line 196, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Users/pradeepreddy/.local/share/uv/python/cpython-3.13.15-macos-aarch64-none/lib/python3.13/asyncio/runners.py", line 119, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/pradeepreddy/.local/share/uv/python/cpython-3.13.15-macos-aarch64-none/lib/python3.13/asyncio/base_events.py", line 726, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/alembic/env.py", line 146, in run_migrations_online
+    await connection.run_sync(do_run_migrations)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/engine.py", line 888, in run_sync
+    return await greenlet_spawn(
+           ^^^^^^^^^^^^^^^^^^^^^
+        fn, self._proxied, *arg, _require_await=False, **kw
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 203, in greenlet_spawn
+    result = context.switch(value)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/alembic/env.py", line 113, in do_run_migrations
+    context.run_migrations()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "<string>", line 8, in run_migrations
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/runtime/environment.py", line 967, in run_migrations
+    self.get_context().run_migrations(**kw)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/runtime/migration.py", line 621, in run_migrations
+    step.migration_fn(**kw)
+    ~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/alembic/versions/f6c0e4f8b3d1_clinical_evidence_and_budget.py", line 33, in upgrade
+    op.execute(
+    ~~~~~~~~~~^
+        "DO $$ BEGIN\n"
+        ^^^^^^^^^^^^^^^
+    ...<20 lines>...
+        "    END $$"
+        ^^^^^^^^^^^^
+    )
+    ^
+  File "<string>", line 8, in execute
+  File "<string>", line 3, in execute
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/operations/ops.py", line 2645, in execute
+    return operations.invoke(op)
+           ~~~~~~~~~~~~~~~~~^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/operations/base.py", line 448, in invoke
+    return fn(self, operation)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/operations/toimpl.py", line 259, in execute_sql
+    operations.migration_context.impl.execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        operation.sqltext, execution_options=operation.execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/ddl/impl.py", line 259, in execute
+    self._exec(sql, execution_options)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/ddl/impl.py", line 252, in _exec
+    return conn.execute(construct, params)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1421, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1643, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<8 lines>...
+        cache_hit=cache_hit,
+    )
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1848, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1988, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 2365, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self._prepare_and_execute(operation, parameters)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.RaiseError'>: Clinical preflight: inconsistent screening review metadata. Export and reconcile original records; no reviewer is fabricated.
+[SQL: DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM screening_findings WHERE NOT (
+            (status = 'PENDING_REVIEW' AND reviewed_at IS NULL AND reviewed_by_id IS NULL)
+            OR (status IN ('CONFIRMED', 'REJECTED') AND reviewed_at IS NOT NULL AND reviewed_by_id IS NOT NULL)))
+        THEN RAISE EXCEPTION 'Clinical preflight: inconsistent screening review metadata. Export and reconcile original records; no reviewer is fabricated.'; END IF;
+        IF EXISTS (SELECT 1 FROM screening_runs r LEFT JOIN screening_crops c
+            ON c.farm_id=r.farm_id AND c.image_id=r.image_id AND c.id=r.crop_id
+            WHERE r.crop_id IS NOT NULL AND c.id IS NULL)
+        OR EXISTS (SELECT 1 FROM screening_findings f JOIN screening_runs r
+            ON r.farm_id=f.farm_id AND r.id=f.run_id WHERE f.crop_id IS DISTINCT FROM r.crop_id)
+        THEN RAISE EXCEPTION 'Clinical preflight: inconsistent run/image/crop/finding ancestry. Export and reconcile original provenance before retrying.'; END IF;
+    END $$]
+(Background on this error at: https://sqlalche.me/e/20/dbapi)

@@ -11,10 +11,18 @@ from datetime import date, timedelta
 import httpx
 
 from .conftest import owner_with_farm
+from .type_helpers import JsonObject, json_object
 
 
-async def _make_doe(client, headers, tag, dob_days=400, bucket="FOUNDATION", weight=25.0):
-    payload = {
+async def _make_doe(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    tag: str,
+    dob_days: int = 400,
+    bucket: str = "FOUNDATION",
+    weight: float = 25.0,
+) -> JsonObject:
+    payload: dict[str, object] = {
         "tag_number": tag,
         "sex": "F",
         "source": "BORN",
@@ -27,10 +35,10 @@ async def _make_doe(client, headers, tag, dob_days=400, bucket="FOUNDATION", wei
         payload["weight_date"] = (date.today() - timedelta(days=10)).isoformat()
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def _make_buck(client, headers, tag):
+async def _make_buck(client: httpx.AsyncClient, headers: dict[str, str], tag: str) -> JsonObject:
     resp = await client.post(
         "/api/animals",
         json={
@@ -46,13 +54,15 @@ async def _make_buck(client, headers, tag):
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 # ---------------------------------------------------------------------------
 # Buck:doe mating policy (M-1 goat adversarial: 1 buck serviced 21 does)
 # ---------------------------------------------------------------------------
-async def test_buck_open_service_cap_rejects_the_twenty_first_doe(client: httpx.AsyncClient):
+async def test_buck_open_service_cap_rejects_the_twenty_first_doe(
+    client: httpx.AsyncClient,
+) -> None:
     """A sire is refused his 21st open service under the 1:20 policy."""
     headers = await owner_with_farm(client)
     buck = await _make_buck(client, headers, "B-CAP")
@@ -87,7 +97,7 @@ async def test_buck_open_service_cap_rejects_the_twenty_first_doe(client: httpx.
 # ---------------------------------------------------------------------------
 # Meat-sale window (M-2 goat adversarial: 3-month/12 kg kid sold for ₹5,000)
 # ---------------------------------------------------------------------------
-async def test_meat_sale_window_rejects_a_young_male_kid(client: httpx.AsyncClient):
+async def test_meat_sale_window_rejects_a_young_male_kid(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     resp = await client.post(
         "/api/animals",
@@ -119,7 +129,7 @@ async def test_meat_sale_window_rejects_a_young_male_kid(client: httpx.AsyncClie
     assert culled.status_code == 200, culled.text
 
 
-async def test_quarantine_sale_fence(client: httpx.AsyncClient):
+async def test_quarantine_sale_fence(client: httpx.AsyncClient) -> None:
     """Biosecurity: no SELL out of the 45-day quarantine; cull stays open."""
     headers = await owner_with_farm(client)
     resp = await client.post(
@@ -146,7 +156,7 @@ async def test_quarantine_sale_fence(client: httpx.AsyncClient):
 # ---------------------------------------------------------------------------
 # System ledger categories (L-2 goat adversarial: fabricated ANIMAL_SALE)
 # ---------------------------------------------------------------------------
-async def test_manual_rows_cannot_impersonate_system_categories(client: httpx.AsyncClient):
+async def test_manual_rows_cannot_impersonate_system_categories(client: httpx.AsyncClient) -> None:
     from .conftest import create_farm, register
 
     headers = await register(client, "ledger-audit@farm.in")
@@ -169,7 +179,9 @@ async def test_manual_rows_cannot_impersonate_system_categories(client: httpx.As
 # ---------------------------------------------------------------------------
 # Forced credential rotation (L-5 backend security)
 # ---------------------------------------------------------------------------
-async def test_owner_provisioned_worker_must_rotate_before_acting(client: httpx.AsyncClient):
+async def test_owner_provisioned_worker_must_rotate_before_acting(
+    client: httpx.AsyncClient,
+) -> None:
 
     WORKER_PW = "workerpass123"
     owner = await owner_with_farm(client)

@@ -1,0 +1,51 @@
+Platform quality review source ledger
+Repository: /Users/pradeepreddy/Desktop/goat-farm-management-main
+Reviewer task: /root/platform_quality
+Method: authored-source inspection only; no attack tooling, exploit automation, or application changes; no tests run by this reviewer.
+Status FULL means all lines were displayed and read. Status PARTIAL lists only displayed/read ranges; searches are not counted as complete reads.
+Explicit requested app/core/API/schema and root/docker/.github deployment/config scope: fully read.
+Prior audit/playbook/report documents were not read or used as evidence.
+No incomplete ranges remain in explicitly assigned files. Supplementary sources have the partial ranges listed below.
+
+STATUS	TOTAL_LINES	READ_RANGES	ABSOLUTE_PATH
+FULL	1836	1-1836	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/core/config.py
+FULL	1083	1-1083	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/main.py
+FULL	648	1-648	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/deps.py
+FULL	1128	1-1128	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/security.py
+FULL	496	1-496	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/ratelimit.py
+FULL	28	1-28	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/audit.py
+FULL	204	1-204	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/metrics.py
+FULL	91	1-91	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/utils.py
+FULL	57	1-57	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/characters.py
+FULL	365	1-365	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/permissions.py
+FULL	3001	1-3001	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/api/auth.py
+FULL	1649	1-1649	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/api/team.py
+FULL	471	1-471	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/api/_shared.py
+FULL	262	1-262	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/schemas/auth.py
+FULL	128	1-128	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/schemas/team.py
+FULL	53	1-53	/Users/pradeepreddy/Desktop/goat-farm-management-main/.dockerignore
+FULL	49	1-49	/Users/pradeepreddy/Desktop/goat-farm-management-main/.gitignore
+FULL	25	1-25	/Users/pradeepreddy/Desktop/goat-farm-management-main/.gitleaks.toml
+FULL	82	1-82	/Users/pradeepreddy/Desktop/goat-farm-management-main/.trivyignore.compose-images
+FULL	199	1-199	/Users/pradeepreddy/Desktop/goat-farm-management-main/.env.example
+FULL	86	1-86	/Users/pradeepreddy/Desktop/goat-farm-management-main/Dockerfile
+FULL	493	1-493	/Users/pradeepreddy/Desktop/goat-farm-management-main/docker-compose.yml
+FULL	401	1-401	/Users/pradeepreddy/Desktop/goat-farm-management-main/docker-compose.production.yml
+FULL	301	1-301	/Users/pradeepreddy/Desktop/goat-farm-management-main/docker/edge-entrypoint.sh
+FULL	121	1-121	/Users/pradeepreddy/Desktop/goat-farm-management-main/docker/edge-proxy.production.conf.template
+FULL	143	1-143	/Users/pradeepreddy/Desktop/goat-farm-management-main/docker/edge-proxy.dev.conf.template
+FULL	239	1-239	/Users/pradeepreddy/Desktop/goat-farm-management-main/.github/workflows/security.yml
+FULL	156	1-156	/Users/pradeepreddy/Desktop/goat-farm-management-main/.github/scripts/gate_sarif.py
+FULL	24	1-24	/Users/pradeepreddy/Desktop/goat-farm-management-main/.github/dependabot.yml
+FULL	545	1-545	/Users/pradeepreddy/Desktop/goat-farm-management-main/.github/workflows/ci.yml
+FULL	461	1-461	/Users/pradeepreddy/Desktop/goat-farm-management-main/.github/workflows/release.yml
+FULL	169	1-169	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/models/notifications.py
+FULL	132	1-132	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/services/notifications/providers.py
+PARTIAL	367	1-165;274-345	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/models/core.py
+PARTIAL	615	561-615	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/services/cadence.py
+PARTIAL	760	340-555;560-760	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/services/notifications/service.py
+PARTIAL	302	1-105	/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/services/retention.py
+
+Excluded from authored deployment/config scope: README.md, AUDIT_REPORT_2026-09-28.md, AUDIT_AND_IMPLEMENTATION_PLAYBOOK.md, MUTATION_TESTING_REPORT.md. These were enumerated by filename, not read.
+Coverage note: initial combined permissions.py output was truncated; the missing span was subsequently re-read (16-318), completing 1-365.
+Final git status --short was empty; no application/source files were changed.

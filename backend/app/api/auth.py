@@ -15,7 +15,7 @@ from typing import Annotated, Any, NoReturn, cast
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
@@ -34,9 +34,11 @@ from ..deps import (
     CurrentUser,
     DbSession,
     accessible_farms,
+    active_membership,
     guard_invalid_token_verification_budget,
     invalid_token_rate_error,
     record_invalid_token_verification,
+    require_live_authenticated_session,
     revoke_session_family,
     revoke_user_sessions,
     single_bearer_token,
@@ -46,6 +48,7 @@ from ..models import (
     Farm,
     FarmMembership,
     RefreshSession,
+    Role,
     TotpRecoveryCode,
     User,
 )
@@ -58,6 +61,7 @@ from ..schemas.auth import (
     ChangePasswordIn,
     FarmCreateIn,
     FarmOut,
+    FarmOwnershipTransferIn,
     LoginIn,
     LoginOut,
     MembershipExport,
@@ -86,12 +90,15 @@ from ..schemas.common import (
 )
 from ..security import (
     LEGACY_PBKDF2_PREFIX,
+    PASSWORD_SESSION_SCOPE,
     TOTP_CHALLENGE_TTL_SECONDS,
     TOTP_RECOVERY_CODE_COUNT,
     DecryptedTotpSecret,
     PasswordWorkCapacityError,
+    SessionScope,
     TotpSecretUnavailableError,
     _decode_payload_result,
+    _decode_session_scope,
     complete_rejected_login_timing_async,
     decode_access_claims_result,
     decode_refresh_claims,
@@ -697,6 +704,8 @@ async def _issue_tokens(
     family_id: str | None = None,
     *,
     replacement_for: RefreshSession | None = None,
+    scope: SessionScope = PASSWORD_SESSION_SCOPE,
+    transient: bool = False,
 ) -> TokenOut:
     """Mint the access/refresh pair and persist the refresh jti's session row
     (new family unless rotating within `family_id`). The caller commits."""
@@ -713,11 +722,18 @@ async def _issue_tokens(
         preserve_session_id=replacement_for.id if replacement_for is not None else None,
     )
     issued_at = utcnow()
-    expires_at = issued_at + timedelta(seconds=s.refresh_token_ttl_seconds)
+    expires_at = issued_at + timedelta(
+        seconds=min(s.access_token_ttl_seconds, s.refresh_token_ttl_seconds)
+        if transient
+        else s.refresh_token_ttl_seconds
+    )
     session = RefreshSession(
         user_id=user.id,
         jti=jti,
         family_id=effective_family_id,
+        session_origin=scope.origin,
+        farm_id=scope.farm_id,
+        membership_id=scope.membership_id,
         expires_at=expires_at,
         created_at=issued_at,
     )
@@ -725,18 +741,22 @@ async def _issue_tokens(
     await db.flush()  # sessions run autoflush=False — land the row explicitly
     if replacement_for is not None:
         replacement_for.replacement_jti = jti
-    _set_refresh_cookie(
-        response,
-        issue_refresh_token(
-            user.id,
-            jti=jti,
-            family_id=effective_family_id,
-            issued_at=issued_at,
-            expires_at=expires_at,
-        ),
-    )
+    if not transient:
+        _set_refresh_cookie(
+            response,
+            issue_refresh_token(
+                user.id,
+                jti=jti,
+                family_id=effective_family_id,
+                scope=scope,
+                issued_at=issued_at,
+                expires_at=expires_at,
+            ),
+        )
     return TokenOut(
-        access_token=issue_access_token(user.id, user.token_version),
+        access_token=issue_access_token(
+            user.id, user.token_version, scope=scope, family_id=effective_family_id
+        ),
         user=UserOut.model_validate(user),
     )
 
@@ -760,7 +780,9 @@ def _refresh_token_expired_but_genuine(token: str) -> bool:
     # Apply decode_refresh_claims' extra family-claim shape rule: a token that
     # would have been rejected even when fresh is invalid, not merely expired.
     family_id = payload.get("fid")
-    return family_id is None or (isinstance(family_id, str) and 1 <= len(family_id) <= 64)
+    return _decode_session_scope(payload) is not None and (
+        family_id is None or (isinstance(family_id, str) and 1 <= len(family_id) <= 64)
+    )
 
 
 def _raise_invalid_refresh(request: Request, token: str | None = None) -> NoReturn:
@@ -1021,7 +1043,7 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
                 user.id,
                 "mfa",
                 TOTP_CHALLENGE_TTL_SECONDS,
-                extra_claims={"ver": user.token_version},
+                extra_claims={"ver": user.token_version, "tablet_setup": payload.tablet_setup},
             )
             await db.commit()  # persist any legacy-hash upgrade above
             _reset_login_failures(request, payload.email)
@@ -1031,7 +1053,7 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
                 user_id=user.id,
             )
             return LoginOut(mfa_token=challenge)
-        out = await _issue_tokens(db, user, response)
+        out = await _issue_tokens(db, user, response, transient=payload.tablet_setup)
         await db.commit()
         _reset_login_failures(request, payload.email)
         return LoginOut(access_token=out.access_token, token_type=out.token_type, user=out.user)
@@ -1048,6 +1070,8 @@ async def worker_roster(
     request: Request,
     db: DbSession,
     farm_id: Annotated[int, Query(ge=1, le=MAX_INT32_ID)],
+    after_membership_id: Annotated[int, Query(ge=0, le=MAX_INT32_ID)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
 ) -> WorkerRosterOut:
     """Names tap-to-sign-in offers on this farm's shared tablet.
 
@@ -1111,6 +1135,7 @@ async def worker_roster(
             .join(User, FarmMembership.user_id == User.id)
             .where(
                 FarmMembership.farm_id == farm_id,
+                FarmMembership.id > after_membership_id,
                 FarmMembership.is_active.is_(True),
                 # PIN login is role-scoped by construction; the predicate
                 # stays explicit so a future nullable role can't silently
@@ -1118,12 +1143,18 @@ async def worker_roster(
                 FarmMembership.role_id.is_not(None),
                 FarmMembership.pin_hash.is_not(None),
                 User.deleted_at.is_(None),
+                User.must_change_password.is_(False),
+                User.totp_state.is_distinct_from("ACTIVE"),
+                FarmMembership.role_id.in_(
+                    select(Role.id).where(Role.farm_id == farm_id, Role.deleted_at.is_(None))
+                ),
             )
-            .order_by(User.name, FarmMembership.id)
-            .limit(100)
+            .order_by(FarmMembership.id)
+            .limit(limit + 1)
         )
     ).all()
     return WorkerRosterOut(
+        next_after_membership_id=int(rows[limit - 1].id) if len(rows) > limit else None,
         items=[
             WorkerRosterEntryOut(
                 membership_id=int(row.id),
@@ -1134,8 +1165,8 @@ async def worker_roster(
                 # disclosing nothing new and keeping taps distinguishable.
                 display_name=row.User.name or f"Worker {row.id}",
             )
-            for row in rows
-        ]
+            for row in rows[:limit]
+        ],
     )
 
 
@@ -1306,20 +1337,27 @@ async def worker_login(
     # the snapshot before minting: a deactivation, deletion or credential
     # rotation that won during verification must not ride this proof (login
     # reloads and revalidates exactly the same way).
+    locked_membership = (
+        await db.execute(
+            select(FarmMembership)
+            .where(
+                FarmMembership.id == membership_id,
+                FarmMembership.farm_id == payload.farm_id,
+                FarmMembership.user_id == user_id,
+                FarmMembership.is_active.is_(True),
+                FarmMembership.pin_hash == pin_hash,
+            )
+            .execution_options(populate_existing=True)
+            .with_for_update(read=True)
+        )
+    ).scalar_one_or_none()
+    if locked_membership is None:
+        _failed()
     row = (
         await db.execute(
             select(FarmMembership, User)
             .join(User, FarmMembership.user_id == User.id)
-            .where(
-                FarmMembership.id == membership_id,
-                FarmMembership.farm_id == payload.farm_id,
-                FarmMembership.is_active.is_(True),
-                FarmMembership.role_id.is_not(None),
-                User.deleted_at.is_(None),
-            )
-            # Every locked re-read repopulates: a row already in the identity
-            # map would otherwise be returned with its pre-lock column values,
-            # silently discarding the row this SELECT locked to read.
+            .where(FarmMembership.id == membership_id, User.deleted_at.is_(None))
             .execution_options(populate_existing=True)
             .with_for_update(of=User)
         )
@@ -1329,6 +1367,22 @@ async def worker_login(
         # is unknown now, and the answer stays the generic failure.
         _failed()
     user = row[1]
+    live_role = (
+        await db.execute(
+            select(Role.id)
+            .where(
+                Role.id == locked_membership.role_id,
+                Role.farm_id == payload.farm_id,
+                Role.deleted_at.is_(None),
+            )
+            .with_for_update(read=True)
+        )
+    ).scalar_one_or_none()
+    farm_owner_id = (
+        await db.execute(select(Farm.owner_id).where(Farm.id == payload.farm_id))
+    ).scalar_one_or_none()
+    if live_role is None or farm_owner_id == user.id:
+        _failed()
     if user.token_version != token_version:
         # Every PIN/password rotation and every deletion bumps token_version
         # under this same User lock, so the proven credential is stale — the
@@ -1351,7 +1405,9 @@ async def worker_login(
             status_code=403,
             detail="This account must change its password before PIN sign-in.",
         )
-    out = await _issue_tokens(db, user, response)
+    out = await _issue_tokens(
+        db, user, response, scope=SessionScope("PIN", payload.farm_id, membership_id)
+    )
     await db.commit()
     if s.auth_rate_limit_enabled:
         # A success clears only the failure counts of the membership that
@@ -1390,6 +1446,25 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
         # signed expiry before any family revocation so an ordinary token that
         # crosses its boundary in flight is never misclassified as replay.
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    pin_role_id: int | None = None
+    if claims.scope.origin == "PIN":
+        pin_membership = (
+            await db.execute(
+                select(FarmMembership)
+                .where(
+                    FarmMembership.id == claims.scope.membership_id,
+                    FarmMembership.user_id == claims.user_id,
+                    FarmMembership.farm_id == claims.scope.farm_id,
+                    FarmMembership.is_active.is_(True),
+                    FarmMembership.pin_hash.is_not(None),
+                )
+                .execution_options(populate_existing=True)
+                .with_for_update(read=True)
+            )
+        ).scalar_one_or_none()
+        if pin_membership is None:
+            raise HTTPException(status_code=401, detail="Tablet membership has been revoked")
+        pin_role_id = pin_membership.role_id
     # Lock order for every auth/session mutation is User -> RefreshSession.
     # Password reset/change holds the same user lock before revoking sessions,
     # preventing a refresh from minting a successor after revocation.
@@ -1403,6 +1478,22 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
     ).scalar_one_or_none()
     if user is None:
         _raise_invalid_refresh(request, token)
+    if claims.scope.origin == "PIN":
+        if pin_role_id is None:
+            raise HTTPException(status_code=401, detail="Tablet membership has been revoked")
+        live_role_id = (
+            await db.execute(
+                select(Role.id)
+                .where(
+                    Role.id == pin_role_id,
+                    Role.farm_id == claims.scope.farm_id,
+                    Role.deleted_at.is_(None),
+                )
+                .with_for_update(read=True)
+            )
+        ).scalar_one_or_none()
+        if live_role_id is None:
+            raise HTTPException(status_code=401, detail="Tablet membership has been revoked")
     # Lock the row: two concurrent refreshes presenting the same jti must not
     # both pass the consumption check.
     session = (
@@ -1447,6 +1538,10 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
         _raise_invalid_refresh(request, token)
     if session.user_id != claims.user_id:
         _raise_invalid_refresh(request, token)
+    if (session.session_origin, session.farm_id, session.membership_id) != claims.scope:
+        _raise_invalid_refresh(request, token)
+    if claims.scope.origin == "PIN" and (user.totp_state == "ACTIVE" or user.must_change_password):
+        raise HTTPException(status_code=401, detail="Password sign-in is required")
     if session.expires_at <= now:
         # The signature, user and persisted JTI already proved this was a real
         # credential whose lifetime ended while/before the request was being
@@ -1479,6 +1574,8 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
             and successor.revoked_at is None
             and successor.consumed_at is None
             and successor.expires_at > now
+            and (successor.session_origin, successor.farm_id, successor.membership_id)
+            == claims.scope
         ):
             remaining = max(0, int((successor.expires_at - now).total_seconds()))
             _set_refresh_cookie(
@@ -1487,13 +1584,16 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
                     user.id,
                     jti=successor.jti,
                     family_id=successor.family_id,
+                    scope=claims.scope,
                     issued_at=successor.created_at,
                     expires_at=successor.expires_at,
                 ),
                 max_age=remaining,
             )
             return TokenOut(
-                access_token=issue_access_token(user.id, user.token_version),
+                access_token=issue_access_token(
+                    user.id, user.token_version, scope=claims.scope, family_id=session.family_id
+                ),
                 user=UserOut.model_validate(user),
             )
         await revoke_session_family(db, session.family_id, user_id=session.user_id)
@@ -1514,10 +1614,34 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
         _raise_invalid_refresh(request, token)
     session.consumed_at = now
     out = await _issue_tokens(
-        db, user, response, family_id=session.family_id, replacement_for=session
+        db, user, response, family_id=session.family_id, replacement_for=session, scope=claims.scope
     )
     await db.commit()
     return out
+
+
+@router.post("/logout-session", status_code=204)
+async def logout_session(request: Request, db: DbSession, user: CurrentUser) -> Response:
+    """Cancel exactly the bearer session; a newer browser cookie is untouched."""
+    actor_id = user.id
+    expected_version = getattr(request.state, "authenticated_token_version", None)
+    family_id = getattr(request.state, "authenticated_family_id", None)
+    if not isinstance(family_id, str) or not isinstance(expected_version, int):
+        raise HTTPException(status_code=401, detail="Session is no longer valid")
+    locked = (
+        await db.execute(
+            select(User)
+            .where(User.id == actor_id, User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked is None:
+        raise HTTPException(status_code=401, detail="Account no longer exists")
+    await _require_authenticated_generation(db, request, locked, expected_version)
+    await revoke_session_family(db, family_id, user_id=actor_id)
+    await db.commit()
+    return Response(status_code=204)
 
 
 @router.post("/logout", status_code=204)
@@ -1542,7 +1666,15 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
     claims = decode_refresh_claims(token) if token else None
     access_result = decode_access_claims_result(access_token) if access_token is not None else None
     access_claims = access_result.claims if access_result is not None else None
-    if claims is not None and access_claims is not None and claims.user_id != access_claims.user_id:
+    if (
+        claims is not None
+        and access_claims is not None
+        and (
+            claims.user_id != access_claims.user_id
+            or claims.scope != access_claims.scope
+            or (claims.scope.origin == "PIN" and claims.family_id != access_claims.family_id)
+        )
+    ):
         # Cookie and bearer authentication are two proofs for one logout, not
         # a priority list. Silently preferring the cookie would revoke that
         # account while leaving the explicitly presented bearer account live.
@@ -1613,6 +1745,7 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
         if (
             session is not None
             and session.user_id == claims.user_id
+            and (session.session_origin, session.farm_id, session.membership_id) == claims.scope
             and session.revoked_at is None
             and claims.expires_at > now
             and session.expires_at > now
@@ -1642,6 +1775,9 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
                     .where(
                         RefreshSession.user_id == claims.user_id,
                         RefreshSession.family_id == claims.family_id,
+                        RefreshSession.session_origin == claims.scope.origin,
+                        RefreshSession.farm_id == claims.scope.farm_id,
+                        RefreshSession.membership_id == claims.scope.membership_id,
                         RefreshSession.revoked_at.is_(None),
                         RefreshSession.expires_at > now,
                     )
@@ -1655,16 +1791,44 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
                     user_id=claims.user_id,
                 )
                 cookie_confirmed = True
+    bearer_family_live = False
+    if logged_out_user is not None and access_claims is not None:
+        bearer_family_live = (
+            await db.execute(
+                select(RefreshSession.id)
+                .where(
+                    RefreshSession.user_id == access_claims.user_id,
+                    RefreshSession.family_id == access_claims.family_id,
+                    RefreshSession.session_origin == access_claims.scope.origin,
+                    RefreshSession.farm_id == access_claims.scope.farm_id,
+                    RefreshSession.membership_id == access_claims.scope.membership_id,
+                    RefreshSession.revoked_at.is_(None),
+                    RefreshSession.expires_at > utcnow(),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none() is not None
     if logged_out_user is not None:
         # A duplicate logout carrying only the now-stale access token must not
         # repeatedly advance the counter. A valid cookie already proved the
         # session even if its bearer header happened to be stale.
         bearer_current = bool(
             access_claims is not None
+            and bearer_family_live
             and access_claims.user_id == candidate_user_id
             and access_claims.token_version == logged_out_user.token_version
         )
-        if cookie_confirmed or bearer_current:
+        scope = (
+            claims.scope
+            if cookie_confirmed and claims is not None
+            else access_claims.scope
+            if access_claims is not None
+            else SessionScope()
+        )
+        if scope.origin == "PIN":
+            if bearer_current and access_claims is not None and access_claims.family_id:
+                await revoke_session_family(db, access_claims.family_id, user_id=logged_out_user.id)
+        elif cookie_confirmed or bearer_current:
             if bearer_current and not cookie_confirmed:
                 # With no valid cookie there is no provable family to target.
                 # Revoking only the access-token version would be reversible:
@@ -1764,8 +1928,9 @@ async def change_password(
         # rewrites the bytes WITHOUT changing the credential, and byte
         # equality here turned that benign race into a spurious 401 for a
         # correct, unchanged current password.
-        if locked_user.token_version != authenticated_token_version:
-            raise HTTPException(status_code=401, detail="Session is no longer valid")
+        await _require_authenticated_generation(
+            db, request, locked_user, authenticated_token_version
+        )
         locked_user.password_hash = replacement_hash
         locked_user.token_version += 1
         # A completed self-service change proves sole possession of the
@@ -1955,8 +2120,9 @@ async def delete_account(
         # benign format-only rehash rewrites password_hash bytes without
         # changing the credential and must not fail this deletion, while
         # every genuine credential mutation bumps token_version.
-        if locked_user.token_version != authenticated_token_version:
-            raise HTTPException(status_code=401, detail="Session is no longer valid")
+        await _require_authenticated_generation(
+            db, request, locked_user, authenticated_token_version
+        )
 
         owns_farm = (
             await db.execute(select(Farm.id).where(Farm.owner_id == locked_user.id).limit(1))
@@ -1967,7 +2133,7 @@ async def delete_account(
             raise lifecycle_conflict(
                 detail=(
                     "Account deletion is unavailable while this account owns a farm; "
-                    "farm ownership cannot currently be transferred or deleted."
+                    "transfer ownership to a password-enabled active team member first."
                 ),
             )
 
@@ -1981,6 +2147,10 @@ async def delete_account(
         locked_user.name = None
         locked_user.password_hash = tombstone_password_hash
         locked_user.token_version += 1
+        locked_user.totp_secret_enc = None
+        locked_user.totp_state = None
+        locked_user.totp_last_step = None
+        locked_user.must_change_password = False
         await db.commit()
         # 2026-09-17 re-audit: deletion is an irreversible identity event and
         # needs the same operator-visible trail as a password change (ids
@@ -2001,14 +2171,35 @@ async def delete_account(
 
 @router.get("/permissions")
 async def permissions(
-    user: CurrentUser, farm: CurrentFarm, membership: CurrentMembership, perms: CurrentPerms
+    request: Request,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    membership: CurrentMembership,
+    perms: CurrentPerms,
 ) -> PermissionsOut:
-    return PermissionsOut(is_owner=farm.owner_id == user.id, permissions=sorted(perms))
+    return PermissionsOut(
+        is_owner=farm.owner_id == user.id
+        and getattr(request.state, "authenticated_scope", SessionScope()).origin != "PIN",
+        permissions=sorted(perms),
+    )
 
 
 @router.get("/farms")
-async def list_farms(db: DbSession, user: CurrentUser) -> list[FarmOut]:
-    pairs = await accessible_farms(db, user)
+async def list_farms(request: Request, db: DbSession, user: CurrentUser) -> list[FarmOut]:
+    scope = getattr(request.state, "authenticated_scope", SessionScope())
+    pairs: list[tuple[Farm, str | None]]
+    if scope.origin == "PIN":
+        if scope.farm_id is None:
+            raise HTTPException(status_code=401, detail="Invalid tablet scope")
+        membership = await active_membership(db, user.id, scope.farm_id)
+        if membership is None or membership.id != scope.membership_id:
+            raise HTTPException(status_code=401, detail="Tablet membership has been revoked")
+        farm = await db.get(Farm, scope.farm_id)
+        if farm is None:
+            raise HTTPException(status_code=404, detail="Farm not found")
+        pairs = [(farm, membership.role.name)]
+    else:
+        pairs = await accessible_farms(db, user)
     return [
         FarmOut(
             id=f.id,
@@ -2021,10 +2212,122 @@ async def list_farms(db: DbSession, user: CurrentUser) -> list[FarmOut]:
     ]
 
 
+@router.post("/farms/{farm_id}/transfer-ownership", status_code=200)
+async def transfer_farm_ownership(
+    farm_id: int,
+    payload: FarmOwnershipTransferIn,
+    request: Request,
+    db: DbSession,
+    user: CurrentUser,
+) -> FarmOut:
+    """Transfer the farm to an active member before deleting the former owner's account.
+
+    The successor must already have taken sole possession of a password.
+    Operational records retain their farm and actor IDs throughout transfer.
+    """
+    if not 1 <= farm_id <= MAX_INT32_ID:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    actor_id, expected_version = user.id, user.token_version
+    owned = (
+        await db.execute(select(Farm.id).where(Farm.id == farm_id, Farm.owner_id == actor_id))
+    ).scalar_one_or_none()
+    if owned is None:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    await _confirm_current_password(
+        db, request, payload.current_password, user, scope=ACCOUNT_DELETE_SCOPE
+    )
+    # Ownership changes are rare. Serialize transfers before taking any row
+    # lock, preventing reciprocal cross-farm transfers from inverting users.
+    # Then follow manager authorization's actor User -> Farm -> Membership ->
+    # target User order, matching reset and roster mutations.
+    await db.execute(text("SELECT pg_advisory_xact_lock(130013003)"))
+    actor = (
+        await db.execute(
+            select(User)
+            .where(User.id == actor_id, User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if actor is None:
+        raise HTTPException(status_code=401, detail="Account no longer exists")
+    await _require_authenticated_generation(db, request, actor, expected_version)
+    farm = (
+        await db.execute(
+            select(Farm)
+            .where(Farm.id == farm_id, Farm.owner_id == actor_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if farm is None:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    member = (
+        await db.execute(
+            select(FarmMembership)
+            .where(
+                FarmMembership.id == payload.membership_id,
+                FarmMembership.farm_id == farm_id,
+                FarmMembership.is_active.is_(True),
+            )
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if member is None or member.user_id == actor_id:
+        raise lifecycle_conflict(detail="Choose another active team member.")
+    successor = (
+        await db.execute(
+            select(User)
+            .where(User.id == member.user_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if successor is None or successor.deleted_at is not None or successor.must_change_password:
+        raise lifecycle_conflict(
+            detail="The new owner must sign in and rotate their password first."
+        )
+    # PIN-only provisioning stores an unknown random password. It cannot take
+    # owner authority until a password-enabled membership is selected.
+    if member.account_provisioned_by_farm and member.pin_hash is not None:
+        raise lifecycle_conflict(
+            detail="Choose a password-enabled team member without a tablet PIN."
+        )
+    owned_count = (
+        await db.execute(
+            select(func.count()).select_from(Farm).where(Farm.owner_id == successor.id)
+        )
+    ).scalar_one()
+    if owned_count >= get_settings().max_farms_per_user:
+        raise standing_quota(detail="The new owner already owns the maximum number of farms.")
+    farm.owner_id = successor.id
+    successor.token_version += 1
+    await revoke_user_sessions(db, successor.id)
+    await db.commit()
+    _reset_account_password_attempts(
+        ACCOUNT_DELETE_SCOPE,
+        ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE,
+        f"{_client_key(request)}|{actor_id}",
+        actor_id,
+    )
+    security_event(
+        "auth.farm.ownership_transferred",
+        "Farm ownership transferred",
+        farm_id=farm_id,
+        user_id=actor_id,
+        new_owner_id=successor.id,
+    )
+    return FarmOut(
+        id=farm.id, name=farm.name, location=farm.location, timezone=farm.timezone, role=None
+    )
+
+
 @router.post("/farms", status_code=201)
 async def create_farm(
     payload: FarmCreateIn,
     response: Response,
+    request: Request,
     db: DbSession,
     user: CurrentUser,
     idempotency_key: RequiredIdempotencyKey,
@@ -2053,8 +2356,7 @@ async def create_farm(
     ).scalar_one_or_none()
     if locked_user is None:
         raise HTTPException(status_code=401, detail="Account no longer exists")
-    if locked_user.token_version != authenticated_token_version:
-        raise HTTPException(status_code=401, detail="Session is no longer valid")
+    await _require_authenticated_generation(db, request, locked_user, authenticated_token_version)
 
     async def mutate() -> FarmOut:
         owned = (
@@ -2221,6 +2523,18 @@ async def _consume_mfa_jti(db: AsyncSession, jti: str, expires_at: datetime) -> 
     return claimed is not None
 
 
+async def _require_authenticated_generation(
+    db: AsyncSession,
+    request: Request,
+    user: User,
+    authenticated_token_version: int,
+) -> None:
+    """The final exclusive account lock must still belong to the signed generation."""
+    if user.token_version != authenticated_token_version:
+        raise HTTPException(status_code=401, detail="Session is no longer valid")
+    await require_live_authenticated_session(db, request, user)
+
+
 async def _confirm_current_password(
     db: AsyncSession,
     request: Request,
@@ -2301,8 +2615,7 @@ async def totp_enroll(
     # confirmed against the pre-rollback snapshot, and every genuine credential
     # mutation bumps token_version under this same User lock — a password
     # proof that has since gone stale must not mint a fresh PENDING enrollment.
-    if locked.token_version != authenticated_token_version:
-        raise HTTPException(status_code=401, detail="Session is no longer valid")
+    await _require_authenticated_generation(db, request, locked, authenticated_token_version)
     # Password-only proof must never retire an ACTIVE second factor
     # (2026-09-17 re-audit): re-enrolling over ACTIVE used to silently replace
     # the enrolled secret, so a phished password alone could swap away a factor
@@ -2369,6 +2682,7 @@ async def totp_confirm(
     set and returns it HERE, exactly once — the codes are unrecoverable
     afterwards, so the client must present them for copy/print immediately."""
     user_id = user.id
+    authenticated_token_version = user.token_version
     locked = (
         await db.execute(
             select(User)
@@ -2381,6 +2695,7 @@ async def totp_confirm(
         # Concurrently deleted account: scalar_one would raise NoResultFound
         # → 500 here (2026-09-17 re-audit).
         raise HTTPException(status_code=401, detail="Account no longer exists.")
+    await _require_authenticated_generation(db, request, locked, authenticated_token_version)
     if locked.totp_state != "PENDING" or locked.totp_secret_enc is None:
         raise lifecycle_conflict(detail="Start enrollment first.")
     # Same guess budget as the login challenge: a stolen access token must
@@ -2455,6 +2770,7 @@ async def totp_disable(
     currently-valid code (or, for an unconfirmed PENDING enrollment, the
     password alone — nothing is gating login yet)."""
     user_id = user.id  # _confirm_current_password rolls back and expires `user`
+    authenticated_token_version = user.token_version
     # Same guess budget as confirm (2026-09-17 re-audit): the ACTIVE-state code
     # check below is a 6-digit oracle and its wrong-code path used to record
     # nothing, so a stolen access token could grind it unthrottled. Both keys
@@ -2481,6 +2797,7 @@ async def totp_disable(
             # Concurrently deleted account: scalar_one would raise
             # NoResultFound → 500 here (2026-09-17 re-audit).
             raise HTTPException(status_code=401, detail="Account no longer exists.")
+        await _require_authenticated_generation(db, request, locked, authenticated_token_version)
         state = locked.totp_state
         if state is None or locked.totp_secret_enc is None:
             raise lifecycle_conflict(detail="Two-factor is not enrolled.")
@@ -2598,6 +2915,7 @@ async def totp_recovery_regenerate(
     bearer token) must not be enough to rotate the break-glass material. The
     new codes are revealed here exactly once, like enrollment's."""
     user_id = user.id  # _confirm_current_password rolls back and expires `user`
+    authenticated_token_version = user.token_version
     # Proof 1 — password, verified outside any transaction (Argon2).
     await _confirm_current_password(
         db,
@@ -2618,6 +2936,7 @@ async def totp_recovery_regenerate(
     ).scalar_one_or_none()
     if locked is None:
         raise HTTPException(status_code=401, detail="Account no longer exists.")
+    await _require_authenticated_generation(db, request, locked, authenticated_token_version)
     if locked.totp_state != "ACTIVE" or locked.totp_secret_enc is None:
         await db.rollback()
         raise lifecycle_conflict(detail="Two-factor is not active.")
@@ -2793,6 +3112,9 @@ async def totp_challenge(
         jti = body["jti"]
     except (KeyError, TypeError, ValueError):
         raise generic from None
+    tablet_setup = body.get("tablet_setup", False)
+    if type(tablet_setup) is not bool:
+        raise generic
     if expired or isinstance(challenge_ver, bool) or not isinstance(challenge_ver, int):
         raise generic
 
@@ -2983,7 +3305,7 @@ async def totp_challenge(
         raise generic
     if decrypted.needs_rewrap:
         user.totp_secret_enc = encrypt_totp_secret(decrypted.secret)
-    out = await _issue_tokens(db, user, response)
+    out = await _issue_tokens(db, user, response, transient=tablet_setup)
     await db.commit()
     auth_limiter.reset(TOTP_CHALLENGE_USER_SCOPE, str(user_id))
     auth_limiter.reset(TOTP_CHALLENGE_USER_SCOPE, composite_key)

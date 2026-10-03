@@ -53,6 +53,7 @@ from app.services import lock_manual_task_queue
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm
+from .type_helpers import JsonObject, json_int, json_object, json_objects
 
 
 def iso(d: date) -> str:
@@ -73,7 +74,7 @@ def second_client() -> httpx.AsyncClient:
     )
 
 
-async def warm(client: httpx.AsyncClient, headers: dict) -> None:
+async def warm(client: httpx.AsyncClient, headers: dict[str, str]) -> None:
     """Prime a fresh client (app/router/connection init) so its first timed
     request starts level with the fixture client's — without this the cold
     client reads only after the winner commits and the race never happens."""
@@ -122,7 +123,7 @@ async def wait_for_blocked_sessions(expected: int, timeout_seconds: float = 10.0
 
 async def make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str = "A-001",
     sex: str = "F",
     bucket: str = "FOUNDATION",
@@ -143,10 +144,10 @@ async def make_animal(
         payload.setdefault("weight_date", iso(dob))
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    return json_int(resp.json()["id"])
 
 
-async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-1") -> int:
+async def make_doe(client: httpx.AsyncClient, headers: dict[str, str], tag: str = "D-1") -> int:
     """A breeding-ready doe (>=10 months old, 26 kg entry weight, FOUNDATION)."""
     dob = today() - timedelta(days=800)
     return await make_animal(
@@ -160,26 +161,28 @@ async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-1") -
     )
 
 
-async def transactions(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def transactions(client: httpx.AsyncClient, headers: dict[str, str]) -> list[JsonObject]:
     resp = await client.get("/api/finance", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["transactions"]
+    return json_objects(resp.json()["transactions"])
 
 
-async def inventory(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def inventory(client: httpx.AsyncClient, headers: dict[str, str]) -> list[JsonObject]:
     resp = await client.get("/api/feeding/inventory", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_objects(resp.json())
 
 
-async def task_tabs(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def task_tabs(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/tasks", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-def all_tasks(tabs: dict) -> list[dict]:
-    return tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+def all_tasks(tabs: JsonObject) -> list[JsonObject]:
+    return json_objects(
+        tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -651,10 +654,10 @@ async def test_skip_never_overwrites_a_committed_completion(
 # ---------------------------------------------------------------------------
 async def bred_doe_with_record(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str = "D-US",
     breeding_date: date | None = None,
-) -> tuple[int, dict]:
+) -> tuple[int, JsonObject]:
     """A breeding-ready doe + buck with one PENDING breeding (via the API)."""
     doe = await make_doe(client, headers, tag=tag)
     buck = await make_animal(client, headers, tag=f"{tag}-BUCK", sex="M", bucket="BREEDING")
@@ -674,7 +677,7 @@ async def bred_doe_with_record(
     return doe, resp.json()
 
 
-async def confirm_pregnancy(client: httpx.AsyncClient, headers: dict, br_id: int) -> None:
+async def confirm_pregnancy(client: httpx.AsyncClient, headers: dict[str, str], br_id: int) -> None:
     resp = await client.post(
         f"/api/breeding/{br_id}/ultrasound",
         json={"pregnant": True, "kid_count": 2},
@@ -683,7 +686,9 @@ async def confirm_pregnancy(client: httpx.AsyncClient, headers: dict, br_id: int
     assert resp.status_code == 200, resp.text
 
 
-async def breeding_follow_ups(client: httpx.AsyncClient, headers: dict, br_id: int) -> list[dict]:
+async def breeding_follow_ups(
+    client: httpx.AsyncClient, headers: dict[str, str], br_id: int
+) -> list[JsonObject]:
     """The pregnancy follow-up duties spawned for a breeding record."""
     tabs = await task_tabs(client, headers)
     return [

@@ -19,6 +19,7 @@ from app.utils import today
 
 from .conftest import owner_with_farm
 from .test_e2e_lifecycle_audit import change_status, health_event, make_animal
+from .type_helpers import Headers
 
 
 def iso(d: date) -> str:
@@ -27,7 +28,7 @@ def iso(d: date) -> str:
 
 async def _treat(
     client: httpx.AsyncClient,
-    owner: dict,
+    owner: Headers,
     animal_id: int,
     on: date,
     withdrawal_until: date,

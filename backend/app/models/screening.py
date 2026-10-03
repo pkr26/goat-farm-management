@@ -275,6 +275,7 @@ class ScreeningCrop(Base):
     __tablename__ = "screening_crops"
     __table_args__ = (
         UniqueConstraint("farm_id", "id", name="uq_screening_crops_farm_id_id"),
+        UniqueConstraint("farm_id", "image_id", "id", name="uq_screening_crops_farm_image_id"),
         UniqueConstraint(
             "farm_id", "image_id", "crop_index", name="uq_screening_crops_image_index"
         ),
@@ -342,6 +343,12 @@ class ScreeningRun(Base):
             name="fk_screening_runs_crop",
             ondelete="CASCADE",
         ),
+        ForeignKeyConstraint(
+            ["farm_id", "image_id", "crop_id"],
+            ["screening_crops.farm_id", "screening_crops.image_id", "screening_crops.id"],
+            name="fk_screening_runs_image_crop",
+            ondelete="CASCADE",
+        ),
         CheckConstraint(
             f"stage IN ({sql_in_values(ScreeningStage)})",
             name="ck_screening_runs_stage",
@@ -353,7 +360,7 @@ class ScreeningRun(Base):
         # Verdicts exist only for OK runs; provider/API failures record
         # ERROR status + error text instead of inventing a verdict.
         CheckConstraint(
-            "run_status <> 'OK' OR verdict IN ('healthy', 'flagged')",
+            "run_status <> 'OK' OR verdict IN ('healthy', 'flagged', 'unassessable')",
             name="ck_screening_runs_verdict_vocabulary",
         ),
         CheckConstraint(
@@ -387,7 +394,7 @@ class ScreeningRun(Base):
     crop_id: Mapped[int | None] = mapped_column(BigInteger)
     stage: Mapped[str] = mapped_column(String(20), default=ScreeningStage.GATE.value)
     run_status: Mapped[str] = mapped_column(String(10), default=ScreeningRunStatus.OK.value)
-    verdict: Mapped[str | None] = mapped_column(String(10))
+    verdict: Mapped[str | None] = mapped_column(String(20))
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3))
     provider: Mapped[str] = mapped_column(String(MAX_SCREENING_PROVIDER_LENGTH))
     model: Mapped[str] = mapped_column(String(MAX_SCREENING_MODEL_LENGTH))
@@ -448,9 +455,12 @@ class ScreeningFinding(Base):
         # A verdict exists exactly when a reviewer recorded it: PENDING_REVIEW
         # rows carry no review fields, CONFIRMED/REJECTED rows must.
         CheckConstraint(
-            "(status = 'PENDING_REVIEW') = (reviewed_at IS NULL AND reviewed_by_id IS NULL)",
+            "(status = 'PENDING_REVIEW' AND reviewed_at IS NULL AND reviewed_by_id IS NULL) "
+            "OR (status IN ('CONFIRMED', 'REJECTED') "
+            "AND reviewed_at IS NOT NULL AND reviewed_by_id IS NOT NULL)",
             name="ck_screening_findings_review_matches_status",
         ),
+        CheckConstraint("review_revision >= 0", name="ck_screening_findings_review_revision"),
         CheckConstraint(
             "review_note IS NULL OR btrim(review_note) <> ''",
             name="ck_screening_findings_review_note_nonblank",
@@ -491,9 +501,83 @@ class ScreeningFinding(Base):
         ForeignKey("users.id", ondelete="RESTRICT"), index=True
     )
     reviewed_at: Mapped[dt.datetime | None] = mapped_column()
+    review_revision: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     review_note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[dt.datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
 
     run: Mapped[ScreeningRun] = relationship(back_populates="findings")
+
+
+class ScreeningFindingReview(Base):
+    """A new review decision; pre-cutover metadata stays on its original finding."""
+
+    __tablename__ = "screening_finding_reviews"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["farm_id", "finding_id"],
+            ["screening_findings.farm_id", "screening_findings.id"],
+            name="fk_screening_finding_reviews_farm_finding",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("revision > 0", name="ck_screening_finding_reviews_revision"),
+        CheckConstraint(
+            "previous_status IN ('PENDING_REVIEW', 'CONFIRMED', 'REJECTED') "
+            "AND status IN ('CONFIRMED', 'REJECTED')",
+            name="ck_screening_finding_reviews_status",
+        ),
+        CheckConstraint(
+            "review_note IS NULL OR btrim(review_note) <> ''",
+            name="ck_screening_finding_reviews_note_nonblank",
+        ),
+    )
+
+    finding_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
+    previous_status: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20))
+    review_note: Mapped[str | None] = mapped_column(Text)
+    reviewed_by_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    reviewed_at: Mapped[dt.datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+
+
+class ScreeningDailyBudget(Base):
+    """Durably charged attempts, including transport retries and abandoned attempts."""
+
+    __tablename__ = "screening_daily_budgets"
+    __table_args__ = (
+        CheckConstraint("reserved_calls >= 0", name="ck_screening_daily_budgets_nonnegative"),
+    )
+
+    farm_id: Mapped[int] = mapped_column(
+        ForeignKey("farms.id", ondelete="CASCADE"), primary_key=True
+    )
+    local_date: Mapped[dt.date] = mapped_column(Date, primary_key=True)
+    reserved_calls: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+
+
+class ScreeningCallReservation(Base):
+    """An idempotent charge receipt, committed before an external attempt starts."""
+
+    __tablename__ = "screening_call_reservations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["farm_id", "local_date"],
+            ["screening_daily_budgets.farm_id", "screening_daily_budgets.local_date"],
+            name="fk_screening_call_reservations_budget",
+            ondelete="CASCADE",
+        ),
+        Index("ix_screening_call_reservations_farm_date", "farm_id", "local_date"),
+    )
+
+    attempt_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    farm_id: Mapped[int] = mapped_column(Integer)
+    local_date: Mapped[dt.date] = mapped_column(Date)
+    provider: Mapped[str] = mapped_column(String(MAX_SCREENING_PROVIDER_LENGTH))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )

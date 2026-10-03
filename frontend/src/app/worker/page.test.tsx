@@ -7,24 +7,26 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { IDBFactory } from "fake-indexeddb";
 
 import { permissionsHandler, server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 import { settle } from "@/test/settle";
-import { setCurrentFarmId } from "@/lib/api-client";
+import { setAccessToken, setCurrentFarmId } from "@/lib/api-client";
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
-import { OFFLINE_QUEUE_STORAGE_KEY } from "@/lib/offline-queue";
+import { readWorkerOutbox } from "@/lib/worker-outbox";
 
 import WorkerLoginPage from "./login/page";
 import WorkerBoardPage from "./page";
 
-const { pushMock, replaceMock, signOutMock, selectFarmMock, getFarmsMock, toastSuccess } = vi.hoisted(() => ({
+const { pushMock, replaceMock, signOutMock, selectFarmMock, getFarmsMock, toastSuccess, workerAuth } = vi.hoisted(() => ({
   pushMock: vi.fn(),
   replaceMock: vi.fn(),
   signOutMock: vi.fn(),
   selectFarmMock: vi.fn(),
   getFarmsMock: vi.fn<() => { id: number; name: string; location: null; timezone: string; role: null }[]>(() => []),
   toastSuccess: vi.fn(),
+  workerAuth: { mustChangePassword: false },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -45,7 +47,7 @@ vi.mock("@/lib/auth-context", async (importOriginal) => ({
   useAuth: () => ({
     signIn,
     signOut: signOutMock,
-    user: { id: 7, email: "pin@farm.in", name: "Pin Worker" },
+    user: { id: 7, email: "pin@farm.in", name: "Pin Worker", must_change_password: workerAuth.mustChangePassword },
     farmId: 3,
     farms: [{ id: 3, name: "Tablet Farm", location: null, timezone: "Asia/Kolkata", role: null }],
     loading: false,
@@ -103,6 +105,14 @@ function today() {
 }
 
 beforeEach(() => {
+  workerAuth.mustChangePassword = false;
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  vi.stubGlobal("structuredClone", (value: unknown) => JSON.parse(JSON.stringify(value)));
+  setAccessToken("worker-test-token", 7); setCurrentFarmId("3");
+  server.use(
+    http.post("/api/auth/refresh", () => HttpResponse.json({ access_token: "worker-test-token", user: { id: 7, email: "pin@farm.in", name: "Pin Worker", must_change_password: false } })),
+    http.get("/api/auth/farms", () => HttpResponse.json([{ id: 3, name: "Tablet Farm", location: null, timezone: "Asia/Kolkata", role: null }])),
+  );
   pushMock.mockClear();
   replaceMock.mockClear();
   signOutMock.mockClear();
@@ -114,6 +124,47 @@ beforeEach(() => {
 });
 
 describe("WorkerLoginPage", () => {
+  it("does not establish a PIN identity after the page is left while login is pending", async () => {
+    localStorage.setItem("herdly.tabletFarm", "3");
+    let release!: () => void;
+    server.use(
+      http.get("/api/auth/worker-roster", () => HttpResponse.json(ROSTER)),
+      http.post("/api/auth/worker-login", async () => {
+        await new Promise<void>((resolve) => { release = resolve; });
+        return HttpResponse.json({ access_token: "late-worker", user: { id: 7, email: "worker@farm.in", must_change_password: false } });
+      }),
+    );
+    const user = userEvent.setup();
+    const view = renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+    await user.click(await screen.findByRole("button", { name: "Lakshmi" }));
+    for (const digit of "4321") await user.click(screen.getByTestId(`pin-key-${digit}`));
+    await user.click(screen.getByTestId("pin-sign-in"));
+    await waitFor(() => expect(release).toBeTypeOf("function"));
+    view.unmount();
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(signIn).not.toHaveBeenCalled();
+  });
+
+  it("cancelling a pending manager request cannot install the late manager identity", async () => {
+    let release!: () => void;
+    server.use(http.post("/api/auth/login", async () => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      return HttpResponse.json({ access_token: "late-manager", user: { id: 1, email: "owner@farm.in", must_change_password: false } });
+    }));
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+    await user.click(await screen.findByTestId("worker-setup-start"));
+    await user.type(screen.getByLabelText("Email"), "owner@farm.in");
+    await user.type(screen.getByLabelText("Password"), "owner-pass-123");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(release).toBeTypeOf("function"));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(signIn).not.toHaveBeenCalled();
+    expect(await screen.findByText("No farm on this tablet")).toBeInTheDocument();
+  });
   it("pins the tablet farm, lists names, and signs in by PIN", async () => {
     window.localStorage.setItem("herdly.tabletFarm", "3");
     server.use(
@@ -178,7 +229,7 @@ describe("WorkerLoginPage", () => {
     server.use(
       http.post("/api/auth/login", async ({ request }) => {
         const body = (await request.json()) as Record<string, unknown>;
-        expect(body).toEqual({ email: "owner@farm.in", password: "owner-pass-123" });
+        expect(body).toEqual({ email: "owner@farm.in", password: "owner-pass-123", tablet_setup: true });
         // Password accepted, second factor demanded (LoginOut mfa arm).
         return HttpResponse.json({ mfa_token: "challenge-token" });
       }),
@@ -507,6 +558,38 @@ describe("WorkerBoardPage", () => {
     return renderWithProviders(<WorkerBoardPage />, createTestQueryClient());
   }
 
+  it.each([
+    ["en", "This password was set by the farm owner — change it before using the farm.", "Change password"],
+    ["te", "ఈ పాస్‌వర్డ్‌ను ఫారం యజమాని సెట్ చేశారు — ఫారం వాడే ముందు మార్చండి.", "పాస్‌వర్డ్ మార్చండి"],
+  ])("explains first password rotation in %s and fetches duties only after the user requirement clears", async (language, guidance, action) => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    workerAuth.mustChangePassword = true;
+    let taskReads = 0;
+    server.use(http.get("/api/tasks", () => {
+      taskReads += 1;
+      return HttpResponse.json({ today: [BOARD(1, "Duty after password rotation", today())], overdue: [], upcoming: [], awaiting: [], completed: [],
+        totals: { today: 1, overdue: 0, upcoming: 0, awaiting: 0, completed: 0 } });
+    }));
+    const board = <LanguageProvider><WorkerBoardPage /></LanguageProvider>;
+    const view = renderWithProviders(board, createTestQueryClient());
+    expect(await screen.findByText(guidance)).toBeInTheDocument();
+    expect(screen.getByText(action)).toBeInTheDocument();
+    expect(screen.getByTestId("worker-password-required")).toBeInTheDocument();
+    await settle();
+    expect(taskReads).toBe(0);
+    expect(screen.queryByTestId("worker-duty-1")).not.toBeInTheDocument();
+    expect(screen.queryByText("Something went wrong.")).not.toBeInTheDocument();
+
+    // AccountDialog installs the refreshed UserOut after actual rotation.
+    // Re-render that changed auth hook state rather than bypassing the gate.
+    workerAuth.mustChangePassword = false;
+    view.rerender(<LanguageProvider><WorkerBoardPage /></LanguageProvider>);
+    expect(await screen.findByTestId("worker-duty-1")).toBeInTheDocument();
+    expect(taskReads).toBe(1);
+    expect(screen.queryByTestId("worker-password-required")).not.toBeInTheDocument();
+    expect(screen.queryByText(guidance)).not.toBeInTheDocument();
+  });
+
   it("renders overdue and today duties as large cards", async () => {
     server.use(
       http.get("/api/tasks", () =>
@@ -679,16 +762,10 @@ describe("WorkerBoardPage", () => {
     renderBoard();
 
     await user.click(await screen.findByTestId("complete-1"));
-    await waitFor(() =>
-      expect(
-        JSON.parse(window.localStorage.getItem(OFFLINE_QUEUE_STORAGE_KEY) ?? "[]"),
-      ).toHaveLength(1),
-    );
-    const record = JSON.parse(
-      window.localStorage.getItem(OFFLINE_QUEUE_STORAGE_KEY) ?? "[]",
-    )[0];
+    await waitFor(async () => expect(await readWorkerOutbox({ actorScope: "7", farmScope: "3" })).toHaveLength(1));
+    const record = (await readWorkerOutbox({ actorScope: "7", farmScope: "3" }))[0];
     expect(record.path).toBe("/api/tasks/1/complete");
-    expect(record.headers["Idempotency-Key"]).toMatch(/.+/);
+    expect(record.idempotencyKey).toMatch(/.+/);
     expect(record.actorScope).toBe("7");
     expect(record.farmScope).toBe("3");
   });

@@ -32,7 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, composeRequestSignal } from "@/lib/api-client";
 import { enumLabel } from "@/lib/enum-labels";
 import { useLanguage, useT } from "@/lib/i18n";
 
@@ -172,7 +172,7 @@ export function DiseaseCheckDialog({
       const response = await fetch(result.data.upload_url, {
         method: result.data.upload_method ?? "POST",
         body: formData,
-        signal: AbortSignal.timeout(60_000),
+        signal: composeRequestSignal(undefined, 60_000),
       });
       if (!response.ok) {
         if (stillCurrentSession()) {

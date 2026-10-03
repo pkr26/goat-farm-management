@@ -32,6 +32,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import Numeric, Table
 
 from app.api.finance import _reconcile_feed_purchase
 from app.db import get_sessionmaker
@@ -43,7 +44,9 @@ from .conftest import owner_with_farm
 from .test_finance_extended import txn_payload
 
 
-async def _inventory_item(client: httpx.AsyncClient, owner: dict, item_id: int) -> dict[str, Any]:
+async def _inventory_item(
+    client: httpx.AsyncClient, owner: dict[str, str], item_id: int
+) -> dict[str, Any]:
     response = await client.get("/api/feeding/inventory", headers=owner)
     assert response.status_code == 200, response.text
     return next(item for item in response.json() if item["id"] == item_id)
@@ -51,7 +54,7 @@ async def _inventory_item(client: httpx.AsyncClient, owner: dict, item_id: int) 
 
 async def _restock(
     client: httpx.AsyncClient,
-    owner: dict,
+    owner: dict[str, str],
     item_id: int,
     *,
     qty_kg: float,
@@ -72,6 +75,11 @@ async def _restock(
 
 def test_feed_purchase_model_metadata_matches_migration_contract() -> None:
     table = Transaction.__table__
+    assert isinstance(table, Table)
+    assert isinstance(table.c.feed_quantity_kg.type, Numeric)
+    assert isinstance(table.c.feed_unit_price_per_kg.type, Numeric)
+    inventory_table = FeedInventory.__table__
+    assert isinstance(inventory_table, Table)
     assert table.c.feed_inventory_id.nullable
     assert table.c.feed_quantity_kg.type.precision == 15
     assert table.c.feed_quantity_kg.type.scale == 3
@@ -82,7 +90,7 @@ def test_feed_purchase_model_metadata_matches_migration_contract() -> None:
     assert "ck_transactions_feed_purchase_provenance" in names
     assert "ix_transactions_feed_inventory_id" in {index.name for index in table.indexes}
     assert "uq_feed_inventory_farm_id_id" in {
-        constraint.name for constraint in FeedInventory.__table__.constraints
+        constraint.name for constraint in inventory_table.constraints
     }
 
 
@@ -247,8 +255,8 @@ async def test_feed_restock_provenance_survives_an_audited_correction(
     assert repriced.json()["amount"] == 250.0
     assert repriced.json()["source_type"] == "FEED_PURCHASE"
     assert repriced.json()["source_id"] == booked["source_id"]
-    inventory = await _inventory_item(client, owner, item["id"])
-    assert inventory["last_purchase_price_per_kg"] == 25.0
+    inventory_body = await _inventory_item(client, owner, item["id"])
+    assert inventory_body["last_purchase_price_per_kg"] == 25.0
     async with get_sessionmaker()() as db:
         stored = await db.get(Transaction, repriced.json()["id"])
         assert stored is not None
@@ -473,7 +481,7 @@ async def test_related_animal_helpers_reject_the_full_out_of_band_range(
         assert farm is not None
         for out_of_band in (0, -1, MAX_INT32_ID + 1, 2**62):
             with pytest.raises(HTTPException) as exc:
-                await _resolve_related_animal(db, farm, out_of_band)  # type: ignore[arg-type]
+                await _resolve_related_animal(db, farm, out_of_band)
             assert exc.value.status_code == 400
             with pytest.raises(HTTPException) as exc:
                 await _locked_source_animal(db, farm, out_of_band)

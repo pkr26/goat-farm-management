@@ -434,7 +434,7 @@ describe("HealthPage dialog field and in-flight states", () => {
     releaseTasks();
 
     expect(
-      await within(dialog).findByLabelText("Linked duty (completes it)"),
+      await within(dialog).findByLabelText("Linked duty"),
     ).toBeInTheDocument();
     expect(within(dialog).queryByText("Loading linked duties…")).not.toBeInTheDocument();
   });

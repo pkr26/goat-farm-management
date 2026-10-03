@@ -305,7 +305,7 @@ async def test_exact_money_migration_refuses_lossy_rows_and_backfills_utc() -> N
 
         connection = await asyncpg.connect(database_url)
         try:
-            stored_amount, skipped_at, session_timezone = await connection.fetchrow(
+            stored_row = await connection.fetchrow(
                 """
                 SELECT tx.amount::text, task.skipped_at, current_setting('TimeZone')
                 FROM transactions tx CROSS JOIN tasks task
@@ -314,6 +314,8 @@ async def test_exact_money_migration_refuses_lossy_rows_and_backfills_utc() -> N
                 transaction_id,
                 task_id,
             )
+            assert stored_row is not None
+            stored_amount, skipped_at, session_timezone = stored_row
         finally:
             await connection.close()
         assert stored_amount == "1.01"
@@ -523,7 +525,8 @@ async def test_corrective_migration_clears_fabricated_actor_and_serializes_dates
                 """,
                 legacy_breeding_id,
             )
-            assert repaired == ("UNKNOWN", LEGACY_LOSS_NOTE, None)
+            assert repaired is not None
+            assert tuple(repaired) == ("UNKNOWN", LEGACY_LOSS_NOTE, None)
 
             function_definition = await connection.fetchval(
                 "SELECT pg_get_functiondef('enforce_kid_mortality_chronology()'::regprocedure)"

@@ -1,0 +1,10 @@
+Command: .venv/bin/ruff format --check .
+Cwd: /Users/pradeepreddy/Desktop/goat-farm-management-main/backend
+Started: 2026-10-03T19:01:46.054109+00:00
+Finished: 2026-10-03T19:01:46.069972+00:00
+Exit code: 0
+
+STDOUT:
+404 files already formatted
+
+STDERR:

@@ -42,11 +42,12 @@ from app.models import (
     User,
     WeightRecord,
 )
+from app.services._common import _schedule_rebreed
 from app.services.breeding import breeding_weights_as_of, mark_unassessed, record_ultrasound_result
-from app.services.tasks import _schedule_rebreed
 from app.utils import add_months, today
 
 from .conftest import owner_with_farm, provisioned_worker_login, register
+from .type_helpers import JsonObject, json_object, json_objects
 
 WORKER_PW = "workerpass123"
 GESTATION_DAYS = 150
@@ -67,7 +68,7 @@ def iso(d: date) -> str:
 # ---------------------------------------------------------------------------
 async def make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     sex: str = "F",
     bucket: str = "FOUNDATION",
@@ -83,12 +84,12 @@ async def make_animal(
         payload.setdefault("historical_import_reason", "Existing-herd test fixture")
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def make_doe(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str = "D-1",
     bucket: str = "FOUNDATION",
     age_days: int = 800,
@@ -105,7 +106,7 @@ async def make_doe(
 
 async def make_doe_aged_months(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     months: int,
     weight_kg: float | None = 26.0,
@@ -118,7 +119,7 @@ async def make_doe_aged_months(
 
 
 async def make_buck(
-    client: httpx.AsyncClient, headers: dict, tag: str = "B-1", **overrides: object
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "B-1", **overrides: object
 ) -> dict[str, Any]:
     defaults: dict[str, object] = {
         "date_of_birth": iso(today() - timedelta(days=800)),
@@ -161,7 +162,11 @@ async def backdate_latest_bucket_move(animal_id: int, effective_date: date) -> N
 
 
 async def post_breeding(
-    client: httpx.AsyncClient, headers: dict, doe_id: int, buck_id: int, **overrides: object
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    doe_id: int,
+    buck_id: int,
+    **overrides: object,
 ) -> httpx.Response:
     payload = {
         "doe_id": doe_id,
@@ -172,19 +177,23 @@ async def post_breeding(
 
 
 async def make_breeding(
-    client: httpx.AsyncClient, headers: dict, doe_id: int, buck_id: int, **overrides: object
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    doe_id: int,
+    buck_id: int,
+    **overrides: object,
 ) -> dict[str, Any]:
     resp = await post_breeding(client, headers, doe_id, buck_id, **overrides)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def bred_doe(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str = "D-1",
     breeding_date: date | None = None,
-) -> tuple[dict, dict, dict]:
+) -> tuple[JsonObject, JsonObject, JsonObject]:
     """Breeding-ready doe + buck and one PENDING breeding. Returns (doe, buck, br)."""
     doe = await make_doe(client, headers, tag)
     buck = await make_buck(client, headers, f"{tag}-BUCK")
@@ -204,13 +213,15 @@ async def bred_doe(
 
 
 async def ultrasound(
-    client: httpx.AsyncClient, headers: dict, br_id: int, **payload: object
+    client: httpx.AsyncClient, headers: dict[str, str], br_id: int, **payload: object
 ) -> httpx.Response:
     body = {"pregnant": True, "kid_count": 2} | payload
     return await client.post(f"/api/breeding/{br_id}/ultrasound", json=body, headers=headers)
 
 
-async def place_health_hold(client: httpx.AsyncClient, headers: dict, animal_id: int) -> None:
+async def place_health_hold(
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int
+) -> None:
     response = await client.post(
         "/api/health/events",
         json={
@@ -226,7 +237,7 @@ async def place_health_hold(client: httpx.AsyncClient, headers: dict, animal_id:
 
 
 async def confirm(
-    client: httpx.AsyncClient, headers: dict, br_id: int, kid_count: int | None = 2
+    client: httpx.AsyncClient, headers: dict[str, str], br_id: int, kid_count: int | None = 2
 ) -> dict[str, Any]:
     # Same rationale as fail_cycle: the result is observed on the scheduled
     # check, not "today". Confirming today and then recording the kidding on
@@ -242,10 +253,12 @@ async def confirm(
         date=breeding["ultrasound_date"],
     )
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def fail_cycle(client: httpx.AsyncClient, headers: dict, br_id: int) -> dict[str, Any]:
+async def fail_cycle(
+    client: httpx.AsyncClient, headers: dict[str, str], br_id: int
+) -> dict[str, Any]:
     # Outcome-flow fixtures represent a result observed on the scheduled
     # check, not "today". This preserves an honest boundary when later tests
     # record a subsequent historical service between that check and today.
@@ -259,11 +272,11 @@ async def fail_cycle(client: httpx.AsyncClient, headers: dict, br_id: int) -> di
         date=breeding["ultrasound_date"],
     )
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def post_abort(
-    client: httpx.AsyncClient, headers: dict, br_id: int, **overrides: object
+    client: httpx.AsyncClient, headers: dict[str, str], br_id: int, **overrides: object
 ) -> httpx.Response:
     payload = {
         "loss_date": iso(today()),
@@ -275,10 +288,10 @@ async def post_abort(
 
 async def pregnant_doe(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str = "D-1",
     gestation_days: int = 35,
-) -> tuple[dict, dict, dict]:
+) -> tuple[JsonObject, JsonObject, JsonObject]:
     """Confirmed pregnancy bred `gestation_days` ago (EKD = breeding + 150)."""
     doe, buck, br = await bred_doe(client, headers, tag, today() - timedelta(days=gestation_days))
     br = await confirm(client, headers, br["id"])
@@ -286,7 +299,7 @@ async def pregnant_doe(
 
 
 async def post_kidding(
-    client: httpx.AsyncClient, headers: dict, br_id: int, **overrides: object
+    client: httpx.AsyncClient, headers: dict[str, str], br_id: int, **overrides: object
 ) -> httpx.Response:
     payload = {
         "breeding_record_id": br_id,
@@ -298,15 +311,15 @@ async def post_kidding(
 
 
 async def make_kidding(
-    client: httpx.AsyncClient, headers: dict, br_id: int, **overrides: object
+    client: httpx.AsyncClient, headers: dict[str, str], br_id: int, **overrides: object
 ) -> dict[str, Any]:
     resp = await post_kidding(client, headers, br_id, **overrides)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def kid_on_ekd(
-    client: httpx.AsyncClient, headers: dict, br: dict, **overrides: object
+    client: httpx.AsyncClient, headers: dict[str, str], br: JsonObject, **overrides: object
 ) -> dict[str, Any]:
     """Record a kidding exactly on the expected kidding date (always <= today
     when the breeding was backdated >= 150 days)."""
@@ -315,64 +328,70 @@ async def kid_on_ekd(
     )
 
 
-async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
+async def get_animal(
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int
+) -> dict[str, Any]:
     resp = await client.get(f"/api/animals/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["animal"]
+    return json_object(resp.json()["animal"])
 
 
-async def list_animals(client: httpx.AsyncClient, headers: dict, **params: str) -> list[dict]:
+async def list_animals(
+    client: httpx.AsyncClient, headers: dict[str, str], **params: str
+) -> list[JsonObject]:
     resp = await client.get("/api/animals", headers=headers, params=params)
     assert resp.status_code == 200, resp.text
-    return resp.json()["animals"]
+    return json_objects(resp.json()["animals"])
 
 
-async def get_breeding(client: httpx.AsyncClient, headers: dict, br_id: int) -> dict[str, Any]:
+async def get_breeding(
+    client: httpx.AsyncClient, headers: dict[str, str], br_id: int
+) -> dict[str, Any]:
     resp = await client.get(f"/api/breeding/{br_id}", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def breeding_list(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def breeding_list(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/breeding", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def candidate_list(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     kind: str = "doe",
-    **params: object,
+    **params: str | int | float | bool | None,
 ) -> dict[str, Any]:
     resp = await client.get(
         "/api/breeding/candidates",
-        params={"kind": kind} | params,
+        params={"kind": kind, **params},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def candidate_ids(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     kind: str = "doe",
-    **params: object,
+    **params: str | int | float | bool | None,
 ) -> list[int]:
     page = await candidate_list(client, headers, kind, **params)
     return [row["id"] for row in page["candidates"]]
 
 
-async def kidding_list(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def kidding_list(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/kidding", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def move_to(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     animal_id: int,
     bucket: str,
     *,
@@ -386,33 +405,35 @@ async def move_to(
         }
     resp = await client.post(f"/api/animals/{animal_id}/move", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def set_status(
-    client: httpx.AsyncClient, headers: dict, animal_id: int, status: str
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int, status: str
 ) -> dict[str, Any]:
     resp = await client.post(
         f"/api/animals/{animal_id}/status", json={"new_status": status}, headers=headers
     )
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def all_tasks(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def all_tasks(client: httpx.AsyncClient, headers: dict[str, str]) -> list[JsonObject]:
     """Every duty across the five tabs of GET /api/tasks."""
     resp = await client.get("/api/tasks", headers=headers)
     assert resp.status_code == 200, resp.text
     tabs = resp.json()
-    return tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+    return json_objects(
+        tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+    )
 
 
-def tasks_by_category(tasks: list[dict], category: str) -> list[dict]:
+def tasks_by_category(tasks: list[JsonObject], category: str) -> list[JsonObject]:
     return [t for t in tasks if t["category"] == category]
 
 
 async def worker_headers(
-    client: httpx.AsyncClient, owner: dict, role_code: str, email: str
+    client: httpx.AsyncClient, owner: dict[str, str], role_code: str, email: str
 ) -> dict[str, Any]:
     """Owner adds a worker with a preset role; returns that worker's farm headers."""
     resp = await client.get("/api/team", headers=owner)
@@ -429,7 +450,7 @@ async def worker_headers(
 
 
 async def custom_breeding_viewer_headers(
-    client: httpx.AsyncClient, owner: dict, email: str
+    client: httpx.AsyncClient, owner: dict[str, str], email: str
 ) -> dict[str, Any]:
     role = await client.post(
         "/api/team/roles",
@@ -2852,7 +2873,7 @@ async def test_kidding_explicit_duplicate_tags(client: httpx.AsyncClient) -> Non
 
 
 async def kid_on_ekd_raw(
-    client: httpx.AsyncClient, headers: dict, br: dict, **overrides: object
+    client: httpx.AsyncClient, headers: dict[str, str], br: JsonObject, **overrides: object
 ) -> httpx.Response:
     kidding_date = overrides.pop("date", br["expected_kidding_date"])
     return await post_kidding(client, headers, br["id"], date=kidding_date, **overrides)
@@ -2996,7 +3017,7 @@ async def test_kidding_closes_pregnancy_tasks(client: httpx.AsyncClient) -> None
     # rounds, hoof trimming, …) is not breeding-linked and stays PENDING.
     linked = [t for t in tasks if t["breeding_record_id"] == br["id"]]
 
-    def linked_of(category: str) -> list[dict]:
+    def linked_of(category: str) -> list[JsonObject]:
         return [t for t in linked if t["category"] == category]
 
     assert [t["status"] for t in linked_of("KIDDING_DUE")] == ["DONE"]
@@ -3339,8 +3360,8 @@ async def test_kidding_requires_farm_header(client: httpx.AsyncClient) -> None:
 # Weaning at day 60: kids → MALE_KIDS/FEMALE_KIDS, doe → RESTING
 # ---------------------------------------------------------------------------
 async def _kidded_doe_with_due_weaning(
-    client: httpx.AsyncClient, headers: dict, tag: str = "D-1"
-) -> tuple[dict, dict, dict]:
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "D-1"
+) -> tuple[JsonObject, JsonObject, JsonObject]:
     """Doe kidded 70 days ago → her +60d weaning duty fell due 10 days ago and
     can be completed via the API. Returns (doe, buck, kidding_record)."""
     doe, buck, br = await pregnant_doe(client, headers, tag, gestation_days=220)

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import base64
 import time
+from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -26,6 +28,35 @@ from .gate import GateResponse, gate_instruction, parse_gate_response
 class ProviderError(Exception):
     """Transport- or contract-level failure; the pipeline records it and
     moves on. The image row is retried by a later cycle."""
+
+
+_retry_admission: ContextVar[Callable[[], Awaitable[None]] | None] = ContextVar(
+    "screening_retry_admission", default=None
+)
+
+
+class BudgetedProvider:
+    """Charge initial calls and give adapters the same durable retry admission."""
+
+    def __init__(self, provider: VisionProvider, admit: Callable[[], Awaitable[None]]) -> None:
+        self.name = provider.name
+        self.model = provider.model
+        self._provider = provider
+        self._admit = admit
+
+    async def complete(self, image_jpeg: bytes, system_prompt: str) -> ProviderAnswer:
+        await self._admit()
+        token = _retry_admission.set(self._admit)
+        try:
+            return await self._provider.complete(image_jpeg, system_prompt)
+        finally:
+            _retry_admission.reset(token)
+
+
+async def _admit_retry() -> None:
+    admission = _retry_admission.get()
+    if admission is not None:
+        await admission()
 
 
 async def _post_with_one_retry(
@@ -50,6 +81,7 @@ async def _post_with_one_retry(
         # Transient transport failure (timeout, reset, DNS blip): one
         # immediate retry before the whole image attempt is written off.
         try:
+            await _admit_retry()
             retried = await client.post(url, headers=headers, json=json)
             retried.raise_for_status()
             return retried
@@ -58,6 +90,7 @@ async def _post_with_one_retry(
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code < 500:
             raise
+        await _admit_retry()
         retried = await client.post(url, headers=headers, json=json)
         retried.raise_for_status()
         return retried
@@ -229,13 +262,14 @@ class OpenAICompatibleProvider:
             "model": self.model,
             "max_completion_tokens": 1024,
             "messages": [
+                {"role": "system", "content": system_prompt},
                 {
                     "role": "user",
                     "content": [
                         {"type": "text", "text": "Analyze this photo. JSON only."},
                         {"type": "image_url", "image_url": {"url": data_url}},
                     ],
-                }
+                },
             ],
             # The JSON contract is judged after parsing; provider-level
             # enforcement is a bonus some endpoints reject.

@@ -32,7 +32,7 @@ from ..models import (
     WeightRecord,
 )
 from ..models.species import GOAT_PROFILE
-from ..simulation.market import BAKRID_DATES_BY_YEAR  # read-only calendar import
+from ..simulation.market import bakrid_occurrences  # read-only calendar import
 from ..utils import add_months, business_date, today
 from ._common import REBREED_AFTER_RESTING_DAYS
 
@@ -47,9 +47,8 @@ def next_bakrid_date(reference: date) -> date | None:
     The embedded calendar (simulation/market.py) is month-resolution and
     verified through 2032; beyond its last year there is no honest next date.
     """
-    for year in sorted(BAKRID_DATES_BY_YEAR):
-        month, day = BAKRID_DATES_BY_YEAR[year]
-        candidate = date(year, month, day)
+    for occurrence in bakrid_occurrences():
+        candidate = occurrence.observed_on
         if candidate > reference:
             return candidate
     return None

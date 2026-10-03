@@ -10,7 +10,7 @@ the primary errors.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 from .providers import GateCallResult, ProviderError, VisionProvider
@@ -28,7 +28,7 @@ class GateOutcome:
 
 
 class ProviderRotation:
-    def __init__(self, providers: list[VisionProvider]) -> None:
+    def __init__(self, providers: Sequence[VisionProvider]) -> None:
         if not providers:
             raise ValueError("ProviderRotation needs at least one provider")
         self._providers = providers

@@ -126,6 +126,30 @@ beforeEach(() => {
 });
 
 describe("OwnerPage", () => {
+  it("distinguishes a benchmark failure from a valid empty herd and retries", async () => {
+    let failed = true;
+    server.use(http.get("/api/owner/benchmarks", () => failed
+      ? HttpResponse.json({ detail: "Unavailable" }, { status: 503 })
+      : HttpResponse.json(BENCHMARKS)));
+    renderPage();
+    const user = userEvent.setup();
+    const error = await screen.findByText("Could not load farm benchmarks. Retry to retrieve performance data.");
+    expect(error).toBeInTheDocument();
+    expect(screen.queryByText("No benchmark data yet.")).not.toBeInTheDocument();
+    failed = false;
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("85%")).toBeInTheDocument();
+  });
+
+  it("labels retained benchmark figures when a refresh fails", async () => {
+    const queryClient = createTestQueryClient();
+    renderWithProviders(<OwnerPage />, queryClient);
+    await screen.findByText("85%");
+    server.use(http.get("/api/owner/benchmarks", () => HttpResponse.json({ detail: "Unavailable" }, { status: 503 })));
+    await queryClient.invalidateQueries({ queryKey: ["/api/owner/benchmarks"] });
+    expect(await screen.findByText("Refresh failed. The table shows the last successfully loaded figures.")).toBeInTheDocument();
+    expect(screen.getByText("85%")).toBeInTheDocument();
+  });
   it("ranks farms worst-first on the attention board", async () => {
     renderPage();
 

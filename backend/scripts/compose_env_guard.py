@@ -56,6 +56,7 @@ from app.core.config import (  # noqa: E402
 # would look live while the app silently prefers the file.
 REQUIRED_EITHER_DELIVERY_VARS = (
     "GOATFARM_DATABASE_URL",
+    "GOATFARM_WORKER_DATABASE_URL",
     "GOATFARM_MIGRATION_DATABASE_URL",
     "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET",
 )
@@ -90,15 +91,20 @@ def delivery_problems(path: Path) -> list[str]:
     The dotenv file is one source; the process environment is the other —
     Compose interpolates shell values ahead of the file, and the production
     manifest forwards the same interpolations into this container precisely
-    so they are visible here (2026-10-02 audit). A knob counts as set when
-    either source would hand Compose a non-empty value.
+    so they are visible here. An explicitly empty environment override wins
+    over a stale nonempty dotenv value, just as it does in Compose.
     """
     values = {
         name.upper(): value for name, value in dotenv_values(path).items() if name is not None
     }
 
+    def _value(name: str) -> str | None:
+        return os.environ[name] if name in os.environ else values.get(name)
+
     def _delivered(name: str) -> bool:
-        return _present(values.get(name)) or _present(os.environ.get(name))
+        # Presence, including an explicit empty override, follows Compose
+        # interpolation precedence. A stale dotenv value must not reappear.
+        return _present(_value(name))
 
     problems: list[str] = []
     for name in REQUIRED_EITHER_DELIVERY_VARS:
@@ -111,6 +117,28 @@ def delivery_problems(path: Path) -> list[str]:
     for name in AMBIGUOUS_DELIVERY_VARS:
         if _delivered(name) and _delivered(f"{name}_FILE"):
             problems.append(f"{name} and {name}_FILE are both set; deliver exactly one")
+    if _delivered("GOATFARM_APP_SECRET_DIR"):
+        problems.append(
+            "GOATFARM_APP_SECRET_DIR is retired; split its contents into "
+            "GOATFARM_API_SECRET_DIR, GOATFARM_MIGRATION_SECRET_DIR and "
+            "GOATFARM_WORKER_SECRET_DIR before rollout (see README)"
+        )
+    directories = [
+        Path(_value(name) or default).expanduser().resolve()
+        for name, default in (
+            ("GOATFARM_API_SECRET_DIR", "./secrets/api"),
+            ("GOATFARM_MIGRATION_SECRET_DIR", "./secrets/migration"),
+            ("GOATFARM_WORKER_SECRET_DIR", "./secrets/worker"),
+        )
+    ]
+    if any(
+        a == b or a in b.parents or b in a.parents
+        for i, a in enumerate(directories)
+        for b in directories[i + 1 :]
+    ):
+        problems.append(
+            "service secret directories must be distinct and must not contain each other"
+        )
     return problems
 
 

@@ -57,7 +57,8 @@ export type FieldHelpState = {
 
 /** The "?" affordance beside every assumption label: opens the field's
  *  plain-language explanation — what the term is and what the values mean.
- *  Swallows the click so it never toggles a surrounding <summary>/<details>. */
+ *  Prevents the label's default action when explaining an adjacent input.
+ *  Section help belongs beside its disclosure, outside the <summary>. */
 export function FieldHelpButton({
   label,
   onClick,

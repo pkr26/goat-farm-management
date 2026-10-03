@@ -168,6 +168,7 @@ const DETAIL = {
       note: "Crusted lesions on the lower lip.",
       status: "PENDING_REVIEW",
       review_note: null,
+      review_revision: 0,
       reviewed_at: null,
       created_at: "2026-09-18T05:31:00Z",
     },
@@ -316,7 +317,48 @@ describe("ScreeningPage", () => {
     await user.click(await screen.findByRole("button", { name: "Confirm" }));
 
     await waitFor(() => expect(reviewBodies).toHaveLength(1));
-    expect(reviewBodies[0]).toEqual({ status: "CONFIRMED", expected_status: "PENDING_REVIEW" });
+    expect(reviewBodies[0]).toEqual({ status: "CONFIRMED", expected_status: "PENDING_REVIEW",
+      expected_revision: 0, review_note: null });
+  });
+
+  it("shows unusable photos as a retake and excludes them from the assessed flag rate", async () => {
+    installHappyHandlers();
+    nav.state.search = "image_id=2";
+    server.use(
+      http.get("/api/screening/images/2", () => HttpResponse.json({ ...DETAIL, status: "UNASSESSABLE", findings: [] })),
+      http.get("/api/screening/stats", () => HttpResponse.json({ ...STATS,
+        providers: [{ ...STATS.providers[0], gate_unassessable: 4 }] })),
+    );
+    renderPage();
+    expect(await screen.findByText("Cannot assess")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Upload a clearer photo" })).toBeInTheDocument();
+    expect(screen.getAllByText("50%")).toHaveLength(2);
+    expect(screen.queryByText("Healthy")).not.toBeInTheDocument();
+  });
+
+  it("preserves review notes with the loaded revision and reveals immutable history", async () => {
+    installHappyHandlers();
+    nav.state.search = "image_id=2";
+    let body: unknown;
+    server.use(
+      http.get("/api/screening/images/2", () => HttpResponse.json({ ...DETAIL,
+        findings: [{ ...DETAIL.findings[0], review_revision: 3 }] })),
+      http.post("/api/screening/findings/51/review", async ({ request }) => {
+        body = await request.json(); return HttpResponse.json({ ok: true });
+      }),
+      http.get("/api/screening/findings/51/reviews", () => HttpResponse.json({ finding_id: 51,
+        review_revision: 3, legacy_review: false, limit: 10, offset: 0, total: 1,
+        reviews: [{ revision: 3, previous_status: "REJECTED", status: "CONFIRMED", review_note: "Examined by vet",
+          reviewed_by_id: 7, reviewed_at: "2026-10-03T12:00:00Z" }] })),
+    );
+    renderPage();
+    const user = userEvent.setup();
+    await user.type(await screen.findByRole("textbox", { name: "Review note" }), "Confirmed on examination");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(body).toMatchObject({ expected_revision: 3, review_note: "Confirmed on examination" }));
+    await user.click(screen.getByText("Review history"));
+    expect(await screen.findByText("Examined by vet")).toBeInTheDocument();
+    expect(screen.getByText(/Revision 3 · Reviewer #7/)).toBeInTheDocument();
   });
 
   it("surfaces the optimistic-concurrency conflict as its own toast", async () => {

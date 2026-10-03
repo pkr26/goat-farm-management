@@ -10,6 +10,7 @@
 
 import { Camera, ChevronLeft, Download, Stethoscope } from "lucide-react";
 import { Suspense, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import {
@@ -29,6 +30,10 @@ import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DiseaseCheckDialog } from "@/components/screening-check-dialog";
+import { ScreeningReviewHistory } from "@/components/screening-review-history";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { formatDate } from "@/lib/format";
 import { useT, type TFn } from "@/lib/i18n";
 import { mapServerError } from "@/lib/server-error-phrases";
@@ -38,13 +43,14 @@ import { MAX_PAGE_OFFSET, useUrlState } from "@/lib/use-url-state";
 
 const PAGE_LIMIT = 25;
 
-const STATUS_FILTERS = ["ALL", "FLAGGED", "HEALTHY", "ERROR"] as const;
+const STATUS_FILTERS = ["ALL", "FLAGGED", "HEALTHY", "UNASSESSABLE", "ERROR"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
 
 const FILTER_KEYS: Record<StatusFilter, Parameters<TFn>[0]> = {
   ALL: "screening.filter.all",
   FLAGGED: "screening.filter.flagged",
   HEALTHY: "screening.filter.healthy",
+  UNASSESSABLE: "screening.filter.unassessable",
   ERROR: "screening.filter.errors",
 };
 
@@ -54,6 +60,7 @@ const IMAGE_STATUS_KEYS = {
   PENDING: "screening.status.PENDING",
   PROCESSING: "screening.status.PROCESSING",
   HEALTHY: "screening.status.HEALTHY",
+  UNASSESSABLE: "screening.status.UNASSESSABLE",
   FLAGGED: "screening.status.FLAGGED",
   SKIPPED: "screening.status.SKIPPED",
   ERROR: "screening.status.ERROR",
@@ -99,6 +106,8 @@ function confidenceLabel(
 
 function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
   const t = useT();
+  const queryClient = useQueryClient();
+  const [reviewNotes, setReviewNotes] = useState<Record<number, string>>({});
   const allowed = perms.can("health.view");
   const { get, getNumber, set: setUrlState } = useUrlState();
 
@@ -179,20 +188,28 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
     findingId: number,
     status: "CONFIRMED" | "REJECTED",
     expectedStatus: "PENDING_REVIEW" | "CONFIRMED" | "REJECTED",
+    expectedRevision: number,
   ) => {
+    const stillOwnsFarm = captureFarmScope();
     try {
       await reviewMutation.mutateAsync({
         findingId,
-        data: { status, expected_status: expectedStatus },
+        data: { status, expected_status: expectedStatus, expected_revision: expectedRevision,
+          review_note: reviewNotes[findingId]?.trim() || null },
       });
+      if (!stillOwnsFarm()) return;
+      setReviewNotes((notes) => { const next = { ...notes }; delete next[findingId]; return next; });
+      void queryClient.invalidateQueries({ queryKey: [`/api/screening/findings/${findingId}/reviews`] });
       toast.success(t("screening.review.reviewed"));
       // Reviews feed the provider scoreboard's accuracy columns; refetch it
       // with the same refresh so a just-rendered verdict is reflected
       // immediately instead of after the next poll (P3, 2026-09-20 audit).
       await Promise.all([detailQuery.refetch(), listQuery.refetch(), statsQuery.refetch()]);
     } catch (error) {
+      if (!stillOwnsFarm()) return;
       if (error instanceof ApiError && error.status === 409) {
         toast.error(t("screening.review.conflict"));
+        await detailQuery.refetch();
       } else {
         toast.error(t("common.somethingWentWrong"));
       }
@@ -260,6 +277,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                   <th className="text-right">{t("screening.stats.gateRuns")}</th>
                   <th className="text-right">{t("screening.stats.flagRate")}</th>
                   <th className="text-right">{t("screening.stats.errors")}</th>
+                  <th className="text-right">{t("screening.stats.unassessable")}</th>
                   <th className="text-right">{t("screening.stats.latency")}</th>
                   <th className="text-right">{t("screening.stats.agreement")}</th>
                   <th className="text-right">{t("screening.stats.confirmed")}</th>
@@ -269,8 +287,8 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
               <tbody>
                 {stats.providers.map((row) => {
                   const flagRate =
-                    row.gate_runs > 0
-                      ? `${Math.round((row.gate_flagged / row.gate_runs) * 100)}%`
+                    row.gate_runs - (row.gate_unassessable ?? 0) > 0
+                      ? `${Math.round((row.gate_flagged / (row.gate_runs - (row.gate_unassessable ?? 0))) * 100)}%`
                       : "—";
                   const agreement =
                     row.cross_checks > 0
@@ -284,6 +302,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                       <td className="table-numeric text-right">{row.gate_runs}</td>
                       <td className="table-numeric text-right">{flagRate}</td>
                       <td className="table-numeric text-right">{row.gate_errors}</td>
+                      <td className="table-numeric text-right">{row.gate_unassessable ?? 0}</td>
                       <td className="table-numeric text-right">
                         {row.avg_gate_latency_ms === null
                           ? "—"
@@ -344,6 +363,14 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
           ) : detail ? (
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
+                {detail.status === "UNASSESSABLE" || (detail.crops ?? []).some((crop) => crop.status === "UNASSESSABLE") ? (
+                  <div role="alert" className="space-y-2 rounded-lg border border-warning p-3">
+                    <p>{t("screening.quality.guidance")}</p>
+                    <Button type="button" variant="outline" onClick={() => setCheckOpen(true)}>
+                      <Camera aria-hidden /> {t("screening.quality.retake")}
+                    </Button>
+                  </div>
+                ) : null}
                 {detail.image_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -441,13 +468,19 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                               </p>
                             ) : null}
                             {canManage ? (
-                              <div className="mt-2 flex gap-2">
+                              <div className="mt-2 space-y-2">
+                                <Label htmlFor={`review-note-${finding.id}`}>{t("screening.review.note")}</Label>
+                                <Textarea id={`review-note-${finding.id}`} maxLength={2000}
+                                  disabled={reviewMutation.isPending}
+                                  value={reviewNotes[finding.id] ?? ""}
+                                  onChange={(event) => setReviewNotes((notes) => ({ ...notes, [finding.id]: event.target.value }))} />
+                                <div className="flex gap-2">
                                 <Button
                                   size="sm"
                                   variant="outline"
                                   disabled={reviewMutation.isPending}
                                   onClick={() =>
-                                    submitReview(finding.id, "CONFIRMED", finding.status)
+                                    submitReview(finding.id, "CONFIRMED", finding.status, finding.review_revision)
                                   }
                                 >
                                   {t("screening.review.confirm")}
@@ -457,13 +490,15 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                                   variant="outline"
                                   disabled={reviewMutation.isPending}
                                   onClick={() =>
-                                    submitReview(finding.id, "REJECTED", finding.status)
+                                    submitReview(finding.id, "REJECTED", finding.status, finding.review_revision)
                                   }
                                 >
                                   {t("screening.review.reject")}
                                 </Button>
+                                </div>
                               </div>
                             ) : null}
+                            <ScreeningReviewHistory findingId={finding.id} />
                           </li>
                         );
                       })}
@@ -497,6 +532,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                             ) : null}
                           </div>
                           {run.error ? <p className="mt-1 text-destructive">{run.error}</p> : null}
+                          {run.detail?.quality_problem === true ? <p className="mt-1">{t("screening.quality.guidance")}</p> : null}
                         </li>
                       );
                     })}

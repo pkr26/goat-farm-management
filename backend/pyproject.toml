@@ -16,7 +16,7 @@ dependencies = [
     "pydantic==2.13.4",
     "pydantic-settings==2.14.2",
     "python-dotenv==1.2.2",
-    "PyJWT==2.13.0",
+    "PyJWT==2.15.1",
     "cryptography==50.0.0",
     "argon2-cffi==25.1.0",
     "prometheus-client==0.26.0",
@@ -39,6 +39,8 @@ dev = [
     "httpx==0.28.1",
     "ruff==0.16.1",
     "mypy==2.3.0",
+    "types-PyYAML==6.0.12.20260906",
+    "asyncpg-stubs==0.31.3",
 ]
 
 [tool.setuptools.packages.find]

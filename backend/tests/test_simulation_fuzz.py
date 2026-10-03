@@ -24,18 +24,19 @@ from typing import Any
 import httpx
 
 from .conftest import owner_with_farm
+from .type_helpers import JsonObject, json_object
 
 
-async def default_assumptions(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def default_assumptions(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/simulation/defaults", headers=headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()
     body["meta"]["horizon_months"] = 12  # keep fuzz runs fast
-    return body
+    return json_object(body)
 
 
 async def post_run_raw(
-    client: httpx.AsyncClient, assumptions: dict, headers: dict
+    client: httpx.AsyncClient, assumptions: JsonObject, headers: dict[str, str]
 ) -> httpx.Response:
     """POST /run with a manually serialized body: httpx's `json=` refuses
     non-finite floats, but Python's json.dumps emits the non-standard
@@ -48,7 +49,7 @@ async def post_run_raw(
 
 
 async def create_scenario(
-    client: httpx.AsyncClient, headers: dict, name: str, assumptions: dict
+    client: httpx.AsyncClient, headers: dict[str, str], name: str, assumptions: JsonObject
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/simulation/scenarios",
@@ -56,7 +57,7 @@ async def create_scenario(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 # ---------------------------------------------------------------------------
@@ -88,12 +89,12 @@ async def test_nonfinite_numerics_are_422(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     defaults = await default_assumptions(client, headers)
 
-    def poisoned(mutate: Callable[[dict], None]) -> dict[str, Any]:
+    def poisoned(mutate: Callable[[JsonObject], None]) -> JsonObject:
         assumptions = copy.deepcopy(defaults)
         mutate(assumptions)
         return assumptions
 
-    cases: list[Callable[[dict], None]] = [
+    cases: list[Callable[[JsonObject], None]] = [
         lambda a: a["growth"].__setitem__("birth_weight_kg", math.nan),
         lambda a: a["growth"]["weight_by_age_months"].__setitem__(3, math.inf),
         lambda a: a["sales"].__setitem__("meat_price_per_kg", math.inf),

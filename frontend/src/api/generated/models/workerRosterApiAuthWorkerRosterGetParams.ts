@@ -11,4 +11,14 @@ export type WorkerRosterApiAuthWorkerRosterGetParams = {
  * @maximum 2147483647
  */
 farm_id: number;
+/**
+ * @minimum 0
+ * @maximum 2147483647
+ */
+after_membership_id?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
 };

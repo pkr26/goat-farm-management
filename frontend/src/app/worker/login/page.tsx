@@ -11,7 +11,7 @@
 
 import { ClipboardList, Delete, Fingerprint } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { LoginOut, TokenOut } from "@/api/generated/models";
@@ -27,10 +27,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiFetch, ApiError } from "@/lib/api-client";
+import { apiFetch, ApiError, authSessionEpochValue, revokeTabletSetupSession } from "@/lib/api-client";
 import { useAuth, type FarmEntry } from "@/lib/auth-context";
 import { useT } from "@/lib/i18n";
 import { safeStorage } from "@/lib/safe-storage";
+import { readOfflineShift } from "@/lib/worker-offline-shift";
 import { mapServerError } from "@/lib/server-error-phrases";
 import { TABLET_FARM_STORAGE_KEY, readTabletFarmId, writeTabletFarmId } from "@/app/worker/layout";
 
@@ -46,9 +47,11 @@ export default function WorkerLoginPage() {
   const { signIn, signOut, farmId, farms, selectFarm, getFarms } = useAuth();
   const [tabletFarmId, setTabletFarmId] = useState<number | null>(null);
   const [selected, setSelected] = useState<RosterEntry | null>(null);
+  const [rosterPages, setRosterPages] = useState<{ farmId: number | null; cursors: number[] }>({ farmId: null, cursors: [0] });
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [offlineShiftAvailable, setOfflineShiftAvailable] = useState(false);
   // Manager setup state: the tablet starts unpinned, a manager/owner signs in
   // once (password + optional TOTP/recovery code) and picks the farm.
   const [setupStep, setSetupStep] = useState<SetupStep | null>(null);
@@ -59,7 +62,43 @@ export default function WorkerLoginPage() {
   // True while the signed-in user is the setup manager, not a worker: keeps
   // the returning-session redirect below out of the middle of setup.
   const setupRef = useRef(false);
+  const attemptGeneration = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
+  const setupSessionEpoch = useRef<number | null>(null);
+  const establishingPinSession = useRef<{ epoch: number; accessToken: string } | null>(null);
   const [unpinOpen, setUnpinOpen] = useState(false);
+
+  // Back, unpin and unmount all abandon the same authority-establishing
+  // attempt. Cancellation must also cover signIn's pending farm discovery:
+  // its token is already staged before that promise settles. Revoke only
+  // that family; a newer session owns its own local state and cookie.
+  const cancelAttempt = useCallback(() => {
+    attemptGeneration.current += 1;
+    requestController.current?.abort();
+    requestController.current = null;
+    const staged = establishingPinSession.current;
+    establishingPinSession.current = null;
+    if (staged === null) return false;
+    // The captured bearer is the exact grant to revoke, even if generic
+    // session teardown is superseded while waiting for an auth-cookie lock.
+    void revokeTabletSetupSession(staged.accessToken).catch(() => {});
+    if (staged.epoch === authSessionEpochValue()) {
+      // signOut captures this epoch's bearer before clearing local state.
+      // logout-session revokes exactly that family without touching cookies.
+      void signOut({ sessionOnly: true });
+      return true;
+    }
+    return false;
+  }, [signOut]);
+
+  function backToRoster() {
+    const endedStagedSession = cancelAttempt();
+    setSelected(null);
+    setPin("");
+    setError(null);
+    setBusy(false);
+    if (endedStagedSession) router.replace("/worker/login");
+  }
 
   // W3 (2026-09-28 audit): an interrupted manager setup must not leave a
   // live manager session on the shared tablet. pinFarm/cancelSetup clear
@@ -67,20 +106,24 @@ export default function WorkerLoginPage() {
   // away mid-flow) signs the manager out here.
   useEffect(() => {
     return () => {
-      if (setupRef.current) {
+      cancelAttempt();
+      if (setupRef.current && setupSessionEpoch.current === authSessionEpochValue()) {
         setupRef.current = false;
-        void signOut();
+        void signOut({ sessionOnly: true });
       }
     };
-  }, [signOut]);
+  }, [cancelAttempt, signOut]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage exists only client-side; reading it during render would break SSR hydration
     setTabletFarmId(readTabletFarmId());
+    let active = true;
+    void readOfflineShift().then((shift) => { if (active) setOfflineShiftAvailable(shift !== null); }).catch(() => {});
+    return () => { active = false; };
   }, []);
 
   const rosterQuery = useWorkerRosterApiAuthWorkerRosterGet(
-    { farm_id: tabletFarmId ?? 0 },
+    { farm_id: tabletFarmId ?? 0, after_membership_id: rosterPages.farmId === tabletFarmId ? rosterPages.cursors.at(-1) ?? 0 : 0 },
     { query: { enabled: tabletFarmId !== null } },
   );
   const roster =
@@ -102,6 +145,12 @@ export default function WorkerLoginPage() {
     if (selected === null || tabletFarmId === null || busy) return;
     setBusy(true);
     setError(null);
+    const attempt = ++attemptGeneration.current;
+    const controller = new AbortController();
+    requestController.current?.abort(); requestController.current = controller;
+    let expectedEpoch = authSessionEpochValue();
+    const isCurrent = () => attemptGeneration.current === attempt && !controller.signal.aborted &&
+      expectedEpoch === authSessionEpochValue();
     try {
       // TokenOut is the generated contract (the login page anchors to it
       // deliberately so backend renames break tsc); the inline type here was
@@ -110,6 +159,7 @@ export default function WorkerLoginPage() {
         "/api/auth/worker-login",
         {
           method: "POST",
+          signal: controller.signal,
           body: JSON.stringify({
             farm_id: tabletFarmId,
             membership_id: selected.membership_id,
@@ -117,7 +167,15 @@ export default function WorkerLoginPage() {
           }),
         },
       );
-      await signIn(body.access_token, body.user);
+      if (!isCurrent()) {
+        void revokeTabletSetupSession(body.access_token).catch(() => {}); return;
+      }
+      const establishment = signIn(body.access_token, body.user);
+      expectedEpoch = authSessionEpochValue();
+      establishingPinSession.current = { epoch: expectedEpoch, accessToken: body.access_token };
+      await establishment;
+      if (!isCurrent()) return;
+      establishingPinSession.current = null;
       // signIn's farm discovery auto-selects list[0] when nothing is stored;
       // a pinned tablet belongs on ITS farm. getFarms() reads the list this
       // signIn just committed (React state has not re-rendered yet), and a
@@ -130,6 +188,8 @@ export default function WorkerLoginPage() {
       toast.success(selected.display_name);
       router.replace("/worker");
     } catch (error) {
+      if (!isCurrent()) return;
+      establishingPinSession.current = null;
       setPin("");
       // 401 is the server judging the PIN; any other ApiError carries the
       // server's own mapped message (429 rate limit, 5xx, …). A non-ApiError
@@ -144,7 +204,7 @@ export default function WorkerLoginPage() {
           : t("worker.login.networkError"),
       );
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   }
 
@@ -152,11 +212,22 @@ export default function WorkerLoginPage() {
     if (busy) return;
     setBusy(true);
     setError(null);
+    const attempt = ++attemptGeneration.current;
+    const controller = new AbortController();
+    requestController.current?.abort(); requestController.current = controller;
+    let expectedEpoch = authSessionEpochValue();
+    const isCurrent = () => attemptGeneration.current === attempt && !controller.signal.aborted &&
+      expectedEpoch === authSessionEpochValue();
     try {
       const body = await apiFetch<LoginOut>("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, tablet_setup: true }),
+        signal: controller.signal,
       });
+      if (!isCurrent()) {
+        if (body.access_token) void revokeTabletSetupSession(body.access_token).catch(() => {});
+        return;
+      }
       if (body.mfa_token) {
         setMfaToken(body.mfa_token);
         setSetupStep("code");
@@ -167,9 +238,13 @@ export default function WorkerLoginPage() {
         return;
       }
       setupRef.current = true;
-      await signIn(body.access_token, body.user);
-      setSetupStep("choose-farm");
+      const establishing = signIn(body.access_token, body.user);
+      expectedEpoch = authSessionEpochValue();
+      setupSessionEpoch.current = authSessionEpochValue();
+      await establishing;
+      if (isCurrent()) setSetupStep("choose-farm");
     } catch (error) {
+      if (!isCurrent()) return;
       // Mirror the PIN flow's split: an ApiError is the server judging the
       // credentials; a non-ApiError never reached the server, and "check your
       // details" sends the manager re-typing a perfectly good password
@@ -180,7 +255,7 @@ export default function WorkerLoginPage() {
           : t("worker.login.networkError"),
       );
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   }
 
@@ -188,16 +263,29 @@ export default function WorkerLoginPage() {
     if (busy || mfaToken === null) return;
     setBusy(true);
     setError(null);
+    const attempt = ++attemptGeneration.current;
+    const controller = new AbortController();
+    requestController.current?.abort(); requestController.current = controller;
+    let expectedEpoch = authSessionEpochValue();
+    const isCurrent = () => attemptGeneration.current === attempt && !controller.signal.aborted &&
+      expectedEpoch === authSessionEpochValue();
     try {
       const body = await apiFetch<TokenOut>("/api/auth/totp/challenge", {
         method: "POST",
         body: JSON.stringify({ mfa_token: mfaToken, code }),
+        signal: controller.signal,
       });
+      if (!isCurrent()) {
+        void revokeTabletSetupSession(body.access_token).catch(() => {}); return;
+      }
       setupRef.current = true;
-      await signIn(body.access_token, body.user);
-      setMfaToken(null);
-      setSetupStep("choose-farm");
+      const establishing = signIn(body.access_token, body.user);
+      expectedEpoch = authSessionEpochValue();
+      setupSessionEpoch.current = authSessionEpochValue();
+      await establishing;
+      if (isCurrent()) { setMfaToken(null); setSetupStep("choose-farm"); }
     } catch (error) {
+      if (!isCurrent()) return;
       setCode("");
       // Same split as the credentials step above: the server answered (bad
       // code) versus the request never left the tablet (network).
@@ -207,51 +295,61 @@ export default function WorkerLoginPage() {
           : t("worker.login.networkError"),
       );
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   }
 
   async function pinFarm(farm: FarmEntry) {
-    writeTabletFarmId(farm.id);
+    if (!writeTabletFarmId(farm.id)) { setError(t("worker.setup.failed")); return; }
     setTabletFarmId(farm.id);
     setSetupStep(null);
     setMfaToken(null);
     toast.success(t("worker.setup.pinnedToast"));
-    // The manager's session must not linger on a shared tablet: ending it
-    // (which also wipes any offline queue) leaves only the worker PIN door.
+    // Revoke only this temporary setup family and return to the PIN door.
     // Clear the setup flag BEFORE signOut so the unmount teardown (W3)
     // cannot fire a second sign-out; signOut navigates to the manager's
     // /login, so hand the tablet back to the workers' PIN pad explicitly.
     setupRef.current = false;
-    await signOut();
+    attemptGeneration.current += 1; requestController.current?.abort();
+    const revocation = signOut({ sessionOnly: true });
     router.replace("/worker/login");
+    await revocation;
   }
 
   async function cancelSetup() {
     // Abandoning midway must not leave the manager's session behind (W3).
-    const hadManagerSession = setupRef.current;
+    const hadManagerSession = setupRef.current && setupSessionEpoch.current === authSessionEpochValue();
+    attemptGeneration.current += 1; requestController.current?.abort();
     setupRef.current = false;
     setSetupStep(null);
     setMfaToken(null);
     setCode("");
     setError(null);
+    setBusy(false);
     if (hadManagerSession) {
       // The manager signed in but never pinned: end that session, then hand
       // the tablet back to the PIN pad — signOut itself navigates to the
       // manager's /login form.
-      await signOut();
+      const revocation = signOut({ sessionOnly: true });
       router.replace("/worker/login");
+      await revocation;
     }
   }
 
   function confirmUnpin() {
+    const endedStagedSession = cancelAttempt();
     try {
       safeStorage("local")?.removeItem(TABLET_FARM_STORAGE_KEY);
     } catch {
       /* nothing persisted */
     }
     setUnpinOpen(false);
+    setSelected(null);
+    setPin("");
+    setError(null);
+    setBusy(false);
     setTabletFarmId(null);
+    if (endedStagedSession) router.replace("/worker/login");
   }
 
   function pressDigit(digit: string) {
@@ -426,6 +524,7 @@ export default function WorkerLoginPage() {
       <div className="mx-auto max-w-xl space-y-4 p-6">
         <h1 className="text-2xl font-semibold">{t("worker.login.title")}</h1>
         <p className="text-muted-foreground">{t("worker.login.description")}</p>
+        {offlineShiftAvailable && <a href="/worker/offline" className="inline-flex min-h-11 items-center rounded-lg border px-4 py-2 font-medium">{t("worker.offlineShift.continue")}</a>}
         {rosterQuery.isPending ? (
           <p role="status" aria-live="polite" className="text-muted-foreground">
             {t("common.loading")}
@@ -454,9 +553,11 @@ export default function WorkerLoginPage() {
                   variant="outline"
                   className="h-16 w-full justify-center text-lg"
                   onClick={() => {
+                    cancelAttempt();
                     setSelected(entry);
                     setPin("");
                     setError(null);
+                    setBusy(false);
                   }}
                 >
                   {entry.display_name}
@@ -465,6 +566,16 @@ export default function WorkerLoginPage() {
             ))}
           </ul>
         )}
+        {roster && <nav aria-label={t("worker.login.title")} className="flex gap-3">
+          <Button variant="outline" className="h-11" disabled={rosterQuery.isFetching || rosterPages.farmId !== tabletFarmId || rosterPages.cursors.length <= 1}
+            onClick={() => setRosterPages((pages) => ({ farmId: tabletFarmId, cursors: pages.cursors.slice(0, -1) }))}>
+            {t("pagination.previous")}
+          </Button>
+          <Button variant="outline" className="h-11" disabled={rosterQuery.isFetching || roster.next_after_membership_id == null}
+            onClick={() => { if (roster.next_after_membership_id != null) setRosterPages((pages) => ({ farmId: tabletFarmId, cursors: [...(pages.farmId === tabletFarmId ? pages.cursors : [0]), roster.next_after_membership_id!] })); }}>
+            {t("pagination.next")}
+          </Button>
+        </nav>}
         {/* Unpinning is a destructive action on a shared tablet: it needs a
             deliberate confirm, not one stray tap (2026-09-28 audit, W2). */}
         <Button variant="ghost" onClick={() => setUnpinOpen(true)}>
@@ -556,11 +667,7 @@ export default function WorkerLoginPage() {
       <Button
         variant="ghost"
         className="w-full"
-        onClick={() => {
-          setSelected(null);
-          setPin("");
-          setError(null);
-        }}
+        onClick={backToRoster}
       >
         {/* No glyph decorations in UI copy — the title alone is the back
             action (the stray "←" contradicted this page's own convention,

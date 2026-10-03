@@ -1538,6 +1538,10 @@ async def change_status(
         out, restriction_alert = await _change_status_mutation(
             payload, animal_id, db, farm, user, perms
         )
+        if restriction_alert is not None:
+            from ..services.notifications.outbox import enqueue_alert
+
+            await enqueue_alert(db, farm.id, "MOVEMENT_RESTRICTION", *restriction_alert)
         return out
 
     result = await execute_idempotent(

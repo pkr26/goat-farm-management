@@ -1,0 +1,26 @@
+✔ concurrent real Vitest mutations pass exact clean baselines and never write live source (936.246292ms)
+✔ real thrown errors, collection failures, and assertion failures in setup are infrastructure (1129.438042ms)
+✔ a failing clean baseline prevents a mutant kill (371.451292ms)
+✔ timeout and empty or nonexistent test selections do not count as kills (299.434958ms)
+✔ stale originals, overlapping edits, invalid contexts and source drift fail before spawning (6.050041ms)
+✔ the transform independently verifies exact fingerprints and keeps original bytes (2.59375ms)
+✔ test/dependency changes and reused ids invalidate provenance (2.925666ms)
+✔ resume retries latest error, timeout and uncovered rows and ignores historical ids (2.328167ms)
+✔ true full mode executes every one of 1001 coverers and the exact baseline (5.061208ms)
+✔ latest errors, timeouts and sampled kills are excluded from complete score (2.495583ms)
+✔ partial coverage replaces old paths, removes deleted tests and invalidates changed source positions (0.140333ms)
+{"smoke":"failed","checks":[true,false,true,true]}
+✔ real V8 coverage publishes atomically and failed partial refresh preserves exact map bytes (1236.223417ms)
+✔ smoke requires SURVIVED baseline and CLI exits nonzero on required failure (1302.162916ms)
+✔ dry-run preserves sources/maps/results and does not start Vitest (133.191084ms)
+✔ all process exits require a structured assertion receipt to be credited a kill (0.095167ms)
+✔ successful smoke returns zero after actual baseline and repeated assertion kills (1753.168541ms)
+✔ reverification runs all 41 coverers without dedicated tests and appends a complete receipt (6509.653583ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13855.585083

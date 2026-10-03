@@ -10,9 +10,10 @@ keys, so this doubles as a contract check on the defaults endpoint.
 import asyncio
 import math
 import threading
+from collections.abc import Callable, Coroutine, Iterator
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Never
 from uuid import uuid4
 
 import httpx
@@ -49,14 +50,16 @@ from app.models import (
 )
 from app.schemas.common import MAX_PAGE_OFFSET
 from app.simulation import SimulationAssumptions
+from app.simulation.results import SimulationResult
 
 from .conftest import owner_with_farm, provisioned_worker_login
+from .type_helpers import JsonObject, checked_out_connections, json_object
 
 WORKER_PW = "workerpass123"
 
 
 @pytest.fixture(autouse=True)
-def _reset_in_process_run_state() -> None:
+def _reset_in_process_run_state() -> Iterator[None]:
     """Order-robustness: the run budget window and per-farm run locks are
     MODULE-level in-process state. Charged units and held locks leaked
     between tests when the file ran as a whole (every test passed
@@ -75,7 +78,7 @@ def _reset_in_process_run_state() -> None:
 # Helpers (mirroring test_team_extended patterns)
 # ---------------------------------------------------------------------------
 async def add_worker(
-    client: httpx.AsyncClient, owner: dict, role_id: int, email: str
+    client: httpx.AsyncClient, owner: dict[str, str], role_id: int, email: str
 ) -> httpx.Response:
     return await client.post(
         "/api/team/workers",
@@ -85,7 +88,7 @@ async def add_worker(
 
 
 async def worker_headers(
-    client: httpx.AsyncClient, owner: dict, permissions: list[str], email: str
+    client: httpx.AsyncClient, owner: dict[str, str], permissions: list[str], email: str
 ) -> dict[str, Any]:
     """Worker with a custom role holding exactly `permissions`, on owner's farm."""
     resp = await client.post(
@@ -99,14 +102,14 @@ async def worker_headers(
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
-async def default_assumptions(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def default_assumptions(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/simulation/defaults", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def create_scenario(
-    client: httpx.AsyncClient, headers: dict, name: str, assumptions: dict
+    client: httpx.AsyncClient, headers: dict[str, str], name: str, assumptions: JsonObject
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/simulation/scenarios",
@@ -114,12 +117,12 @@ async def create_scenario(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     sex: str,
     dob_days: int | None,
@@ -134,12 +137,12 @@ async def make_animal(
         payload["date_of_birth"] = (date.today() - timedelta(days=dob_days)).isoformat()
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def make_historical_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     *,
     tag: str,
     sex: str,
@@ -166,7 +169,7 @@ async def make_historical_animal(
         headers={**headers, "Idempotency-Key": f"calibration-fixture-{uuid4()}"},
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 # ---------------------------------------------------------------------------
@@ -990,7 +993,7 @@ async def test_farm_calibration_known_dob_mortality_exposure_starts_at_purchase(
     headers = await owner_with_farm(client)
     purchased_on = date.today() - timedelta(days=60)
     died_on = date.today()
-    animals: list[dict] = []
+    animals: list[JsonObject] = []
     for index in range(10):
         response = await client.post(
             "/api/animals",
@@ -1166,7 +1169,7 @@ async def test_run_can_return_bounded_optimization(client: httpx.AsyncClient) ->
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["model_version"] == "3.3.0"
+    assert body["model_version"] == "3.4.0"
     assert len(body["assumptions_fingerprint"]) == 64
     assert body["optimization"]["evaluated_candidates"] <= 3
     assert body["optimization"]["feasible_candidates"] >= 0
@@ -1183,7 +1186,7 @@ async def test_simulation_cpu_phase_releases_database_checkout(
     scenario = await create_scenario(client, headers, "Pool release plan", assumptions)
     real_offloaded = simulation_api._run_offloaded
 
-    request_factories = (
+    request_factories: tuple[Callable[[], Coroutine[Any, Any, httpx.Response]], ...] = (
         lambda: client.post(
             "/api/simulation/run",
             json={"assumptions": assumptions},
@@ -1214,7 +1217,7 @@ async def test_simulation_cpu_phase_releases_database_checkout(
                 *,
                 started_signal: asyncio.Event = started,
                 release_signal: asyncio.Event = release,
-            ):
+            ) -> SimulationResult:
                 started_signal.set()
                 await release_signal.wait()
                 return await real_offloaded(
@@ -1229,7 +1232,7 @@ async def test_simulation_cpu_phase_releases_database_checkout(
             request = asyncio.create_task(request_factory())
             try:
                 await asyncio.wait_for(started.wait(), timeout=5)
-                assert get_engine().sync_engine.pool.checkedout() == 0
+                assert checked_out_connections(get_engine()) == 0
                 readiness = await asyncio.wait_for(client.get("/readyz"), timeout=2)
                 assert readiness.status_code == 200
             finally:
@@ -1521,17 +1524,19 @@ def test_run_cost_window_lazily_expires_saturated_candidates() -> None:
     assert set(window._spend) == {("user", 2)}
 
 
-def test_saturated_run_cost_admission_does_constant_bucket_work(monkeypatch) -> None:
+def test_saturated_run_cost_admission_does_constant_bucket_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Operation-count benchmark: saturation work is independent of map size."""
     window = _RunCostWindow(window_seconds=60, budget=100, max_keys=10_000)
     for principal in range(10_000):
         window.charge("user", principal, 1)
 
     class NonIterableLedger(dict[tuple[str, int], object]):
-        def __iter__(self):
+        def __iter__(self) -> Never:
             raise AssertionError("saturated admission must not scan the principal ledger")
 
-        def keys(self):
+        def keys(self) -> Never:
             raise AssertionError("saturated admission must not scan the principal ledger")
 
     # Membership/get/set/pop remain available, but any accidental whole-map
@@ -1558,7 +1563,7 @@ def test_saturated_run_cost_admission_does_constant_bucket_work(monkeypatch) -> 
 
 async def test_run_endpoint_key_saturation_does_not_globally_reject_new_farm(
     client: httpx.AsyncClient,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     headers = await owner_with_farm(client)
     assumptions = await default_assumptions(client, headers)

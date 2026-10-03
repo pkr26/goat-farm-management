@@ -1,14 +1,10 @@
 """Data retention sweep (2026-09-28 audit, ITEM 9.1).
 
-Screening fact chains (``screening_images`` ← crops/runs/content_claims ←
-findings) and long-terminal duties grow without bound otherwise. The opt-in
-sweep deletes them in bounded, farm-scoped batches — set-based
-``DELETE ... WHERE id IN (SELECT ... LIMIT n)`` in FK-safe child-first
-order — and commits per farm, so one farm's backlog never holds another
-tenant's row locks and a crash mid-sweep simply resumes at the next interval.
-A farm whose sweep raises is rolled back, counted in ``failed_farms``, and
-SKIPPED — a deterministic failure on one tenant must never starve every farm
-sorted after it (2026-09-29 audit).
+Screening chains and terminal tasks are removed in finite root cohorts.
+Every cohort commits separately, SQL discovery keyset-pages distinct farm IDs,
+and a per-farm budget prevents a large tenant from monopolizing a pass. Counts
+reflect only committed work. Child lock contention aborts a cohort within a
+short lock timeout; skipped child rows are never left for an unbounded cascade.
 
 Deliberate scope boundaries:
 
@@ -31,11 +27,12 @@ Deliberate scope boundaries:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import Select, and_, delete, or_, select
+from sqlalchemy import Select, and_, delete, or_, select, text, union
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.sql.elements import ColumnElement
@@ -66,6 +63,8 @@ class RetentionSummary:
     screening_images: int = 0
     terminal_tasks: int = 0
     failed_farms: int = 0
+    last_farm_id: int = 0
+    exhausted: bool = True
 
     @property
     def total_deleted(self) -> int:
@@ -79,7 +78,7 @@ class RetentionSummary:
         )
 
 
-async def _delete_in_batches(
+async def _delete_batch(
     db: AsyncSession,
     *,
     table: type[Any],
@@ -87,34 +86,26 @@ async def _delete_in_batches(
     candidates: Select[tuple[int]],
     batch_size: int,
 ) -> int:
-    """Drain one deletion cohort in finite, lock-skipping batches.
+    """Delete a single locked, bounded cohort; never drain a backlog."""
+    candidate_ids = list(
+        (
+            await db.execute(
+                candidates.order_by(id_column).limit(batch_size).with_for_update(skip_locked=True)
+            )
+        ).scalars()
+    )
+    if not candidate_ids:
+        return 0
+    removed = await db.execute(
+        delete(table).where(id_column.in_(candidate_ids)).returning(id_column)
+    )
+    return len(removed.scalars().all())
 
-    The bounded, locked candidate set is materialized before each DELETE:
-    PostgreSQL may otherwise re-evaluate a LIMIT subquery embedded in a
-    data-modifying statement and advance past ``batch_size`` (the same shape
-    as the idempotency/refresh-session purges). STOP when a batch returns
-    fewer rows than requested — the cohort is drained.
-    """
-    removed_total = 0
-    while True:
-        candidate_ids = list(
-            (
-                await db.execute(
-                    candidates.order_by(id_column)
-                    .limit(batch_size)
-                    .with_for_update(skip_locked=True)
-                )
-            ).scalars()
-        )
-        if not candidate_ids:
-            return removed_total
-        removed = await db.execute(
-            delete(table).where(id_column.in_(candidate_ids)).returning(id_column)
-        )
-        removed_count = len(removed.scalars().all())
-        removed_total += removed_count
-        if removed_count < batch_size:
-            return removed_total
+
+def _merge_committed(summary: RetentionSummary, cohort: RetentionSummary) -> None:
+    for field in fields(RetentionSummary):
+        if field.name not in {"last_farm_id", "exhausted", "failed_farms"}:
+            setattr(summary, field.name, getattr(summary, field.name) + getattr(cohort, field.name))
 
 
 def _terminal_task_clause(cutoff: datetime) -> ColumnElement[bool]:
@@ -140,52 +131,74 @@ def _terminal_task_clause(cutoff: datetime) -> ColumnElement[bool]:
     )
 
 
-async def run_retention_sweep(db: AsyncSession, settings: Settings) -> RetentionSummary:
-    """Delete aged screening chains and long-terminal duties for every farm.
+async def run_retention_sweep(
+    db: AsyncSession, settings: Settings, *, after_farm_id: int = 0
+) -> RetentionSummary:
+    """Process a bounded distinct-farm page with separately committed cohorts.
 
-    Farms are processed one at a time and each farm's deletes are committed
-    before the next begins: a daily sweep never holds one tenant's row locks
-    while draining another's, and every committed farm makes the sweep
-    idempotent-resumable (a crash leaves the remaining farms for the next
-    interval). A farm that raises is rolled back and skipped — isolation is
-    per farm, not per pass. The caller's trailing commit is then a no-op.
+    Persist ``last_farm_id`` across loop ticks and wrap to zero only when
+    ``exhausted`` is true. A farm is advanced even on failure; a later wrap
+    retries it without starving higher IDs. Backlogged farms get another
+    finite budget on each complete traversal.
     """
     batch_size = settings.retention_delete_batch_size
     if not 1 <= batch_size <= 10_000:
         raise ValueError("retention_delete_batch_size must be between 1 and 10000")
+    if after_farm_id < 0:
+        raise ValueError("after_farm_id must be nonnegative")
     screening_cutoff = utcnow() - timedelta(days=settings.retention_screening_days)
     task_cutoff = utcnow() - timedelta(days=settings.retention_terminal_task_days)
-
-    screening_farms = (
-        await db.execute(
-            select(ScreeningImage.farm_id).where(ScreeningImage.created_at < screening_cutoff)
-        )
-    ).scalars()
-    task_farms = (
-        await db.execute(select(Task.farm_id).where(_terminal_task_clause(task_cutoff)))
-    ).scalars()
-
-    summary = RetentionSummary()
-    for farm_id in sorted(set(screening_farms).union(task_farms)):
-        try:
-            await _sweep_farm(
-                db,
-                farm_id=farm_id,
-                screening_cutoff=screening_cutoff,
-                task_cutoff=task_cutoff,
-                batch_size=batch_size,
-                summary=summary,
+    candidates = union(
+        select(ScreeningImage.farm_id).where(ScreeningImage.created_at < screening_cutoff),
+        select(Task.farm_id).where(_terminal_task_clause(task_cutoff)),
+    ).subquery()
+    farm_ids = list(
+        (
+            await db.execute(
+                select(candidates.c.farm_id)
+                .where(candidates.c.farm_id > after_farm_id)
+                .order_by(candidates.c.farm_id)
+                .limit(settings.retention_farm_batch_size + 1)
             )
-        except Exception:
-            # Per-farm fault isolation (2026-09-29 audit): farms iterate in
-            # sorted order, so an unhandled failure on farm K would abort the
-            # pass before every farm sorted after K — deterministically, every
-            # interval. Roll this farm back, count it, keep sweeping.
-            await db.rollback()
-            summary.failed_farms += 1
-            logger.exception("retention sweep failed for farm_id=%s; skipping it", farm_id)
-            continue
-        await db.commit()
+        ).scalars()
+    )
+    summary = RetentionSummary(
+        last_farm_id=after_farm_id,
+        exhausted=len(farm_ids) <= settings.retention_farm_batch_size,
+    )
+    # Release the discovery transaction before acquiring deletion-cohort locks.
+    await db.commit()
+    for farm_id in farm_ids[: settings.retention_farm_batch_size]:
+        summary.last_farm_id = farm_id
+        for _ in range(settings.retention_max_batches_per_farm):
+            cohort = RetentionSummary()
+            try:
+                # SET LOCAL affects only this transaction, including FK cascades.
+                await db.execute(
+                    text("SELECT set_config('lock_timeout', :value, true)"),
+                    {"value": str(settings.retention_lock_timeout_ms)},
+                )
+                await db.execute(
+                    text("SELECT set_config('statement_timeout', :value, true)"),
+                    {"value": str(settings.retention_statement_timeout_ms)},
+                )
+                await _sweep_farm(
+                    db,
+                    farm_id=farm_id,
+                    screening_cutoff=screening_cutoff,
+                    task_cutoff=task_cutoff,
+                    batch_size=batch_size,
+                    summary=cohort,
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                summary.failed_farms += 1
+                logger.exception("retention cohort failed for farm_id=%s; skipping it", farm_id)
+                break
+            _merge_committed(summary, cohort)
+            if cohort.total_deleted == 0:
+                break
     return summary
 
 
@@ -198,24 +211,27 @@ async def _sweep_farm(
     batch_size: int,
     summary: RetentionSummary,
 ) -> None:
-    """Delete one farm's retention cohort, child-first, in bounded batches.
+    """Delete the complete dependent chain of a bounded, locked root set.
 
-    Chain eligibility anchors on the ROOT image's created_at, never on each
-    row's own: the worker can re-claim an aged photo (ERROR retry, FLAGGED
-    re-screen), so a 200-day-old image can carry a day-old run — deleting by
-    per-row created_at would try to remove the image while younger children
-    still reference it. The OR probes below (run_id OR crop_id, image_id OR
-    crop_id) use the cascade-reverse indexes added for exactly this job
-    (ix_screening_findings_farm_run / ix_screening_findings_farm_crop /
-    ix_screening_runs_farm_crop — 2026-09-28 audit, D6), so FK safety never
-    depends on the pipeline's crop↔image denormalization invariant. A row a
-    SKIP LOCKED probe declines (a live worker re-claiming it) is cleaned by
-    the ondelete=CASCADE foreign keys when its parent's batch commits; those
-    cascade probes are served by the same indexes.
+    Children are deleted directly without SKIP LOCKED. A locked child causes
+    the transaction to fail within the configured lock timeout, so deleting
+    a parent cannot silently wait on a child that an earlier probe skipped.
+    Eligibility follows root-image age, including recently re-screened runs.
     """
-    old_image_ids = select(ScreeningImage.id).where(
-        ScreeningImage.farm_id == farm_id,
-        ScreeningImage.created_at < screening_cutoff,
+    old_image_ids = list(
+        (
+            await db.execute(
+                select(ScreeningImage.id)
+                .where(
+                    ScreeningImage.farm_id == farm_id,
+                    ScreeningImage.created_at < screening_cutoff,
+                    ScreeningImage.status != "PROCESSING",
+                )
+                .order_by(ScreeningImage.id)
+                .limit(batch_size)
+                .with_for_update(skip_locked=True)
+            )
+        ).scalars()
     )
     old_crop_ids = select(ScreeningCrop.id).where(
         ScreeningCrop.farm_id == farm_id,
@@ -228,7 +244,7 @@ async def _sweep_farm(
 
     # FK-safe child-first order: findings → runs → crops → content_claims →
     # images (every child table of screening_images is covered).
-    summary.screening_findings += await _delete_in_batches(
+    summary.screening_findings += await _delete_chain_rows(
         db,
         table=ScreeningFinding,
         id_column=ScreeningFinding.id,
@@ -242,9 +258,8 @@ async def _sweep_farm(
                 ),
             ),
         ),
-        batch_size=batch_size,
     )
-    summary.screening_runs += await _delete_in_batches(
+    summary.screening_runs += await _delete_chain_rows(
         db,
         table=ScreeningRun,
         id_column=ScreeningRun.id,
@@ -258,9 +273,8 @@ async def _sweep_farm(
                 ),
             ),
         ),
-        batch_size=batch_size,
     )
-    summary.screening_crops += await _delete_in_batches(
+    summary.screening_crops += await _delete_chain_rows(
         db,
         table=ScreeningCrop,
         id_column=ScreeningCrop.id,
@@ -268,9 +282,8 @@ async def _sweep_farm(
             ScreeningCrop.farm_id == farm_id,
             ScreeningCrop.image_id.in_(old_image_ids),
         ),
-        batch_size=batch_size,
     )
-    summary.screening_content_claims += await _delete_in_batches(
+    summary.screening_content_claims += await _delete_chain_rows(
         db,
         table=ScreeningContentClaim,
         id_column=ScreeningContentClaim.id,
@@ -278,19 +291,16 @@ async def _sweep_farm(
             ScreeningContentClaim.farm_id == farm_id,
             ScreeningContentClaim.image_id.in_(old_image_ids),
         ),
-        batch_size=batch_size,
     )
-    summary.screening_images += await _delete_in_batches(
+    summary.screening_images += await _delete_chain_rows(
         db,
         table=ScreeningImage,
         id_column=ScreeningImage.id,
         candidates=select(ScreeningImage.id).where(
-            ScreeningImage.farm_id == farm_id,
-            ScreeningImage.created_at < screening_cutoff,
+            ScreeningImage.farm_id == farm_id, ScreeningImage.id.in_(old_image_ids)
         ),
-        batch_size=batch_size,
     )
-    summary.terminal_tasks += await _delete_in_batches(
+    summary.terminal_tasks += await _delete_batch(
         db,
         table=Task,
         id_column=Task.id,
@@ -300,3 +310,17 @@ async def _sweep_farm(
         ),
         batch_size=batch_size,
     )
+
+
+async def _delete_chain_rows(
+    db: AsyncSession,
+    *,
+    table: type[Any],
+    id_column: InstrumentedAttribute[int],
+    candidates: Select[tuple[int]],
+) -> int:
+    """Delete descendants of the already bounded root-image cohort."""
+    removed = await db.execute(delete(table).where(id_column.in_(candidates)))
+    # Descendant counts can exceed the bounded root count. Do not transfer
+    # every deleted descendant ID merely to report an aggregate.
+    return cast(CursorResult[Any], removed).rowcount

@@ -27,9 +27,10 @@ from .test_health_extended import (
     record_event,
     row_by_name,
 )
+from .type_helpers import Headers, json_object
 
 
-async def _make_animal(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def _make_animal(client: httpx.AsyncClient, headers: Headers) -> dict[str, Any]:
     resp = await client.post(
         "/api/animals",
         json={
@@ -42,7 +43,7 @@ async def _make_animal(client: httpx.AsyncClient, headers: dict) -> dict[str, An
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 # FIXED — regression test
@@ -419,7 +420,7 @@ async def test_preview_batch_id_at_schema_max_should_400_not_500(
 # animals already released to another bucket. Preview and write now share
 # the selector's quarantine predicate.
 async def _release_one_from_quarantine(
-    client: httpx.AsyncClient, headers: dict, animal_id: int
+    client: httpx.AsyncClient, headers: Headers, animal_id: int
 ) -> None:
     """Owner history-override move: the only per-animal path out of a
     purchased batch's quarantine without completing the whole protocol."""

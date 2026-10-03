@@ -2,6 +2,8 @@
 
 import math
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import date
 
 from .assumptions import FeedAssumptions, SalesAssumptions
 
@@ -93,43 +95,76 @@ def cultivated_green_supply_kg_dm_for_month(
     return annual_kg_dm * seasonal[calendar_month - 1] / sum(seasonal) * yield_multiplier
 
 
-# Bakrid (Eid al-Adha) Gregorian dates as observed in India. Verified against
-# timeanddate.com and Drik Panchang through 2032; 2033-2050 are projections
+# Embedded Bakrid (Eid al-Adha) Gregorian calendar for India. Historical
+# source comparisons extend through 2032, but every date after 2026 is a
+# projection rather than a local observed fact; 2033-2050 are extrapolations
 # (the festival drifts ~10.7-11 days earlier per Gregorian year) and are
 # marked tentative — moon sighting moves the day, rarely the month. The
 # simulation only needs the month: month resolution makes a ±1-day estimate
-# safe. 2041-2045 are from the Fiqh Council of North America calendar /
-# datehijri.com (India moon-sighting shifts 2044 to Nov 1 and 2045 to Oct 22
-# — same month, so the table keeps the FCNA day); 2046-2050 follow the
+# uncertain near a month boundary; explicit user overrides take precedence.
+# A lunar holiday may occur twice in a Gregorian year. 2039/2040 follow
+# https://www.al-habib.info/islamic-calendar/global_pdf/global-islamic-calendar-year-2039-ce.pdf
+# and its 2040 counterpart (global projections, not local observations).
+# 2041-2045 are from the Fiqh Council of North America calendar /
+# datehijri.com (the tentative India date in 2044 is Nov 1: unlike Oct 31,
+# that changes the model month); 2046-2050 follow the
 # documented ~10.7-11 day annual drift and are month-resolution estimates
 # only.
-BAKRID_DATES_BY_YEAR: dict[int, tuple[int, int]] = {
-    2026: (5, 28),
-    2027: (5, 17),
-    2028: (5, 5),
-    2029: (4, 24),
-    2030: (4, 14),
-    2031: (4, 3),
-    2032: (3, 22),
-    2033: (3, 11),  # tentative
-    2034: (2, 28),  # tentative
-    2035: (2, 17),  # tentative
-    2036: (2, 6),  # tentative
-    2037: (1, 26),  # tentative
-    2038: (1, 15),  # tentative
-    2039: (1, 4),  # tentative
-    2040: (12, 26),  # tentative
-    2041: (12, 4),  # tentative (FCNA calendar)
-    2042: (11, 23),  # tentative (FCNA calendar)
-    2043: (11, 12),  # tentative (FCNA calendar)
-    2044: (10, 31),  # tentative; India moon sighting Nov 1 — same month
-    2045: (10, 21),  # tentative; India moon sighting Oct 22 — same month
-    2046: (10, 10),  # tentative (drift projection ~10.7 d/yr)
-    2047: (9, 29),  # tentative (drift projection)
-    2048: (9, 18),  # tentative (drift projection)
-    2049: (9, 7),  # tentative (drift projection)
-    2050: (8, 28),  # tentative (drift projection)
+BAKRID_DATES_BY_YEAR: dict[int, tuple[tuple[int, int], ...]] = {
+    2026: ((5, 28),),
+    2027: ((5, 17),),
+    2028: ((5, 5),),
+    2029: ((4, 24),),
+    2030: ((4, 14),),
+    2031: ((4, 3),),
+    2032: ((3, 22),),
+    2033: ((3, 11),),  # tentative
+    2034: ((2, 28),),  # tentative
+    2035: ((2, 17),),  # tentative
+    2036: ((2, 6),),  # tentative
+    2037: ((1, 26),),  # tentative
+    2038: ((1, 15),),  # tentative
+    2039: ((1, 5), (12, 26)),  # global crescent probability; both tentative
+    2040: ((12, 15),),  # global crescent probability; tentative
+    2041: ((12, 4),),  # tentative (FCNA calendar)
+    2042: ((11, 23),),  # tentative (FCNA calendar)
+    2043: ((11, 12),),  # tentative (FCNA calendar)
+    2044: ((11, 1),),  # India projection; a one-day shift can cross a month boundary
+    2045: ((10, 21),),  # tentative; India moon sighting Oct 22 — same month
+    2046: ((10, 10),),  # tentative (drift projection ~10.7 d/yr)
+    2047: ((9, 29),),  # tentative (drift projection)
+    2048: ((9, 18),),  # tentative (drift projection)
+    2049: ((9, 7),),  # tentative (drift projection)
+    2050: ((8, 28),),  # tentative (drift projection)
 }
+
+
+@dataclass(frozen=True)
+class FestivalOccurrence:
+    observed_on: date
+    region: str
+    source: str
+    projected: bool
+    uncertainty_days: int = 1
+
+
+def bakrid_occurrences() -> list[FestivalOccurrence]:
+    """Dated occurrences with the uncertainty retained alongside each date."""
+    return [
+        FestivalOccurrence(
+            observed_on=date(year, month, day),
+            region="Global crescent projection" if year in (2039, 2040) else "India",
+            source=(
+                "https://www.al-habib.info/islamic-calendar/global_pdf/"
+                f"global-islamic-calendar-year-{year}-ce.pdf"
+                if year in (2039, 2040)
+                else "Embedded India calendar; future dates require local confirmation"
+            ),
+            projected=year > 2026,
+        )
+        for year, occurrences in sorted(BAKRID_DATES_BY_YEAR.items())
+        for month, day in sorted(occurrences)
+    ]
 
 
 def festival_coverage_last_year() -> int:
@@ -156,8 +191,10 @@ def bakrid_festival_months(start_year_month: str, horizon_months: int) -> list[i
     except (ValueError, IndexError):
         return []
     result: list[int] = []
-    for festival_year, (festival_month, _day) in sorted(BAKRID_DATES_BY_YEAR.items()):
-        simulation_month = (festival_year - year) * 12 + (festival_month - month) + 1
+    for occurrence in bakrid_occurrences():
+        simulation_month = (
+            (occurrence.observed_on.year - year) * 12 + (occurrence.observed_on.month - month) + 1
+        )
         if 1 <= simulation_month <= horizon_months:
             result.append(simulation_month)
     return sorted(set(result))

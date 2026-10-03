@@ -18,7 +18,9 @@ function HealthNewRedirectContent() {
   const dispatchedUrl = useRef<string | null>(null);
 
   useEffect(() => {
-    const url = `/health${search ? `?${search}` : ""}`;
+    const params = new URLSearchParams(search);
+    params.set("create", "1");
+    const url = `/health?${params.toString()}`;
     if (dispatchedUrl.current === url) return;
     dispatchedUrl.current = url;
     router.replace(url);

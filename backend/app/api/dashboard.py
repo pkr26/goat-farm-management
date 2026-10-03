@@ -496,12 +496,10 @@ async def dashboard(
         # endpoint, so an aggregate view became a side door around field-level
         # authorization. Apply the identical convention.
         status_totals=(
-            status_totals
-            if can_view_health
-            else {
+            {
                 status: count
                 for status, count in status_totals.items()
-                if status not in _CLINICAL_OUTCOME_STATUSES
+                if (can_view_health if status in _CLINICAL_OUTCOME_STATUSES else can_view_animals)
             }
         ),
         todays_tasks=[task_out(t) for t in todays_tasks],
@@ -762,12 +760,10 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
         # back to a caller without health.view. Apply the withheld convention
         # to the statuses that are clinical outcomes.
         status_counts=(
-            status_counts
-            if can_view_health
-            else {
+            {
                 status: count
                 for status, count in status_counts.items()
-                if status not in _CLINICAL_OUTCOME_STATUSES
+                if (can_view_health if status in _CLINICAL_OUTCOME_STATUSES else can_view_animals)
             }
         ),
         breeding=breeding_stats,

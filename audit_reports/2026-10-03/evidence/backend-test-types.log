@@ -1,0 +1,1 @@
+mypy --strict over tests/ holds at 1778 errors (ratchet)

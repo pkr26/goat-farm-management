@@ -14,7 +14,34 @@
  * model the engine does not run.
  */
 
+import type { MessageKey, TFn } from "@/lib/i18n";
 import type { FarmVocabulary } from "@/lib/farm-vocabulary";
+import type { SimulationAssumptions } from "@/api/generated/models";
+
+/** Known section headings share their names with the section-help controls.
+ * Generated assumption keys make a newly supported section require a label;
+ * unknown sections from older or future saved payloads retain page fallback.
+ */
+const SECTION_LABEL_KEYS = {
+  meta: "simulation.token.meta",
+  herd: "simulation.token.herd",
+  reproduction: "simulation.token.reproduction",
+  mortality: "simulation.token.mortality",
+  culling: "simulation.token.culling",
+  growth: "simulation.token.growth",
+  sales: "simulation.token.sales",
+  feed: "simulation.token.feed",
+  costs: "simulation.token.costs",
+  finance: "simulation.token.finance",
+  risk: "simulation.token.risk",
+  optimization: "simulation.token.optimization",
+} satisfies Record<Exclude<keyof SimulationAssumptions, "events">, MessageKey>;
+
+export function simulationSectionLabel(section: string, t: TFn): string | null {
+  const keys: Readonly<Partial<Record<string, MessageKey>>> = SECTION_LABEL_KEYS;
+  const key = Object.hasOwn(keys, section) ? keys[section] : undefined;
+  return key ? t(key) : null;
+}
 
 
 /** The vocabulary type carries no male plural; bucks takes a plain -s. */
@@ -28,7 +55,7 @@ export interface FieldHelp {
 }
 
 /** Section-level help shown by the "?" beside each assumptions section. */
-export const SIMULATION_SECTION_HELP: Record<string, (v: FarmVocabulary) => string> = {
+export const SIMULATION_SECTION_HELP: Partial<Record<string, (v: FarmVocabulary) => string>> = {
   meta: () =>
     "How long the projection runs and the calendar month it starts from. Seasonal prices (festivals, lean seasons) are placed on real months from these two values.",
   herd: (v) =>
@@ -56,7 +83,7 @@ export const SIMULATION_SECTION_HELP: Record<string, (v: FarmVocabulary) => stri
 };
 
 /** Per-field help, keyed by "section.key" exactly as the editor addresses it. */
-const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
+const FIELD_HELP: Partial<Record<string, (v: FarmVocabulary) => FieldHelp>> = {
   // --- meta ---------------------------------------------------------------
   "meta.horizon_months": () => ({
     body: "How many months the projection runs. 120 months = 10 years, the standard appraisal window. All cost, revenue and loan figures cover exactly this span.",
@@ -434,7 +461,7 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
     body: "The return you require on your money (0.12 = 12%) — the rate NPV discounts future cash flows at. NPV > 0 means the project beats this rate.",
   }),
   "finance.nlm_subsidy": () => ({
-    body: "National Livestock Mission goat-unit toggle: when on, the engine replaces the subsidy fraction with the scheme's 50% back-ended capital subsidy, capped per unit size (eligible capital ~₹10,000 per breeding head), and loan + subsidy never exceed the project cost.",
+    body: "National Livestock Mission Jan 2025 policy: exact breeding units from 100 females + 5 males to 500 + 25 have subsidy ceilings from ₹10 lakh to ₹50 lakh, up to 50% of an explicitly declared eligible capital budget. Working capital, personal vehicles and land purchase/rent/lease are excluded. This is a conditional estimate, not applicant approval. Only declared approved half installments are booked on their supported receipt months; bank and own funds cover opening investment until those receipts arrive.",
   }),
   "finance.working_capital_months": () => ({
     body: "Months of year-1 running costs held inside the project cost as the opening cash buffer. A breeding-start unit sells nothing for ~a year — 12 months is the honest default.",
@@ -545,14 +572,14 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
 };
 
 /** Help for the low/high/enabled subfields inside one risk variable. */
-const RISK_SUBFIELD_HELP: Record<string, string> = {
+const RISK_SUBFIELD_HELP: Partial<Record<string, string>> = {
   enabled: "Turn this uncertainty on/off in the Monte Carlo draws. Off = the parameter stays fixed at its base value in every risk run.",
   low: "The lowest multiplier drawn — 0.8 means the parameter can fall to 80% of its base value in a bad draw. Must bracket 1.0.",
   high: "The highest multiplier drawn — 1.2 means the parameter can rise to 120% of its base value. Must bracket 1.0.",
 };
 
 /** Names shown for each risk variable's parent row. */
-const RISK_VARIABLE_LABELS: Record<string, (v: FarmVocabulary) => string> = {
+const RISK_VARIABLE_LABELS: Partial<Record<string, (v: FarmVocabulary) => string>> = {
   meat_price: () => "Meat price",
   feed_price: () => "Feed price",
   adult_mortality: (v) => `Adult ${v.femaleAdult} mortality`,
@@ -563,6 +590,19 @@ const RISK_VARIABLE_LABELS: Record<string, (v: FarmVocabulary) => string> = {
   operating_cost: () => "Operating cost",
 };
 
+function vocabularyParams(t: TFn) {
+  return { femaleAdult: t("simulation.token.doe"), femaleAdultPlural: t("simulation.token.does"),
+    maleAdult: t("simulation.token.buck"), maleAdultPlural: t("simulation.token.bucks"),
+    young: t("simulation.token.kid"), youngPlural: t("simulation.token.kids"),
+    parturition: t("simulation.help.noun.parturition") };
+}
+
+export function simulationSectionHelp(section: string, v: FarmVocabulary, t?: TFn): string | null {
+  const factory = SIMULATION_SECTION_HELP[section];
+  if (!factory) return null;
+  return t ? t(`simulation.help.section.${section}` as MessageKey, vocabularyParams(t)) : factory(v);
+}
+
 /**
  * Help for one field. `path` is "section.key" (or "section.key.subkey" for a
  * risk variable subfield). Returns null when nothing is known — the editor
@@ -571,8 +611,23 @@ const RISK_VARIABLE_LABELS: Record<string, (v: FarmVocabulary) => string> = {
 export function simulationFieldHelp(
   path: string,
   v: FarmVocabulary,
+  t?: TFn,
 ): { label: string; help: FieldHelp } | null {
   const [section, key, subKey] = path.split(".");
+  if (t) {
+    const params = vocabularyParams(t);
+    const factory = FIELD_HELP[path];
+    if (factory) return { label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      help: { body: t(`simulation.help.field.${path}` as MessageKey, params) } };
+    if (section === "risk" && key !== undefined) {
+      const labelFactory = RISK_VARIABLE_LABELS[key];
+      const variable = labelFactory ? t(`simulation.help.risk.label.${key}` as MessageKey, params) : key.replace(/_/g, " ");
+      if (subKey !== undefined) return RISK_SUBFIELD_HELP[subKey]
+        ? { label: `${variable} — ${subKey}`, help: { body: t(`simulation.help.risk.${subKey}` as MessageKey) } } : null;
+      return { label: variable, help: { body: t("simulation.help.risk.variable", { variable }) } };
+    }
+    return null;
+  }
   if (subKey !== undefined && section === "risk") {
     const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) ?? key.replace(/_/g, " ");
     const body = RISK_SUBFIELD_HELP[subKey];

@@ -34,28 +34,28 @@ describe("/health/new redirect shim", () => {
     );
 
     await waitFor(() =>
-      expect(replaceMock).toHaveBeenCalledWith("/health?task_id=12&animal_id=3"),
+      expect(replaceMock).toHaveBeenCalledWith("/health?task_id=12&animal_id=3&create=1"),
     );
     expect(replaceMock).toHaveBeenCalledTimes(1);
   });
 
-  it("redirects to plain /health without a query string", async () => {
+  it("preserves the create intent without animal or duty context", async () => {
     render(<HealthNewRedirect />);
-    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/health"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/health?create=1"));
   });
 
   it("re-redirects when only the query string changes", async () => {
     searchParams.current = new URLSearchParams("task_id=12");
     const { rerender } = render(<HealthNewRedirect />);
     await waitFor(() =>
-      expect(replaceMock).toHaveBeenCalledWith("/health?task_id=12"),
+      expect(replaceMock).toHaveBeenCalledWith("/health?task_id=12&create=1"),
     );
 
     searchParams.current = new URLSearchParams("task_id=99");
     rerender(<HealthNewRedirect />);
 
     await waitFor(() =>
-      expect(replaceMock).toHaveBeenCalledWith("/health?task_id=99"),
+      expect(replaceMock).toHaveBeenCalledWith("/health?task_id=99&create=1"),
     );
   });
 });

@@ -72,6 +72,7 @@ from app.simulation.engine import (
 )
 from app.simulation.feed import DAYS_PER_MONTH
 from app.simulation.finance import irr_roots
+from app.simulation.planner import PlanAnimalClass
 from app.simulation.shocks import MonthlyShockPath
 
 S_ADULT = 0.95 ** (1.0 / 12.0)  # monthly adult survival, default 5% annual mortality
@@ -427,6 +428,7 @@ def test_default_run_reports_purchased_fodder_and_honest_operating_result() -> N
 def test_default_run_npv_bcr_consistency() -> None:
     res = run_simulation(SimulationAssumptions(), with_break_even=False)
     metrics = res.metrics
+    assert metrics.bcr is not None
     assert (metrics.npv > 0.0) == (metrics.bcr > 1.0)
     assert metrics.project_cost > 0.0
     assert metrics.loan_amount == pytest.approx(0.85 * metrics.project_cost)
@@ -818,7 +820,7 @@ def test_assumptions_defaults_valid_and_extra_forbidden() -> None:
     a = SimulationAssumptions()  # must construct: valid Osmanabadi stall-fed run
     assert a.meta.horizon_months == 120
     with pytest.raises(ValidationError):
-        SimulationAssumptions(meta={"horizon_months": 120, "bogus": 1})  # type: ignore[dict-item]
+        SimulationAssumptions.model_validate({"meta": {"horizon_months": 120, "bogus": 1}})
 
 
 def test_adult_buck_weight_default_is_the_breed_descriptor_mid() -> None:
@@ -1064,11 +1066,12 @@ def test_breed_presets_and_systems() -> None:
         # ``curve`` is either the Osmanabadi table itself (the calibrated
         # default) or a factor scaling the linear base curve to the breed's
         # yearling weight.
-        expected_curve = (
-            curve
-            if isinstance(curve, list)
-            else [birth_weight + 2.0 * curve * month for month in range(13)]
-        )
+        if isinstance(curve, list):
+            expected_curve = curve
+        else:
+            assert isinstance(curve, (int, float))
+            assert isinstance(birth_weight, (int, float))
+            expected_curve = [birth_weight + 2.0 * curve * month for month in range(13)]
         assert preset.growth.weight_by_age_months == pytest.approx(expected_curve)
         assert preset.growth.sale_age_months == sale_age
         # All presets are meat-mode: no saleable-milk configuration (the
@@ -1487,10 +1490,12 @@ def test_auto_stock_cost_values_every_young_cohort_at_its_tracked_age() -> None:
     growth = assumptions.growth
     midpoint_age = 15
     expected = 100.0 * (
-        3.0 * weight_at_age(1, growth, growth.adult_weight_doe_kg)
-        + 7.0 * weight_at_age(4, growth, growth.adult_weight_doe_kg)
+        weight_at_age(1, growth, growth.adult_weight_doe_kg)
+        + 2.0 * male_weight_at_age(1, growth, growth.adult_weight_buck_kg)
+        + 3.0 * weight_at_age(4, growth, growth.adult_weight_doe_kg)
+        + 4.0 * male_weight_at_age(4, growth, growth.adult_weight_buck_kg)
         + 5.0 * weight_at_age(midpoint_age, growth, growth.adult_weight_doe_kg)
-        + 6.0 * weight_at_age(midpoint_age, growth, growth.adult_weight_buck_kg)
+        + 6.0 * male_weight_at_age(midpoint_age, growth, growth.adult_weight_buck_kg)
     )
     assert breakdown.stock_cost == pytest.approx(expected)
 
@@ -1801,16 +1806,14 @@ def test_purchase_event_age_months_prices_the_actual_age() -> None:
         ("male_grower", 8),
     ],
 )
-def test_purchase_event_age_months_valid_chain_ages_run(animal_class: str, age_months: int) -> None:
+def test_purchase_event_age_months_valid_chain_ages_run(
+    animal_class: PlanAnimalClass, age_months: int
+) -> None:
     """Every young-stock class accepts an explicit in-chain arrival age (the
     male grower bound is sale_age - 1 = 8 at the pinned sale age of 10... the
     chain spans 6..sale_age-1)."""
     event = HerdEventAssumptions(
-        month=1,
-        kind="purchase",
-        animal_class=animal_class,
-        count=3,
-        age_months=age_months,  # type: ignore[arg-type]
+        month=1, kind="purchase", animal_class=animal_class, count=3, age_months=age_months
     )
     res = run_simulation(_empty_herd_event_toy([event]), with_break_even=False)
     assert res.months[0].purchases_head == 3.0
@@ -1847,7 +1850,7 @@ def test_event_age_months_validation() -> None:
         SimulationAssumptions(events=[event_payload(animal_class="male_grower", age_months=9)])  # type: ignore[list-item]
     # The grower bound follows afb: at afb 14 a 13-month-old is in-chain.
     valid = SimulationAssumptions(
-        reproduction={"age_at_first_breeding_months": 14},  # type: ignore[dict-item]
+        reproduction=ReproductionAssumptions(age_at_first_breeding_months=14),
         events=[event_payload(age_months=13)],  # type: ignore[list-item]
     )
     assert valid.events[0].age_months == 13
@@ -1863,10 +1866,10 @@ def test_purchase_events_per_class_jump_and_price() -> None:
     s_grower = 1.0 - monthly_mortality_rate(0.04)
     meat = SimulationAssumptions().sales.meat_price_per_kg
     # (animal_class, row accessor, survival, default price per head)
-    base = SimulationAssumptions()
+    opening = SimulationAssumptions()
     cases = [
-        ("doe", _doe_pool, S_ADULT, base.herd.doe_purchase_price),
-        ("buck", lambda r: r.bucks, S_ADULT, base.herd.buck_purchase_price),
+        ("doe", _doe_pool, S_ADULT, opening.herd.doe_purchase_price),
+        ("buck", lambda r: r.bucks, S_ADULT, opening.herd.buck_purchase_price),
         ("female_kid", lambda r: r.f_kids, S_KID, weight_at_age(1, g, doe_w) * meat),
         # Young males are valued on the male curve (female table x the ~10%
         # young-male weight premium).
@@ -2315,13 +2318,15 @@ def test_empty_grower_chain_event_sale_addresses_starting_inventory(animal_class
     }
     assumptions = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=12),
-        herd=HerdAssumptions(
-            does=0,
-            bucks=0,
-            max_breeding_does=0,
-            female_retention_fraction=1.0,
-            auto_purchase_bucks=False,
-            **herd_values,
+        herd=HerdAssumptions.model_validate(
+            {
+                "does": 0,
+                "bucks": 0,
+                "max_breeding_does": 0,
+                "female_retention_fraction": 1.0,
+                "auto_purchase_bucks": False,
+                **herd_values,
+            }
         ),
         events=[
             HerdEventAssumptions(
@@ -2352,12 +2357,14 @@ def test_empty_grower_chain_ordered_purchase_then_sale_round_trip(animal_class: 
     }
     assumptions = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=12),
-        herd=HerdAssumptions(
-            does=0,
-            bucks=0,
-            max_breeding_does=0,
-            auto_purchase_bucks=False,
-            **herd_values,
+        herd=HerdAssumptions.model_validate(
+            {
+                "does": 0,
+                "bucks": 0,
+                "max_breeding_does": 0,
+                "auto_purchase_bucks": False,
+                **herd_values,
+            }
         ),
         events=[
             HerdEventAssumptions(
@@ -2938,7 +2945,7 @@ def test_max_doe_age_floor_36_and_boundary_run() -> None:
     The schema floor is now 36; the boundary value runs clean."""
     for bad in (23, 24, 35):
         with pytest.raises(ValidationError):
-            SimulationAssumptions(culling={"max_doe_age_months": bad})  # type: ignore[dict-item]
+            SimulationAssumptions.model_validate({"culling": {"max_doe_age_months": bad}})
     a = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=24),
         culling=CullingAssumptions(max_doe_age_months=36),
@@ -2959,11 +2966,11 @@ def test_afb_must_not_exceed_max_doe_age() -> None:
         culling=CullingAssumptions(max_doe_age_months=36),
     )
     assert ok.reproduction.age_at_first_breeding_months == 30
-    # Mutation bypasses validation; revalidating the mutated state trips the
-    # cross-field guard (invoked directly here to pin the invariant itself).
+    # Mutation bypasses the nested field bounds; validating the existing
+    # model still invokes its cross-field guard and pins the invariant itself.
     ok.culling.max_doe_age_months = 24
     with pytest.raises(ValueError, match="age_at_first_breeding_months"):
-        ok._breeding_age_within_doe_lifespan()
+        SimulationAssumptions.model_validate(ok)
     # And the boundary pair (with a doe purchase writing doe_ages[30]) runs
     # without the old IndexError.
     a = SimulationAssumptions(

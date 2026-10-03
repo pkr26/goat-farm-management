@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 class Task(Base):
     __tablename__ = "tasks"
     __table_args__ = (
+        UniqueConstraint("farm_id", "id", name="uq_tasks_farm_id"),
         UniqueConstraint(
             "farm_id",
             "recurring_series_id",

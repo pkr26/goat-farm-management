@@ -62,7 +62,7 @@ def policy_payload(**overrides: object) -> dict[str, Any]:
 
 
 async def add_policy(
-    client: httpx.AsyncClient, headers: dict, **overrides: object
+    client: httpx.AsyncClient, headers: dict[str, str], **overrides: object
 ) -> httpx.Response:
     return await client.post(
         "/api/finance/insurance", json=policy_payload(**overrides), headers=headers
@@ -70,7 +70,7 @@ async def add_policy(
 
 
 async def list_policies(
-    client: httpx.AsyncClient, headers: dict, **params: object
+    client: httpx.AsyncClient, headers: dict[str, str], **params: str | int | float | bool | None
 ) -> httpx.Response:
     return await client.get("/api/finance/insurance", params=params, headers=headers)
 

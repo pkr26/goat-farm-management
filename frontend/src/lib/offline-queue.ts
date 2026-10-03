@@ -1,18 +1,11 @@
 /**
- * Offline mutation queue for the worker tablet (ITEM 2 Phase 2,
- * 2026-09-21 playbook).
+ * Legacy v1 localStorage queue format and compatibility fixtures.
  *
- * Rural tablets spend real time offline. Duty completions recorded in the
- * field must survive connectivity loss exactly once: every queued mutation
- * carries the Idempotency-Key it will retry under, replays FIFO through
- * apiFetch when connectivity returns, and is scoped to the actor+farm that
- * enqueued it so a shared tablet never replays someone else's writes.
- *
- * Hardening mirrors idempotent-request's persistence rules: bounded record
- * count, bounded storage bytes, a 72-hour record TTL, a version field, and
- * fail-closed reads (any malformed store is discarded wholesale — a
- * corrupted queue is a nuisance, a misparsed one is a data-integrity bug).
- * Enqueue also fails closed on the queueable-mutation allowlist.
+ * Active worker writes and replay use worker-outbox.ts: its IndexedDB
+ * transactions retain failed, expired and conflicting operations. This
+ * module's historical queue APIs are retained for migration/test fixtures;
+ * production imports only the legacy key, path predicate, scope type and
+ * backoff reset. Do not enqueue or drain worker duties through these APIs.
  */
 
 import { randomIdempotencyKey } from "@/lib/idempotent-request";

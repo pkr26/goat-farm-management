@@ -26,6 +26,7 @@ cost base documented per-field below.
 """
 
 import re
+from datetime import date
 from itertools import pairwise
 from typing import Annotated, Literal
 
@@ -527,6 +528,25 @@ class SalesAssumptions(_Group):
     # list disables the uplift; the same uplift is never applied twice in one
     # month.
     festival_sale_months: list[int] | None = Field(default=None, max_length=40)
+    # Exact local dates override the embedded projections and legacy month
+    # list. Retain supplied provenance; these dates are not independently
+    # certified by the application. [] explicitly disables festival sales.
+    festival_date_overrides: list[str] | None = Field(default=None, max_length=40)
+    festival_date_source: str | None = Field(default=None, max_length=500)
+
+    @field_validator("festival_date_overrides")
+    @classmethod
+    def _valid_festival_dates(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        if len(set(value)) != len(value):
+            raise ValueError("festival_date_overrides must not contain duplicate dates")
+        for raw in value:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+                raise ValueError("festival_date_overrides must use YYYY-MM-DD")
+            date.fromisoformat(raw)
+        return sorted(value)
+
     # Males whose sale age falls this many months BEFORE a festival month are
     # held and sold in the festival month at the festival price (Telangana
     # practice: the herd is managed so bucks finish into Bakrid). 0 sells
@@ -761,6 +781,17 @@ class CostsAssumptions(_Group):
         return self
 
 
+class SubsidyReceipt(_Group):
+    """An explicitly supplied approved installment's expected receipt date.
+
+    Month zero is intentionally unavailable: prior financing/expenditure and
+    verification milestones must be met. Timing is supplied, never guessed.
+    """
+
+    month: int = Field(ge=1, le=240)
+    amount: FiniteFloat = Field(gt=0.0, le=MAX_MONEY)
+
+
 class FinanceAssumptions(_Group):
     """Project financing (NABARD refinance structure)."""
 
@@ -773,14 +804,17 @@ class FinanceAssumptions(_Group):
     moratorium_months: int = Field(default=12, ge=0, le=60)
     # Capital subsidy as a fraction of project cost; reduces the promoter's equity.
     subsidy_fraction: FiniteFloat = Field(default=0.0, ge=0.0, le=0.9)
-    # National Livestock Mission (NLM) goat-unit toggle: when on, the engine
-    # replaces subsidy_fraction with the scheme's 50% back-ended capital
-    # subsidy, capped per unit size (eligible capital ~₹10,000 per breeding
-    # head — the published bands run from a 100F+5M unit's ~₹10 lakh up to a
-    # 500F+25M unit's ~₹50 lakh; shed, animals, fodder, equipment and
-    # insurance are all eligible). The subsidy is further capped so loan +
-    # subsidy never exceed the project cost (equity stays non-negative).
+    # Request a versioned policy estimate. A toggle is not an approval or a
+    # cash receipt: old saved scenarios remain valid but book no NLM funding.
     nlm_subsidy: bool = False
+    nlm_unit_females: int | None = Field(default=None, ge=0, le=MAX_HEAD)
+    nlm_unit_males: int | None = Field(default=None, ge=0, le=MAX_HEAD)
+    # Explicit total of eligible capital items represented in this project.
+    # Excludes working capital, land purchase/rent/lease and personal vehicles.
+    # None means unknown; the model must not invent an eligible budget.
+    nlm_eligible_capital_cost: FiniteFloat | None = Field(default=None, ge=0.0, le=MAX_MONEY)
+    nlm_approved_subsidy_amount: FiniteFloat | None = Field(default=None, ge=0.0, le=MAX_MONEY)
+    nlm_subsidy_receipts: list["SubsidyReceipt"] = Field(default_factory=list, max_length=2)
     discount_rate_annual: FiniteFloat = Field(default=0.12, ge=0.0, le=0.5)
     # Months of operating cost held as working capital inside the project
     # cost. A breeding-start unit sells its first animal around month 11-12
@@ -823,6 +857,26 @@ class FinanceAssumptions(_Group):
                 "moratorium_months must be shorter than loan_term_months "
                 "(otherwise the principal is never repaid)"
             )
+        if (self.nlm_unit_females is None) != (self.nlm_unit_males is None):
+            raise ValueError("Provide both NLM breeding-unit female and male counts")
+        if self.nlm_approved_subsidy_amount is not None:
+            if not self.nlm_subsidy or self.nlm_eligible_capital_cost is None:
+                raise ValueError(
+                    "An NLM approval requires the scheme and an explicit eligible budget"
+                )
+            if self.nlm_approved_subsidy_amount > 0.5 * self.nlm_eligible_capital_cost:
+                raise ValueError("Approved NLM subsidy cannot exceed 50% of eligible capital cost")
+        if self.nlm_subsidy_receipts:
+            approved = self.nlm_approved_subsidy_amount
+            if approved is None or approved <= 0.0:
+                raise ValueError("NLM receipts require a positive approved subsidy amount")
+            if sum(row.amount for row in self.nlm_subsidy_receipts) > approved + 0.005:
+                raise ValueError("Scheduled NLM receipts cannot exceed the approved award")
+            if any(abs(row.amount - approved / 2.0) > 0.005 for row in self.nlm_subsidy_receipts):
+                raise ValueError("NLM subsidy is paid in two equal installments")
+            months = [row.month for row in self.nlm_subsidy_receipts]
+            if months != sorted(months):
+                raise ValueError("NLM installments must be scheduled in chronological order")
         return self
 
 
@@ -1110,7 +1164,18 @@ class SimulationAssumptions(_Group):
         # would be circular.
         from .market import bakrid_festival_months
 
-        if self.sales.festival_sale_months is None:
+        if self.sales.festival_date_overrides is not None:
+            start_year, start_month = map(int, self.meta.start_year_month.split("-"))
+            self.sales.festival_sale_months = sorted(
+                {
+                    (override.year - start_year) * 12 + override.month - start_month + 1
+                    for override in map(date.fromisoformat, self.sales.festival_date_overrides)
+                    if 1
+                    <= (override.year - start_year) * 12 + override.month - start_month + 1
+                    <= self.meta.horizon_months
+                }
+            )
+        elif self.sales.festival_sale_months is None:
             # Every scenario is a meat scenario now, so the Bakrid calendar
             # auto-fills for the run's own horizon — but only when that
             # horizon actually contains a Bakrid month. An empty calendar
@@ -1159,6 +1224,24 @@ class SimulationAssumptions(_Group):
             self.sales.festival_sale_months = [
                 month for month in months if month <= self.meta.horizon_months
             ]
+        return self
+
+    @model_validator(mode="after")
+    def _approved_nlm_unit_is_supported(self) -> "SimulationAssumptions":
+        from .subsidy import nlm_unit_subsidy_cap
+
+        approved = self.finance.nlm_approved_subsidy_amount
+        if approved is not None and approved > 0.0:
+            cap = nlm_unit_subsidy_cap(
+                self.finance.nlm_unit_females
+                if self.finance.nlm_unit_females is not None
+                else self.herd.does,
+                self.finance.nlm_unit_males
+                if self.finance.nlm_unit_males is not None
+                else self.herd.bucks,
+            )
+            if cap is None or cap <= 0.0 or approved > cap:
+                raise ValueError("Approved NLM amount requires a published qualifying unit and cap")
         return self
 
     @model_validator(mode="after")

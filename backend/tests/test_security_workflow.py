@@ -15,6 +15,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from .type_helpers import JsonObject
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SARIF_GATE = REPO_ROOT / ".github" / "scripts" / "gate_sarif.py"
 SECURITY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "security.yml"
@@ -30,7 +32,7 @@ def _clean_tables() -> None:
     """This module executes no application database paths."""
 
 
-def _write_sarif(path: Path, results: list[dict], rules: list[dict]) -> None:
+def _write_sarif(path: Path, results: list[JsonObject], rules: list[JsonObject]) -> None:
     path.write_text(
         json.dumps(
             {

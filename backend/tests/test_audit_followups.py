@@ -30,7 +30,7 @@ from .conftest import login_and_rotate, owner_with_farm
 # ---------------------------------------------------------------------------
 # Rotation fence: explicit allowlist, not the whole /api/auth/ prefix
 # ---------------------------------------------------------------------------
-async def test_rotation_fence_allowlist_blocks_identity_acts(client: httpx.AsyncClient):
+async def test_rotation_fence_allowlist_blocks_identity_acts(client: httpx.AsyncClient) -> None:
     WORKER_PW = "workerpass123"
     owner = await owner_with_farm(client)
     role = await client.post(
@@ -83,13 +83,13 @@ async def test_rotation_fence_allowlist_blocks_identity_acts(client: httpx.Async
 # ---------------------------------------------------------------------------
 # Species reference-data migration reaches existing databases
 # ---------------------------------------------------------------------------
-def test_species_reference_data_migration_reaches_existing_databases():
+def test_species_reference_data_migration_reaches_existing_databases() -> None:
     import asyncio
 
     asyncio.run(_migration_scenario())
 
 
-async def _migration_scenario():
+async def _migration_scenario() -> None:
     """Seed changes are create-only (ON CONFLICT DO NOTHING), so ORF removal
     and PPR 36→12 only reach deployed farms via migration b5d7f9a1c3e5. This
     reproduces a pre-migration database and runs the real alembic revisions
@@ -168,6 +168,7 @@ async def _migration_scenario():
             ppr = await conn.fetchrow(
                 "SELECT repeat_months FROM vaccine_templates WHERE name='PPR'"
             )
+            assert ppr is not None
             assert ppr["repeat_months"] == 12
             orf = await conn.fetchval("SELECT count(*) FROM vaccine_templates WHERE name='ORF'")
             assert orf == 0
@@ -184,7 +185,7 @@ async def _migration_scenario():
 # ---------------------------------------------------------------------------
 # ORF retirement: dosing history linked to the template survives it (P2-13)
 # ---------------------------------------------------------------------------
-def test_orf_linked_health_events_survive_the_reference_data_migration():
+def test_orf_linked_health_events_survive_the_reference_data_migration() -> None:
     """2026-09-20 audit P2-13: farms that already recorded ORF vaccinations
     hold FK references to the template row, and the column carrying that
     reference is guarded by an immutability trigger. The migration must
@@ -194,7 +195,7 @@ def test_orf_linked_health_events_survive_the_reference_data_migration():
     asyncio.run(_orf_upgrade_scenario())
 
 
-async def _orf_upgrade_scenario():
+async def _orf_upgrade_scenario() -> None:
     """Reproduce a pre-remediation farm at b5d7f9a1c3e5's down_revision
     (e3a5b7c9d1f2) with an administered ORF dose linked to the template, then
     run the real alembic chain over it.
@@ -331,6 +332,7 @@ async def _orf_upgrade_scenario():
             )
             # The recorded dose survives with every clinical fact intact;
             # only the schedule-source link retires with its template.
+            assert survivor is not None
             assert survivor["animal_id"] == animal_id
             assert survivor["product_name"] == "ORF vaccine"
             assert survivor["schedule_template_name"] == "ORF"
@@ -384,12 +386,12 @@ async def _orf_upgrade_scenario():
 # ---------------------------------------------------------------------------
 # Creep ration requires the kid to be inside the weaning window (goat biology)
 # ---------------------------------------------------------------------------
-async def test_creep_line_requires_weaning_age(client: httpx.AsyncClient):
+async def test_creep_line_requires_weaning_age(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     farm_id = int(headers["X-Farm-Id"])
     async with get_sessionmaker()() as db:
 
-        def _animal(tag, dob_days, dam_id=None):
+        def _animal(tag: str, dob_days: int, dam_id: int | None = None) -> Animal:
             return Animal(
                 farm_id=farm_id,
                 tag_number=tag,
@@ -432,8 +434,8 @@ async def test_creep_line_requires_weaning_age(client: httpx.AsyncClient):
 # Register probe limiter: duplicates throttled, fresh addresses never blocked
 # ---------------------------------------------------------------------------
 async def test_register_email_probe_lockout_never_blocks_a_fresh_address(
-    client: httpx.AsyncClient, monkeypatch
-):
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from app.api import auth as auth_api
     from app.core.config import Settings
     from app.ratelimit import SlidingWindowRateLimiter
@@ -483,8 +485,8 @@ async def test_register_email_probe_lockout_never_blocks_a_fresh_address(
 
 
 async def test_register_email_probe_throttle_log_never_contains_the_raw_address(
-    client: httpx.AsyncClient, monkeypatch, caplog: pytest.LogCaptureFixture
-):
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     """The probe bucket key is logged verbatim on a throttle decision, so it
     is a sha256 of the address — the raw email is PII and must never reach the
     log stream (same rule as every other token-derived limiter key)."""
@@ -577,7 +579,7 @@ async def test_register_probe_ceiling_is_soft_for_a_fresh_address(
 # ---------------------------------------------------------------------------
 # ITEM 5 (2026-09-21 playbook): machine-readable ``code`` on mapped errors
 # ---------------------------------------------------------------------------
-async def test_mapped_error_statuses_carry_stable_codes(client: httpx.AsyncClient):
+async def test_mapped_error_statuses_carry_stable_codes(client: httpx.AsyncClient) -> None:
     """401/403/422 carry a code; 404 deliberately does not (there is nothing
     machine-actionable to distinguish about "not found")."""
     # 401 — the request-validation-free auth refusal.
@@ -634,7 +636,7 @@ async def test_mapped_error_statuses_carry_stable_codes(client: httpx.AsyncClien
 
 async def test_rate_limited_responses_carry_the_code_and_retry_hint(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
-):
+) -> None:
     """A 429 carries RATE_LIMITED plus the Retry-After header it always had —
     the code handler must not swallow response headers."""
     from app.core.config import get_settings
@@ -651,7 +653,8 @@ async def test_rate_limited_responses_carry_the_code_and_retry_hint(
             )
             if throttled.status_code == 429:
                 break
-        assert throttled is not None and throttled.status_code == 429, throttled.text
+        assert throttled is not None
+        assert throttled.status_code == 429, throttled.text
         assert throttled.json()["code"] == "RATE_LIMITED"
         assert throttled.headers.get("retry-after")
     finally:

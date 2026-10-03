@@ -9,6 +9,7 @@ import importlib.util
 import json
 import logging
 import os
+import ssl
 import subprocess
 import sys
 from collections.abc import AsyncIterator
@@ -35,6 +36,7 @@ import app.seed as seed_module
 from app.core.config import (
     DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET,
     PRODUCTION_REFRESH_COOKIE_NAME,
+    DbSslMode,
     MigrationSettings,
     ScreeningWorkerSettings,
     Settings,
@@ -82,6 +84,7 @@ from app.services._common import _default_role_id_for_category
 from app.utils import utcnow
 
 from .conftest import owner_with_farm
+from .settings_helpers import settings_from_input
 
 VALID_IDEMPOTENCY_HMAC_SECRET = "production-idempotency-hmac-secret-0000000001"
 VALID_PREVIOUS_IDEMPOTENCY_HMAC_SECRET = "previous-production-idempotency-hmac-secret-0001"
@@ -593,24 +596,24 @@ def test_production_refuses_empty_cors() -> None:
 
 
 @pytest.mark.parametrize("sslmode", ["disable", "allow", "prefer", "require", "verify-ca"])
-def test_production_refuses_db_sslmode_without_hostname_verification(sslmode: str) -> None:
+def test_production_refuses_db_sslmode_without_hostname_verification(sslmode: DbSslMode) -> None:
     with pytest.raises(ValidationError, match="GOATFARM_DB_SSLMODE"):
         Settings(
             environment="production",
             cookie_secure=True,
             cors_origins=["https://app.example.com"],
-            db_sslmode=sslmode,  # type: ignore[arg-type]
+            db_sslmode=sslmode,
             min_password_length=12,
         )
 
 
 @pytest.mark.parametrize("sslmode", ["disable", "allow", "prefer", "require", "verify-ca"])
-def test_production_migration_refuses_db_without_hostname_verification(sslmode: str) -> None:
+def test_production_migration_refuses_db_without_hostname_verification(sslmode: DbSslMode) -> None:
     with pytest.raises(ValidationError, match=r"Refusing migration.*GOATFARM_DB_SSLMODE"):
         MigrationSettings(
             environment="production",
             migration_database_url="postgresql+asyncpg://migrator@db:5432/goatfarm",
-            db_sslmode=sslmode,  # type: ignore[arg-type]
+            db_sslmode=sslmode,
         )
 
 
@@ -652,7 +655,7 @@ def test_database_verify_modes_build_a_context_without_asyncpg_home_ca_lookup(
         calls.append(cafile)
         return FakeContext()
 
-    monkeypatch.setattr(db_module.ssl, "create_default_context", fake_default_context)
+    monkeypatch.setattr(ssl, "create_default_context", fake_default_context)
 
     system_context = db_module.database_ssl_connect_arg(Settings(db_sslmode="verify-full"))
     assert isinstance(system_context, FakeContext)
@@ -717,28 +720,30 @@ def test_scheme_only_https_urls_fail_fast_at_settings_validation() -> None:
         {"s3_endpoint_url": "https://"},
     ):
         with pytest.raises(ValidationError, match="must include a host"):
-            Settings(_env_file=None, **kwargs)
+            settings_from_input(Settings, env_file=None, **kwargs)
         worker_field = next(iter(kwargs))
         with pytest.raises(ValidationError, match="must include a host"):
-            ScreeningWorkerSettings(_env_file=None, **{worker_field: kwargs[worker_field]})
+            settings_from_input(
+                ScreeningWorkerSettings, env_file=None, **{worker_field: kwargs[worker_field]}
+            )
     with pytest.raises(ValidationError, match="must include a host"):
         config_module.ScreeningRotationProvider(
             kind="openai_compatible",
             name="edge",
             base_url="https://",
-            api_key="k",
+            api_key=SecretStr("k"),
             model="m",
         )
     # Real hosts on https (and loopback http) still validate.
     assert (
-        Settings(
-            _env_file=None, screening_anthropic_base_url="https://api.example.test"
+        settings_from_input(
+            Settings, env_file=None, screening_anthropic_base_url="https://api.example.test"
         ).screening_anthropic_base_url
         == "https://api.example.test"
     )
     assert (
-        ScreeningWorkerSettings(
-            _env_file=None, s3_endpoint_url="http://127.0.0.1:9000"
+        settings_from_input(
+            ScreeningWorkerSettings, env_file=None, s3_endpoint_url="http://127.0.0.1:9000"
         ).s3_endpoint_url
         == "http://127.0.0.1:9000"
     )
@@ -746,7 +751,7 @@ def test_scheme_only_https_urls_fail_fast_at_settings_validation() -> None:
 
 def test_empty_previous_totp_keys_env_is_treated_as_no_predecessors() -> None:
     """Compose's optional interpolation yields ""; that must boot (audit note)."""
-    settings = Settings(_env_file=None, totp_encryption_previous_keys="")
+    settings = settings_from_input(Settings, env_file=None, totp_encryption_previous_keys="")
     assert settings.totp_encryption_previous_keys == []
 
 
@@ -764,20 +769,27 @@ def test_every_database_settings_projection_requires_the_asyncpg_url_scheme(
     field_name: str,
 ) -> None:
     with pytest.raises(ValidationError, match=r"postgresql\+asyncpg"):
-        settings_type(_env_file=None, **{field_name: "postgresql://db.example.test/goatfarm"})
+        settings_from_input(
+            settings_type, env_file=None, **{field_name: "postgresql://db.example.test/goatfarm"}
+        )
 
 
 def test_matching_libpq_sslmode_is_removed_before_asyncpg_receives_the_url() -> None:
     raw_url = "postgresql+asyncpg://api@db.example.test:5432/goatfarm?sslmode=verify-full"
     expected_url = "postgresql+asyncpg://api@db.example.test:5432/goatfarm"
 
-    api = Settings(_env_file=None, database_url=raw_url, db_sslmode="verify-full")
-    migration = MigrationSettings(
-        _env_file=None,
+    api = settings_from_input(
+        Settings, env_file=None, database_url=raw_url, db_sslmode="verify-full"
+    )
+    migration = settings_from_input(
+        MigrationSettings,
+        env_file=None,
         migration_database_url=raw_url,
         db_sslmode="verify-full",
     )
-    worker = ScreeningWorkerSettings(_env_file=None, database_url=raw_url, db_sslmode="verify-full")
+    worker = settings_from_input(
+        ScreeningWorkerSettings, env_file=None, database_url=raw_url, db_sslmode="verify-full"
+    )
 
     assert api.database_url == expected_url
     assert migration.migration_database_url == expected_url
@@ -794,14 +806,16 @@ def test_matching_libpq_sslmode_is_removed_before_asyncpg_receives_the_url() -> 
 
 def test_database_url_rejects_conflicting_or_driver_incompatible_tls_query_settings() -> None:
     with pytest.raises(ValidationError, match=r"sslmode=.*conflicts with GOATFARM_DB_SSLMODE"):
-        Settings(
-            _env_file=None,
+        settings_from_input(
+            Settings,
+            env_file=None,
             database_url=("postgresql+asyncpg://api@db.example.test/goatfarm?sslmode=require"),
             db_sslmode="verify-full",
         )
     with pytest.raises(ValidationError, match=r"URL TLS parameter\(s\) sslrootcert"):
-        Settings(
-            _env_file=None,
+        settings_from_input(
+            Settings,
+            env_file=None,
             database_url=(
                 "postgresql+asyncpg://api@db.example.test/goatfarm?sslrootcert=/tmp/ca.pem"
             ),
@@ -815,7 +829,7 @@ def test_migration_refuses_unknown_process_environment(monkeypatch: pytest.Monke
     monkeypatch.setenv("GOATFARM_ENVIRONMNET", "production")
     monkeypatch.setenv("GOATFARM_DB_SSLMODE", "disable")
     with pytest.raises(ValidationError, match="GOATFARM_ENVIRONMNET"):
-        MigrationSettings(_env_file=None)
+        settings_from_input(MigrationSettings, env_file=None)
 
 
 def test_api_accepts_known_compose_edge_only_environment_keys(
@@ -825,7 +839,7 @@ def test_api_accepts_known_compose_edge_only_environment_keys(
     monkeypatch.setenv("GOATFARM_EDGE_MAX_BODY_SIZE", "1m")
     monkeypatch.setenv("GOATFARM_CSP_CONNECT_ORIGINS", "https://bucket.example.test")
     monkeypatch.setenv("GOATFARM_CSP_IMG_ORIGINS", "https://bucket.example.test")
-    assert Settings(_env_file=None).environment == "development"
+    assert settings_from_input(Settings, env_file=None).environment == "development"
 
 
 def test_migration_refuses_unknown_shared_dotenv_key(
@@ -841,7 +855,7 @@ def test_migration_refuses_unknown_shared_dotenv_key(
     monkeypatch.setattr(config_module, "BACKEND_DIR", tmp_path)
 
     with pytest.raises(ValidationError, match="GOATFARM_ENVIRONMNET"):
-        MigrationSettings(_env_file=dotenv_path)
+        settings_from_input(MigrationSettings, env_file=dotenv_path)
 
 
 @pytest.mark.parametrize(
@@ -891,14 +905,15 @@ def test_production_refuses_weak_argon2_profile(
     message: str,
 ) -> None:
     with pytest.raises(ValidationError, match=message):
-        Settings(
+        settings_from_input(
+            Settings,
+            {field: value},
             environment="production",
             cookie_secure=True,
             cors_origins=["https://app.example.com"],
             allowed_hosts=["api.example.com"],
             db_sslmode="verify-full",
             min_password_length=12,
-            **{field: value},  # type: ignore[arg-type]
         )
 
 
@@ -910,9 +925,11 @@ def test_production_accepts_valid_config() -> None:
         allowed_hosts=["api.example.com"],
         db_sslmode="verify-full",
         min_password_length=12,
-        idempotency_request_hmac_secret=VALID_IDEMPOTENCY_HMAC_SECRET,
-        idempotency_request_hmac_previous_secrets=[VALID_PREVIOUS_IDEMPOTENCY_HMAC_SECRET],
-        totp_encryption_key=VALID_TOTP_ENCRYPTION_KEY,
+        idempotency_request_hmac_secret=SecretStr(VALID_IDEMPOTENCY_HMAC_SECRET),
+        idempotency_request_hmac_previous_secrets=[
+            SecretStr(VALID_PREVIOUS_IDEMPOTENCY_HMAC_SECRET)
+        ],
+        totp_encryption_key=SecretStr(VALID_TOTP_ENCRYPTION_KEY),
     )
     assert settings.environment == "production"
     assert settings.refresh_cookie_name == PRODUCTION_REFRESH_COOKIE_NAME
@@ -935,7 +952,7 @@ def test_production_requires_an_independent_totp_encryption_key() -> None:
     kwargs = _valid_production_totp_kwargs()
     del kwargs["totp_encryption_key"]
     with pytest.raises(ValidationError, match="GOATFARM_TOTP_ENCRYPTION_KEY is required"):
-        Settings(**kwargs)  # type: ignore[arg-type]
+        settings_from_input(Settings, kwargs)
 
 
 @pytest.mark.parametrize(
@@ -944,7 +961,7 @@ def test_production_requires_an_independent_totp_encryption_key() -> None:
 )
 def test_totp_encryption_key_requires_canonical_32_byte_base64url(key: str) -> None:
     with pytest.raises(ValidationError, match="GOATFARM_TOTP_ENCRYPTION_KEY"):
-        Settings(totp_encryption_key=key)
+        Settings(totp_encryption_key=SecretStr(key))
 
 
 def test_totp_encryption_keyring_rejects_duplicate_or_current_predecessor() -> None:
@@ -954,19 +971,19 @@ def test_totp_encryption_keyring_rejects_duplicate_or_current_predecessor() -> N
         VALID_PREVIOUS_TOTP_ENCRYPTION_KEY,
     ]
     with pytest.raises(ValidationError, match="must not contain duplicates"):
-        Settings(**duplicate_kwargs)  # type: ignore[arg-type]
+        settings_from_input(Settings, duplicate_kwargs)
 
     current_kwargs = _valid_production_totp_kwargs()
     current_kwargs["totp_encryption_previous_keys"] = [VALID_TOTP_ENCRYPTION_KEY]
     with pytest.raises(ValidationError, match="must not also appear"):
-        Settings(**current_kwargs)  # type: ignore[arg-type]
+        settings_from_input(Settings, current_kwargs)
 
 
 def test_totp_encryption_previous_keyring_is_bounded_and_needs_a_current_key() -> None:
     with pytest.raises(ValidationError):
-        Settings(totp_encryption_previous_keys=[VALID_TOTP_ENCRYPTION_KEY] * 4)
+        Settings(totp_encryption_previous_keys=[SecretStr(VALID_TOTP_ENCRYPTION_KEY)] * 4)
     with pytest.raises(ValidationError, match="requires a current"):
-        Settings(totp_encryption_previous_keys=[VALID_TOTP_ENCRYPTION_KEY])
+        Settings(totp_encryption_previous_keys=[SecretStr(VALID_TOTP_ENCRYPTION_KEY)])
 
 
 # --- File-delivered secrets (2026-10-01 audit, 09-1) ---------------------------
@@ -988,9 +1005,10 @@ def test_plain_secret_environment_delivery_still_works_and_empty_file_var_is_uns
     # Compose's optional interpolation yields an empty string for unset *_FILE
     # knobs; that exact value must behave as "unset" so env-var deployments
     # keep working untouched after the upgrade.
-    settings = Settings(
+    settings = settings_from_input(
+        Settings,
         idempotency_request_hmac_secret=SecretStr(VALID_IDEMPOTENCY_HMAC_SECRET),
-        idempotency_request_hmac_secret_file="",  # type: ignore[arg-type]
+        idempotency_request_hmac_secret_file="",
     )
     assert settings.idempotency_request_hmac_secret.get_secret_value() == (
         VALID_IDEMPOTENCY_HMAC_SECRET
@@ -1017,7 +1035,7 @@ def test_worker_projection_boots_when_compose_delivers_empty_file_vars(
         "GOATFARM_SCREENING_OPENAI_API_KEY_FILE",
     ):
         monkeypatch.setenv(name, "")
-    settings = ScreeningWorkerSettings(_env_file=None)  # type: ignore[call-arg]
+    settings = settings_from_input(ScreeningWorkerSettings, env_file=None)
     assert settings.database_url_file is None
     assert settings.s3_access_key_id_file is None
     assert settings.s3_secret_access_key_file is None
@@ -1034,7 +1052,7 @@ def test_secret_file_variable_is_read_from_the_process_environment(
     secret_file = tmp_path / "msg91_auth_key"
     secret_file.write_text("msg91-key-from-file\n")
     monkeypatch.setenv("GOATFARM_MSG91_AUTH_KEY_FILE", str(secret_file))
-    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    settings = settings_from_input(Settings, env_file=None)
     assert settings.msg91_auth_key is not None
     assert settings.msg91_auth_key.get_secret_value() == "msg91-key-from-file"
 
@@ -1058,7 +1076,7 @@ def test_missing_secret_file_fails_closed_in_production(tmp_path: Path) -> None:
     kwargs = _valid_production_totp_kwargs()
     kwargs["totp_encryption_key_file"] = tmp_path / "does-not-exist"
     with pytest.raises(ValidationError, match="GOATFARM_TOTP_ENCRYPTION_KEY_FILE"):
-        Settings(**kwargs)  # type: ignore[arg-type]
+        settings_from_input(Settings, kwargs)
 
 
 def test_blank_secret_file_fails_closed(tmp_path: Path) -> None:
@@ -1115,7 +1133,7 @@ def test_production_rejects_refresh_cookie_without_host_prefix() -> None:
             allowed_hosts=["api.example.com"],
             db_sslmode="verify-full",
             min_password_length=12,
-            idempotency_request_hmac_secret=VALID_IDEMPOTENCY_HMAC_SECRET,
+            idempotency_request_hmac_secret=SecretStr(VALID_IDEMPOTENCY_HMAC_SECRET),
         )
 
 
@@ -1169,14 +1187,14 @@ def test_production_rejects_invalid_idempotency_hmac_keyring(
     if current is not None:
         kwargs["idempotency_request_hmac_secret"] = current
     with pytest.raises(ValidationError, match=message):
-        Settings(**kwargs)  # type: ignore[arg-type]
+        settings_from_input(Settings, kwargs)
 
 
 def test_idempotency_hmac_previous_keyring_is_bounded() -> None:
     with pytest.raises(ValidationError):
         Settings(
             idempotency_request_hmac_previous_secrets=[
-                f"previous-idempotency-secret-{index:020d}" for index in range(4)
+                SecretStr(f"previous-idempotency-secret-{index:020d}") for index in range(4)
             ]
         )
 
@@ -1196,7 +1214,7 @@ def test_production_refuses_unsafe_allowed_hosts(host: list[str]) -> None:
 
 def test_settings_reject_unknown_keys() -> None:
     with pytest.raises(ValidationError, match="extra_forbidden"):
-        Settings(cookie_secur=True)  # type: ignore[call-arg]
+        settings_from_input(Settings, cookie_secur=True)
 
 
 @pytest.mark.parametrize(
@@ -1217,7 +1235,7 @@ def test_security_settings_reject_dangerous_or_impossible_upper_bounds(
     value: int,
 ) -> None:
     with pytest.raises(ValidationError):
-        Settings(**{field: value})  # type: ignore[arg-type]
+        settings_from_input(Settings, {field: value})
 
 
 def test_argon2_memory_must_cover_every_parallel_lane() -> None:
@@ -1332,7 +1350,9 @@ def test_suite_refuses_database_not_ending_in_test() -> None:
     assert "must name a throwaway database" in result.stderr + result.stdout
 
 
-def test_reset_engine_disposes_the_cached_engine_exactly_once() -> None:
+def test_reset_engine_disposes_the_cached_engine_exactly_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The hook conftest uses between event loops must actually drain the pool
     (and stay a quiet no-op when nothing is cached), not silently skip it."""
     disposed: list[int] = []
@@ -1343,8 +1363,8 @@ def test_reset_engine_disposes_the_cached_engine_exactly_once() -> None:
 
     previous_engine, previous_sessionmaker = db_module._engine, db_module._sessionmaker
     try:
-        db_module._engine = FakeEngine()  # type: ignore[assignment]
-        db_module._sessionmaker = object()  # type: ignore[assignment]
+        monkeypatch.setattr(db_module, "_engine", FakeEngine())
+        monkeypatch.setattr(db_module, "_sessionmaker", object())
 
         db_module.reset_engine()
 
@@ -1597,7 +1617,7 @@ async def test_legacy_data_batch_releases_farm_locks_before_task_phase(
         await db.commit()
         farm_id = farm.id
 
-    async def probe_released_farm_lock(_db, *, batch_size: int) -> int:
+    async def probe_released_farm_lock(_db: AsyncSession, *, batch_size: int) -> int:
         assert batch_size == 1
         async with get_sessionmaker()() as probe:
             locked_id = (

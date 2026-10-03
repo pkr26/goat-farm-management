@@ -44,6 +44,7 @@ from app.models import (
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm
+from .type_helpers import json_int, json_object
 
 
 def iso(d: date) -> str:
@@ -52,7 +53,7 @@ def iso(d: date) -> str:
 
 async def make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     sex: str = "F",
     bucket: str = "FOUNDATION",
@@ -81,11 +82,15 @@ async def make_animal(
         payload.setdefault("weight_date", iso(dob + timedelta(days=365)))
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def change_status(
-    client: httpx.AsyncClient, headers: dict, animal_id: int, new_status: str, **overrides: object
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    animal_id: int,
+    new_status: str,
+    **overrides: object,
 ) -> None:
     resp = await client.post(
         f"/api/animals/{animal_id}/status",
@@ -271,7 +276,7 @@ async def test_reports_match_old_python_aggregation(client: httpx.AsyncClient) -
             headers=owner,
         )
         assert resp.status_code == 201, resp.text
-        return resp.json()["id"]
+        return json_int(resp.json()["id"])
 
     async def ultrasound(br_id: int, pregnant: bool, result_date: date) -> None:
         payload: dict[str, Any] = {"pregnant": pregnant, "date": iso(result_date)}
@@ -689,8 +694,9 @@ async def test_bucket_board_preview_and_history_queries_stay_bounded(
     assert baseline.status_code == 200, baseline.text
 
     async with get_sessionmaker()() as db:
-        first = await db.get(Animal, first.id)
-        assert first is not None
+        loaded_first = await db.get(Animal, first.id)
+        assert loaded_first is not None
+        first = loaded_first
         db.add_all(
             [
                 Animal(

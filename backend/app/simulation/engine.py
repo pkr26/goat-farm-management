@@ -98,14 +98,13 @@ from .assumptions import (
 from .feed import DAYS_PER_MONTH, class_feed, combine_feed
 from .finance import (
     AmortizationRow,
+    IRRAssessment,
     amortization_schedule,
+    assess_irr,
     bcr,
     mirr,
     npv,
     payback_month,
-)
-from .finance import (
-    irr as _irr_of_flows,
 )
 from .market import (
     annual_growth_multiplier,
@@ -127,6 +126,12 @@ from .results import (
     ViabilityMetrics,
 )
 from .shocks import MonthlyShockPath
+from .subsidy import (
+    NLM_POLICY_SOURCE,
+    NLM_POLICY_VERSION,
+    NLM_SUBSIDY_FRACTION,
+    nlm_unit_subsidy_cap,
+)
 from .vocabulary import GOAT_NOUNS, SpeciesNouns
 
 # 3.1.0: repeat-breeder cull default on (parity with GOAT_PROFILE), parity-
@@ -146,14 +151,7 @@ from .vocabulary import GOAT_NOUNS, SpeciesNouns
 # puberty ~11.5 months), growth_regime (stall_fed/semi_intensive CIRG field
 # curve), weaning_days policy (60/90), per-class water demand in the resource
 # plan, and the NLM 50% capital-subsidy toggle.
-MODEL_VERSION = "3.3.0"
-
-# National Livestock Mission goat-unit subsidy structure (finance.nlm_subsidy):
-# 50% back-ended capital subsidy on eligible capital, capped per unit size —
-# the published eligible-cost bands run from a 100F+5M unit's ~₹10 lakh up to
-# a 500F+25M unit's ~₹50 lakh, i.e. roughly ₹10,000 per breeding head.
-NLM_SUBSIDY_FRACTION = 0.5
-NLM_CAPITAL_CEILING_PER_HEAD = 10_000.0
+MODEL_VERSION = "3.4.0"
 
 
 def monthly_mortality_rate(annual_fraction: float) -> float:
@@ -296,6 +294,9 @@ class _CoreResult:
     terminal_value_breakdown: TerminalValueBreakdown
     loan_amount: float
     subsidy_amount: float
+    subsidy_estimate_amount: float | None
+    subsidy_status: str
+    subsidy_cap: float | None
     equity: float
     npv: float
     # The monthly cash-flow series IRR is solved from. Stored rather than
@@ -320,8 +321,13 @@ class _CoreResult:
     operating_margin: float | None
 
     @cached_property
+    def irr_assessment(self) -> IRRAssessment:
+        return assess_irr(self.cash_flows, self.discount_times)
+
+    @property
     def irr(self) -> float | None:
-        return _irr_of_flows(self.cash_flows, self.discount_times)
+        assessment = self.irr_assessment
+        return assessment.roots[0] if assessment.status == "unique" else None
 
 
 def _scale(values: list[float], factor: float) -> list[float]:
@@ -346,7 +352,6 @@ _EVENT_ADULT_CLASSES = ("doe", "buck")
 # Event-purchase classes that establish the NLM breeding unit: adult does and
 # bucks directly, plus female young stock raised into the doe pipeline. Meat-
 # bound male young stock never joins the breeding unit and does not count.
-_NLM_UNIT_CLASSES = ("doe", "buck", "female_kid", "female_weaner", "female_grower")
 
 
 def _draw(pool: list[float], requested: float) -> float:
@@ -1602,10 +1607,12 @@ def _run_core(
         stock_cost = fin.initial_stock_cost
     else:
         young_kg = (
-            float(a.herd.female_kids + a.herd.male_kids) * weight_at_age(1, g, doe_w)
-            + float(a.herd.female_weaners + a.herd.male_weaners) * weight_at_age(4, g, doe_w)
+            float(a.herd.female_kids) * weight_at_age(1, g, doe_w)
+            + float(a.herd.male_kids) * male_weight_at_age(1, g, buck_w)
+            + float(a.herd.female_weaners) * weight_at_age(4, g, doe_w)
+            + float(a.herd.male_weaners) * male_weight_at_age(4, g, buck_w)
             + float(a.herd.female_growers) * weight_at_age(f_grower_mid_age, g, doe_w)
-            + float(a.herd.male_growers) * weight_at_age(m_grower_mid_age, g, buck_w)
+            + float(a.herd.male_growers) * male_weight_at_age(m_grower_mid_age, g, buck_w)
         )
         stock_cost = (
             a.herd.does * a.herd.doe_purchase_price
@@ -1615,32 +1622,51 @@ def _run_core(
     working_capital = fin.working_capital_months * avg_monthly_opex
     project_cost = shed_cost + equipment_cost + stock_cost + working_capital
     loan_amount = fin.loan_fraction_of_project_cost * project_cost
+    subsidy_estimate_amount: float | None = None
+    subsidy_cap: float | None = None
+    subsidy_receipts: dict[int, float] = {}
     if fin.nlm_subsidy:
-        # National Livestock Mission: 50% back-ended capital subsidy on the
-        # ELIGIBLE capital, which the scheme caps per unit size (~₹10,000 per
-        # breeding head — the published bands run from a 100F+5M unit's ~₹10
-        # lakh to a 500F+25M unit's ~₹50 lakh). Supersedes subsidy_fraction.
-        # The cap sizes the unit being ESTABLISHED, so it counts breeding
-        # stock bought through scheduled events (adult does/bucks, and female
-        # young stock raised into the doe pipeline) on top of the starting
-        # herd — a build-out that starts with an empty barn and buys every
-        # animal by event is still a 500F+25M unit to the scheme.
-        event_unit_head = sum(
-            event.count
-            for event in a.events
-            if event.kind == "purchase" and event.animal_class in _NLM_UNIT_CLASSES
-        )
-        eligible_capital = min(
-            project_cost,
-            NLM_CAPITAL_CEILING_PER_HEAD * (a.herd.does + a.herd.bucks + event_unit_head),
-        )
-        subsidy_amount = NLM_SUBSIDY_FRACTION * eligible_capital
+        # Unit size is declared breeding stock, not every purchase/replacement
+        # ever made in a run. A planned qualifying subset may be supplied
+        # explicitly; young purchases never automatically establish eligibility.
+        unit_females = fin.nlm_unit_females if fin.nlm_unit_females is not None else a.herd.does
+        unit_males = fin.nlm_unit_males if fin.nlm_unit_males is not None else a.herd.bucks
+        subsidy_cap = nlm_unit_subsidy_cap(unit_females, unit_males)
+        if subsidy_cap is None:
+            subsidy_status = "unsupported_unit"
+        elif subsidy_cap == 0.0:
+            subsidy_status = "ineligible"
+            subsidy_estimate_amount = 0.0
+        elif fin.nlm_eligible_capital_cost is None:
+            subsidy_status = "eligible_cost_unknown"
+        else:
+            subsidy_estimate_amount = min(
+                subsidy_cap, NLM_SUBSIDY_FRACTION * fin.nlm_eligible_capital_cost
+            )
+            subsidy_status = "estimate_only"
+        if fin.nlm_approved_subsidy_amount is not None:
+            approved = fin.nlm_approved_subsidy_amount
+            if subsidy_estimate_amount is None or approved > subsidy_estimate_amount:
+                raise ValueError("Approved NLM award exceeds the supported eligible-cost/unit cap")
+            subsidy_status = "approved_unscheduled"
+            for receipt in fin.nlm_subsidy_receipts:
+                if receipt.month <= horizon:
+                    subsidy_receipts[receipt.month] = (
+                        subsidy_receipts.get(receipt.month, 0.0) + receipt.amount
+                    )
+            if fin.nlm_subsidy_receipts:
+                subsidy_status = "approved_scheduled"
+        subsidy_amount = sum(subsidy_receipts.values())
+        # No future estimate/award cancels the cash needed before its receipt.
+        # The selected loan funds the opening project; grants arrive later and
+        # contribute to dated liquidity/NPV. Loan servicing stays explicit.
+        equity = project_cost - loan_amount
     else:
-        subsidy_amount = fin.subsidy_fraction * project_cost
-    # Loan + subsidy can never exceed the project cost: the equity line stays
-    # non-negative even when a large loan fraction meets the NLM subsidy.
-    subsidy_amount = min(subsidy_amount, max(0.0, project_cost - loan_amount))
-    equity = project_cost - loan_amount - subsidy_amount
+        subsidy_amount = min(
+            fin.subsidy_fraction * project_cost, max(0.0, project_cost - loan_amount)
+        )
+        subsidy_status = "custom_upfront" if subsidy_amount > 0.0 else "disabled"
+        equity = project_cost - loan_amount - subsidy_amount
 
     schedule = amortization_schedule(
         loan_amount, fin.interest_rate_annual, fin.loan_term_months, fin.moratorium_months
@@ -1768,7 +1794,8 @@ def _run_core(
             debt_service += terminal_balance
         tax = tax_by_month[rec.month - 1]
         terminal_value = terminal_breakdown.total if rec.month == horizon else 0.0
-        net_cash = rec.revenue + terminal_value - rec.opex - debt_service - tax
+        subsidy_receipt = subsidy_receipts.get(rec.month, 0.0)
+        net_cash = rec.revenue + terminal_value + subsidy_receipt - rec.opex - debt_service - tax
         cumulative += net_cash
         # The opening liquidity balance already contains the funded working-
         # capital reserve. Its terminal recovery belongs in investor cash flow,
@@ -1820,6 +1847,7 @@ def _run_core(
                 terminal_value=terminal_value,
                 debt_service=debt_service,
                 net_cash_flow=net_cash,
+                subsidy_receipt=subsidy_receipt,
                 cumulative_cash_flow=cumulative,
                 cash_balance=cash_balance,
                 fodder_surplus_kg=rec.fodder_surplus_kg,
@@ -1893,6 +1921,7 @@ def _run_core(
                 debt_service=debt,
                 terminal_value=terminal_value,
                 net_cash_flow=net_cash,
+                subsidy_receipt=sum(m.subsidy_receipt for m in block),
             )
         )
 
@@ -1912,6 +1941,7 @@ def _run_core(
             + month.milk_revenue
             + month.manure_revenue
             + month.terminal_value
+            + month.subsidy_receipt
             for month in months
         ],
     ]
@@ -2057,6 +2087,9 @@ def _run_core(
         terminal_value_breakdown=terminal_breakdown,
         loan_amount=loan_amount,
         subsidy_amount=subsidy_amount,
+        subsidy_estimate_amount=subsidy_estimate_amount,
+        subsidy_status=subsidy_status,
+        subsidy_cap=subsidy_cap,
         equity=equity,
         npv=npv(fin.discount_rate_annual, cash_flows, discount_times),
         # The same monthly series NPV, BCR and MIRR use. Solving IRR on
@@ -2164,9 +2197,19 @@ def run_simulation(
         project_cost=core.project_cost,
         loan_amount=core.loan_amount,
         subsidy_amount=core.subsidy_amount,
+        subsidy_estimate_amount=core.subsidy_estimate_amount,
+        subsidy_status=core.subsidy_status,
+        subsidy_cap=core.subsidy_cap,
+        subsidy_policy_version=NLM_POLICY_VERSION if assumptions.finance.nlm_subsidy else None,
+        subsidy_policy_source=NLM_POLICY_SOURCE if assumptions.finance.nlm_subsidy else None,
         equity=core.equity,
         npv=core.npv,
         irr=core.irr,
+        irr_status=core.irr_assessment.status,
+        irr_solver_domain=(
+            "Annual rates [-0.99, 10.0]; one-sign-change series or exact isolation of <=24 "
+            "nonzero terms with rational period denominator <=120; otherwise indeterminate"
+        ),
         mirr=core.mirr,
         bcr=core.bcr,
         dscr_per_year=core.dscr_per_year,
@@ -2194,10 +2237,42 @@ def run_simulation(
     # no-Bakrid world for those years. Surface it whenever festival pricing is
     # active (explicit lunar months or the legacy recurring Gregorian month).
     warnings: list[str] = []
-    festival_pricing_active = bool(assumptions.sales.festival_sale_months) or (
-        assumptions.sales.eid_month > 0
+    if assumptions.finance.nlm_subsidy:
+        warnings.append(
+            "NLM estimates are conditional policy calculations, not applicant approval. "
+            "Only explicitly supplied approved installments are booked, on their scheduled "
+            "months; arrange up-front/bridge funding until those receipts arrive. Eligible "
+            "costs exclude working capital, personal vehicles and land purchase/rent/lease."
+        )
+        if core.subsidy_status == "unsupported_unit":
+            warnings.append(
+                "NLM unit is outside the exact published bands; no subsidy is estimated."
+            )
+    if core.irr_assessment.status == "indeterminate":
+        warnings.append(
+            "Ordinary IRR uniqueness is unproven in this solver domain; use NPV and MIRR."
+        )
+    months = assumptions.sales.festival_sale_months
+    festival_pricing_active = bool(months) or months is None
+    uses_embedded_calendar = assumptions.sales.festival_date_overrides is None and (
+        bool(months) or (months is None and assumptions.sales.eid_month == 0)
     )
     if festival_pricing_active:
+        if assumptions.sales.festival_date_overrides is not None:
+            warnings.append(
+                "Festival dates are explicit user overrides; source: "
+                + (
+                    assumptions.sales.festival_date_source
+                    or "not supplied / not independently verified"
+                )
+            )
+        elif uses_embedded_calendar:
+            warnings.append(
+                "Embedded future festival dates are projections requiring local confirmation; "
+                "moon sighting can change the sale month near a month boundary. "
+                "2039 has both January and December occurrences."
+            )
+    if uses_embedded_calendar:
         start_year = int(assumptions.meta.start_year_month[:4])
         start_month_number = int(assumptions.meta.start_year_month[5:7])
         final_year = start_year + (
@@ -2237,6 +2312,7 @@ def run_simulation(
         terminal_value_breakdown=core.terminal_value_breakdown,
         model_version=MODEL_VERSION,
         assumptions_fingerprint=hashlib.sha256(assumptions_payload).hexdigest(),
+        executed_assumptions=assumptions.model_copy(deep=True),
         warnings=warnings,
     )
     if with_monte_carlo or with_sensitivity or with_optimization:

@@ -42,6 +42,7 @@ from app.services.tasks import task_scope
 from app.utils import today
 
 from .conftest import owner_with_farm, provisioned_worker_login
+from .type_helpers import JsonObject, json_int, json_object, json_objects
 
 WORKER_PW = "workerpass123"
 
@@ -83,7 +84,7 @@ def iso(d: date) -> str:
 
 async def login_user(
     client: httpx.AsyncClient, email: str, password: str = WORKER_PW
-) -> tuple[dict, int]:
+) -> tuple[JsonObject, int]:
     """Login → (bearer headers, user id)."""
     resp = await client.post("/api/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200, resp.text
@@ -91,14 +92,14 @@ async def login_user(
     return {"Authorization": f"Bearer {body['access_token']}"}, body["user"]["id"]
 
 
-async def role_id(client: httpx.AsyncClient, owner: dict, code: str) -> int:
+async def role_id(client: httpx.AsyncClient, owner: dict[str, str], code: str) -> int:
     resp = await client.get("/api/team", headers=owner)
     assert resp.status_code == 200, resp.text
-    return next(r["id"] for r in resp.json()["roles"] if r["code"] == code)
+    return json_int(next(r["id"] for r in resp.json()["roles"] if r["code"] == code))
 
 
 async def add_worker(
-    client: httpx.AsyncClient, owner: dict, rid: int, email: str, name: str = "Worker"
+    client: httpx.AsyncClient, owner: dict[str, str], rid: int, email: str, name: str = "Worker"
 ) -> None:
     resp = await client.post(
         "/api/team/workers",
@@ -109,8 +110,8 @@ async def add_worker(
 
 
 async def worker_headers(
-    client: httpx.AsyncClient, owner: dict, code: str, email: str, name: str = "Worker"
-) -> tuple[dict, int]:
+    client: httpx.AsyncClient, owner: dict[str, str], code: str, email: str, name: str = "Worker"
+) -> tuple[JsonObject, int]:
     """Owner adds a worker with preset role `code`; returns (farm headers, user id)."""
     rid = await role_id(client, owner, code)
     await add_worker(client, owner, rid, email, name)
@@ -119,7 +120,7 @@ async def worker_headers(
 
 
 async def make_custom_role(
-    client: httpx.AsyncClient, owner: dict, name: str, permissions: list[str]
+    client: httpx.AsyncClient, owner: dict[str, str], name: str, permissions: list[str]
 ) -> int:
     resp = await client.post(
         "/api/team/roles",
@@ -127,16 +128,18 @@ async def make_custom_role(
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    return json_int(resp.json()["id"])
 
 
-async def post_duty(client: httpx.AsyncClient, headers: dict, **payload: object) -> httpx.Response:
+async def post_duty(
+    client: httpx.AsyncClient, headers: dict[str, str], **payload: object
+) -> httpx.Response:
     return await client.post("/api/tasks", json=payload, headers=headers)
 
 
 async def make_duty(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     title: str = "Duty",
     due: date | None = None,
     **overrides: object,
@@ -144,28 +147,34 @@ async def make_duty(
     payload = {"title": title, "due_date": iso(due or today())} | overrides
     resp = await post_duty(client, headers, **payload)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def get_tabs(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def get_tabs(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/tasks", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-def all_tasks(tabs: dict) -> list[dict]:
-    return tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+def all_tasks(tabs: JsonObject) -> list[JsonObject]:
+    return json_objects(
+        tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+    )
 
 
-def find_task(tabs: dict, task_id: int) -> dict[str, Any]:
+def find_task(tabs: JsonObject, task_id: int) -> dict[str, Any]:
     return next(t for t in all_tasks(tabs) if t["id"] == task_id)
 
 
-async def complete_duty(client: httpx.AsyncClient, headers: dict, task_id: int) -> httpx.Response:
+async def complete_duty(
+    client: httpx.AsyncClient, headers: dict[str, str], task_id: int
+) -> httpx.Response:
     return await client.post(f"/api/tasks/{task_id}/complete", headers=headers)
 
 
-async def make_animal(client: httpx.AsyncClient, headers: dict, tag: str = "A-001") -> int:
+async def make_animal(
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "A-001"
+) -> int:
     resp = await client.post(
         "/api/animals",
         json={
@@ -178,10 +187,12 @@ async def make_animal(client: httpx.AsyncClient, headers: dict, tag: str = "A-00
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    return json_int(resp.json()["id"])
 
 
-async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-101") -> dict[str, Any]:
+async def make_doe(
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "D-101"
+) -> dict[str, Any]:
     dob = today() - timedelta(days=800)
     resp = await client.post(
         "/api/animals",
@@ -198,10 +209,12 @@ async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-101")
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01") -> dict[str, Any]:
+async def make_buck(
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "B-01"
+) -> dict[str, Any]:
     dob = today() - timedelta(days=800)
     resp = await client.post(
         "/api/animals",
@@ -218,11 +231,15 @@ async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01")
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def make_breeding(
-    client: httpx.AsyncClient, headers: dict, doe: dict, buck: dict, breeding_date: date
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    doe: JsonObject,
+    buck: JsonObject,
+    breeding_date: date,
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/breeding",
@@ -234,11 +251,15 @@ async def make_breeding(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def submit_ultrasound(
-    client: httpx.AsyncClient, headers: dict, breeding_id: int, pregnant: bool, kid_count: int = 2
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    breeding_id: int,
+    pregnant: bool,
+    kid_count: int = 2,
 ) -> dict[str, Any]:
     # The result is observed on the scheduled check, not "today": a pregnancy
     # confirmed today whose kidding is then recorded on the earlier expected
@@ -254,12 +275,12 @@ async def submit_ultrasound(
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def make_pregnancy(
-    client: httpx.AsyncClient, headers: dict, breeding_date: date
-) -> tuple[dict, dict]:
+    client: httpx.AsyncClient, headers: dict[str, str], breeding_date: date
+) -> tuple[JsonObject, JsonObject]:
     """Doe + buck + breeding + pregnant ultrasound → (doe, br)."""
     doe = await make_doe(client, headers)
     buck = await make_buck(client, headers)
@@ -270,10 +291,10 @@ async def make_pregnancy(
 
 async def record_kidding(
     client: httpx.AsyncClient,
-    headers: dict,
-    br: dict,
+    headers: dict[str, str],
+    br: JsonObject,
     kidding_date: date,
-    kids: list[dict],
+    kids: list[JsonObject],
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/kidding",
@@ -287,11 +308,11 @@ async def record_kidding(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def make_batch(
-    client: httpx.AsyncClient, headers: dict, batch_date: date | None = None
+    client: httpx.AsyncClient, headers: dict[str, str], batch_date: date | None = None
 ) -> int:
     resp = await client.post(
         "/api/purchases/new",
@@ -308,7 +329,7 @@ async def make_batch(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    return json_int(resp.json()["id"])
 
 
 # ---------------------------------------------------------------------------
@@ -2682,7 +2703,7 @@ async def test_quarantine_batch_tasks_map_to_preset_roles(client: httpx.AsyncCli
         t for t in all_tasks(tabs) if t["auto_generated"] and t["purchase_batch_id"] == batch_id
     ]
     assert len(auto) == 11
-    by_category = {}
+    by_category: dict[str, set[str]] = {}
     for t in auto:
         by_category.setdefault(t["category"], set()).add(t["assigned_role_name"])
     assert by_category["QUARANTINE"] == {"Veterinarian"}
@@ -3282,14 +3303,14 @@ async def test_manual_queue_lock_does_not_deadlock_with_an_animal_first_sale(
 
     parked = asyncio.Event()
     release = asyncio.Event()
-    real_skip = animals_api.skip_pending_tasks_for_animal
+    real_skip = vars(animals_api)["skip_pending_tasks_for_animal"]
 
     async def parking_skip(*args: object, **kwargs: object) -> None:
         # Reached with the ANIMAL row already locked and immediately before the
         # sale Transaction insert that needs farm KEY SHARE.
         parked.set()
         await release.wait()
-        await real_skip(*args, **kwargs)  # type: ignore[arg-type]
+        await real_skip(*args, **kwargs)
 
     monkeypatch.setattr(animals_api, "skip_pending_tasks_for_animal", parking_skip)
 

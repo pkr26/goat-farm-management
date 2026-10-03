@@ -58,15 +58,22 @@ def main() -> None:
         default=DEFAULT_SEED,
         help="shuffle seed for --sample (fixed default: reproducible)",
     )
+    ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
     sample_path = BACKEND / "mutation" / "verify_sample.json"
     if args.sample is not None:
         derived = derive_sample(args.sample, args.seed)
+        if args.dry_run:
+            print(json.dumps({"targets": [m["id"] for m in derived], "writes": False}))
+            return
         sample_path.write_text(json.dumps(derived, indent=1) + "\n")
         print(f"wrote {sample_path.name}: {len(derived)} survivors (seed {args.seed})")
     sample = json.loads(sample_path.read_text())
-    runner = Runner(workers=8, max_seconds=None)
+    if args.dry_run:
+        print(json.dumps({"targets": [m["id"] for m in sample], "writes": False}))
+        return
+    runner = Runner(workers=2, max_seconds=None)
     runner.results_path = BACKEND / "mutation" / "verify_results.jsonl"
     verdicts: collections.Counter[str] = collections.Counter()
     for m in sample:
@@ -75,6 +82,7 @@ def main() -> None:
         with runner.results_path.open("a") as fh:
             fh.write(json.dumps(rec) + "\n")
         print(rec["status"], m["file"], m["line"], m["kind"], flush=True)
+    runner.close()
     print(dict(verdicts))
 
 

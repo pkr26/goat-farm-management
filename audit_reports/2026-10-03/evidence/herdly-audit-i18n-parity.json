@@ -1,0 +1,32 @@
+{
+  "englishKeys": 2797,
+  "teluguKeys": 2797,
+  "missing": [],
+  "interpolation": [],
+  "empty": [],
+  "same": [
+    "simulation.unit.currency",
+    "simulation.metric.npv",
+    "simulation.metric.irr",
+    "simulation.metric.mirr",
+    "simulation.metric.bcr",
+    "simulation.metric.npvP5",
+    "simulation.metric.npvP50",
+    "simulation.metric.npvP95",
+    "simulation.metric.probabilityNegativeNpv",
+    "simulation.metric.probabilityDscrBelowOne",
+    "simulation.table.ebitda",
+    "simulation.table.ebit",
+    "simulation.table.pat",
+    "simulation.token.nlm",
+    "simulation.token.pct",
+    "simulation.token.dscr",
+    "opsSim.aria.tagSuffix",
+    "opsSim.dayBadgesSuffix",
+    "animalDetail.kids.title",
+    "animalDetail.weightDialog.bcsLabel",
+    "purchases.review.batchSummary",
+    "breeding.form.femaleLabel",
+    "breeding.form.maleLabel"
+  ]
+}

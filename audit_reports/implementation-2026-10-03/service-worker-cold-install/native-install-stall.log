@@ -1,0 +1,19 @@
+ATTACHED service_worker
+ATTACHED service_worker
+ATTACHED service_worker
+WORKER ["DIAGNOSTIC BEFORE SCRIPT"]
+WORKER ["DIAGNOSTIC BEFORE SCRIPT"]
+WORKER ["DIAGNOSTIC BEFORE SCRIPT"]
+ATTACHED service_worker
+WORKER ["DIAGNOSTIC BEFORE SCRIPT"]
+WORKER ["fetch:start","/worker"]
+WORKER ["fetch:start","/worker/login"]
+WORKER ["fetch:start","/worker/offline"]
+WORKER ["fetch:start","/manifest.webmanifest"]
+WORKER ["fetch:headers","/worker",200]
+WORKER ["fetch:headers","/worker/login",200]
+WORKER ["fetch:headers","/worker/offline",200]
+final {
+  registrations: [ { installing: 'installing', active: undefined } ],
+  cacheKeys: [ { name: 'herdly-worker-v3', urls: [] } ]
+}

@@ -1,0 +1,9 @@
+Command: docker create --network=none --name herdly-context-proof-effd93f5fff24aaca0c5553704bf53d0 herdly-context-proof-20261003:43efa0d835c74c0595202406a898d2be /not-executed
+Cwd: /Users/pradeepreddy/Desktop/goat-farm-management-main
+Exit code: 0
+Expected exit: 0
+
+STDOUT:
+61ab8ae6d2f9fca8149488d8092ba517f56dacd7928c03ac46595f2900c7a61d
+
+STDERR:

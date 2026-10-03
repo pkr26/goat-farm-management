@@ -1,0 +1,71 @@
+{
+  "currentServerBeforeRetry": {
+    "id": 7,
+    "revision": 2,
+    "name": "Manager B plan",
+    "assumptions": {
+      "herd": {
+        "does": 99
+      }
+    },
+    "targets": [
+      {
+        "year_month": "2030-01",
+        "animal_class": "doe",
+        "count": 99
+      }
+    ]
+  },
+  "calls": [
+    [
+      "submit",
+      {
+        "planId": 7,
+        "data": {
+          "expected_revision": 1,
+          "name": "Manager A plan",
+          "start_year_month": "2026-10",
+          "targets": [
+            {
+              "year_month": "2030-01",
+              "animal_class": "doe",
+              "count": 5
+            }
+          ],
+          "assumptions": {
+            "herd": {
+              "does": 5
+            }
+          }
+        }
+      }
+    ],
+    [
+      "toast",
+      "planner.toast.revisionConflict"
+    ],
+    [
+      "submit",
+      {
+        "planId": 7,
+        "data": {
+          "expected_revision": 2,
+          "name": "Manager A plan",
+          "start_year_month": "2026-10",
+          "targets": [
+            {
+              "year_month": "2030-01",
+              "animal_class": "doe",
+              "count": 5
+            }
+          ],
+          "assumptions": {
+            "herd": {
+              "does": 5
+            }
+          }
+        }
+      }
+    ]
+  ]
+}

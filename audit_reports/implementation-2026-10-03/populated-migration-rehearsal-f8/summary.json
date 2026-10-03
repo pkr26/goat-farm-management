@@ -1,0 +1,288 @@
+{
+  "old_head": "f4a8c2e6d1b9",
+  "head": "f8e2f6a0c5d3",
+  "checks": [
+    {
+      "check": "valid: starts at old historical head",
+      "passed": true,
+      "revision": "f4a8c2e6d1b9"
+    },
+    {
+      "check": "valid: populated representative historical fixtures",
+      "passed": true,
+      "row_counts": {
+        "farm_memberships": 1,
+        "farms": 3,
+        "notification_log": 1,
+        "notification_recipients": 1,
+        "refresh_sessions": 3,
+        "roles": 1,
+        "screening_crops": 3,
+        "screening_findings": 4,
+        "screening_images": 5,
+        "screening_runs": 4
+      }
+    },
+    {
+      "check": "preflight: starts at old historical head",
+      "passed": true,
+      "revision": "f4a8c2e6d1b9"
+    },
+    {
+      "check": "preflight: populated representative historical fixtures",
+      "passed": true,
+      "row_counts": {
+        "farm_memberships": 1,
+        "farms": 3,
+        "notification_log": 1,
+        "notification_recipients": 1,
+        "refresh_sessions": 3,
+        "roles": 1,
+        "screening_crops": 3,
+        "screening_findings": 4,
+        "screening_images": 5,
+        "screening_runs": 4
+      }
+    },
+    {
+      "check": "valid-f4-to-f8: upgrade succeeded",
+      "passed": true,
+      "target": "head"
+    },
+    {
+      "check": "valid populated DB reaches f8 head",
+      "passed": true,
+      "revision": "f8e2f6a0c5d3"
+    },
+    {
+      "check": "valid populated upgrade preserves every original fact column exactly",
+      "passed": true,
+      "data_sha256": "ad49eafadb9e00f106ddce30fabc91aac4cc32c5e6a9af546c8ceeef5954621b"
+    },
+    {
+      "check": "legacy review decisions stay revision zero, no reviewer/history invented",
+      "passed": true
+    },
+    {
+      "check": "screening_finding_reviews: no historical fact fabricated",
+      "passed": true
+    },
+    {
+      "check": "health_rounds: no historical fact fabricated",
+      "passed": true
+    },
+    {
+      "check": "health_round_targets: no historical fact fabricated",
+      "passed": true
+    },
+    {
+      "check": "health_round_coverage: no historical fact fabricated",
+      "passed": true
+    },
+    {
+      "check": "health_round_exclusions: no historical fact fabricated",
+      "passed": true
+    },
+    {
+      "check": "notification_outbox: no historical fact fabricated",
+      "passed": true
+    },
+    {
+      "check": "legacy notification dedupe remains unlinked with original SENT fact",
+      "passed": true
+    },
+    {
+      "check": "partial-review-f4-to-head-rejected: actionable preflight rejected",
+      "passed": true,
+      "expected_error": "Clinical preflight: inconsistent screening review metadata. Export and reconcile original records; no reviewer is fabricated."
+    },
+    {
+      "check": "partial-review-f4-to-head-rejected: revision unchanged",
+      "passed": true,
+      "revision": "f4a8c2e6d1b9"
+    },
+    {
+      "check": "partial-review-f4-to-head-rejected: all schema DDL rolled back",
+      "passed": true,
+      "schema_sha256": "fd9a8b33ca06ca883508a1d39f2e3e99fc413e3668a97bd8be2dfd8d6d8c18ea"
+    },
+    {
+      "check": "partial-review-f4-to-head-rejected: all original data unchanged",
+      "passed": true,
+      "data_sha256": "bdf6275afc165858d7756ac864726b17d1dd072402f7678b4ae5d18baaf5966c"
+    },
+    {
+      "check": "reconciled-review-to-f5: upgrade succeeded",
+      "passed": true,
+      "target": "f5b9d3e7a2c0"
+    },
+    {
+      "check": "wrong-run-image-crop-f5-to-head-rejected: actionable preflight rejected",
+      "passed": true,
+      "expected_error": "Clinical preflight: inconsistent run/image/crop/finding ancestry. Export and reconcile original provenance before retrying."
+    },
+    {
+      "check": "wrong-run-image-crop-f5-to-head-rejected: revision unchanged",
+      "passed": true,
+      "revision": "f5b9d3e7a2c0"
+    },
+    {
+      "check": "wrong-run-image-crop-f5-to-head-rejected: all schema DDL rolled back",
+      "passed": true,
+      "schema_sha256": "dd33537bfdec3eab03e8ea6576f0b9444621e0cc62616356eb9de08238b0ab61"
+    },
+    {
+      "check": "wrong-run-image-crop-f5-to-head-rejected: all original data unchanged",
+      "passed": true,
+      "data_sha256": "7cf40d0653e3d5b32e797e9edc596872df7f0b2f895d1096514e2dde11efe967"
+    },
+    {
+      "check": "wrong-finding-crop-f5-to-head-rejected: actionable preflight rejected",
+      "passed": true,
+      "expected_error": "Clinical preflight: inconsistent run/image/crop/finding ancestry. Export and reconcile original provenance before retrying."
+    },
+    {
+      "check": "wrong-finding-crop-f5-to-head-rejected: revision unchanged",
+      "passed": true,
+      "revision": "f5b9d3e7a2c0"
+    },
+    {
+      "check": "wrong-finding-crop-f5-to-head-rejected: all schema DDL rolled back",
+      "passed": true,
+      "schema_sha256": "dd33537bfdec3eab03e8ea6576f0b9444621e0cc62616356eb9de08238b0ab61"
+    },
+    {
+      "check": "wrong-finding-crop-f5-to-head-rejected: all original data unchanged",
+      "passed": true,
+      "data_sha256": "d83db76e0d0298eb069052bedb3835bac74373bd7e55976bfc6f850810f3b4ab"
+    },
+    {
+      "check": "reconciled-provenance-to-f8: upgrade succeeded",
+      "passed": true,
+      "target": "head"
+    },
+    {
+      "check": "reconciled populated DB reaches f8 head",
+      "passed": true,
+      "revision": "f8e2f6a0c5d3"
+    },
+    {
+      "check": "reconciled upgrade preserves/restores all original synthetic facts exactly",
+      "passed": true,
+      "data_sha256": "6eb2533a2bd7023d1b2f1d6d04254cd0ba319e22629cc42bfd9b318bea5a1349"
+    },
+    {
+      "check": "only the two declared maintenance jobs are seeded",
+      "passed": true
+    },
+    {
+      "check": "initial checkpoints claim no farm processing",
+      "passed": true
+    },
+    {
+      "check": "initial checkpoints claim no completed notification hour",
+      "passed": true
+    },
+    {
+      "check": "new partial review rejected",
+      "passed": true,
+      "sqlstate": "23514"
+    },
+    {
+      "check": "new cross-image crop rejected",
+      "passed": true,
+      "sqlstate": "23503"
+    },
+    {
+      "check": "new mismatched finding crop rejected",
+      "passed": true,
+      "sqlstate": "23514"
+    },
+    {
+      "check": "signed unscoped legacy refresh: API rejects",
+      "passed": true,
+      "status": 401
+    },
+    {
+      "check": "current scope cannot relabel a legacy row: API rejects",
+      "passed": true,
+      "status": 401
+    },
+    {
+      "check": "signed unscoped legacy access: API rejects",
+      "passed": true,
+      "status": 401
+    },
+    {
+      "check": "fresh password reauthentication works",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "check": "fresh session retains legitimate farm authority",
+      "passed": true
+    },
+    {
+      "check": "fresh scoped password refresh rotates",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "check": "legacy sessions remain unknown, never fabricated PASSWORD/PIN",
+      "passed": true
+    },
+    {
+      "check": "new password family retains explicit scope through rotation",
+      "passed": true
+    },
+    {
+      "check": "in-flight cutover farm is conservatively held through its local day",
+      "passed": true,
+      "local_date": "2026-10-04",
+      "reserved_calls": 2147483647
+    },
+    {
+      "check": "migration does not invent allowance or ledger for completed/empty farms",
+      "passed": true
+    },
+    {
+      "check": "held farm cannot admit an outbound attempt at cutover",
+      "passed": true
+    },
+    {
+      "check": "parent image update rolled back while independent reservation stayed durable",
+      "passed": true
+    },
+    {
+      "check": "first reservation charges two attempts per same-local-day legacy run plus one durable attempt",
+      "passed": true,
+      "old_runs_today": 2,
+      "reserved_calls": 5
+    },
+    {
+      "check": "same attempt identity is idempotent after parent rollback",
+      "passed": true
+    },
+    {
+      "check": "empty farm starts with its first real reservation and cap stops the next",
+      "passed": true
+    },
+    {
+      "check": "no rejected call fabricated a provider reservation",
+      "passed": true,
+      "reservation_count": 2
+    },
+    {
+      "check": "repository migration source unchanged",
+      "passed": true
+    },
+    {
+      "check": "both owned disposable databases dropped",
+      "passed": true,
+      "databases": [
+        "herdly_populated_valid_ef9b8d6cfc75_test",
+        "herdly_populated_preflight_4819d88e7b14_test"
+      ]
+    }
+  ]
+}

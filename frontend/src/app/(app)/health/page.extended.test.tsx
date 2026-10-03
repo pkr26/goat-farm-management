@@ -1418,7 +1418,7 @@ describe("HealthPage", () => {
 
   it("offers only pending VACCINE/DEWORMING duties as linked duties", async () => {
     const { user, dialog } = await openDialog();
-    const dutySelect = within(dialog).getByLabelText("Linked duty (completes it)");
+    const dutySelect = within(dialog).getByLabelText("Linked duty");
     await user.click(dutySelect);
     const options = await screen.findAllByRole("option");
     const names = options.map((o) => o.textContent ?? "");
@@ -1443,7 +1443,7 @@ describe("HealthPage", () => {
       }),
     ];
     const { user, dialog } = await openDialog();
-    await user.click(within(dialog).getByLabelText("Linked duty (completes it)"));
+    await user.click(within(dialog).getByLabelText("Linked duty"));
 
     expect(await screen.findByRole("option", { name: /PPR vaccination/ })).toBeInTheDocument();
     expect(
@@ -1463,7 +1463,7 @@ describe("HealthPage", () => {
     expect(
       await within(dialog).findByText(/Could not link duty #734/),
     ).toBeInTheDocument();
-    expect(within(dialog).getByLabelText("Linked duty (completes it)")).toHaveTextContent(
+    expect(within(dialog).getByLabelText("Linked duty")).toHaveTextContent(
       "— none —",
     );
 
@@ -1533,7 +1533,7 @@ describe("HealthPage", () => {
   it("prefills scope, animal and type when an animal duty is linked", async () => {
     tasks = [makeTask({ id: 8, title: "Deworm Kaveri", category: "DEWORMING", animal_id: 3 })];
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getByLabelText("Linked duty (completes it)"), /Deworm Kaveri/);
+    await pickOption(user, within(dialog).getByLabelText("Linked duty"), /Deworm Kaveri/);
 
     expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
     // Type switched to the duty's category.
@@ -1547,7 +1547,7 @@ describe("HealthPage", () => {
   it("prefills the batch scope when a batch duty is linked", async () => {
     tasks = [DEWORM_BATCH_TASK];
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getByLabelText("Linked duty (completes it)"), /Deworm batch #2/);
+    await pickOption(user, within(dialog).getByLabelText("Linked duty"), /Deworm batch #2/);
 
     expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeChecked();
     await reviewAndConfirmBulk(user, dialog);
@@ -1671,7 +1671,7 @@ describe("HealthPage", () => {
       }),
     ];
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getByLabelText("Linked duty (completes it)"), /vaccinate PPR/);
+    await pickOption(user, within(dialog).getByLabelText("Linked duty"), /vaccinate PPR/);
 
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("PPR");
 
@@ -1695,7 +1695,7 @@ describe("HealthPage", () => {
       }),
     ];
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getByLabelText("Linked duty (completes it)"), /deworm/);
+    await pickOption(user, within(dialog).getByLabelText("Linked duty"), /deworm/);
 
     expect(within(dialog).getByLabelText(/product name/i)).toHaveValue(
       "Albendazole/Closantel oral + Ivermectin SC",
@@ -1715,7 +1715,7 @@ describe("HealthPage", () => {
   it("switching the linked duty back to '— none —' reverts the prefills", async () => {
     tasks = [DEWORM_BATCH_TASK];
     const { user, dialog } = await openDialog();
-    const dutySelect = within(dialog).getByLabelText("Linked duty (completes it)");
+    const dutySelect = within(dialog).getByLabelText("Linked duty");
     await pickOption(user, dutySelect, /Deworm batch #2/);
 
     expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeChecked();

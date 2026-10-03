@@ -1,0 +1,871 @@
+
+Running 74 tests using 1 worker
+
+(node:15905) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /dashboard (en) has no serious accessibility violations (1.5s)
+  ✓   2 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /tasks (en) has no serious accessibility violations (1.4s)
+  ✓   3 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /worker (en) has no serious accessibility violations (1.3s)
+  ✓   4 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /login (en) has no serious accessibility violations (8.4s)
+  ✓   5 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /worker/login (en) has no serious accessibility violations (8.8s)
+  ✓   6 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /worker/offline (en) has no serious accessibility violations (8.3s)
+  ✓   7 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /screening (en) has no serious accessibility violations (1.4s)
+  ✓   8 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /team (en) has no serious accessibility violations (1.5s)
+  ✓   9 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /finance/insurance (en) has no serious accessibility violations (1.4s)
+  ✓  10 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /health (en) has no serious accessibility violations (1.4s)
+  ✓  11 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /planner (en) has no serious accessibility violations (1.4s)
+  ✘  12 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /simulation (en) has no serious accessibility violations (1.8s)
+(node:16573) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  13 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /finance (en) has no serious accessibility violations (1.5s)
+  ✓  14 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /dashboard (te) has no serious accessibility violations (1.5s)
+  ✓  15 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /tasks (te) has no serious accessibility violations (1.4s)
+  ✓  16 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /worker (te) has no serious accessibility violations (1.3s)
+  ✓  17 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /login (te) has no serious accessibility violations (8.4s)
+  ✓  18 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /worker/login (te) has no serious accessibility violations (8.8s)
+  ✓  19 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /worker/offline (te) has no serious accessibility violations (8.3s)
+  ✓  20 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /screening (te) has no serious accessibility violations (1.4s)
+  ✓  21 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /team (te) has no serious accessibility violations (1.5s)
+  ✓  22 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /finance/insurance (te) has no serious accessibility violations (1.4s)
+  ✓  23 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /health (te) has no serious accessibility violations (1.4s)
+  ✓  24 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /planner (te) has no serious accessibility violations (1.5s)
+  ✘  25 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /simulation (te) has no serious accessibility violations (1.8s)
+(node:16780) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  26 [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /finance (te) has no serious accessibility violations (1.5s)
+  ✓  27 [chromium] › e2e/animals.spec.ts:13:3 › animals › create animal, record a weight, move bucket — profile reflects all (3.7s)
+  ✓  28 [chromium] › e2e/api-contract-auth-team.spec.ts:240:3 › frontend proxy auth and team API contracts › proxies the liveness and database-readiness probes (323ms)
+  ✓  29 [chromium] › e2e/api-contract-auth-team.spec.ts:254:3 › frontend proxy auth and team API contracts › persists password changes and returns exact me/export data through the proxy (540ms)
+  ✓  30 [chromium] › e2e/api-contract-auth-team.spec.ts:370:3 › frontend proxy auth and team API contracts › deletes a separate registered non-owner and makes its login unusable (214ms)
+  ✓  31 [chromium] › e2e/api-contract-auth-team.spec.ts:403:3 › frontend proxy auth and team API contracts › persists worker resets and the full custom-role create/update/delete lifecycle (588ms)
+  ✓  32 [chromium] › e2e/api-contract-domain.spec.ts:158:3 › frontend proxy domain API contracts › animal status mutation returns and persists the requested lifecycle facts (60ms)
+  ✓  33 [chromium] › e2e/api-contract-domain.spec.ts:206:3 › frontend proxy domain API contracts › breeding GET, live-pregnancy GET, and pregnancy abort agree on one record (139ms)
+  ✓  34 [chromium] › e2e/api-contract-domain.spec.ts:328:3 › frontend proxy domain API contracts › health batch lookup/preview and restriction clearance round-trip their data (121ms)
+  ✓  35 [chromium] › e2e/api-contract-domain.spec.ts:510:3 › frontend proxy domain API contracts › task GET returns the created duty and skip remains visible on readback (42ms)
+  ✓  36 [chromium] › e2e/api-contract-domain.spec.ts:568:3 › frontend proxy domain API contracts › feeding setting and recipe mix are reflected by plan, inventory, and finished stock (149ms)
+  ✓  37 [chromium] › e2e/api-contract-domain.spec.ts:669:3 › frontend proxy domain API contracts › finance correction returns the replacement and preserves the voided source audit (39ms)
+  ✓  38 [chromium] › e2e/api-contract-domain.spec.ts:748:3 › frontend proxy domain API contracts › herd snapshot and scenario GET/PATCH/compare/DELETE stay consistent (203ms)
+  ✓  39 [chromium] › e2e/auth.spec.ts:21:3 › auth › owner signs in, sees the full nav, and logout returns to /login (473ms)
+  ✓  40 [chromium] › e2e/auth.spec.ts:46:3 › auth › unauthenticated visit to an app page redirects to /login (181ms)
+  ✓  41 [chromium] › e2e/auth.spec.ts:51:3 › auth › wrong password shows an error and stays on /login (280ms)
+  ✓  42 [chromium] › e2e/auth.spec.ts:61:3 › auth › signIn helper lands on the dashboard (398ms)
+  ✓  43 [chromium] › e2e/breeding-flow.spec.ts:16:3 › breeding flow › doe is bred, confirmed pregnant via ultrasound, moves to PREGNANCY_EARLY (4.2s)
+  ✓  44 [chromium] › e2e/cross-tenant.spec.ts:94:3 › cross-tenant and horizontal authorization negatives › a provisioned worker without finance.view is refused 403 on the finance API (486ms)
+  ✓  45 [chromium] › e2e/cross-tenant.spec.ts:157:3 › cross-tenant and horizontal authorization negatives › another farm's owner cannot read this farm's animal: uniform 404s (305ms)
+  ✓  46 [chromium] › e2e/cross-tenant.spec.ts:202:3 › cross-tenant and horizontal authorization negatives › logged-out API access is refused 401 (3ms)
+  ✓  47 [chromium] › e2e/farm-switch.spec.ts:22:3 › farm switching › switching farms renders none of the previous farm's cached data (2.0s)
+  ✓  48 [chromium] › e2e/feeding-finance.spec.ts:6:3 › feeding and finance › feeding plan shows the 40/20/40 shift split and records a dispense (2.2s)
+  ✓  49 [chromium] › e2e/feeding-finance.spec.ts:77:3 › feeding and finance › adding an expense transaction lists it in the ledger (858ms)
+  ✓  50 [chromium] › e2e/feeding-finance.spec.ts:113:3 › feeding and finance › reports page renders herd summary, breeding performance and mortality (1.2s)
+  ✓  51 [chromium] › e2e/health-flow.spec.ts:14:3 › health flow › record a vaccine event — event log, profile health card, schedule badge (3.3s)
+  ✓  52 [chromium] › e2e/kidding-flow.spec.ts:16:3 › kidding flow › overdue pregnancy is kidded with twins — kids become animals, doe moves to RECOVERY (7.6s)
+  ✓  53 [chromium] › e2e/navigation-rbac.spec.ts:25:3 › navigation and access control › every nav item loads its page without errors (5.1s)
+  ✓  54 [chromium] › e2e/navigation-rbac.spec.ts:42:3 › navigation and access control › logged-out direct-URL access redirects every app page to /login (1.6s)
+  ✓  55 [chromium] › e2e/ops-simulation.spec.ts:17:3 › ops simulation › renders its sections and replays the toy herd for one week (836ms)
+  ✓  56 [chromium] › e2e/ops-simulation.spec.ts:62:3 › ops simulation › a row without a tag is reported inline, blocks the run, and never reaches the API (729ms)
+  ✓  57 [chromium] › e2e/ownership-transfer.spec.ts:18:1 › an owner transfers a separate farm to a password-rotated member through Team (2.0s)
+  ✓  58 [chromium] › e2e/planner.spec.ts:23:3 › planner › renders its sections, plans a sale target, and keeps owner access (1.5s)
+  ✓  59 [chromium] › e2e/planner.spec.ts:68:3 › planner › a target in the plan's start month is rejected inline and blocks the run (725ms)
+  ✓  60 [chromium] › e2e/purchases.spec.ts:6:3 › purchases › a new batch stubs animals into QUARANTINE with the 45-day task schedule (2.0s)
+  ✓  61 [chromium] › e2e/register.spec.ts:6:3 › registration › a new user registers, creates a farm and reaches its dashboard (624ms)
+  ✓  62 [chromium] › e2e/screening.spec.ts:161:3 › screening review › scoreboard → queue → detail → confirm → conflict toast, all stubbed at the API (868ms)
+  ✓  63 [chromium] › e2e/simulation.spec.ts:74:3 › simulation › defaults + herd events run end-to-end; save and re-run as a scenario (3.2s)
+  ✓  64 [chromium] › e2e/simulation.spec.ts:183:3 › simulation › an event month beyond the horizon blocks the run with an inline error (835ms)
+  ✓  65 [chromium] › e2e/simulation.spec.ts:202:3 › simulation › farm calibration and all decision analyses render responsively (6.6s)
+  ✓  66 [chromium] › e2e/tasks-guards.spec.ts:15:3 › tasks guards › auto duties are form-linked; a completed duty lands in awaiting verification (4.4s)
+  ✓  67 [chromium] › e2e/tasks-verify.spec.ts:32:3 › tasks verification › owner completes and verifies a cleaning duty — it lands in Completed as VERIFIED (1.2s)
+  ✓  68 [chromium] › e2e/tasks-verify.spec.ts:58:3 › tasks verification › rejected duty is sent back to pending with the note visible (1.4s)
+  ✓  69 [chromium] › e2e/team.spec.ts:6:3 › team management › owner adds a worker, changes their role and toggles them inactive/active (1.4s)
+  ✓  70 [chromium] › e2e/worker-onboarding.spec.ts:43:1 › task-only password worker completes first password rotation on the worker board (2.3s)
+  ✓  71 [chromium] › e2e/worker-onboarding.spec.ts:70:1 › owner creates and resets a PIN worker through Team and pins the tablet through the UI (2.3s)
+(node:17714) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  72 [Mobile Chrome] › e2e/mobile-worker-journey.spec.ts:41:3 › mobile worker journey › login → tasks board cards → complete a duty → open the linked form (3.8s)
+  ✘  73 [Mobile Chrome] › e2e/worker-tablet-journey.spec.ts:55:3 › worker tablet › PIN login, offline completion, sync with attribution (2.0m)
+(node:18029) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  74 [Mobile Chrome] › e2e/worker-tablet-journey.spec.ts:210:3 › worker tablet › form-linked duty deep-links to its form and carries returnTo=/worker (1.9s)
+
+
+  1) [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /simulation (en) has no serious accessibility violations 
+
+    Error: serious a11y violations on /simulation: nested-interactive (serious): details[open=""]:nth-child(2) > summary, details[open=""]:nth-child(3) > summary, details:nth-child(4) > summary
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  -   1
+    + Received  + 346
+
+    - Array []
+    + Array [
+    +   Object {
+    +     "description": "Ensure interactive controls are not nested as they are not always announced by screen readers or can cause focus problems for assistive technologies",
+    +     "help": "Interactive controls must not be nested",
+    +     "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/nested-interactive?application=playwright",
+    +     "id": "nested-interactive",
+    +     "impact": "serious",
+    +     "nodes": Array [
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"What is Meta?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Explain Meta</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"What is Meta?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details[open=\"\"]:nth-child(2) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"What is Herd?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Explain Herd</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"What is Herd?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details[open=\"\"]:nth-child(3) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"What is Reproduction?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Explain Reproduction</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"What is Reproduction?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(4) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"What is Mortality?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Explain Mortality</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"What is Mortality?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(5) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"What is Culling?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Explain Culling</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"What is Culling?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(6) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"What is Growth?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Explain Growth</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"What is Growth?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(7) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"What is Sales?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Explain Sales</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"What is Sales?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(8) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"What is Feed?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Explain Feed</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"What is Feed?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(9) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"What is Costs?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Explain Costs</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"What is Costs?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(10) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"What is Finance?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Explain Finance</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"What is Finance?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(11) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"What is Risk?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Explain Risk</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"What is Risk?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(12) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"What is Optimization?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Explain Optimization</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"What is Optimization?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(13) > summary",
+    +         ],
+    +       },
+    +     ],
+    +     "tags": Array [
+    +       "cat.keyboard",
+    +       "wcag2a",
+    +       "wcag412",
+    +       "TTv5",
+    +       "TT6.a",
+    +       "EN-301-549",
+    +       "EN-9.4.1.2",
+    +       "RGAAv4",
+    +       "RGAA-7.1.1",
+    +     ],
+    +   },
+    + ]
+
+      81 |         serious,
+      82 |         `serious a11y violations on ${path}: ${summary}`,
+    > 83 |       ).toEqual([]);
+         |         ^
+      84 |     });
+      85 |     }
+      86 |   }
+        at /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/a11y-gate.spec.ts:83:9
+
+    Error Context: test-results/a11y-gate-a11y-gate-simula-20dba-us-accessibility-violations-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/a11y-gate-a11y-gate-simula-20dba-us-accessibility-violations-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/a11y-gate-a11y-gate-simula-20dba-us-accessibility-violations-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /simulation (te) has no serious accessibility violations 
+
+    Error: serious a11y violations on /simulation: nested-interactive (serious): details[open=""]:nth-child(2) > summary, details[open=""]:nth-child(3) > summary, details:nth-child(4) > summary
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  -   1
+    + Received  + 346
+
+    - Array []
+    + Array [
+    +   Object {
+    +     "description": "Ensure interactive controls are not nested as they are not always announced by screen readers or can cause focus problems for assistive technologies",
+    +     "help": "Interactive controls must not be nested",
+    +     "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/nested-interactive?application=playwright",
+    +     "id": "nested-interactive",
+    +     "impact": "serious",
+    +     "nodes": Array [
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"Meta అంటే ఏమిటి?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Meta వివరించండి</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"Meta అంటే ఏమిటి?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details[open=\"\"]:nth-child(2) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"మంద అంటే ఏమిటి?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">మంద వివరించండి</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"మంద అంటే ఏమిటి?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details[open=\"\"]:nth-child(3) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"Reproduction అంటే ఏమిటి?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\">",
+    +                 "target": Array [
+    +                   "button[title=\"Reproduction అంటే ఏమిటి?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(4) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"మరణాల రేటు అంటే ఏమిటి?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\">",
+    +                 "target": Array [
+    +                   "button[title=\"మరణాల రేటు అంటే ఏమిటి?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(5) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"Culling అంటే ఏమిటి?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Culling వివరించండి</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"Culling అంటే ఏమిటి?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(6) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"పెరుగుదల అంటే ఏమిటి?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">పెరుగుదల వివరించండి</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"పెరుగుదల అంటే ఏమిటి?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(7) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"Sales అంటే ఏమిటి?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Sales వివరించండి</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"Sales అంటే ఏమిటి?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(8) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"మేత అంటే ఏమిటి?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">మేత వివరించండి</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"మేత అంటే ఏమిటి?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(9) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"ఖర్చులు అంటే ఏమిటి?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">ఖర్చులు వివరించండి</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"ఖర్చులు అంటే ఏమిటి?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(10) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"Finance అంటే ఏమిటి?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">Finance వివరించండి</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"Finance అంటే ఏమిటి?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(11) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"ప్రమాదం అంటే ఏమిటి?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\"><span class=\"sr-only\">ప్రమాదం వివరించండి</span>?</button>",
+    +                 "target": Array [
+    +                   "button[title=\"ప్రమాదం అంటే ఏమిటి?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(12) > summary",
+    +         ],
+    +       },
+    +       Object {
+    +         "all": Array [],
+    +         "any": Array [
+    +           Object {
+    +             "data": null,
+    +             "id": "no-focusable-content",
+    +             "impact": "serious",
+    +             "message": "Element has focusable descendants",
+    +             "relatedNodes": Array [
+    +               Object {
+    +                 "html": "<button type=\"button\" title=\"Optimization అంటే ఏమిటి?\" class=\"inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent\">",
+    +                 "target": Array [
+    +                   "button[title=\"Optimization అంటే ఏమిటి?\"]",
+    +                 ],
+    +               },
+    +             ],
+    +           },
+    +         ],
+    +         "failureSummary": "Fix any of the following:
+    +   Element has focusable descendants",
+    +         "html": "<summary class=\"flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50\">",
+    +         "impact": "serious",
+    +         "none": Array [],
+    +         "target": Array [
+    +           "details:nth-child(13) > summary",
+    +         ],
+    +       },
+    +     ],
+    +     "tags": Array [
+    +       "cat.keyboard",
+    +       "wcag2a",
+    +       "wcag412",
+    +       "TTv5",
+    +       "TT6.a",
+    +       "EN-301-549",
+    +       "EN-9.4.1.2",
+    +       "RGAAv4",
+    +       "RGAA-7.1.1",
+    +     ],
+    +   },
+    + ]
+
+      81 |         serious,
+      82 |         `serious a11y violations on ${path}: ${summary}`,
+    > 83 |       ).toEqual([]);
+         |         ^
+      84 |     });
+      85 |     }
+      86 |   }
+        at /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/a11y-gate.spec.ts:83:9
+
+    Error Context: test-results/a11y-gate-a11y-gate-simula-6bd87-us-accessibility-violations-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/a11y-gate-a11y-gate-simula-6bd87-us-accessibility-violations-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/a11y-gate-a11y-gate-simula-6bd87-us-accessibility-violations-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [Mobile Chrome] › e2e/worker-tablet-journey.spec.ts:55:3 › worker tablet › PIN login, offline completion, sync with attribution 
+
+    Test timeout of 120000ms exceeded.
+
+    Error: page.evaluate: Test timeout of 120000ms exceeded.
+
+      166 |     // Offline capability is ready only when shell assets and the authorized
+      167 |     // current-shift snapshot have committed. The next page was never visited.
+    > 168 |     await page.evaluate(() => navigator.serviceWorker.ready);
+          |                ^
+      169 |     await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+      170 |     await expect.poll(() => page.evaluate(() => sessionStorage.getItem("herdly:offline-shift:v1") !== null)).toBe(true);
+      171 |
+        at /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/worker-tablet-journey.spec.ts:168:16
+
+    Error Context: test-results/worker-tablet-journey-work-fd022-etion-sync-with-attribution-Mobile-Chrome/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/worker-tablet-journey-work-fd022-etion-sync-with-attribution-Mobile-Chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/worker-tablet-journey-work-fd022-etion-sync-with-attribution-Mobile-Chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3 failed
+    [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /simulation (en) has no serious accessibility violations 
+    [chromium] › e2e/a11y-gate.spec.ts:33:5 › a11y gate › /simulation (te) has no serious accessibility violations 
+    [Mobile Chrome] › e2e/worker-tablet-journey.spec.ts:55:3 › worker tablet › PIN login, offline completion, sync with attribution 
+  71 passed (4.7m)

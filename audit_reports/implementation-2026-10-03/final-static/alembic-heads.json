@@ -1,0 +1,17 @@
+{
+  "name": "alembic-heads",
+  "command": ".venv/bin/python -m alembic heads",
+  "argv": [
+    ".venv/bin/python",
+    "-m",
+    "alembic",
+    "heads"
+  ],
+  "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+  "started_at": "2026-10-03T19:01:46.065638+00:00",
+  "finished_at": "2026-10-03T19:01:46.230631+00:00",
+  "exit_code": 0,
+  "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/alembic-heads.log",
+  "stdout": "f8e2f6a0c5d3 (head)\n",
+  "stderr": ""
+}

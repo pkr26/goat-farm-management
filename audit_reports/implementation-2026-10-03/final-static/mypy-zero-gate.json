@@ -1,0 +1,15 @@
+{
+  "name": "mypy-zero-gate",
+  "command": ".venv/bin/python scripts/mypy_tests_ratchet.py",
+  "argv": [
+    ".venv/bin/python",
+    "scripts/mypy_tests_ratchet.py"
+  ],
+  "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+  "started_at": "2026-10-03T19:01:46.060234+00:00",
+  "finished_at": "2026-10-03T19:01:46.224653+00:00",
+  "exit_code": 0,
+  "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/mypy-zero-gate.log",
+  "stdout": "mypy --strict over tests/ passes with zero errors\n",
+  "stderr": ""
+}

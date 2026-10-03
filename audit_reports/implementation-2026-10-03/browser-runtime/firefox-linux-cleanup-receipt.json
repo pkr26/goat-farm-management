@@ -1,0 +1,51 @@
+{
+  "recorded_at": "2026-10-03T20:00:34.627089+00:00",
+  "owned_container": "herdly-firefox-runtime-e80a4878c80f",
+  "owned_container_id": "7c15ed2fc1eb2147f63705ab40ab54958c1d34144b13c58608ef10cd0017819f",
+  "stop_command": [
+    "docker",
+    "stop",
+    "herdly-firefox-runtime-e80a4878c80f"
+  ],
+  "stop_exit_code": 0,
+  "post_stop_inspect_exit_code": 1,
+  "post_stop_inspect_stderr": "error: no such object: herdly-firefox-runtime-e80a4878c80f",
+  "owned_container_absent": true,
+  "image_cache_retained": {
+    "tag": "mcr.microsoft.com/playwright:v1.62.1-noble",
+    "repo_digests": [
+      "mcr.microsoft.com/playwright@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"
+    ]
+  },
+  "native_failed_launcher_checks": [
+    {
+      "pid": 24936,
+      "ps_exit_code": 1,
+      "present": false,
+      "process_metadata": null
+    },
+    {
+      "pid": 24953,
+      "ps_exit_code": 1,
+      "present": false,
+      "process_metadata": null
+    },
+    {
+      "pid": 25356,
+      "ps_exit_code": 1,
+      "present": false,
+      "process_metadata": null
+    },
+    {
+      "pid": 25423,
+      "ps_exit_code": 1,
+      "present": false,
+      "process_metadata": null
+    }
+  ],
+  "all_recorded_native_launchers_absent": true,
+  "unrelated_resources_changed": false,
+  "receipt_capture_note": "The first absence assertion compared Docker error wording case-sensitively; Docker returned lower-case no such object. Repeated read-only inspect confirmed absence. Stop itself exited0; no repeated stop or unrelated mutation was performed.",
+  "bundled_native_firefox_1538_remaining_processes": [],
+  "bundled_native_firefox_1538_absent": true
+}

@@ -1,0 +1,31 @@
+{
+  "recorded_at": "2026-10-03T19:00:17.099235+00:00",
+  "command": "GOATFARM_TEST_DB=herdly_platform_finish_20261003_test .venv/bin/python -m pytest -q tests/test_maintenance_progress_20261003.py tests/test_notification_quality_20261003.py",
+  "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+  "database": "herdly_platform_finish_20261003_test",
+  "exit_code": 0,
+  "passed": 29,
+  "duration_seconds": 18.99,
+  "log": "focused-pytest.log",
+  "source_sha256": {
+    "app/main.py": "e48878ecde10c1e5cb1606d774baf6ea4894d2d82b97c833b14fa8c470d225f8",
+    "app/models/maintenance.py": "fef87869c1f7c9a6443a57c044c32bd5f0ecaf70d95c4eeb7970e86794f2057b",
+    "app/services/maintenance_progress.py": "3852cae14e338fa1b26f30e9c756b627c30a0d26a3f2c37ca9fe6bd24a18a32f",
+    "tests/test_maintenance_progress_20261003.py": "f55f087bcd62bcb55cec083ea4e75b04c80c7dced13e7fe293e0a1b050238086",
+    "tests/test_notification_quality_20261003.py": "32dbc6e5b8da9f9c80a8c9ba1dc4cf8d40b4fe312e803a99bf4967b5bf7aeb30"
+  },
+  "contracts": [
+    "Fresh processes resume keyset beyond one tick capacity",
+    "Abrupt process death after independent business commit leaves checkpoint unchanged",
+    "Existing cadence facts deduplicate on replay",
+    "Second process nonblocking skip of owned page",
+    "Independent jobs can run simultaneously",
+    "Row-lock skip",
+    "Alert hour completes only at exhaustion",
+    "Poison farm retries on wrap",
+    "Loop restarts resume saved progress",
+    "Cancellation and deferred commit failure roll back checkpoint",
+    "Invalid page/schedule/database values fail closed"
+  ],
+  "scope": "Actual local PostgreSQL restart/concurrency/crash/commit probes on isolated throwaway database; no production-size restart soak"
+}

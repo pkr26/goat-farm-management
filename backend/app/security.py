@@ -713,12 +713,71 @@ def issue_token(
     )
 
 
-def issue_access_token(user_id: int, token_version: int = 0) -> str:
+class SessionScope(NamedTuple):
+    """Proven origin of a session; absent legacy metadata never implies password proof."""
+
+    origin: str = "PASSWORD"
+    farm_id: int | None = None
+    membership_id: int | None = None
+
+
+PASSWORD_SESSION_SCOPE = SessionScope()
+
+
+def _session_claims(scope: SessionScope, family_id: str | None = None) -> dict[str, Any]:
+    claims: dict[str, Any] = {"scv": 2, "origin": scope.origin}
+    if family_id is not None:
+        claims["fid"] = family_id
+    if scope.origin == "PIN":
+        if scope.farm_id is None or scope.membership_id is None or not family_id:
+            raise ValueError("PIN sessions require membership, farm and family scope")
+        claims.update(farm=scope.farm_id, membership=scope.membership_id, fid=family_id)
+    elif scope != SessionScope():
+        raise ValueError("Invalid password session scope")
+    return claims
+
+
+def _decode_session_scope(payload: dict[str, Any]) -> SessionScope | None:
+    # Cutover is intentionally fail closed for every unmarked legacy grant:
+    # the old wire contract cannot prove whether a password or PIN issued it.
+    if type(payload.get("scv")) is not int or payload["scv"] != 2:
+        return None
+    origin = payload.get("origin")
+    if origin == "PASSWORD":
+        if "farm" in payload or "membership" in payload:
+            return None
+        return SessionScope()
+    if origin != "PIN":
+        return None
+    farm_id, membership_id = payload.get("farm"), payload.get("membership")
+    family_id = payload.get("fid")
+    if (
+        type(farm_id) is not int
+        or not 1 <= farm_id <= 2**31 - 1
+        or type(membership_id) is not int
+        or not 1 <= membership_id <= 2**31 - 1
+        or not isinstance(family_id, str)
+        or not 1 <= len(family_id) <= 64
+    ):
+        return None
+    return SessionScope("PIN", farm_id, membership_id)
+
+
+def issue_access_token(
+    user_id: int,
+    token_version: int = 0,
+    *,
+    scope: SessionScope = PASSWORD_SESSION_SCOPE,
+    family_id: str | None = None,
+) -> str:
     return issue_token(
         user_id,
         "access",
         get_settings().access_token_ttl_seconds,
-        extra_claims={"ver": token_version},
+        extra_claims={
+            "ver": token_version,
+            **_session_claims(scope, family_id or uuid.uuid4().hex),
+        },
     )
 
 
@@ -729,8 +788,8 @@ def issue_refresh_token(
     family_id: str | None = None,
     issued_at: datetime | None = None,
     expires_at: datetime | None = None,
+    scope: SessionScope = PASSWORD_SESSION_SCOPE,
 ) -> str:
-    # The caller picks the jti when it must persist it (refresh_sessions row).
     return issue_token(
         user_id,
         "refresh",
@@ -738,13 +797,18 @@ def issue_refresh_token(
         jti=jti,
         issued_at=issued_at,
         expires_at=expires_at,
-        extra_claims={"fid": family_id} if family_id is not None else None,
+        extra_claims={
+            **_session_claims(scope, family_id),
+            **({"fid": family_id} if family_id is not None else {}),
+        },
     )
 
 
 class AccessClaims(NamedTuple):
     user_id: int
     token_version: int
+    scope: SessionScope = SessionScope()
+    family_id: str | None = None
 
 
 class AccessDecodeResult(NamedTuple):
@@ -761,6 +825,7 @@ class RefreshClaims(NamedTuple):
     jti: str
     family_id: str | None
     expires_at: datetime  # naive UTC, like every stored datetime
+    scope: SessionScope = SessionScope()
 
 
 def _decode_payload_result(
@@ -868,10 +933,14 @@ def decode_access_claims_result(token: str) -> AccessDecodeResult:
         return AccessDecodeResult(claims=None, expired=False)
     if isinstance(token_version, bool) or not isinstance(token_version, int) or token_version < 0:
         return AccessDecodeResult(claims=None, expired=False)
+    scope = _decode_session_scope(payload)
+    family_id = payload.get("fid")
+    if scope is None or not isinstance(family_id, str) or not 1 <= len(family_id) <= 64:
+        return AccessDecodeResult(claims=None, expired=False)
     if expired:
         return AccessDecodeResult(claims=None, expired=True)
     return AccessDecodeResult(
-        claims=AccessClaims(user_id=user_id, token_version=token_version),
+        claims=AccessClaims(user_id, token_version, scope, payload.get("fid")),
         expired=False,
     )
 
@@ -901,11 +970,15 @@ def decode_refresh_claims(token: str) -> RefreshClaims | None:
         family_id is not None and (not isinstance(family_id, str) or not 1 <= len(family_id) <= 64)
     ):
         return None
+    scope = _decode_session_scope(payload)
+    if scope is None:
+        return None
     return RefreshClaims(
         user_id=user_id,
         jti=jti,
         family_id=family_id,
         expires_at=expires_at,
+        scope=scope,
     )
 
 

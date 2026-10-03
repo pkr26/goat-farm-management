@@ -12,6 +12,7 @@ export const ListImagesApiScreeningImagesGetStatus = {
   PENDING: 'PENDING',
   PROCESSING: 'PROCESSING',
   HEALTHY: 'HEALTHY',
+  UNASSESSABLE: 'UNASSESSABLE',
   FLAGGED: 'FLAGGED',
   SKIPPED: 'SKIPPED',
   ERROR: 'ERROR',

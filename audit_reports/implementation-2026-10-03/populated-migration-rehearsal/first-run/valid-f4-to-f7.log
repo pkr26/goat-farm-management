@@ -1,0 +1,5 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade f4a8c2e6d1b9 -> f5b9d3e7a2c0, Bind PIN refresh families to the authenticating farm and membership.
+INFO  [alembic.runtime.migration] Running upgrade f5b9d3e7a2c0 -> f6c0e4f8b3d1, Truthful screening review, durable call budgets and treatment-round evidence.
+INFO  [alembic.runtime.migration] Running upgrade f6c0e4f8b3d1 -> f7d1e5f9b4c2, Persist one-shot clinical alerts and cross-day per-recipient delivery claims.

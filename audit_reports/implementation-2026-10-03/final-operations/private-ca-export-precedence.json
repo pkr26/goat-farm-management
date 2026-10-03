@@ -1,0 +1,11 @@
+{
+  "name": "private-ca-export-precedence",
+  "command": "bash -c 'SCRIPT_DIR=\"$1\"; PYTHON_BIN=\"$2\"; source \"$3\"; load_app_safety_settings; validate_app_settings; printf \"%s\\n\" \"$ENVIRONMENT\" \"$DB_SSLMODE\" \"$DB_SSLROOTCERT_PATH\"' fixture /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/helper/scripts /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/backup_env.sh",
+  "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+  "started_at": "2026-10-03T18:44:26.211143+00:00",
+  "finished_at": "2026-10-03T18:44:26.214183+00:00",
+  "expected_exit": 0,
+  "exit_code": 0,
+  "stdout": "production\nverify-full\n/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/exported-ca.pem\n",
+  "stderr": ""
+}

@@ -37,6 +37,7 @@ from app.utils import today
 
 from .conftest import create_farm, owner_with_farm, register
 from .test_rbac_exhaustive import FARMLESS_BY_DESIGN, _app_routes, _placeholders
+from .type_helpers import JsonObject
 
 UNKNOWN_FARM = 999_999_999  # inside int32, never created
 
@@ -47,10 +48,10 @@ def _farm_scoped_routes() -> list[tuple[str, str]]:
 
 
 async def _seed_farm_objects(
-    client: httpx.AsyncClient, headers: dict
-) -> dict[str, tuple[int, dict]]:
+    client: httpx.AsyncClient, headers: dict[str, str]
+) -> dict[str, tuple[int, JsonObject]]:
     """One object of every mutable family, all owned by `headers`' farm."""
-    made: dict[str, tuple[int, dict]] = {}
+    made: dict[str, tuple[int, JsonObject]] = {}
 
     animal = await client.post(
         "/api/animals",
@@ -260,7 +261,7 @@ async def test_idor_foreign_object_ids_answer_404_for_reads_and_writes(
         ("GET", f"/api/purchases/{batch_id}"),
         ("GET", f"/api/health/schedule/{animal_id}"),
     ]
-    writes: list[tuple[str, str, dict | None]] = [
+    writes: list[tuple[str, str, JsonObject | None]] = [
         ("POST", f"/api/tasks/{task_id}/complete", None),
         ("POST", f"/api/tasks/{task_id}/skip", {"reason": "idor probe"}),
         ("POST", f"/api/animals/{animal_id}/move", {"to_bucket": "BREEDING", "reason": "idor"}),
@@ -358,7 +359,9 @@ async def test_cross_tenant_foreign_keys_rejected_at_the_api_boundary(
         )
     ).json()
 
-    async def probe(url: str, json_body: dict) -> tuple[httpx.Response, httpx.Response]:
+    async def probe(
+        url: str, json_body: dict[str, object]
+    ) -> tuple[httpx.Response, httpx.Response]:
         foreign = await client.post(url, json=json_body, headers=a_headers)
         twin = await client.post(
             url.replace(str(b_animal["id"]), "99999"), json=json_body, headers=a_headers

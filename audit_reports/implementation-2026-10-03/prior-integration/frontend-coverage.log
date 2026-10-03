@@ -1,0 +1,147 @@
+
+> frontend@0.1.0 test:coverage /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
+> vitest run --coverage
+
+
+ RUN  v4.1.11 /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
+      Coverage enabled with v8
+
+Not implemented: navigation to another Document
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: navigation to another Document
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: Window's scrollTo() method
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: Window's scrollTo() method
+
+ Test Files  325 passed (325)
+      Tests  5250 passed (5250)
+   Start at  11:32:03
+   Duration  361.34s (transform 4.20s, setup 32.68s, import 52.28s, tests 522.53s, environment 74.62s)
+
+ % Coverage report from v8
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |      94 |    91.89 |   94.14 |   96.23 |                   
+ src/app           |     100 |    93.75 |     100 |     100 |                   
+  layout.tsx       |     100 |       50 |     100 |     100 | 51                
+ src/app/(app)     |     100 |    95.91 |     100 |     100 |                   
+  ...ut-client.tsx |     100 |    95.55 |     100 |     100 | 210,432           
+ .../(app)/animals |     100 |    98.42 |     100 |     100 |                   
+  page.tsx         |     100 |    98.42 |     100 |     100 | ...7-750,862,1555 
+ ...)/animals/[id] |   93.71 |    93.59 |   97.72 |   97.27 |                   
+  page.tsx         |   93.71 |    93.59 |   97.72 |   97.27 | ...1409-1410,1577 
+ ...p)/animals/new |     100 |       75 |     100 |     100 |                   
+  page.tsx         |     100 |       75 |     100 |     100 | 29                
+ ...(app)/breeding |   98.64 |    96.47 |     100 |     100 |                   
+  page.tsx         |   98.64 |    96.47 |     100 |     100 | ...9,589,778,1099 
+ ...id]/ultrasound |   88.88 |      100 |      75 |   88.23 |                   
+  page.tsx         |   88.88 |      100 |      75 |   88.23 | 54-55             
+ ...app)/dashboard |   97.46 |    87.12 |   95.45 |   97.36 |                   
+  page.tsx         |   97.46 |    87.12 |   95.45 |   97.36 | 124,275           
+ .../(app)/feeding |   97.71 |    94.89 |   98.43 |    99.5 |                   
+  page.tsx         |   97.71 |    94.89 |   98.43 |    99.5 | 570               
+ ...ding/inventory |   96.19 |    94.92 |     100 |     100 |                   
+  page.tsx         |   96.19 |    94.92 |     100 |     100 | ...22,337,623,627 
+ ...eeding/recipes |      95 |    94.44 |   85.71 |      95 |                   
+  page.tsx         |      95 |    94.44 |   85.71 |      95 | 90                
+ .../(app)/finance |   98.75 |     97.3 |   98.57 |   99.54 |                   
+  page.tsx         |   98.75 |     97.3 |   98.57 |   99.54 | 1150              
+ ...ance/insurance |   84.43 |    81.57 |   92.45 |   86.92 |                   
+  page.tsx         |   84.43 |    81.57 |   92.45 |   86.92 | ...23-830,852,874 
+ ...p/(app)/health |   99.56 |    97.98 |   98.82 |   99.75 |                   
+  page.tsx         |   99.54 |    97.93 |    98.8 |   99.74 | 1499              
+ ...ule/[animalId] |   97.14 |    97.67 |   88.88 |   97.14 |                   
+  page.tsx         |   97.14 |    97.67 |   88.88 |   97.14 | 129               
+ .../(app)/kidding |   99.48 |    96.22 |     100 |     100 |                   
+  page.tsx         |   99.48 |    96.22 |     100 |     100 | ...1191,1442,1484 
+ ...ops-simulation |   89.89 |    77.82 |   91.02 |   91.71 |                   
+  page.tsx         |   89.89 |    77.82 |   91.02 |   91.71 | ...15,747,764,943 
+ ...pp/(app)/owner |   90.32 |    89.13 |   78.57 |      90 |                   
+  page.tsx         |   90.32 |    89.13 |   78.57 |      90 | 91-106,205        
+ .../(app)/planner |   87.79 |    88.44 |   89.71 |   89.71 |                   
+  page.tsx         |   87.79 |    88.44 |   89.71 |   89.71 | ...1156,1651-1690 
+ ...app)/purchases |   97.95 |     94.6 |     100 |   98.51 |                   
+  page.tsx         |   97.95 |     94.6 |     100 |   98.51 | 173-178           
+ .../(app)/reports |   97.43 |    94.93 |   92.85 |   97.43 |                   
+  page.tsx         |   97.43 |    94.93 |   92.85 |   97.43 | 146               
+ ...app)/screening |   85.59 |    70.93 |   81.81 |   90.56 |                   
+  page.tsx         |   85.59 |    70.93 |   81.81 |   90.56 | ...58,369,623,663 
+ ...pp)/simulation |   92.51 |    90.68 |   94.31 |   95.92 |                   
+  page.tsx         |   92.51 |    90.68 |   94.31 |   95.92 | ...4008-4009,4223 
+ ...ion/components |   92.91 |    90.03 |   96.72 |   96.31 |                   
+  ...te-editor.tsx |      72 |       75 |      60 |   73.68 | 36-46             
+  ...ng-editor.tsx |   86.66 |    84.61 |     100 |     100 | ...24,30-31,78-80 
+  ...er-inputs.tsx |   98.42 |    97.03 |     100 |   99.12 | 152               
+  ...s-visuals.tsx |   92.85 |    81.81 |     100 |   94.28 | 166-167           
+ ...pp/(app)/tasks |   99.58 |       96 |     100 |     100 |                   
+  page.tsx         |   99.58 |       96 |     100 |     100 | ...1216,1239,1253 
+ ...app/(app)/team |   90.66 |    90.46 |   88.98 |   95.71 |                   
+  page.tsx         |   90.66 |    90.46 |   88.98 |   95.71 | ...1924-1925,2023 
+ ...eam/components |   84.05 |    78.94 |     100 |      98 |                   
+  ...er-dialog.tsx |   84.05 |    78.94 |     100 |      98 | 46                
+ ...pp/farm-select |   96.82 |    97.43 |     100 |     100 |                   
+  page.tsx         |   96.82 |    97.43 |     100 |     100 | 102,149           
+ src/app/login     |   93.93 |    94.11 |     100 |   96.66 |                   
+  page.tsx         |   93.93 |    94.11 |     100 |   96.66 | 173-174           
+ src/app/register  |   96.66 |       95 |     100 |     100 |                   
+  page.tsx         |   96.66 |       95 |     100 |     100 | 85,166            
+ src/app/worker    |   83.26 |    78.07 |   84.37 |    88.2 |                   
+  layout.tsx       |   82.73 |    79.69 |   86.04 |   87.31 | ...30,313,325,366 
+  page.tsx         |   84.26 |    75.78 |   80.95 |   89.74 | ...46,282,306-307 
+ ...p/worker/login |   88.75 |    78.01 |      74 |   93.36 |                   
+  page.tsx         |   88.75 |    78.01 |      74 |   93.36 | ...71-575,644-652 
+ ...worker/offline |   88.57 |    83.67 |   94.11 |   95.74 |                   
+  page.tsx         |   88.57 |    83.67 |   94.11 |   95.74 | 35,68             
+ src/components    |   95.68 |    93.33 |   96.31 |    97.9 |                   
+  ...nt-dialog.tsx |   95.49 |    94.75 |   95.74 |   98.19 | 294-295,303,626   
+  ...-progress.tsx |   83.63 |    64.81 |      80 |   93.33 | 67,78,119         
+  ...te-picker.tsx |     100 |    96.82 |     100 |     100 | 140,255,473       
+  ...ck-dialog.tsx |   86.71 |    82.22 |   88.23 |   91.89 | ...19-220,283,317 
+  ...w-history.tsx |      90 |       80 |      75 |   88.88 | 24                
+  stat-card.tsx    |     100 |    94.11 |     100 |     100 | 71                
+  ...w-actions.tsx |    99.2 |    94.35 |     100 |     100 | ...83-393,402,474 
+ src/lib           |   93.46 |    92.41 |   91.47 |   95.01 |                   
+  api-client.ts    |   97.79 |    96.62 |   98.52 |   97.85 | ...53,733-735,770 
+  auth-context.tsx |   97.44 |    96.47 |   95.45 |   99.18 | 96,154            
+  csp.ts           |   97.67 |       98 |     100 |     100 | 43                
+  format.ts        |   99.02 |    97.87 |     100 |     100 | 40,188            
+  ...nt-request.ts |     100 |    97.63 |     100 |     100 | 149,377,403,554   
+  ...deps-guard.ts |   97.61 |     92.5 |     100 |   97.29 | 104               
+  offline-queue.ts |   84.32 |    89.58 |   68.75 |   84.56 | ...30-431,546-566 
+  ...navigation.ts |   95.45 |    94.11 |     100 |     100 | 107-116           
+  ...or-phrases.ts |     100 |    85.71 |     100 |     100 | 88-90             
+  ...dence-text.ts |   94.77 |    86.19 |     100 |   99.46 | 154               
+  ...field-help.ts |   86.85 |    91.17 |   84.44 |   86.47 | 34-56,466-508,564 
+  ...sult-basis.ts |    92.3 |       70 |   85.71 |    90.9 | 38                
+  ...optimistic.ts |   97.36 |    95.83 |     100 |     100 | 89                
+  task-title.ts    |     100 |    94.87 |     100 |     100 | 63,85             
+  utils.ts         |   94.11 |      100 |     100 |   91.66 | 34                
+  ...line-shift.ts |   87.23 |    92.45 |     100 |    92.3 | 25,65,74          
+  worker-outbox.ts |   80.82 |    78.03 |   90.32 |   85.64 | ...31-333,354-376 
+ src/lib/i18n      |   97.22 |    92.85 |     100 |   96.96 |                   
+  index.tsx        |   97.05 |    92.85 |     100 |   96.77 | 85                
+-------------------|---------|----------|---------|---------|-------------------
+
+=============================== Coverage summary ===============================
+Statements   : 94% ( 9024/9600 )
+Branches     : 91.89% ( 9590/10436 )
+Functions    : 94.14% ( 2427/2578 )
+Lines        : 96.23% ( 8207/8528 )
+================================================================================

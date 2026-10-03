@@ -11,12 +11,34 @@
  * and stay cache-first. No opaque cross-origin caching; no push/sync (v1
  * out of scope).
  */
-const CACHE = "herdly-worker-v2";
-const SHELL = ["/worker", "/worker/login", "/manifest.webmanifest"];
+const CACHE = "herdly-worker-v3";
+const SHELL = ["/worker", "/worker/login", "/worker/offline", "/manifest.webmanifest"];
 /** Upper bound on a shell navigation's network wait before falling back to
  * the cached copy — a captive portal or stalled 2G link must not blank the
  * board while a perfectly good shell sits in the cache. */
 const NAV_TIMEOUT_MS = 4000;
+
+async function shellAssets(response) {
+  const assets = new Set();
+  const html = await response.clone().text();
+  for (const match of html.matchAll(/(?:src|href)=["']([^"']+)["']/g)) {
+    const asset = new URL(match[1].replaceAll("&amp;", "&"), self.location.origin);
+    if (asset.origin === self.location.origin && asset.pathname.startsWith("/_next/static/")) {
+      assets.add(asset.href);
+    }
+  }
+  return assets;
+}
+
+async function cacheCompleteShell(request, response) {
+  const cache = await caches.open(CACHE);
+  if (new URL(request.url, self.location.origin).pathname.startsWith("/worker")) {
+    // Publish fallback HTML only after its build's dependencies are durable.
+    // A late navigation response may never execute in a client at all.
+    await cache.addAll([...await shellAssets(response)]);
+  }
+  await cache.put(request, response.clone());
+}
 
 self.addEventListener("install", (event) => {
   // A failed precache fails the install: activating a worker with no cached
@@ -24,7 +46,29 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.addAll(SHELL))
+      .then(async (cache) => {
+        const responses = await Promise.all(SHELL.map(async (path) => {
+          const response = await fetch(path, { cache: "reload" });
+          if (!response.ok) throw new Error("Offline shell could not be fetched.");
+          // Drain streamed HTML as soon as its headers arrive. Waiting for
+          // every response before consuming the earlier bodies can stall a
+          // cold worker's remaining requests (including its manifest).
+          // Keep the original response staged until all assets are durable.
+          const assets = path.startsWith("/worker") ? await shellAssets(response) : new Set();
+          return { path, response, assets };
+        }));
+        // A cold reload needs each shell's JS/CSS, including routes the
+        // worker has never visited. Fetching HTML alone does not warm those
+        // assets, and the first page may have loaded before clients.claim().
+        const assets = new Set();
+        for (const response of responses) {
+          for (const asset of response.assets) assets.add(asset);
+        }
+        await cache.addAll([...assets]);
+        // Keep the previously complete shared cache usable if this install
+        // fails before all new-build assets are available.
+        await Promise.all(responses.map(({ path, response }) => cache.put(path, response)));
+      })
       .then(() => self.skipWaiting()),
   );
 });
@@ -53,38 +97,31 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/_next/static/")) {
     // Content-hashed build assets are immutable: cache-first is correct, and
     // a new deploy's hashes simply miss the old cache.
-    event.respondWith(
-      caches.match(request).then(
-        (cached) =>
-          cached ??
-          fetch(request).then((response) => {
-            if (response.ok) {
-              const copy = response.clone();
-              caches.open(CACHE).then((cache) => cache.put(request, copy));
-            }
-            return response;
-          }),
-      ),
-    );
+    let cacheWrite = Promise.resolve();
+    const response = caches.match(request).then((cached) => cached ?? fetch(request).then((response) => {
+      if (response.ok) {
+        const copy = response.clone();
+        cacheWrite = caches.open(CACHE).then((cache) => cache.put(request, copy));
+      }
+      return response;
+    }));
+    event.respondWith(response);
+    event.waitUntil(response.then(() => cacheWrite).catch(() => {}));
     return;
   }
   if (SHELL.includes(url.pathname) && url.search === "") {
     // Network-first with a bounded wait and offline fallback. Client
     // navigation RSC requests (url.search non-empty, e.g. ?_rsc=…) are never
     // intercepted or cached.
+    // Only a real network response wins the race.
+    const network = fetch(request).catch(() => undefined);
+    // Hold the event even when the timeout wins; cache failures retain the
+    // previous complete fallback and never reject a successful live response.
+    event.waitUntil(network.then((response) => response?.ok
+      ? cacheCompleteShell(request, response.clone()) : undefined).catch(() => {}));
     event.respondWith(
       Promise.race([
-        fetch(request)
-          .then((response) => {
-            if (response.ok) {
-              const copy = response.clone();
-              caches.open(CACHE).then((cache) => cache.put(request, copy));
-            }
-            return response;
-          })
-          // A network failure resolves (not rejects) to the fallback below —
-          // only a real response wins the race.
-          .catch(() => undefined),
+        network,
         new Promise((resolve) => setTimeout(() => resolve(undefined), NAV_TIMEOUT_MS)),
       ]).then((response) => response ?? caches.match(request).then((cached) => cached ?? Response.error())),
     );

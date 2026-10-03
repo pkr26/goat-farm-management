@@ -577,6 +577,27 @@ describe("TeamPage add-worker dialog", () => {
     await user.click(await screen.findByRole("option", { name: "Night Watch" }));
   }
 
+  it("creates a PIN-only tablet worker through the actual invite form", async () => {
+    const { user, dialog } = await openDialog();
+    await user.click(within(dialog).getByRole("radio", { name: "Tablet PIN" }));
+    await user.type(within(dialog).getByLabelText(/email/i), "tablet-worker@example.com");
+    await user.type(within(dialog).getByLabelText("Worker PIN"), "84619372");
+    await pickRole(user, dialog);
+    await user.click(within(dialog).getByRole("button", { name: "Add worker" }));
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toEqual({ email: "tablet-worker@example.com", name: null, role_id: 10, pin: "84619372" });
+    expect(postBody).not.toHaveProperty("password");
+  });
+
+  it("generates a twelve-digit PIN draft and clears it when switching credential method", async () => {
+    const { user, dialog } = await openDialog();
+    await user.click(within(dialog).getByRole("radio", { name: "Tablet PIN" }));
+    await user.click(within(dialog).getByRole("button", { name: "Generate a 12-digit PIN" }));
+    expect((within(dialog).getByLabelText("Worker PIN") as HTMLInputElement).value).toMatch(/^\d{12}$/);
+    await user.click(within(dialog).getByRole("radio", { name: "Web password" }));
+    expect(within(dialog).getByLabelText(/^Password \(min 12 chars\) \*$/)).toHaveValue("");
+  });
+
   it("dismisses an idle worker dialog", async () => {
     const { user } = await openDialog();
     await user.keyboard("{Escape}");
@@ -2093,5 +2114,23 @@ describe("TeamPage RBAC and errors", () => {
     expect(
       within(row).getByText(/current role stays within your own permissions/i),
     ).toBeInTheDocument();
+  });
+});
+
+describe("TeamPage owner credential access", () => {
+  beforeEach(() => { server.use(teamHandler()); });
+  it("provides current-owner password rotation and farm-scoped worker PIN reset", async () => {
+    let pinBody: unknown;
+    server.use(http.post("/api/team/workers/:membershipId/reset-pin", async ({ request }) => {
+      pinBody = await request.json(); return HttpResponse.json({ ...MEMBER_RAVI, pin_set: true });
+    }));
+    const user = userEvent.setup();
+    await renderLoaded();
+    expect(screen.getByRole("button", { name: "Change password" })).toBeInTheDocument();
+    await user.click(within(workerRow(MEMBER_RAVI.email)).getByRole("button", { name: "Set tablet PIN" }));
+    const dialog = await screen.findByRole("dialog", { name: "Tablet PIN for Ravi Kumar" });
+    await user.type(within(dialog).getByLabelText("Worker PIN"), "84619372");
+    await user.click(within(dialog).getByRole("button", { name: "Save PIN" }));
+    await waitFor(() => expect(pinBody).toEqual({ pin: "84619372" }));
   });
 });

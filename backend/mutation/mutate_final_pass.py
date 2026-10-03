@@ -1,14 +1,8 @@
-"""Definitive last pass over SURVIVED mutants: gap files always in selection.
+"""Full-selection verification with explicit gap test files included.
 
-The campaign's coverage-guided selection samples at most 60 tests
-round-robin across covering files; for heavily-covered lines a killing test
-can be left out of the sample, and module-level statements (constants) are
-context-attributed to whichever test imported the module first — so literal
-pin tests in the gap files never run. This pass re-measures every SURVIVED
-mutant against selection = covering-sample(60) ∪ ALL gap test files. A
-mutant that still survives this has genuinely no killing test.
-
-Usage: .venv/bin/python mutation/mutate_final_pass.py [--workers N]
+This produces measured attempt receipts, not proof that no killing test exists.
+Dry-run displays the candidate set and exits before runner/process creation or
+artifact writes. Execution stays isolated in the shared Runner.
 """
 
 from __future__ import annotations
@@ -90,7 +84,7 @@ def main() -> None:
         print(f"rebuilt {len(survivor_ids)} survivor ids from logs")
     else:
         survivor_ids = {mid for mid, r in last.items() if r["status"] == "SURVIVED"}
-    todo = [manifest[mid] for mid in sorted(survivor_ids)]
+    todo = [manifest[mid] for mid in sorted(survivor_ids) if mid in manifest]
     print(f"final pass over {len(todo)} survivors (gap files force-included)")
 
     class GapRunner(Runner):
@@ -99,32 +93,27 @@ def main() -> None:
             merged = sorted(set(selection) | set(GAP_FILES))
             return merged, module_level
 
-    # Route through Runner.run — the per-file-locked worker loop. Ad-hoc
-    # threads calling execute() directly cross-contaminate same-file mutants
-    # (bit twice on 2026-09-30; those passes were discarded).
-    for m in todo:
-        last.pop(m["id"], None)
-    with (MUTDIR / "results.jsonl").open("w") as fh:
-        for rec in last.values():
-            fh.write(json.dumps(rec) + "\n")
-    runner = GapRunner(workers=args.workers, max_seconds=None)
-    todo = [m for m in todo if m["id"] not in runner.done_ids]
-    if todo:
-        runner.run(todo)
+    if args.dry_run:
+        print(
+            json.dumps(
+                {
+                    "targets": [m["id"] for m in todo],
+                    "gap_files": GAP_FILES,
+                    "full": True,
+                    "writes": False,
+                },
+                indent=2,
+            )
+        )
+        return
+    import os
 
-    # Dedupe-rewrite (the runner appends; keep last verdict per id).
-    records: dict[str, dict[str, Any]] = {}
-    for line in (MUTDIR / "results.jsonl").read_text().splitlines():
-        try:
-            rec = json.loads(line)
-        except Exception:
-            continue
-        records[rec["id"]] = rec
-    with (MUTDIR / "results.jsonl").open("w") as fh:
-        for rec in records.values():
-            fh.write(json.dumps(rec) + "\n")
-    counter = collections.Counter(r["status"] for r in records.values())
-    print(f"final verdicts: {dict(counter)} over {len(records)} mutants")
+    os.environ["MUTATE_FULL_PHASE"] = "1"
+    runner = GapRunner(workers=args.workers, max_seconds=None)
+    try:
+        runner.run(todo)
+    finally:
+        runner.close()
 
 
 if __name__ == "__main__":

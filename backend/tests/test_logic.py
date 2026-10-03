@@ -47,6 +47,7 @@ from app.services import recipe_for_animal
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm
+from .type_helpers import JsonObject, json_object, json_objects
 
 # ---------------------------------------------------------------------------
 # Shared setup helpers (API-driven)
@@ -55,7 +56,7 @@ from .conftest import owner_with_farm
 
 async def make_doe(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str = "D-101",
     bucket: str = "BREEDING",
     dob_days: int = 800,
@@ -75,10 +76,12 @@ async def make_doe(
         payload["weight_date"] = payload["date_of_birth"]
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01") -> dict[str, Any]:
+async def make_buck(
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "B-01"
+) -> dict[str, Any]:
     dob = today() - timedelta(days=800)
     payload = {
         "tag_number": tag,
@@ -92,11 +95,15 @@ async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01")
     }
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def make_breeding(
-    client: httpx.AsyncClient, headers: dict, doe: dict, buck: dict, breeding_date: date
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    doe: JsonObject,
+    buck: JsonObject,
+    breeding_date: date,
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/breeding",
@@ -108,12 +115,12 @@ async def make_breeding(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def make_bred_doe(
-    client: httpx.AsyncClient, headers: dict, breeding_date: date | None = None
-) -> tuple[dict, dict, dict]:
+    client: httpx.AsyncClient, headers: dict[str, str], breeding_date: date | None = None
+) -> tuple[JsonObject, JsonObject, JsonObject]:
     """Doe + buck + breeding record; returns (doe, buck, br)."""
     doe = await make_doe(client, headers)
     buck = await make_buck(client, headers)
@@ -125,7 +132,7 @@ async def make_bred_doe(
 
 async def submit_ultrasound(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     breeding_id: int,
     pregnant: bool,
     kid_count: int = 2,
@@ -149,15 +156,15 @@ async def submit_ultrasound(
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def record_kidding(
     client: httpx.AsyncClient,
-    headers: dict,
-    br: dict,
+    headers: dict[str, str],
+    br: JsonObject,
     kidding_date: date,
-    kids: list[dict],
+    kids: list[JsonObject],
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/kidding",
@@ -171,37 +178,43 @@ async def record_kidding(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def all_tasks(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def all_tasks(client: httpx.AsyncClient, headers: dict[str, str]) -> list[JsonObject]:
     """Every duty across the five tabs of GET /api/tasks."""
     resp = await client.get("/api/tasks", headers=headers)
     assert resp.status_code == 200, resp.text
     tabs = resp.json()
-    return tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+    return json_objects(
+        tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+    )
 
 
-def tasks_by_category(tasks: list[dict], category: str) -> list[dict]:
+def tasks_by_category(tasks: list[JsonObject], category: str) -> list[JsonObject]:
     return [t for t in tasks if t["category"] == category]
 
 
-async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
+async def get_animal(
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int
+) -> dict[str, Any]:
     resp = await client.get(f"/api/animals/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["animal"]
+    return json_object(resp.json()["animal"])
 
 
-async def find_animal_by_tag(client: httpx.AsyncClient, headers: dict, tag: str) -> dict[str, Any]:
+async def find_animal_by_tag(
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str
+) -> dict[str, Any]:
     resp = await client.get("/api/animals", params={"q": tag}, headers=headers)
     assert resp.status_code == 200, resp.text
     animals = resp.json()["animals"]
     assert len(animals) == 1
-    return animals[0]
+    return json_object(animals[0])
 
 
 async def complete_quarantine_prerequisites(
-    client: httpx.AsyncClient, headers: dict, batch_id: int, tasks: list[dict]
+    client: httpx.AsyncClient, headers: dict[str, str], batch_id: int, tasks: list[JsonObject]
 ) -> None:
     """Close each prerequisite through its matching auditable workflow."""
     for task in tasks:
@@ -237,7 +250,7 @@ async def complete_quarantine_prerequisites(
 # ---------------------------------------------------------------------------
 
 
-def make_doe_object(**overrides) -> Animal:
+def make_doe_object(**overrides: object) -> Animal:
     """v1's make_doe: an in-memory (never persisted) breeding-ready doe."""
     dob = today() - timedelta(days=365)  # 12 months old
     animal = Animal(
@@ -465,7 +478,7 @@ async def test_kidding_creates_kid_animals_and_weaning_task(client: httpx.AsyncC
     br = await submit_ultrasound(client, headers, br["id"], pregnant=True, kid_count=2)
     kidding_date = date.fromisoformat(br["expected_kidding_date"])
 
-    kids = [
+    kids: list[JsonObject] = [
         {"tag": "K-201", "sex": "M", "birth_weight": 2.8, "status": "ALIVE"},
         {"tag": "K-202", "sex": "F", "birth_weight": 2.5, "status": "ALIVE"},
         {"tag": "", "sex": "M", "birth_weight": None, "status": "STILLBORN"},
@@ -794,7 +807,7 @@ async def test_feeding_plan_split_math(client: httpx.AsyncClient) -> None:
 
 
 async def _inventory_item(
-    client: httpx.AsyncClient, headers: dict, ingredient: str
+    client: httpx.AsyncClient, headers: dict[str, str], ingredient: str
 ) -> dict[str, Any]:
     resp = await client.get("/api/feeding/inventory", headers=headers)
     assert resp.status_code == 200, resp.text

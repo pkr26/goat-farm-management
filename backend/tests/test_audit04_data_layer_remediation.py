@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import cast
 
-import asyncpg  # type: ignore[import-untyped]
+import asyncpg
 import pytest
 
 from .test_ops_migration_integrity import _admin, _alembic, _throwaway_name

@@ -47,7 +47,7 @@ class FlakyProvider:
     async def send_sms(self, phone: str, message: str) -> DeliveryResult:
         self.calls += 1
         if self.calls <= self.fail:
-            raise NotificationDeliveryError("gateway blip")
+            raise NotificationDeliveryError("connection blip", safe_to_retry=True)
         return DeliveryResult(ok=True, message_id=f"flaky-{self.calls}")
 
 

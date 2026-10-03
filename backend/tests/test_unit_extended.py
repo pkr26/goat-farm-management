@@ -26,11 +26,14 @@ Covered:
 
 import re
 from datetime import UTC, date, datetime, timedelta, tzinfo
+from enum import Enum
 from pathlib import Path
+from typing import Self
 
 import httpx
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.services.feeding as feeding_service
 from app import security
@@ -88,6 +91,7 @@ from app.permissions import (
     ROLE_PRESETS,
     TASK_CATEGORY_ROLE_MAP,
     TASK_ROLE_CODES,
+    RolePreset,
 )
 from app.schemas.animals import (
     AnimalCreateIn,
@@ -109,6 +113,7 @@ from app.services import move_animal, recipe_for_animal
 from app.utils import add_months, allocate_money, business_date, money, today, utcnow
 
 from .conftest import owner_with_farm, register
+from .type_helpers import json_int
 
 TODAY = today()
 TOMORROW = (TODAY + timedelta(days=1)).isoformat()
@@ -120,7 +125,9 @@ NAN = float("nan")
 INF = float("inf")
 
 
-def test_dummy_password_hash_is_computed_once_for_startup_warmup(monkeypatch) -> None:
+def test_dummy_password_hash_is_computed_once_for_startup_warmup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls = 0
 
     def fake_hash_password(password: str) -> str:
@@ -148,7 +155,9 @@ def test_dummy_password_hash_is_computed_once_for_startup_warmup(monkeypatch) ->
         ("0", 3, ["0.00", "0.00", "0.00"]),
     ],
 )
-def test_allocate_money_is_exact_and_never_negative(total, parts, expected) -> None:
+def test_allocate_money_is_exact_and_never_negative(
+    total: str, parts: int, expected: list[str]
+) -> None:
     shares = allocate_money(total, parts)
     assert [str(share) for share in shares] == expected
     assert sum(shares) == money(total)
@@ -255,7 +264,7 @@ def test_role_preset_codes_unique() -> None:
 
 
 @pytest.mark.parametrize("preset", ROLE_PRESETS, ids=lambda p: p["code"])
-def test_role_preset_permissions_are_valid_catalog_codes(preset: dict) -> None:
+def test_role_preset_permissions_are_valid_catalog_codes(preset: RolePreset) -> None:
     assert preset["name"].strip()
     assert preset["permissions"], "preset with no permissions is useless"
     assert set(preset["permissions"]) <= ALL_PERMISSIONS
@@ -398,7 +407,7 @@ ENUM_CASES = [
 @pytest.mark.parametrize(
     ("enum_cls", "values"), ENUM_CASES, ids=[c.__name__ for c, _ in ENUM_CASES]
 )
-def test_enum_values_match_spec(enum_cls: type, values: set[str]) -> None:
+def test_enum_values_match_spec(enum_cls: type[Enum], values: set[str]) -> None:
     assert {e.value for e in enum_cls} == values
     assert all(isinstance(e.value, str) for e in enum_cls)
 
@@ -684,7 +693,7 @@ def test_days_in_current_bucket_falls_back_to_created_at() -> None:
 
 def test_days_in_current_bucket_no_move_no_created_at_is_zero() -> None:
     animal = make_animal_object(bucket_moves=[])
-    animal.created_at = None
+    animal.__dict__["created_at"] = None
     assert animal.days_in_current_bucket == 0
 
 
@@ -696,9 +705,9 @@ def test_today_uses_the_requested_business_timezone(monkeypatch: pytest.MonkeyPa
 
     class FrozenDatetime(datetime):
         @classmethod
-        def now(cls, tz: tzinfo | None = None) -> datetime:
+        def now(cls, tz: tzinfo | None = None) -> Self:
             assert tz is not None
-            return fixed.astimezone(tz)
+            return cls.fromtimestamp(fixed.timestamp(), tz)
 
     monkeypatch.setattr(utils, "datetime", FrozenDatetime)
     assert today() == date(2026, 3, 16)  # default: Asia/Kolkata
@@ -1039,14 +1048,14 @@ def test_quarantine_schedule_dates_never_go_backwards() -> None:
 # ---------------------------------------------------------------------------
 # app.services — move_animal (synchronous, no I/O: fake session suffices)
 # ---------------------------------------------------------------------------
-class FakeSession:
+class FakeSession(AsyncSession):
     """Duck-typed stand-in for AsyncSession: move_animal only calls .add()."""
 
     def __init__(self) -> None:
         self.added: list[object] = []
 
-    def add(self, obj: object) -> None:
-        self.added.append(obj)
+    def add(self, instance: object, _warn: bool = True) -> None:
+        self.added.append(instance)
 
 
 def test_move_animal_records_move_and_updates_bucket() -> None:
@@ -1108,7 +1117,7 @@ def test_move_animal_blank_reason_stored_as_none() -> None:
 )
 def test_recipe_for_animal_static_buckets(bucket: str, recipe: str) -> None:
     animal = make_animal_object(current_bucket=bucket, bucket_moves=[])
-    animal.created_at = None
+    animal.__dict__["created_at"] = None
     assert recipe_for_animal(animal) == recipe
 
 
@@ -1147,7 +1156,9 @@ def test_recipe_for_animal_uses_explicit_farm_business_date() -> None:
     assert recipe_for_animal(animal, date(2026, 3, 16), "UTC") == "MAINTENANCE_75_25"
 
 
-def test_recipe_for_animal_resolves_an_omitted_date_in_the_named_timezone(monkeypatch) -> None:
+def test_recipe_for_animal_resolves_an_omitted_date_in_the_named_timezone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     observed_timezones: list[str] = []
 
     def fake_today(timezone_name: str) -> date:
@@ -1263,7 +1274,7 @@ def test_login_rejects_bad_email() -> None:
     ],
 )
 def test_farm_create_valid(field: str, value: object) -> None:
-    FarmCreateIn(**({"name": "Alpha"} | {field: value}))
+    FarmCreateIn.model_validate({**{"name": "Alpha"} | {field: value}})
 
 
 @pytest.mark.parametrize(
@@ -1276,12 +1287,12 @@ def test_farm_create_valid(field: str, value: object) -> None:
 )
 def test_farm_create_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        FarmCreateIn(**({"name": "Alpha"} | {field: value}))
+        FarmCreateIn.model_validate({**{"name": "Alpha"} | {field: value}})
 
 
 def test_farm_create_requires_name() -> None:
     with pytest.raises(ValidationError):
-        FarmCreateIn()
+        FarmCreateIn.model_validate({})
 
 
 # ---------------------------------------------------------------------------
@@ -1354,14 +1365,16 @@ def test_animal_create_valid_variants(field: str, value: object) -> None:
         payload["source"] = "BORN"
     if payload["source"] == "BORN":
         payload["historical_import_reason"] = "Existing-herd schema fixture"
-    AnimalCreateIn(**payload)
+    AnimalCreateIn.model_validate({**payload})
 
 
 @pytest.mark.parametrize("bucket", BUCKETS)
 def test_animal_create_accepts_every_bucket(bucket: str) -> None:
     sex = "M" if bucket == "MALE_KIDS" else "F"
     assert (
-        AnimalCreateIn(**(VALID_ANIMAL | {"current_bucket": bucket, "sex": sex})).current_bucket
+        AnimalCreateIn.model_validate(
+            {**VALID_ANIMAL | {"current_bucket": bucket, "sex": sex}}
+        ).current_bucket
         == bucket
     )
 
@@ -1398,7 +1411,7 @@ def test_animal_create_accepts_every_bucket(bucket: str) -> None:
 )
 def test_animal_create_invalid_variants(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        AnimalCreateIn(**(VALID_ANIMAL | {field: value}))
+        AnimalCreateIn.model_validate({**VALID_ANIMAL | {field: value}})
 
 
 @pytest.mark.parametrize("missing", ["sex", "source", "current_bucket"])
@@ -1406,24 +1419,24 @@ def test_animal_create_missing_required_fields(missing: str) -> None:
     payload = dict(VALID_ANIMAL)
     del payload[missing]
     with pytest.raises(ValidationError):
-        AnimalCreateIn(**payload)
+        AnimalCreateIn.model_validate({**payload})
 
 
 def test_animal_create_tag_optional_defaults_none() -> None:
     payload = dict(VALID_ANIMAL)
     del payload["tag_number"]
-    assert AnimalCreateIn(**payload).tag_number is None
+    assert AnimalCreateIn.model_validate({**payload}).tag_number is None
 
 
 def test_animal_create_defaults_breed_to_species_default() -> None:
     # Empty means the species default (Osmanabadi), resolved by the create
     # endpoint.
-    assert AnimalCreateIn(**VALID_ANIMAL).breed == ""
+    assert AnimalCreateIn.model_validate({**VALID_ANIMAL}).breed == ""
 
 
 def test_animal_create_rejects_unknown_extra_fields() -> None:
     with pytest.raises(ValidationError):
-        AnimalCreateIn(**(VALID_ANIMAL | {"hacker_field": "evil", "farm_id": 999}))
+        AnimalCreateIn.model_validate({**VALID_ANIMAL | {"hacker_field": "evil", "farm_id": 999}})
 
 
 @pytest.mark.parametrize(
@@ -1440,7 +1453,7 @@ def test_animal_create_rejects_unknown_extra_fields() -> None:
     ],
 )
 def test_weight_in_valid(field: str, value: object) -> None:
-    WeightIn(**({"weight_kg": 25.0} | {field: value}))
+    WeightIn.model_validate({**{"weight_kg": 25.0} | {field: value}})
 
 
 @pytest.mark.parametrize(
@@ -1459,23 +1472,23 @@ def test_weight_in_valid(field: str, value: object) -> None:
 )
 def test_weight_in_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        WeightIn(**({"weight_kg": 25.0} | {field: value}))
+        WeightIn.model_validate({**{"weight_kg": 25.0} | {field: value}})
 
 
 def test_weight_in_requires_weight() -> None:
     with pytest.raises(ValidationError):
-        WeightIn()
+        WeightIn.model_validate({})
 
 
 @pytest.mark.parametrize("bucket", BUCKETS)
 def test_move_in_accepts_every_bucket(bucket: str) -> None:
-    assert MoveIn(to_bucket=bucket).to_bucket == bucket
+    assert MoveIn.model_validate({"to_bucket": bucket}).to_bucket == bucket
 
 
 @pytest.mark.parametrize("bucket", ["PASTURE", "", "foundation"])
 def test_move_in_rejects_unknown_buckets(bucket: str) -> None:
     with pytest.raises(ValidationError):
-        MoveIn(to_bucket=bucket)
+        MoveIn.model_validate({"to_bucket": bucket})
 
 
 @pytest.mark.parametrize(
@@ -1492,7 +1505,7 @@ def test_move_in_rejects_unknown_buckets(bucket: str) -> None:
     ],
 )
 def test_status_change_valid(field: str, value: object) -> None:
-    StatusChangeIn(**({"new_status": "SOLD"} | {field: value}))
+    StatusChangeIn.model_validate({**{"new_status": "SOLD"} | {field: value}})
 
 
 @pytest.mark.parametrize(
@@ -1508,21 +1521,21 @@ def test_status_change_valid(field: str, value: object) -> None:
 )
 def test_status_change_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        StatusChangeIn(**({"new_status": "SOLD"} | {field: value}))
+        StatusChangeIn.model_validate({**{"new_status": "SOLD"} | {field: value}})
 
 
 @pytest.mark.parametrize("status", ["SOLD", "CULLED"])
 @pytest.mark.parametrize("field", ["sale_price", "buyer_name"])
 def test_sale_statuses_accept_sale_fields(status: str, field: str) -> None:
     value: object = 100.0 if field == "sale_price" else "Buyer"
-    StatusChangeIn(**{"new_status": status, field: value})
+    StatusChangeIn.model_validate({**{"new_status": status, field: value}})
 
 
 @pytest.mark.parametrize("field", ["sale_price", "buyer_name"])
 def test_dead_status_rejects_irrelevant_sale_fields(field: str) -> None:
     value: object = 100.0 if field == "sale_price" else "Buyer"
     with pytest.raises(ValidationError):
-        StatusChangeIn(**{"new_status": "DEAD", field: value})
+        StatusChangeIn.model_validate({**{"new_status": "DEAD", field: value}})
 
 
 # ---------------------------------------------------------------------------
@@ -1541,11 +1554,11 @@ VALID_BREEDING = {"doe_id": 1, "buck_id": 2, "breeding_date": TODAY.isoformat()}
     ],
 )
 def test_breeding_create_valid(field: str, value: object) -> None:
-    BreedingCreateIn(**(VALID_BREEDING | {field: value}))
+    BreedingCreateIn.model_validate({**VALID_BREEDING | {field: value}})
 
 
 def test_breeding_create_defaults_heat_cycle_to_1() -> None:
-    assert BreedingCreateIn(**VALID_BREEDING).heat_cycle_number == 1
+    assert BreedingCreateIn.model_validate({**VALID_BREEDING}).heat_cycle_number == 1
 
 
 @pytest.mark.parametrize(
@@ -1563,7 +1576,7 @@ def test_breeding_create_defaults_heat_cycle_to_1() -> None:
 )
 def test_breeding_create_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        BreedingCreateIn(**(VALID_BREEDING | {field: value}))
+        BreedingCreateIn.model_validate({**VALID_BREEDING | {field: value}})
 
 
 @pytest.mark.parametrize("missing", ["doe_id", "buck_id", "breeding_date"])
@@ -1571,7 +1584,7 @@ def test_breeding_create_missing_required(missing: str) -> None:
     payload = dict(VALID_BREEDING)
     del payload[missing]
     with pytest.raises(ValidationError):
-        BreedingCreateIn(**payload)
+        BreedingCreateIn.model_validate({**payload})
 
 
 @pytest.mark.parametrize(
@@ -1600,7 +1613,7 @@ def test_ultrasound_in_rejects_kid_count_when_not_pregnant() -> None:
 
 def test_ultrasound_in_requires_pregnant_flag() -> None:
     with pytest.raises(ValidationError):
-        UltrasoundIn()
+        UltrasoundIn.model_validate({})
 
 
 # ---------------------------------------------------------------------------
@@ -1626,7 +1639,7 @@ def test_kid_in_valid(field: str, value: object) -> None:
     payload = {"sex": "M"} | {field: value}
     if field == "status" and value == "DIED":
         payload["mortality_reported_at"] = TODAY.isoformat()
-    KidIn(**payload)
+    KidIn.model_validate({**payload})
 
 
 @pytest.mark.parametrize(
@@ -1641,12 +1654,12 @@ def test_kid_in_valid(field: str, value: object) -> None:
 )
 def test_kid_in_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        KidIn(**({"sex": "M"} | {field: value}))
+        KidIn.model_validate({**{"sex": "M"} | {field: value}})
 
 
 def test_kid_in_requires_sex() -> None:
     with pytest.raises(ValidationError):
-        KidIn()
+        KidIn.model_validate({})
 
 
 VALID_KIDDING = {
@@ -1670,7 +1683,7 @@ VALID_KIDDING = {
     ],
 )
 def test_kidding_create_valid(field: str, value: object) -> None:
-    KiddingCreateIn(**(VALID_KIDDING | {field: value}))
+    KiddingCreateIn.model_validate({**VALID_KIDDING | {field: value}})
 
 
 @pytest.mark.parametrize(
@@ -1686,7 +1699,7 @@ def test_kidding_create_valid(field: str, value: object) -> None:
 )
 def test_kidding_create_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        KiddingCreateIn(**(VALID_KIDDING | {field: value}))
+        KiddingCreateIn.model_validate({**VALID_KIDDING | {field: value}})
 
 
 @pytest.mark.parametrize("missing", ["breeding_record_id", "date", "kids"])
@@ -1694,7 +1707,7 @@ def test_kidding_create_missing_required(missing: str) -> None:
     payload = dict(VALID_KIDDING)
     del payload[missing]
     with pytest.raises(ValidationError):
-        KiddingCreateIn(**payload)
+        KiddingCreateIn.model_validate({**payload})
 
 
 # ---------------------------------------------------------------------------
@@ -1714,7 +1727,7 @@ VALID_HEALTH = {"scope": "animal", "animal_id": 1, "type": "TREATMENT"}
 
 @pytest.mark.parametrize("event_type", HEALTH_TYPES)
 def test_health_event_accepts_every_type(event_type: str) -> None:
-    assert HealthEventIn(**(VALID_HEALTH | {"type": event_type})).type == event_type
+    assert HealthEventIn.model_validate({**VALID_HEALTH | {"type": event_type}}).type == event_type
 
 
 @pytest.mark.parametrize(
@@ -1740,8 +1753,8 @@ def test_health_event_accepts_every_type(event_type: str) -> None:
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "task_id": 5},
     ],
 )
-def test_health_event_valid(payload: dict) -> None:
-    HealthEventIn(**payload)
+def test_health_event_valid(payload: dict[str, object]) -> None:
+    HealthEventIn.model_validate({**payload})
 
 
 @pytest.mark.parametrize(
@@ -1770,9 +1783,9 @@ def test_health_event_valid(payload: dict) -> None:
         {"scope": "animal", "animal_id": 1, "type": "VACCINE", "bucket": "PASTURE"},
     ],
 )
-def test_health_event_invalid(payload: dict) -> None:
+def test_health_event_invalid(payload: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
-        HealthEventIn(**payload)
+        HealthEventIn.model_validate({**payload})
 
 
 def test_health_event_defaults_to_animal_scope() -> None:
@@ -1794,7 +1807,7 @@ VALID_DISPENSE = {
 
 @pytest.mark.parametrize("shift", ["MORNING", "AFTERNOON", "NIGHT"])
 def test_dispense_accepts_every_shift(shift: str) -> None:
-    assert DispenseIn(**(VALID_DISPENSE | {"shift": shift})).shift == shift
+    assert DispenseIn.model_validate({**VALID_DISPENSE | {"shift": shift}}).shift == shift
 
 
 @pytest.mark.parametrize(
@@ -1808,7 +1821,7 @@ def test_dispense_accepts_every_shift(shift: str) -> None:
     ],
 )
 def test_dispense_valid(field: str, value: object) -> None:
-    DispenseIn(**(VALID_DISPENSE | {field: value}))
+    DispenseIn.model_validate({**VALID_DISPENSE | {field: value}})
 
 
 @pytest.mark.parametrize(
@@ -1829,7 +1842,7 @@ def test_dispense_valid(field: str, value: object) -> None:
 )
 def test_dispense_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        DispenseIn(**(VALID_DISPENSE | {field: value}))
+        DispenseIn.model_validate({**VALID_DISPENSE | {field: value}})
 
 
 @pytest.mark.parametrize("missing", ["bucket", "shift", "qty_kg", "recipe_code"])
@@ -1837,7 +1850,7 @@ def test_dispense_missing_required(missing: str) -> None:
     payload = dict(VALID_DISPENSE)
     del payload[missing]
     with pytest.raises(ValidationError):
-        DispenseIn(**payload)
+        DispenseIn.model_validate({**payload})
 
 
 @pytest.mark.parametrize(
@@ -1849,7 +1862,7 @@ def test_dispense_missing_required(missing: str) -> None:
     ],
 )
 def test_mix_valid(field: str, value: object) -> None:
-    MixIn(**({"recipe_code": "FATTENING_50_50", "batch_kg": 100.0} | {field: value}))
+    MixIn.model_validate({**{"recipe_code": "FATTENING_50_50", "batch_kg": 100.0} | {field: value}})
 
 
 @pytest.mark.parametrize(
@@ -1865,7 +1878,9 @@ def test_mix_valid(field: str, value: object) -> None:
 )
 def test_mix_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        MixIn(**({"recipe_code": "FATTENING_50_50", "batch_kg": 100.0} | {field: value}))
+        MixIn.model_validate(
+            {**{"recipe_code": "FATTENING_50_50", "batch_kg": 100.0} | {field: value}}
+        )
 
 
 @pytest.mark.parametrize(
@@ -1877,7 +1892,7 @@ def test_mix_invalid(field: str, value: object) -> None:
     ],
 )
 def test_stock_add_valid(field: str, value: object) -> None:
-    StockAddIn(**({"qty_kg": 10.0} | {field: value}))
+    StockAddIn.model_validate({**{"qty_kg": 10.0} | {field: value}})
 
 
 @pytest.mark.parametrize(
@@ -1894,7 +1909,7 @@ def test_stock_add_valid(field: str, value: object) -> None:
 )
 def test_stock_add_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        StockAddIn(**({"qty_kg": 10.0} | {field: value}))
+        StockAddIn.model_validate({**{"qty_kg": 10.0} | {field: value}})
 
 
 def test_feed_quantities_round_half_up_to_gram_precision() -> None:
@@ -1903,9 +1918,9 @@ def test_feed_quantities_round_half_up_to_gram_precision() -> None:
 
 
 def test_money_inputs_round_half_up_but_cannot_silently_become_zero() -> None:
-    assert TransactionIn(**(VALID_TXN | {"amount": 10.015})).amount == 10.02
+    assert TransactionIn.model_validate({**VALID_TXN | {"amount": 10.015}}).amount == 10.02
     with pytest.raises(ValidationError):
-        TransactionIn(**(VALID_TXN | {"amount": 0.001}))
+        TransactionIn.model_validate({**VALID_TXN | {"amount": 0.001}})
 
 
 def test_feed_setting_valid() -> None:
@@ -1923,7 +1938,9 @@ def test_feed_setting_valid() -> None:
 )
 def test_feed_setting_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        FeedSettingIn(**({"bucket": "RESTING", "daily_kg_per_head": 1.2} | {field: value}))
+        FeedSettingIn.model_validate(
+            {**{"bucket": "RESTING", "daily_kg_per_head": 1.2} | {field: value}}
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1945,7 +1962,7 @@ VALID_TXN = {"date": TODAY.isoformat(), "type": "INCOME", "category": "OTHER", "
 
 @pytest.mark.parametrize("txn_type", ["INCOME", "EXPENSE"])
 def test_transaction_accepts_every_type(txn_type: str) -> None:
-    assert TransactionIn(**(VALID_TXN | {"type": txn_type})).type == txn_type
+    assert TransactionIn.model_validate({**VALID_TXN | {"type": txn_type}}).type == txn_type
 
 
 @pytest.mark.parametrize("category", TXN_CATEGORIES)
@@ -1954,9 +1971,9 @@ def test_transaction_accepts_every_user_bookable_category(category: str) -> None
     if category in ("ANIMAL_SALE", "ANIMAL_PURCHASE"):
         # System-generated categories reject manual rows.
         with pytest.raises(ValidationError):
-            TransactionIn(**overrides)
+            TransactionIn.model_validate({**overrides})
         return
-    assert TransactionIn(**overrides).category == category
+    assert TransactionIn.model_validate({**overrides}).category == category
 
 
 @pytest.mark.parametrize(
@@ -1971,7 +1988,7 @@ def test_transaction_accepts_every_user_bookable_category(category: str) -> None
     ],
 )
 def test_transaction_valid(field: str, value: object) -> None:
-    TransactionIn(**(VALID_TXN | {field: value}))
+    TransactionIn.model_validate({**VALID_TXN | {field: value}})
 
 
 @pytest.mark.parametrize(
@@ -1991,7 +2008,7 @@ def test_transaction_valid(field: str, value: object) -> None:
 )
 def test_transaction_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        TransactionIn(**(VALID_TXN | {field: value}))
+        TransactionIn.model_validate({**VALID_TXN | {field: value}})
 
 
 @pytest.mark.parametrize("missing", ["date", "type", "category", "amount"])
@@ -1999,7 +2016,7 @@ def test_transaction_missing_required(missing: str) -> None:
     payload = dict(VALID_TXN)
     del payload[missing]
     with pytest.raises(ValidationError):
-        TransactionIn(**payload)
+        TransactionIn.model_validate({**payload})
 
 
 # ---------------------------------------------------------------------------
@@ -2031,7 +2048,7 @@ VALID_BATCH = {"date": TODAY.isoformat(), "count": 50}
     ],
 )
 def test_purchase_batch_valid(field: str, value: object) -> None:
-    PurchaseBatchIn(**(VALID_BATCH | {field: value}))
+    PurchaseBatchIn.model_validate({**VALID_BATCH | {field: value}})
 
 
 @pytest.mark.parametrize(
@@ -2054,7 +2071,7 @@ def test_purchase_batch_valid(field: str, value: object) -> None:
 )
 def test_purchase_batch_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        PurchaseBatchIn(**(VALID_BATCH | {field: value}))
+        PurchaseBatchIn.model_validate({**VALID_BATCH | {field: value}})
 
 
 @pytest.mark.parametrize("missing", ["date", "count"])
@@ -2062,11 +2079,11 @@ def test_purchase_batch_missing_required(missing: str) -> None:
     payload = dict(VALID_BATCH)
     del payload[missing]
     with pytest.raises(ValidationError):
-        PurchaseBatchIn(**payload)
+        PurchaseBatchIn.model_validate({**payload})
 
 
 def test_purchase_batch_defaults_create_animals_true() -> None:
-    assert PurchaseBatchIn(**VALID_BATCH).create_animals is True
+    assert PurchaseBatchIn.model_validate({**VALID_BATCH}).create_animals is True
 
 
 # ---------------------------------------------------------------------------
@@ -2087,13 +2104,13 @@ VALID_TASK = {"title": "Clean shed 3", "due_date": TODAY.isoformat()}
 
 @pytest.mark.parametrize("category", MANUAL_TASK_CATEGORIES)
 def test_task_create_accepts_every_safe_manual_category(category: str) -> None:
-    assert TaskCreateIn(**(VALID_TASK | {"category": category})).category == category
+    assert TaskCreateIn.model_validate({**VALID_TASK | {"category": category}}).category == category
 
 
 @pytest.mark.parametrize("category", SYSTEM_TASK_CATEGORIES)
 def test_task_create_rejects_system_workflow_categories(category: str) -> None:
     with pytest.raises(ValidationError):
-        TaskCreateIn(**(VALID_TASK | {"category": category}))
+        TaskCreateIn.model_validate({**VALID_TASK | {"category": category}})
 
 
 @pytest.mark.parametrize(
@@ -2113,7 +2130,7 @@ def test_task_create_rejects_system_workflow_categories(category: str) -> None:
     ],
 )
 def test_task_create_valid(field: str, value: object) -> None:
-    TaskCreateIn(**(VALID_TASK | {field: value}))
+    TaskCreateIn.model_validate({**VALID_TASK | {field: value}})
 
 
 @pytest.mark.parametrize(
@@ -2132,7 +2149,7 @@ def test_task_create_valid(field: str, value: object) -> None:
 )
 def test_task_create_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        TaskCreateIn(**(VALID_TASK | {field: value}))
+        TaskCreateIn.model_validate({**VALID_TASK | {field: value}})
 
 
 @pytest.mark.parametrize("missing", ["title", "due_date"])
@@ -2140,11 +2157,11 @@ def test_task_create_missing_required(missing: str) -> None:
     payload = dict(VALID_TASK)
     del payload[missing]
     with pytest.raises(ValidationError):
-        TaskCreateIn(**payload)
+        TaskCreateIn.model_validate({**payload})
 
 
 def test_task_create_defaults_category_other() -> None:
-    assert TaskCreateIn(**VALID_TASK).category == "OTHER"
+    assert TaskCreateIn.model_validate({**VALID_TASK}).category == "OTHER"
 
 
 @pytest.mark.parametrize("note", ["Not swept behind the feeders", "N" * 255])
@@ -2157,7 +2174,7 @@ def test_task_reject_note_is_required() -> None:
     with pytest.raises(ValidationError):
         TaskRejectIn(note=None)  # type: ignore[arg-type]
     with pytest.raises(ValidationError):
-        TaskRejectIn()
+        TaskRejectIn.model_validate({})
     with pytest.raises(ValidationError):
         TaskRejectIn(note="   ")
 
@@ -2178,7 +2195,7 @@ def test_task_skip_reason_is_required() -> None:
     with pytest.raises(ValidationError):
         TaskSkipIn(reason=None)  # type: ignore[arg-type]
     with pytest.raises(ValidationError):
-        TaskSkipIn()
+        TaskSkipIn.model_validate({})
     with pytest.raises(ValidationError):
         TaskSkipIn(reason="   ")
 
@@ -2206,9 +2223,9 @@ def test_worker_create_valid() -> None:
         {"email": "w@farm.in", "role_id": 1, "name": "N" * 121},
     ],
 )
-def test_worker_create_invalid(payload: dict) -> None:
+def test_worker_create_invalid(payload: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
-        WorkerCreateIn(**payload)
+        WorkerCreateIn.model_validate({**payload})
 
 
 def test_password_reset_valid() -> None:
@@ -2216,9 +2233,9 @@ def test_password_reset_valid() -> None:
 
 
 @pytest.mark.parametrize("payload", [{"password": ""}, {}])
-def test_password_reset_invalid(payload: dict) -> None:
+def test_password_reset_invalid(payload: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
-        PasswordResetIn(**payload)
+        PasswordResetIn.model_validate({**payload})
 
 
 @pytest.mark.parametrize(
@@ -2233,7 +2250,7 @@ def test_password_reset_invalid(payload: dict) -> None:
     ],
 )
 def test_role_in_valid(field: str, value: object) -> None:
-    RoleIn(**({"name": "Night Watchman"} | {field: value}))
+    RoleIn.model_validate({**{"name": "Night Watchman"} | {field: value}})
 
 
 @pytest.mark.parametrize(
@@ -2246,7 +2263,7 @@ def test_role_in_valid(field: str, value: object) -> None:
 )
 def test_role_in_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
-        RoleIn(**({"name": "Night Watchman"} | {field: value}))
+        RoleIn.model_validate({**{"name": "Night Watchman"} | {field: value}})
 
 
 def test_role_in_defaults_permissions_empty() -> None:
@@ -2259,7 +2276,7 @@ def test_role_in_defaults_permissions_empty() -> None:
 # them. (Values the schema admits BEYOND the column limit are in
 # tests/test_unit_bugs.py.)
 # ---------------------------------------------------------------------------
-async def _make_animal(client: httpx.AsyncClient, headers: dict) -> int:
+async def _make_animal(client: httpx.AsyncClient, headers: dict[str, str]) -> int:
     resp = await client.post(
         "/api/animals",
         json={
@@ -2272,7 +2289,7 @@ async def _make_animal(client: httpx.AsyncClient, headers: dict) -> int:
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    return json_int(resp.json()["id"])
 
 
 async def test_register_name_at_db_column_limit(client: httpx.AsyncClient) -> None:

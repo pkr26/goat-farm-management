@@ -14,13 +14,14 @@ import app.api.planner as planner_api
 from app.core.config import get_settings
 
 from .conftest import owner_with_farm, provisioned_worker_login
+from .type_helpers import JsonObject, json_object
 
 WORKER_PW = "workerpass123"
 START = "2026-01"
 
 
 async def worker_headers(
-    client: httpx.AsyncClient, owner: dict, permissions: list[str], email: str
+    client: httpx.AsyncClient, owner: dict[str, str], permissions: list[str], email: str
 ) -> dict[str, Any]:
     """Worker with a custom role holding exactly `permissions`, on owner's farm."""
     resp = await client.post(
@@ -38,13 +39,15 @@ async def worker_headers(
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
-async def default_assumptions(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def default_assumptions(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/simulation/defaults", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-def _plan_document(assumptions: dict, targets: list[dict], **extra: object) -> dict[str, Any]:
+def _plan_document(
+    assumptions: JsonObject, targets: list[JsonObject], **extra: object
+) -> dict[str, Any]:
     assumptions = {
         **assumptions,
         "meta": {**assumptions.get("meta", {}), "start_year_month": START},
@@ -58,7 +61,7 @@ def _plan_document(assumptions: dict, targets: list[dict], **extra: object) -> d
 def test_planner_api_contract_exists() -> None:
     from app.api.planner import router
 
-    paths = {route.path for route in router.routes}
+    paths = {getattr(route, "path", "") for route in router.routes}
     assert "/api/planner/plan" in paths
     assert "/api/planner/plans" in paths
 
@@ -214,7 +217,7 @@ async def test_planner_rbac(client: httpx.AsyncClient) -> None:
 # Saved plans CRUD
 # ---------------------------------------------------------------------------
 async def _create_plan(
-    client: httpx.AsyncClient, headers: dict, name: str, assumptions: dict
+    client: httpx.AsyncClient, headers: dict[str, str], name: str, assumptions: JsonObject
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/planner/plans",
@@ -230,7 +233,7 @@ async def _create_plan(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def test_planner_plan_crud(client: httpx.AsyncClient) -> None:
@@ -330,13 +333,15 @@ async def test_plan_dpr_export_renders_markdown_with_nlm_basis(
     assert body.startswith("# Detailed Project Report — NLM unit")
     assert "National Livestock Mission" in body
     assert "50% back-ended capital subsidy" in body
-    assert "| Bank loan |" in body and "| Capital subsidy |" in body
+    assert "| Bank loan |" in body and "| Up-front capital subsidy | ₹0 |" in body
     assert "NPV @ 12%" in body and "DSCR" in body
     assert "| Year | Revenue |" in body
 
-    # The NLM toggle flows through the stored assumptions: 50% of the
-    # per-head-capped eligible capital for the default 50+2 unit.
-    assert "₹260,000" in body
+    # A 50+2 opening herd is below the published minimum; an unknown
+    # eligible budget and no approval must not create opening grant cash.
+    assert "ineligible" in body
+    assert "₹260,000" not in body
+    assert "land purchase/rent/lease" in body.lower()
 
 
 async def test_plan_dpr_export_guards(client: httpx.AsyncClient) -> None:

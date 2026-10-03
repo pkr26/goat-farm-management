@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { SubsidyReceipt } from './subsidyReceipt';
 
 /**
  * Project financing (NABARD refinance structure).
@@ -40,6 +41,12 @@ export interface FinanceAssumptions {
      */
   subsidy_fraction?: number;
   nlm_subsidy?: boolean;
+  nlm_unit_females?: number | null;
+  nlm_unit_males?: number | null;
+  nlm_eligible_capital_cost?: number | null;
+  nlm_approved_subsidy_amount?: number | null;
+  /** @maxItems 2 */
+  nlm_subsidy_receipts?: SubsidyReceipt[];
   /**
      * @minimum 0
      * @maximum 0.5

@@ -11,8 +11,9 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { LANGUAGE_STORAGE_KEY, LanguageProvider, translate, type Language } from "@/lib/i18n";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
@@ -206,12 +207,24 @@ function registerApiHandlers(options?: { run?: boolean }) {
   }
 }
 
-async function renderLoaded(options?: { run?: boolean }) {
+async function renderLoaded(options?: { run?: boolean; language?: Language }) {
   registerApiHandlers(options);
-  renderWithProviders(<SimulationPage />);
-  expect(await screen.findByText("Horizon Months")).toBeInTheDocument();
+  if (options?.language) {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, options.language);
+    renderWithProviders(<LanguageProvider><SimulationPage /></LanguageProvider>);
+  } else {
+    renderWithProviders(<SimulationPage />);
+  }
+  expect(await screen.findByLabelText(
+    options?.language === "te" ? "కాల పరిమితి నెలలు" : "Horizon Months",
+  )).toBeInTheDocument();
   return userEvent.setup();
 }
+
+afterEach(() => {
+  localStorage.removeItem(LANGUAGE_STORAGE_KEY);
+  document.documentElement.lang = "en";
+});
 
 /** The facts list inside an open field-help dialog, as term → value pairs. */
 function dialogFacts(): Record<string, string> {
@@ -268,8 +281,7 @@ describe("SimulationPage field explanations", () => {
   it("explains each assumptions section from its heading", async () => {
     const user = await renderLoaded();
 
-    // The "?" sits inside the <summary>; clicking it must open the dialog
-    // WITHOUT toggling the section closed.
+    // The sibling help control explains the section without collapsing it.
     await user.click(screen.getByRole("button", { name: /Explain Herd\?/ }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("Herd assumptions")).toBeInTheDocument();
@@ -281,6 +293,57 @@ describe("SimulationPage field explanations", () => {
     // Section stayed open: its fields are still reachable.
     expect(screen.getByLabelText("Foundation Doe Age Min Months")).toBeVisible();
   });
+
+  it.each(["en", "te"] as const)(
+    "keeps %s disclosure summaries free of interactive children and section help keyboard-accessible when collapsed",
+    async (language) => {
+      const user = await renderLoaded({ language });
+      const summaries = document.querySelectorAll("summary");
+      expect(summaries).toHaveLength(4);
+      const interactiveDescendants = [
+        "button", "a[href]", "input", "select", "textarea", "summary",
+        "[tabindex]:not([tabindex='-1'])", "[contenteditable='true']", "[role='button']",
+      ].join(", ");
+      summaries.forEach((summary) => {
+        expect(summary.querySelector(interactiveDescendants)).toBeNull();
+      });
+
+      const label = translate(language, "simulation.token.herd");
+      const summary = screen.getByText(label, { selector: "summary" });
+      const details = summary.closest("details");
+      const help = screen.getByRole("button", {
+        name: `${translate(language, "simulation.accessibility.explainField", { label })}?`,
+      });
+      expect(help.closest("summary")).toBeNull();
+      expect(help.closest("details")).toBeNull();
+      expect(details).toHaveAttribute("open");
+
+      // The same named help control is available in both disclosure states.
+      for (const open of [true, false]) {
+        expect(details?.open).toBe(open);
+        expect(help).toBeVisible();
+        help.focus();
+        expect(help).toHaveFocus();
+        await user.keyboard("{Enter}");
+        const dialog = screen.getByRole("dialog");
+        expect(within(dialog).getByRole("heading")).toHaveTextContent(
+          translate(language, "simulation.assumptions.sectionTitle", { section: label }),
+        );
+        expect(within(dialog).getByText(language === "en"
+          ? /animals on the ground on day 1/i
+          : /మొదటి రోజున ఉన్న జంతువులు/)).toBeInTheDocument();
+        expect(details?.open).toBe(open);
+        await user.keyboard("{Escape}");
+        expect(help).toHaveFocus();
+        if (open) await user.click(summary);
+      }
+
+      // Native disclosure behavior still opens the editor after help closes.
+      await user.click(summary);
+      expect(details).toHaveAttribute("open");
+      expect(screen.getByLabelText(language === "en" ? "Does" : "ఆడ మేకలు")).toBeVisible();
+    },
+  );
 
   it("explains Monte Carlo risk variables and their low/high multipliers", async () => {
     const user = await renderLoaded();

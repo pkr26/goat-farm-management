@@ -20,5 +20,6 @@ export interface ScreeningFindingOut {
   review_note: string | null;
   reviewed_by_id: number | null;
   reviewed_at: string | null;
+  review_revision: number;
   created_at: string;
 }

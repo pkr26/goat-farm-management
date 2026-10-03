@@ -731,14 +731,14 @@ describe("TeamPage round-2 mutation survivors", () => {
     await user.click(screen.getByRole("button", { name: "Add worker" }));
     let dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText(/email/i), "draft@example.com");
-    await user.type(within(dialog).getByLabelText(/password/i), "secret123");
+    await user.type(within(dialog).getByLabelText(/^Password \(min 12 chars\) \*$/i), "secret123");
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: "Add worker" }));
     dialog = await screen.findByRole("dialog");
     expect((within(dialog).getByLabelText(/email/i) as HTMLInputElement).value).toBe("");
-    expect((within(dialog).getByLabelText(/password/i) as HTMLInputElement).value).toBe("");
+    expect((within(dialog).getByLabelText(/^Password \(min 12 chars\) \*$/i) as HTMLInputElement).value).toBe("");
   });
 
   it("starts the reset-password dialog with an empty password field", async () => {

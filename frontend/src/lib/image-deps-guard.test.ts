@@ -1,13 +1,14 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createRequire } from "node:module";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import packageJson from "../../package.json";
 import {
-  MIN_SAFE_LIBHEIF_VERSION,
   NEXT_VERSIONS_WITH_HEIF_DECODE_DISABLED,
+  assertImageDecodeSafetyForBuild,
   checkInstalledImageDecodeSafety,
   compareDottedVersions,
   evaluateImageDecodeSafety,
@@ -144,14 +145,30 @@ describe("checkInstalledImageDecodeSafety", () => {
     // load-bearing — this sanity check keeps the test suite honest about
     // which leg the shipped tree stands on.
     const nextVersion = packageJson.dependencies.next;
-    expect(NEXT_VERSIONS_WITH_HEIF_DECODE_DISABLED.has(nextVersion)).toBe(true);
-    expect(
-      evaluateImageDecodeSafety(nextVersion, { heif: MIN_SAFE_LIBHEIF_VERSION }).ok,
-    ).toBe(true);
+    const require = createRequire(import.meta.url);
+    const sharp = require("sharp") as { versions: { heif?: string } };
+    // Probe the native dependency actually shipped, rather than injecting the
+    // minimum safe version and assuming Next still disables the decoder.
+    const verdict = evaluateImageDecodeSafety(nextVersion, sharp.versions);
+    expect(verdict.ok, JSON.stringify(verdict)).toBe(true);
+    if (!NEXT_VERSIONS_WITH_HEIF_DECODE_DISABLED.has(nextVersion)) {
+      expect(checkInstalledImageDecodeSafety({ sharpProbe: sharp.versions })).toEqual(verdict);
+    }
   });
 });
 
 describe("reportImageDecodeSafety", () => {
+  it("rejects unsafe production builds before Next sets NEXT_PHASE", () => {
+    vi.stubEnv("NEXT_PHASE", undefined);
+    try {
+      expect(() => assertImageDecodeSafetyForBuild("phase-production-build", {
+        nextVersion: "16.3.8", sharpProbe: { heif: "1.23.1" },
+      })).toThrow(/Unsafe image-decode/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("throws in enforce mode and warns otherwise", () => {
     const failing = evaluateImageDecodeSafety("16.3.4", { heif: "1.23.1" });
     expect(failing.ok).toBe(false);

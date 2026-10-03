@@ -1,0 +1,7734 @@
+[
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/global-setup.ts",
+    "generated": false,
+    "lines": 58,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 8,
+      "functions": 1,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/helpers.ts",
+    "generated": false,
+    "lines": 358,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 76,
+      "functions": 17,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/eslint.config.mjs",
+    "generated": false,
+    "lines": 24,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/next-env.d.ts",
+    "generated": false,
+    "lines": 7,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/next.config.ts",
+    "generated": false,
+    "lines": 79,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/orval.config.ts",
+    "generated": false,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/playwright.config.ts",
+    "generated": false,
+    "lines": 100,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/postcss.config.mjs",
+    "generated": false,
+    "lines": 7,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/public/sw.js",
+    "generated": false,
+    "lines": 92,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 19,
+      "jsx": 0
+    },
+    "flags": [
+      {
+        "callee": "fetch",
+        "line": 50
+      },
+      {
+        "callee": "fetch",
+        "line": 60
+      },
+      {
+        "callee": "fetch",
+        "line": 77
+      }
+    ]
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/scripts/generate-worker-icons.mjs",
+    "generated": false,
+    "lines": 194,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 10,
+      "functions": 10,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/scripts/scan-english-literals.mjs",
+    "generated": false,
+    "lines": 236,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 15,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/custom-instance.ts",
+    "generated": false,
+    "lines": 67,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 1,
+      "functions": 2,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/endpoints.ts",
+    "generated": true,
+    "lines": 19461,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 843,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/accountDeleteIn.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/accountExportOut.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/accountIdentityExport.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/amortizationRowModel.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalCreateIn.ts",
+    "generated": true,
+    "lines": 34,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalCreateInBirthType.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalCreateInCoatColor.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalCreateInCurrentBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalCreateInSex.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalCreateInSource.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalIdentityOut.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalJourney.ts",
+    "generated": true,
+    "lines": 24,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalListOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalOffspringOut.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalOffspringOutSex.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalOffspringOutStatus.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalOut.ts",
+    "generated": true,
+    "lines": 64,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalOutBirthType.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalOutCoatColor.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalOutCurrentBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalOutDisposalMethod.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalOutMortalityCauseCode.ts",
+    "generated": true,
+    "lines": 29,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalOutSex.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalOutSource.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalOutStatus.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalProfileApiAnimalsAnimalIdGetParams.ts",
+    "generated": true,
+    "lines": 39,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalProfileOut.ts",
+    "generated": true,
+    "lines": 31,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalStartSpec.ts",
+    "generated": true,
+    "lines": 33,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalStartSpecBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalStartSpecSex.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalUpdateIn.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/animalUpdateInCoatColor.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/annualPLRow.ts",
+    "generated": true,
+    "lines": 38,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/backwardPlanIn.ts",
+    "generated": true,
+    "lines": 27,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/backwardPlanReport.ts",
+    "generated": true,
+    "lines": 28,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/batchDetailApiPurchasesBatchIdGetParams.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedDefaultsApiSimulationDefaultsGetParams.ts",
+    "generated": true,
+    "lines": 12,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedDefaultsApiSimulationDefaultsGetSystem.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingCandidateAvailabilityOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingCandidateListOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingCandidateOut.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingCandidatesApiBreedingCandidatesGetKind.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingCandidatesApiBreedingCandidatesGetParams.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingCreateIn.ts",
+    "generated": true,
+    "lines": 24,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingCreateInMethod.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingListApiBreedingGetParams.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingListOut.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingRecordOut.ts",
+    "generated": true,
+    "lines": 35,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingRecordOutLossCause.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingRecordOutMethod.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingRecordOutOutcome.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedingStatsOut.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/breedsOut.ts",
+    "generated": true,
+    "lines": 11,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/bucketAllocationOut.ts",
+    "generated": true,
+    "lines": 11,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/bucketAnimalOut.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/bucketAnimalOutSex.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/bucketBoardRow.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/bucketBoardRowBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/bucketCountOut.ts",
+    "generated": true,
+    "lines": 12,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/bucketMoveOut.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/bucketMoveOutFromBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/bucketMoveOutToBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/bucketReportRow.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/calibrationEvidence.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/calibrationEvidenceConfidence.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/changePasswordIn.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/compareScenariosApiSimulationScenariosCompareGetParams.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/costsAssumptions.ts",
+    "generated": true,
+    "lines": 90,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/costsAssumptionsCapacityBasis.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/cullingAssumptions.ts",
+    "generated": true,
+    "lines": 32,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dailyOpsParams.ts",
+    "generated": true,
+    "lines": 78,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dailyOpsResult.ts",
+    "generated": true,
+    "lines": 26,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dailyOpsRunIn.ts",
+    "generated": true,
+    "lines": 33,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dailyOpsRunOut.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dailyOpsTotals.ts",
+    "generated": true,
+    "lines": 28,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dailyOpsTotalsBuildingDays.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dailyOpsTotalsFeedKgByRecipe.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dailyOpsTotalsTasksByCategory.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dailyOpsTotalsTasksByRole.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dailyOpsTotalsVetTasksByBuilding.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dashboardAdvisoryOut.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dashboardAdvisoryOutArgs.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dashboardKiddingDueOut.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dashboardOut.ts",
+    "generated": true,
+    "lines": 45,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dashboardOutSexCounts.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dashboardOutStatusTotals.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dashboardWeightOut.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dayRecord.ts",
+    "generated": true,
+    "lines": 23,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/deletePlanApiPlannerPlansPlanIdDeleteParams.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/deleteScenarioApiSimulationScenariosScenarioIdDeleteParams.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dispenseIn.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dispenseInBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dispenseInShift.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/dispensingAggregateOut.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/errorOut.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/eventFill.ts",
+    "generated": true,
+    "lines": 23,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/exportDatasetApiScreeningExportGetParams.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/exportDatasetApiScreeningExportGetVetStatus.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/farmCalibrationApiSimulationCalibrationGetParams.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/farmCalibrationApiSimulationCalibrationGetSystem.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/farmCalibrationOut.ts",
+    "generated": true,
+    "lines": 24,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/farmCreateIn.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/farmOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedAssumptions.ts",
+    "generated": true,
+    "lines": 202,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedInventoryOut.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedInventoryOutCategory.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedLine.ts",
+    "generated": true,
+    "lines": 24,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedRecipeLineOut.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedRecipeLineOutCategory.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedRecipeOut.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedSettingIn.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedSettingInBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedSummary.ts",
+    "generated": true,
+    "lines": 24,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedingHistoryApiFeedingRecordsGetParams.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedingHistoryOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedingPlanOut.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedingRecordOut.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedingRecordOutBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/feedingRecordOutShift.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/financeAssumptions.ts",
+    "generated": true,
+    "lines": 80,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/financeOut.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/finishedFeedStockOut.ts",
+    "generated": true,
+    "lines": 12,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/growthAssumptions.ts",
+    "generated": true,
+    "lines": 65,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/growthAssumptionsGrowthRegime.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthAnimalOptionListOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthAnimalOptionOut.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthAnimalOptionOutCurrentBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthAnimalOptionsApiHealthAnimalsGetParams.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthBulkTargetIn.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthBulkTargetInBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthBulkTargetInScope.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthBulkTargetPreviewOut.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthBulkTargetPreviewOutBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthBulkTargetPreviewOutScope.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthEventIn.ts",
+    "generated": true,
+    "lines": 42,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthEventInBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthEventInRoute.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthEventInScope.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthEventInType.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthEventListOut.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthEventMutationOut.ts",
+    "generated": true,
+    "lines": 12,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthEventOut.ts",
+    "generated": true,
+    "lines": 39,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthEventOutRoute.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthEventOutType.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthPurchaseBatchOptionListOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthPurchaseBatchOptionOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/healthStatusOut.ts",
+    "generated": true,
+    "lines": 11,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/herdAssumptions.ts",
+    "generated": true,
+    "lines": 90,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/herdAssumptionsFoundationFlockState.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/herdEventAssumptions.ts",
+    "generated": true,
+    "lines": 41,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/herdEventAssumptionsAnimalClass.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/herdEventAssumptionsKind.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/herdSnapshotApiSimulationHerdSnapshotGetParams.ts",
+    "generated": true,
+    "lines": 10,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/herdSnapshotOut.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/index.ts",
+    "generated": true,
+    "lines": 409,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/insuranceClaimIn.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/insuranceExpiringOut.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/insuranceListOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetParams.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/insurancePolicyHistoryOut.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/insurancePolicyIn.ts",
+    "generated": true,
+    "lines": 25,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/insurancePolicyOut.ts",
+    "generated": true,
+    "lines": 25,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/insurancePolicyOutStatus.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/insurancePremiumOut.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/insuranceRenewalIn.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/journeyHop.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/kidEntryOut.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/kidEntryOutSex.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/kidEntryOutStatus.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/kidIn.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/kidInSex.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/kidInStatus.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/kiddingCreateIn.ts",
+    "generated": true,
+    "lines": 26,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/kiddingCreateInEase.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/kiddingListApiKiddingGetParams.ts",
+    "generated": true,
+    "lines": 39,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/kiddingListOut.ts",
+    "generated": true,
+    "lines": 23,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/kiddingRecordOut.ts",
+    "generated": true,
+    "lines": 23,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/kiddingRecordOutEase.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/lifetimePnlOut.ts",
+    "generated": true,
+    "lines": 23,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listAnimalsApiAnimalsGetBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listAnimalsApiAnimalsGetParams.ts",
+    "generated": true,
+    "lines": 27,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listAnimalsApiAnimalsGetSex.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listAnimalsApiAnimalsGetStatus.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listBatchesApiPurchasesGetParams.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listBatchesApiScreeningBatchesGetParams.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listEventsApiHealthEventsGetParams.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listImagesApiScreeningImagesGetBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listImagesApiScreeningImagesGetParams.ts",
+    "generated": true,
+    "lines": 23,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listImagesApiScreeningImagesGetStatus.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listInsurancePoliciesApiFinanceInsuranceGetParams.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listInsurancePoliciesApiFinanceInsuranceGetStatus.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listPlansApiPlannerPlansGetParams.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listScenariosApiSimulationScenariosGetParams.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listTasksApiTasksGetParams.ts",
+    "generated": true,
+    "lines": 44,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listTransactionsApiFinanceGetCategory.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listTransactionsApiFinanceGetParams.ts",
+    "generated": true,
+    "lines": 24,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/listTransactionsApiFinanceGetType.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/loginIn.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/loginOut.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/membershipExport.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/membershipOut.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/metaAssumptions.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/metricExplanation.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/metricExplanationFigures.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/mixIn.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/monteCarloResult.ts",
+    "generated": true,
+    "lines": 48,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/monthlyRow.ts",
+    "generated": true,
+    "lines": 62,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/mortalityAssumptions.ts",
+    "generated": true,
+    "lines": 42,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/mortalityMemoOut.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/mortalityOut.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/moveIn.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/moveInToBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/moveSuggestionOut.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/movementRestrictionActionOut.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/movementRestrictionActionOutAction.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/movementRestrictionClearIn.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetParams.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/movementRestrictionHistoryOut.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/notificationPrefsIn.ts",
+    "generated": true,
+    "lines": 29,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/notificationPrefsOut.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/occupancyRow.ts",
+    "generated": true,
+    "lines": 11,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/optimizationAssumptions.ts",
+    "generated": true,
+    "lines": 66,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/optimizationAssumptionsObjective.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/optimizationCandidate.ts",
+    "generated": true,
+    "lines": 31,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/optimizationResult.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/ownedFarmExport.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/ownerBenchmarksApiOwnerBenchmarksGetParams.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/ownerBenchmarksOut.ts",
+    "generated": true,
+    "lines": 12,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/ownerFarmBenchmarksOut.ts",
+    "generated": true,
+    "lines": 27,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/ownerFarmOverviewOut.ts",
+    "generated": true,
+    "lines": 32,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/ownerOverviewOut.ts",
+    "generated": true,
+    "lines": 11,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/parityMultipliers.ts",
+    "generated": true,
+    "lines": 32,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/passwordResetIn.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/percentileBand.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/permissionGroupOut.ts",
+    "generated": true,
+    "lines": 11,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/permissionsOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/planEvaluation.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/planLineOut.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/planLineOutBasis.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/planLineOutShiftsItem.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/planReport.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/plannerAction.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/plannerActionKind.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/plannerMonthRow.ts",
+    "generated": true,
+    "lines": 32,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/plannerPlanCreateIn.ts",
+    "generated": true,
+    "lines": 26,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/plannerPlanListOut.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/plannerPlanOut.ts",
+    "generated": true,
+    "lines": 27,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/plannerPlanUpdateIn.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/plannerTarget.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/plannerTargetAnimalClass.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/plannerTargetIn.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/plannerTargetInAnimalClass.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/pnlRowOut.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/pnlRowOutCategories.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/pregnancyLossIn.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/pregnancyLossInCause.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/projectCostBreakdown.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/providerStatsApiScreeningStatsGetParams.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/purchaseBatchDetailOut.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/purchaseBatchIn.ts",
+    "generated": true,
+    "lines": 27,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/purchaseBatchInSex.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/purchaseBatchListOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/purchaseBatchOut.ts",
+    "generated": true,
+    "lines": 26,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/purchaseBatchOutSex.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/purchaseQuarantineAnimalOut.ts",
+    "generated": true,
+    "lines": 23,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/purchaseQuarantineAnimalOutCurrentBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/purchaseQuarantineAnimalOutSex.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/purchaseQuarantineAnimalOutStatus.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/quarantineScheduleTaskOut.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/quarantineScheduleTaskOutCategory.ts",
+    "generated": true,
+    "lines": 35,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/quarantineScheduleTaskOutStatus.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/quarantineScheduleTaskOutTitleArgs.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/readinessStatusOut.ts",
+    "generated": true,
+    "lines": 11,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/readinessUnavailableOut.ts",
+    "generated": true,
+    "lines": 11,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/recipeListOut.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/registerIn.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/reportSection.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/reportSectionFigures.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/reportsOut.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/reportsOutSexCounts.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/reportsOutStatusCounts.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/reproductionAssumptions.ts",
+    "generated": true,
+    "lines": 61,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/reproductionAssumptionsWeaningDays.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/requestValidationErrorOut.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/requestValidationIssueOut.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/requirementChain.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/requirementStep.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/restrictedAnimalOut.ts",
+    "generated": true,
+    "lines": 23,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/riskAssumptions.ts",
+    "generated": true,
+    "lines": 108,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/riskVariable.ts",
+    "generated": true,
+    "lines": 23,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/roleChangeIn.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/roleIn.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/roleOut.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/roleUpdateIn.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/runIn.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/runScenarioApiSimulationScenariosScenarioIdRunPostParams.ts",
+    "generated": true,
+    "lines": 12,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/salesAssumptions.ts",
+    "generated": true,
+    "lines": 88,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/scenarioCompareOut.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/scenarioCreateIn.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/scenarioListOut.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/scenarioOut.ts",
+    "generated": true,
+    "lines": 23,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/scenarioUpdateIn.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/scheduleOut.ts",
+    "generated": true,
+    "lines": 12,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/scheduleRowOut.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/scheduleRowOutStatus.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/scheduleTemplateListOut.ts",
+    "generated": true,
+    "lines": 11,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/scheduleTemplateOut.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/scheduleTemplateOutEventType.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningBatchBucketProgressOut.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningBatchBucketProgressOutBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningBatchListOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningBatchOut.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningCropOut.ts",
+    "generated": true,
+    "lines": 23,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningCropOutStatus.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningDatasetExportOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningDatasetRecordOut.ts",
+    "generated": true,
+    "lines": 34,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningDatasetRecordOutSeverity.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningDatasetRecordOutVetStatus.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningFindingOut.ts",
+    "generated": true,
+    "lines": 24,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningFindingOutSeverity.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningFindingOutStatus.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningFindingReviewIn.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningFindingReviewInExpectedStatus.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningFindingReviewInStatus.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningFindingReviewOut.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningFindingReviewOutStatus.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningImageDetailOut.ts",
+    "generated": true,
+    "lines": 34,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningImageDetailOutBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningImageDetailOutStatus.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningImageListOut.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningImageRowOut.ts",
+    "generated": true,
+    "lines": 29,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningImageRowOutBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningImageRowOutStatus.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningProviderStatsOut.ts",
+    "generated": true,
+    "lines": 25,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningRunOut.ts",
+    "generated": true,
+    "lines": 26,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningRunOutDetail.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningRunOutRunStatus.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningRunOutStage.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningStatsOut.ts",
+    "generated": true,
+    "lines": 12,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningUploadIn.ts",
+    "generated": true,
+    "lines": 32,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningUploadInBucket.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningUploadInContentType.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningUploadOut.ts",
+    "generated": true,
+    "lines": 25,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/screeningUploadOutUploadFields.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/sensitivityItem.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/simBirth.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/simExit.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/simKidBirth.ts",
+    "generated": true,
+    "lines": 12,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/simMove.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/simTask.ts",
+    "generated": true,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/simulationAssumptions.ts",
+    "generated": true,
+    "lines": 39,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/simulationResult.ts",
+    "generated": true,
+    "lines": 39,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/statusChangeIn.ts",
+    "generated": true,
+    "lines": 29,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/statusChangeInDisposalMethod.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/statusChangeInMortalityCauseCode.ts",
+    "generated": true,
+    "lines": 29,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/statusChangeInNewStatus.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/stockAddIn.ts",
+    "generated": true,
+    "lines": 11,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/targetFill.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/targetRisk.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/taskCreateIn.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/taskCreateInCategory.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/taskOut.ts",
+    "generated": true,
+    "lines": 44,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/taskOutCategory.ts",
+    "generated": true,
+    "lines": 35,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/taskOutStatus.ts",
+    "generated": true,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/taskOutTitleArgs.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/taskRejectIn.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/taskSkipIn.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/taskTabsOut.ts",
+    "generated": true,
+    "lines": 27,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/teamOut.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/teamOutPermissionLabels.ts",
+    "generated": true,
+    "lines": 8,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/terminalValueBreakdown.ts",
+    "generated": true,
+    "lines": 26,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/tokenOut.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/totpChallengeIn.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/totpCodeIn.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/totpDisableIn.ts",
+    "generated": true,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/totpEnrollIn.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/totpEnrollOut.ts",
+    "generated": true,
+    "lines": 11,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/totpRecoveryCodesOut.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/totpRecoveryRegenerateIn.ts",
+    "generated": true,
+    "lines": 25,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/transactionCorrectionIn.ts",
+    "generated": true,
+    "lines": 29,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/transactionCorrectionInCategory.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/transactionCorrectionInType.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/transactionIn.ts",
+    "generated": true,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/transactionInCategory.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/transactionInType.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/transactionOut.ts",
+    "generated": true,
+    "lines": 26,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/transactionOutCategory.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/transactionOutType.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/transitionCount.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/ultrasoundIn.ts",
+    "generated": true,
+    "lines": 12,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/userOut.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/userOutTotpState.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/viabilityMetrics.ts",
+    "generated": true,
+    "lines": 33,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/weightIn.ts",
+    "generated": true,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/weightRecordOut.ts",
+    "generated": true,
+    "lines": 15,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/workerCreateIn.ts",
+    "generated": true,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/workerLoginIn.ts",
+    "generated": true,
+    "lines": 28,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/workerPinResetIn.ts",
+    "generated": true,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/workerRosterApiAuthWorkerRosterGetParams.ts",
+    "generated": true,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/workerRosterEntryOut.ts",
+    "generated": true,
+    "lines": 11,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/workerRosterOut.ts",
+    "generated": true,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/api/generated/models/workerStatusIn.ts",
+    "generated": true,
+    "lines": 10,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/animals/[id]/page.tsx",
+    "generated": false,
+    "lines": 2419,
+    "diagnostics": [],
+    "counts": {
+      "states": 17,
+      "effects": 1,
+      "awaits": 10,
+      "functions": 88,
+      "jsx": 390
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/animals/new/page.tsx",
+    "generated": false,
+    "lines": 47,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 1,
+      "awaits": 0,
+      "functions": 3,
+      "jsx": 4
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/animals/page.tsx",
+    "generated": false,
+    "lines": 1730,
+    "diagnostics": [],
+    "counts": {
+      "states": 10,
+      "effects": 7,
+      "awaits": 2,
+      "functions": 86,
+      "jsx": 203
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/app-layout-client.tsx",
+    "generated": false,
+    "lines": 479,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 2,
+      "awaits": 0,
+      "functions": 20,
+      "jsx": 57
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/breeding/[id]/ultrasound/page.tsx",
+    "generated": false,
+    "lines": 69,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 1,
+      "awaits": 0,
+      "functions": 4,
+      "jsx": 11
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/breeding/page.tsx",
+    "generated": false,
+    "lines": 1397,
+    "diagnostics": [],
+    "counts": {
+      "states": 17,
+      "effects": 2,
+      "awaits": 5,
+      "functions": 56,
+      "jsx": 182
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/buckets/page.tsx",
+    "generated": false,
+    "lines": 205,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 7,
+      "jsx": 41
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/dashboard/page.tsx",
+    "generated": false,
+    "lines": 1020,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 23,
+      "jsx": 216
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/error.tsx",
+    "generated": false,
+    "lines": 40,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 1,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 5
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/feeding/inventory/page.tsx",
+    "generated": false,
+    "lines": 677,
+    "diagnostics": [],
+    "counts": {
+      "states": 3,
+      "effects": 1,
+      "awaits": 4,
+      "functions": 28,
+      "jsx": 112
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/feeding/page.tsx",
+    "generated": false,
+    "lines": 1186,
+    "diagnostics": [],
+    "counts": {
+      "states": 5,
+      "effects": 4,
+      "awaits": 4,
+      "functions": 64,
+      "jsx": 180
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/feeding/recipes/page.tsx",
+    "generated": false,
+    "lines": 167,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 7,
+      "jsx": 45
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/finance/insurance/page.tsx",
+    "generated": false,
+    "lines": 1086,
+    "diagnostics": [],
+    "counts": {
+      "states": 12,
+      "effects": 0,
+      "awaits": 6,
+      "functions": 50,
+      "jsx": 173
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/finance/page.tsx",
+    "generated": false,
+    "lines": 1500,
+    "diagnostics": [],
+    "counts": {
+      "states": 13,
+      "effects": 0,
+      "awaits": 4,
+      "functions": 70,
+      "jsx": 223
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/health/new/page.tsx",
+    "generated": false,
+    "lines": 39,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 1,
+      "awaits": 0,
+      "functions": 3,
+      "jsx": 4
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/health/page.tsx",
+    "generated": false,
+    "lines": 2175,
+    "diagnostics": [],
+    "counts": {
+      "states": 8,
+      "effects": 6,
+      "awaits": 3,
+      "functions": 82,
+      "jsx": 268
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/health/schedule/[animalId]/page.tsx",
+    "generated": false,
+    "lines": 296,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 9,
+      "jsx": 73
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/health/task-prefill.ts",
+    "generated": false,
+    "lines": 27,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/kidding/new/page.tsx",
+    "generated": false,
+    "lines": 43,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 1,
+      "awaits": 0,
+      "functions": 3,
+      "jsx": 4
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/kidding/page.tsx",
+    "generated": false,
+    "lines": 1558,
+    "diagnostics": [],
+    "counts": {
+      "states": 6,
+      "effects": 2,
+      "awaits": 2,
+      "functions": 71,
+      "jsx": 215
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/layout.tsx",
+    "generated": false,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 1,
+      "functions": 1,
+      "jsx": 1
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/loading.tsx",
+    "generated": false,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 3
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/no-access/page.tsx",
+    "generated": false,
+    "lines": 33,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 8
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/not-found.tsx",
+    "generated": false,
+    "lines": 36,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 6
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/ops-simulation/page.tsx",
+    "generated": false,
+    "lines": 1213,
+    "diagnostics": [],
+    "counts": {
+      "states": 11,
+      "effects": 0,
+      "awaits": 2,
+      "functions": 74,
+      "jsx": 231
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/owner/page.tsx",
+    "generated": false,
+    "lines": 252,
+    "diagnostics": [],
+    "counts": {
+      "states": 1,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 11,
+      "jsx": 63
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/planner/page.tsx",
+    "generated": false,
+    "lines": 1693,
+    "diagnostics": [],
+    "counts": {
+      "states": 15,
+      "effects": 1,
+      "awaits": 13,
+      "functions": 95,
+      "jsx": 288
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/purchases/page.tsx",
+    "generated": false,
+    "lines": 1140,
+    "diagnostics": [],
+    "counts": {
+      "states": 5,
+      "effects": 2,
+      "awaits": 2,
+      "functions": 45,
+      "jsx": 193
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/reports/page.tsx",
+    "generated": false,
+    "lines": 383,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 14,
+      "jsx": 87
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/screening/page.tsx",
+    "generated": false,
+    "lines": 665,
+    "diagnostics": [],
+    "counts": {
+      "states": 2,
+      "effects": 0,
+      "awaits": 3,
+      "functions": 28,
+      "jsx": 128
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/simulation/components/editor-widgets.tsx",
+    "generated": false,
+    "lines": 87,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 3,
+      "jsx": 6
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/simulation/components/format-helpers.ts",
+    "generated": false,
+    "lines": 30,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 5,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/simulation/components/number-inputs.tsx",
+    "generated": false,
+    "lines": 336,
+    "diagnostics": [],
+    "counts": {
+      "states": 8,
+      "effects": 8,
+      "awaits": 0,
+      "functions": 26,
+      "jsx": 4
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/simulation/components/results-visuals.tsx",
+    "generated": false,
+    "lines": 318,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 13,
+      "jsx": 62
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/simulation/page.tsx",
+    "generated": false,
+    "lines": 4251,
+    "diagnostics": [],
+    "counts": {
+      "states": 32,
+      "effects": 5,
+      "awaits": 15,
+      "functions": 253,
+      "jsx": 509
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/tasks/page.tsx",
+    "generated": false,
+    "lines": 1328,
+    "diagnostics": [],
+    "counts": {
+      "states": 3,
+      "effects": 3,
+      "awaits": 2,
+      "functions": 66,
+      "jsx": 145
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/(app)/team/page.tsx",
+    "generated": false,
+    "lines": 2039,
+    "diagnostics": [],
+    "counts": {
+      "states": 16,
+      "effects": 0,
+      "awaits": 19,
+      "functions": 106,
+      "jsx": 238
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/error.tsx",
+    "generated": false,
+    "lines": 42,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 1,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 5
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/farm-select/page.tsx",
+    "generated": false,
+    "lines": 380,
+    "diagnostics": [],
+    "counts": {
+      "states": 2,
+      "effects": 1,
+      "awaits": 6,
+      "functions": 15,
+      "jsx": 59
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/global-error.tsx",
+    "generated": false,
+    "lines": 49,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 1,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 7
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/healthz/route.ts",
+    "generated": false,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/layout.tsx",
+    "generated": false,
+    "lines": 63,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 1,
+      "functions": 1,
+      "jsx": 3
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/login/page.tsx",
+    "generated": false,
+    "lines": 358,
+    "diagnostics": [],
+    "counts": {
+      "states": 3,
+      "effects": 1,
+      "awaits": 7,
+      "functions": 13,
+      "jsx": 34
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/manifest.ts",
+    "generated": false,
+    "lines": 38,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/page.tsx",
+    "generated": false,
+    "lines": 48,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 1,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 3
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/register/page.tsx",
+    "generated": false,
+    "lines": 205,
+    "diagnostics": [],
+    "counts": {
+      "states": 1,
+      "effects": 1,
+      "awaits": 3,
+      "functions": 8,
+      "jsx": 21
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/worker/layout.tsx",
+    "generated": false,
+    "lines": 312,
+    "diagnostics": [],
+    "counts": {
+      "states": 3,
+      "effects": 5,
+      "awaits": 1,
+      "functions": 26,
+      "jsx": 26
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/worker/login/page.tsx",
+    "generated": false,
+    "lines": 572,
+    "diagnostics": [],
+    "counts": {
+      "states": 11,
+      "effects": 3,
+      "awaits": 8,
+      "functions": 35,
+      "jsx": 66
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/app/worker/page.tsx",
+    "generated": false,
+    "lines": 351,
+    "diagnostics": [],
+    "counts": {
+      "states": 1,
+      "effects": 1,
+      "awaits": 2,
+      "functions": 17,
+      "jsx": 30
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/account-dialog.tsx",
+    "generated": false,
+    "lines": 941,
+    "diagnostics": [],
+    "counts": {
+      "states": 15,
+      "effects": 1,
+      "awaits": 10,
+      "functions": 47,
+      "jsx": 105
+    },
+    "flags": [
+      {
+        "callee": "window.print",
+        "line": 615
+      }
+    ]
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/animal-picker.tsx",
+    "generated": false,
+    "lines": 180,
+    "diagnostics": [],
+    "counts": {
+      "states": 1,
+      "effects": 0,
+      "awaits": 1,
+      "functions": 8,
+      "jsx": 1
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/auth-layout.tsx",
+    "generated": false,
+    "lines": 130,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 28
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/breeding-candidate-picker.tsx",
+    "generated": false,
+    "lines": 118,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 1,
+      "functions": 4,
+      "jsx": 1
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/charts.tsx",
+    "generated": false,
+    "lines": 244,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 14,
+      "jsx": 18
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/data-table-card.tsx",
+    "generated": false,
+    "lines": 56,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 6
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/empty-state.tsx",
+    "generated": false,
+    "lines": 54,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 7
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/health-target-pickers.tsx",
+    "generated": false,
+    "lines": 220,
+    "diagnostics": [],
+    "counts": {
+      "states": 2,
+      "effects": 0,
+      "awaits": 2,
+      "functions": 10,
+      "jsx": 2
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/language-toggle.tsx",
+    "generated": false,
+    "lines": 57,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 3,
+      "jsx": 2
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/logo.tsx",
+    "generated": false,
+    "lines": 57,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 12
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/page-header.tsx",
+    "generated": false,
+    "lines": 40,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 5
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/pagination-controls.tsx",
+    "generated": false,
+    "lines": 83,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 4,
+      "jsx": 5
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/permission-gate.tsx",
+    "generated": false,
+    "lines": 119,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 8
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/permissions-error.tsx",
+    "generated": false,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 3
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/providers.tsx",
+    "generated": false,
+    "lines": 49,
+    "diagnostics": [],
+    "counts": {
+      "states": 1,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 6
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/remote-picker.tsx",
+    "generated": false,
+    "lines": 526,
+    "diagnostics": [],
+    "counts": {
+      "states": 4,
+      "effects": 2,
+      "awaits": 0,
+      "functions": 28,
+      "jsx": 32
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/screening-check-dialog.tsx",
+    "generated": false,
+    "lines": 356,
+    "diagnostics": [],
+    "counts": {
+      "states": 6,
+      "effects": 2,
+      "awaits": 5,
+      "functions": 17,
+      "jsx": 29
+    },
+    "flags": [
+      {
+        "callee": "fetch",
+        "line": 172
+      }
+    ]
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/section-nav.tsx",
+    "generated": false,
+    "lines": 62,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 2
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/skeletons.tsx",
+    "generated": false,
+    "lines": 162,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 11,
+      "jsx": 19
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/stale-data-notice.tsx",
+    "generated": false,
+    "lines": 30,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 4
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/stat-card.tsx",
+    "generated": false,
+    "lines": 101,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 10
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/status-badge.tsx",
+    "generated": false,
+    "lines": 119,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 5,
+      "jsx": 2
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/task-row-actions.tsx",
+    "generated": false,
+    "lines": 542,
+    "diagnostics": [],
+    "counts": {
+      "states": 8,
+      "effects": 0,
+      "awaits": 8,
+      "functions": 26,
+      "jsx": 46
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/theme-toggle.tsx",
+    "generated": false,
+    "lines": 56,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 1,
+      "awaits": 0,
+      "functions": 7,
+      "jsx": 4
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/badge.tsx",
+    "generated": false,
+    "lines": 59,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/button.tsx",
+    "generated": false,
+    "lines": 60,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 1
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/card.tsx",
+    "generated": false,
+    "lines": 103,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 7,
+      "jsx": 7
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/checkbox.tsx",
+    "generated": false,
+    "lines": 36,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 4
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/dialog.tsx",
+    "generated": false,
+    "lines": 167,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 11,
+      "jsx": 19
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/input.tsx",
+    "generated": false,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 1
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/label.tsx",
+    "generated": false,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 1
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/select.tsx",
+    "generated": false,
+    "lines": 217,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 11,
+      "jsx": 23
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/separator.tsx",
+    "generated": false,
+    "lines": 25,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 1
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/sheet.tsx",
+    "generated": false,
+    "lines": 140,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 10,
+      "jsx": 16
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/sidebar.tsx",
+    "generated": false,
+    "lines": 737,
+    "diagnostics": [],
+    "counts": {
+      "states": 2,
+      "effects": 3,
+      "awaits": 0,
+      "functions": 35,
+      "jsx": 36
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/skeleton.tsx",
+    "generated": false,
+    "lines": 13,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 1
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/sonner.tsx",
+    "generated": false,
+    "lines": 56,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 6
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/table.tsx",
+    "generated": false,
+    "lines": 163,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 10,
+      "jsx": 12
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/tabs.tsx",
+    "generated": false,
+    "lines": 87,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 4,
+      "jsx": 4
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/textarea.tsx",
+    "generated": false,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 1
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/components/ui/tooltip.tsx",
+    "generated": false,
+    "lines": 66,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 4,
+      "jsx": 7
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/hooks/use-mobile.ts",
+    "generated": false,
+    "lines": 22,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 5,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/active-language.ts",
+    "generated": false,
+    "lines": 20,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/api-client.ts",
+    "generated": false,
+    "lines": 994,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 21,
+      "functions": 63,
+      "jsx": 0
+    },
+    "flags": [
+      {
+        "callee": "fetch",
+        "line": 275
+      },
+      {
+        "callee": "fetch",
+        "line": 803
+      }
+    ]
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/auth-context.tsx",
+    "generated": false,
+    "lines": 694,
+    "diagnostics": [],
+    "counts": {
+      "states": 4,
+      "effects": 6,
+      "awaits": 9,
+      "functions": 42,
+      "jsx": 1
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/backend-caps.ts",
+    "generated": false,
+    "lines": 25,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/backend-rewrites.ts",
+    "generated": false,
+    "lines": 57,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/brand.ts",
+    "generated": false,
+    "lines": 14,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/bucket-sex.ts",
+    "generated": false,
+    "lines": 16,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/csp.ts",
+    "generated": false,
+    "lines": 129,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 6,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/enum-labels.ts",
+    "generated": false,
+    "lines": 415,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 6,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/farm-scope-guard.ts",
+    "generated": false,
+    "lines": 18,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/farm-vocabulary.ts",
+    "generated": false,
+    "lines": 116,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/format.ts",
+    "generated": false,
+    "lines": 259,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 17,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/i18n/en.ts",
+    "generated": false,
+    "lines": 3269,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/i18n/index.tsx",
+    "generated": false,
+    "lines": 143,
+    "diagnostics": [],
+    "counts": {
+      "states": 1,
+      "effects": 2,
+      "awaits": 0,
+      "functions": 14,
+      "jsx": 1
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/i18n/te.ts",
+    "generated": false,
+    "lines": 3222,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/idempotent-request.ts",
+    "generated": false,
+    "lines": 622,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 5,
+      "functions": 40,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/image-deps-guard.ts",
+    "generated": false,
+    "lines": 163,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 8,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/mutations.ts",
+    "generated": false,
+    "lines": 21,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/offline-queue.ts",
+    "generated": false,
+    "lines": 575,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 1,
+      "functions": 33,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/permission-envelope.ts",
+    "generated": false,
+    "lines": 33,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 1,
+      "functions": 1,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/permission-navigation.ts",
+    "generated": false,
+    "lines": 179,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 11,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/persisted-numbers.ts",
+    "generated": false,
+    "lines": 33,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 3,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/query-invalidation.ts",
+    "generated": false,
+    "lines": 44,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 3,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/safe-storage.ts",
+    "generated": false,
+    "lines": 17,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/server-error-phrases.ts",
+    "generated": false,
+    "lines": 96,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/simulation-field-help.ts",
+    "generated": false,
+    "lines": 606,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 177,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/task-action-access.ts",
+    "generated": false,
+    "lines": 83,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 3,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/task-optimistic.ts",
+    "generated": false,
+    "lines": 96,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 11,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/task-title.ts",
+    "generated": false,
+    "lines": 90,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/use-permissions.ts",
+    "generated": false,
+    "lines": 53,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/use-single-flight.ts",
+    "generated": false,
+    "lines": 42,
+    "diagnostics": [],
+    "counts": {
+      "states": 1,
+      "effects": 1,
+      "awaits": 1,
+      "functions": 4,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/use-url-state.ts",
+    "generated": false,
+    "lines": 105,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 1,
+      "awaits": 0,
+      "functions": 5,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/lib/utils.ts",
+    "generated": false,
+    "lines": 37,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/proxy.ts",
+    "generated": false,
+    "lines": 73,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 1,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/test/intl-stub.ts",
+    "generated": false,
+    "lines": 29,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/test/msw-server.ts",
+    "generated": false,
+    "lines": 111,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 9,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/test/render.tsx",
+    "generated": false,
+    "lines": 62,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 1,
+      "awaits": 0,
+      "functions": 8,
+      "jsx": 3
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/src/test/settle.ts",
+    "generated": false,
+    "lines": 19,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 2,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/vitest.components.config.ts",
+    "generated": false,
+    "lines": 32,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/vitest.config.ts",
+    "generated": false,
+    "lines": 82,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/vitest.libcore.config.ts",
+    "generated": false,
+    "lines": 40,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/vitest.mutation.config.ts",
+    "generated": false,
+    "lines": 46,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 0,
+      "jsx": 0
+    },
+    "flags": []
+  },
+  {
+    "path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/vitest.setup.ts",
+    "generated": false,
+    "lines": 92,
+    "diagnostics": [],
+    "counts": {
+      "states": 0,
+      "effects": 0,
+      "awaits": 0,
+      "functions": 4,
+      "jsx": 0
+    },
+    "flags": []
+  }
+]

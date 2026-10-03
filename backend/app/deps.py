@@ -9,19 +9,21 @@ from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy.orm import selectinload
 
 from . import metrics
 from .audit import security_event
 from .core.config import get_settings
 from .db import get_db
 from .models import Farm, FarmMembership, RefreshSession, Role, User
+from .models.core import TotpRecoveryCode
+from .models.notifications import NotificationRecipient
 from .permissions import ALL_PERMISSIONS
 from .ratelimit import auth_limiter
 from .schemas.common import MAX_INT32_ID, standing_quota
-from .security import decode_access_claims_result
+from .security import SessionScope, decode_access_claims_result
 from .utils import utcnow
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -195,6 +197,56 @@ async def current_user(
     # the ORM identity map so the later populate-existing reload can compare
     # exactly what this request authenticated.
     request.state.authenticated_token_version = claims.token_version
+    request.state.authenticated_scope = claims.scope
+    request.state.authenticated_family_id = claims.family_id
+    if claims.scope.origin == "PIN":
+        # Identity/global routes cannot acquire authority through a tablet PIN.
+        # Discover the matched route's complete dependency graph so a newly
+        # added CurrentUser-only route is denied automatically.
+        bootstrap = request.method == "GET" and request.url.path in {
+            "/api/auth/me",
+            "/api/auth/farms",
+        }
+
+        def has_farm_dependency(dependant: object) -> bool:
+            if getattr(dependant, "call", None) is current_farm:
+                return True
+            return any(
+                has_farm_dependency(child) for child in getattr(dependant, "dependencies", [])
+            )
+
+        session_cancel = request.method == "POST" and request.url.path == "/api/auth/logout-session"
+        route = request.scope.get("route")
+        if (
+            not bootstrap
+            and not session_cancel
+            and (
+                (
+                    request.url.path.startswith("/api/auth/")
+                    and request.url.path != "/api/auth/permissions"
+                )
+                or not has_farm_dependency(getattr(route, "dependant", None))
+            )
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Tablet sessions cannot manage account or global resources; "
+                    "sign in with your password."
+                ),
+            )
+        if user.totp_state == "ACTIVE" or user.must_change_password:
+            raise _unauthenticated("Password sign-in is required")
+        if claims.scope.farm_id is None:
+            raise _unauthenticated("Invalid tablet scope")
+        membership = await active_membership(db, user.id, claims.scope.farm_id)
+        if (
+            membership is None
+            or membership.id != claims.scope.membership_id
+            or membership.pin_hash is None
+        ):
+            raise _unauthenticated("Tablet membership has been revoked")
+    await require_live_authenticated_session(db, request, user)
     # Forced credential rotation: an owner-provisioned (or owner-reset)
     # password must be changed by its holder before any domain access. The
     # exemption is an explicit allowlist, NOT the whole /api/auth/ prefix:
@@ -214,6 +266,45 @@ async def current_user(
     return user
 
 
+async def require_live_session_family(
+    db: AsyncSession,
+    user_id: int,
+    family_id: str | None,
+    scope: SessionScope,
+) -> None:
+    """Recheck the signed family under the caller's final User authorization lock."""
+    if not isinstance(family_id, str):
+        raise _unauthenticated("Session has been revoked")
+    live = (
+        await db.execute(
+            select(RefreshSession.id)
+            .where(
+                RefreshSession.user_id == user_id,
+                RefreshSession.family_id == family_id,
+                RefreshSession.session_origin == scope.origin,
+                RefreshSession.farm_id == scope.farm_id,
+                RefreshSession.membership_id == scope.membership_id,
+                RefreshSession.revoked_at.is_(None),
+                RefreshSession.consumed_at.is_(None),
+                RefreshSession.expires_at > utcnow(),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if live is None:
+        raise _unauthenticated("Session has been revoked")
+
+
+async def require_live_authenticated_session(
+    db: AsyncSession, request: Request, user: User
+) -> None:
+    scope = getattr(request.state, "authenticated_scope", None)
+    family_id = getattr(request.state, "authenticated_family_id", None)
+    if not isinstance(scope, SessionScope):
+        raise _unauthenticated("Session has been revoked")
+    await require_live_session_family(db, user.id, family_id, scope)
+
+
 # Method-scoped exemption for the must-change-password fence. GET-only for
 # the read routes: a POST to /api/auth/farms or DELETE /api/auth/account
 # from a flagged credential stays fenced.
@@ -223,6 +314,7 @@ _ROTATION_EXEMPT_ALWAYS = frozenset(
         "/api/auth/login",
         "/api/auth/refresh",
         "/api/auth/logout",
+        "/api/auth/logout-session",
         "/api/auth/me",
         "/api/auth/change-password",
     }
@@ -320,46 +412,121 @@ async def deactivate_deleted_user_memberships(
     """
     if not 1 <= batch_size <= 10_000:
         raise ValueError("batch_size must be between 1 and 10000")
-    membership_probe = aliased(FarmMembership)
-    has_active_membership = (
-        select(membership_probe.id)
-        .where(
-            membership_probe.user_id == User.id,
-            membership_probe.is_active.is_(True),
+    # Scrub legacy tombstones as well as newly deleted accounts. Each relation
+    # has its own finite SKIP LOCKED cohort; no cascade can hide unbounded work.
+    user_ids = list(
+        (
+            await db.execute(
+                select(User.id)
+                .where(
+                    User.deleted_at.is_not(None),
+                    or_(
+                        User.totp_secret_enc.is_not(None),
+                        User.totp_state.is_not(None),
+                        User.totp_last_step.is_not(None),
+                    ),
+                )
+                .order_by(User.id)
+                .limit(batch_size)
+                .with_for_update(skip_locked=True)
+            )
+        ).scalars()
+    )
+    if user_ids:
+        await db.execute(
+            update(User)
+            .where(User.id.in_(user_ids))
+            .values(
+                totp_secret_enc=None,
+                totp_state=None,
+                totp_last_step=None,
+                must_change_password=False,
+            )
         )
-        .exists()
+    recovery_ids = list(
+        (
+            await db.execute(
+                select(TotpRecoveryCode.id)
+                .join(
+                    User,
+                    User.id == TotpRecoveryCode.user_id,
+                )
+                .where(User.deleted_at.is_not(None))
+                .order_by(TotpRecoveryCode.user_id, TotpRecoveryCode.id)
+                .limit(batch_size)
+                .with_for_update(skip_locked=True, of=TotpRecoveryCode)
+            )
+        ).scalars()
     )
-    deleted_users = (
-        select(User.id)
-        .where(User.deleted_at.is_not(None), has_active_membership)
-        .order_by(User.id)
-        .limit(batch_size)
-        .subquery("deleted_users_with_active_memberships")
-    )
+    if recovery_ids:
+        await db.execute(delete(TotpRecoveryCode).where(TotpRecoveryCode.id.in_(recovery_ids)))
     candidate_ids = list(
         (
             await db.execute(
                 select(FarmMembership.id)
-                .join(deleted_users, deleted_users.c.id == FarmMembership.user_id)
-                .where(FarmMembership.is_active.is_(True))
+                .join(
+                    User,
+                    User.id == FarmMembership.user_id,
+                )
+                .where(
+                    User.deleted_at.is_not(None),
+                    or_(
+                        FarmMembership.is_active.is_(True),
+                        FarmMembership.pin_hash.is_not(None),
+                        FarmMembership.pin_updated_at.is_not(None),
+                    ),
+                )
                 .order_by(FarmMembership.user_id, FarmMembership.id)
                 .limit(batch_size)
                 .with_for_update(skip_locked=True, of=FarmMembership)
             )
         ).scalars()
     )
-    if not candidate_ids:
-        return 0
-    deactivated = await db.execute(
-        update(FarmMembership)
-        .where(
-            FarmMembership.id.in_(candidate_ids),
-            FarmMembership.is_active.is_(True),
+    if candidate_ids:
+        await db.execute(
+            update(FarmMembership)
+            .where(FarmMembership.id.in_(candidate_ids))
+            .values(
+                is_active=False,
+                pin_hash=None,
+                pin_updated_at=None,
+            )
         )
-        .values(is_active=False)
-        .returning(FarmMembership.id)
+    recipient_ids = list(
+        (
+            await db.execute(
+                select(NotificationRecipient.id)
+                .join(
+                    FarmMembership,
+                    FarmMembership.id == NotificationRecipient.membership_id,
+                )
+                .join(User, User.id == FarmMembership.user_id)
+                .where(
+                    User.deleted_at.is_not(None),
+                    NotificationRecipient.phone != "deleted",
+                )
+                .order_by(NotificationRecipient.id)
+                .limit(batch_size)
+                .with_for_update(skip_locked=True, of=NotificationRecipient)
+            )
+        ).scalars()
     )
-    return len(deactivated.scalars().all())
+    if recipient_ids:
+        await db.execute(
+            update(NotificationRecipient)
+            .where(NotificationRecipient.id.in_(recipient_ids))
+            .values(
+                phone="deleted",
+                verified=False,
+                daily_digest=False,
+                screening_flags=False,
+                kidding_watch=False,
+                overdue_critical=False,
+                feed_reorder=False,
+                movement_restriction=False,
+            )
+        )
+    return len(candidate_ids)
 
 
 async def active_membership(
@@ -434,6 +601,12 @@ async def _pin_authenticated_user(
         raise _unauthenticated("Account no longer exists")
     if locked_user.token_version != expected_version:
         raise _unauthenticated("Session has been revoked")
+    scope = getattr(request.state, "authenticated_scope", SessionScope())
+    if scope.origin == "PIN" and (
+        locked_user.totp_state == "ACTIVE" or locked_user.must_change_password
+    ):
+        raise _unauthenticated("Password sign-in is required")
+    await require_live_authenticated_session(db, request, locked_user)
     return locked_user
 
 
@@ -539,14 +712,29 @@ async def current_farm(
         raise HTTPException(status_code=404, detail="Farm not found")
 
     unsafe_request = request.method not in {"GET", "HEAD", "OPTIONS"}
-    if farm.owner_id == user.id:
+    scope = getattr(request.state, "authenticated_scope", SessionScope())
+    if scope.origin == "PIN" and scope.farm_id != farm.id:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    if scope.origin == "PIN" and farm.owner_id == user.id:
+        raise HTTPException(status_code=403, detail="Farm owners must sign in with their password")
+    if farm.owner_id == user.id and scope.origin != "PIN":
         if unsafe_request:
             await _pin_authenticated_user(db, request, user)
+            live_farm = (
+                await db.execute(
+                    select(Farm)
+                    .where(Farm.id == farm.id, Farm.owner_id == user.id)
+                    .execution_options(populate_existing=True)
+                )
+            ).scalar_one_or_none()
+            if live_farm is None:
+                raise HTTPException(status_code=404, detail="Farm not found")
+            return live_farm
         return farm
 
     if not unsafe_request:
         membership = await active_membership(db, user.id, farm.id)
-        if membership is None:
+        if membership is None or (scope.origin == "PIN" and membership.id != scope.membership_id):
             raise HTTPException(status_code=404, detail="Farm not found")
         # current_membership reuses this instead of re-issuing the identical
         # unlocked SELECT (plus its Role sub-query) for the same request.
@@ -561,7 +749,7 @@ async def current_farm(
     # row while waiting for the other. The locks remain held until the route's
     # commit/rollback and stale authorization is reloaded after every wait.
     membership = await _lock_membership_row(db, user.id, farm.id)
-    if membership is None:
+    if membership is None or (scope.origin == "PIN" and membership.id != scope.membership_id):
         raise HTTPException(status_code=404, detail="Farm not found")
     await _pin_authenticated_user(db, request, user)
     role = await _lock_membership_role(db, membership, farm.id)
@@ -587,7 +775,10 @@ async def current_membership(
     Read requests stay lock-free. Unsafe HTTP methods pin the exact active
     membership and permission bundle for the transaction's lifetime.
     """
-    if farm.owner_id == user.id:
+    if (
+        farm.owner_id == user.id
+        and getattr(request.state, "authenticated_scope", SessionScope()).origin != "PIN"
+    ):
         return None
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         membership = getattr(request.state, "locked_membership", None)
@@ -618,8 +809,14 @@ def perms_for(user: User, farm: Farm, membership: FarmMembership | None) -> set[
 
 
 async def current_perms(
-    user: CurrentUser, farm: CurrentFarm, membership: CurrentMembership
+    request: Request, user: CurrentUser, farm: CurrentFarm, membership: CurrentMembership
 ) -> set[str]:
+    if getattr(request.state, "authenticated_scope", SessionScope()).origin == "PIN":
+        return (
+            membership.role.permission_set()
+            if membership is not None and membership.role is not None
+            else set()
+        )
     return perms_for(user, farm, membership)
 
 

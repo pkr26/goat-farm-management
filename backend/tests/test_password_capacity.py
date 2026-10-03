@@ -8,6 +8,7 @@ import threading
 
 import httpx
 import pytest
+from sqlalchemy.pool import QueuePool
 
 import app.api.auth as auth_api
 import app.api.team as team_api
@@ -17,6 +18,7 @@ from app.db import get_engine
 from app.ratelimit import auth_limiter
 
 from .conftest import OWNER_PW, owner_with_farm, register
+from .type_helpers import checked_out_connections
 
 
 async def test_password_work_is_off_loop_and_has_no_waiting_queue(
@@ -190,6 +192,7 @@ async def test_current_password_verification_holds_no_database_connection(
         try:
             await asyncio.wait_for(started.wait(), timeout=2)
             pool = get_engine().sync_engine.pool
+            assert isinstance(pool, QueuePool)
             assert pool.checkedout() == 0
         finally:
             release.set()
@@ -224,7 +227,7 @@ async def test_replacement_hashing_holds_no_database_connection(
     )
     try:
         await asyncio.wait_for(started.wait(), timeout=2)
-        assert get_engine().sync_engine.pool.checkedout() == 0
+        assert checked_out_connections(get_engine()) == 0
     finally:
         release.set()
     response = await change
@@ -285,7 +288,7 @@ async def test_team_password_hashing_uses_only_the_required_transaction(
             await asyncio.wait_for(started.wait(), timeout=2)
             # Both creation and reset release their read-only authorization /
             # replay-preflight transaction before memory-hard password work.
-            assert get_engine().sync_engine.pool.checkedout() == 0
+            assert checked_out_connections(get_engine()) == 0
         finally:
             release.set()
         response = await request

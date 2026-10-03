@@ -32,8 +32,9 @@ import {
 import { clearPersistedIdempotencyRequestState } from "@/lib/idempotent-request";
 import {
   clearOfflineQueueDrainBackoff,
-  wipeOfflineQueue,
 } from "@/lib/offline-queue";
+import { clearWorkerOutboxBackoff } from "@/lib/worker-outbox";
+import { endOfflineShift } from "@/lib/worker-offline-shift";
 import { safeStorage } from "@/lib/safe-storage";
 import { setActiveFarmTimezone } from "@/lib/format";
 
@@ -52,7 +53,7 @@ export interface AuthState {
   loading: boolean;
   selectFarm: (farmId: number, timezone?: string) => void;
   signIn: (accessToken: string, user: SessionUser) => Promise<void>;
-  signOut: () => Promise<void>;
+  signOut: (options?: { sessionOnly?: boolean }) => Promise<void>;
   refreshFarms: () => Promise<void>;
   /** Replace the in-memory user after a self-service change (e.g. the
    *  must-change-password flag clearing on rotation) without re-running
@@ -69,7 +70,7 @@ const AuthContext = createContext<AuthState | null>(null);
 // Stryker disable next-line StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the key is pinned verbatim by the persistence suite
 const FARM_STORAGE_KEY = "goatfarm.farmId";
 // Stryker disable next-line ArrayDeclaration, StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the list is pinned by the redirect suite
-const PUBLIC_PATHS = ["/login", "/register", "/worker/login"];
+const PUBLIC_PATHS = ["/login", "/register", "/worker/login", "/worker/offline"];
 
 /** Destination for AUTOMATIC session teardown (forced logout, cross-tab
  * logout, signed-out gate): a session dying on the worker surface belongs on
@@ -252,28 +253,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [queryClient],
   );
 
-  /** Full local session teardown — shared by signOut and the session-death
-   *  paths (rejected refresh, the cross-tab teardown mirror, a failed session
-   *  establishment) so all of them reset the same module state. The callers
-   *  differ in exactly ONE policy: whether queued offline writes are
-   *  destroyed.
-   *
-   *  - Explicit sign-out (`wipeQueuedOfflineWrites: true`): the actor is
-   *    deliberately handing the device back, so the queued writes go with
-   *    them — the shared-tablet hygiene the end-shift confirm promises. (The
-   *    worker shell's end-shift flow calls wipeOfflineQueue itself before
-   *    signOut; this is the belt to its braces.)
-   *  - Session death (`wipeQueuedOfflineWrites: false`): the session ended
-   *    WITHOUT the actor's choice. The queued writes must survive for
-   *    redelivery after re-login: the drain skips records whose actorScope
-   *    does not match the new session, so they can never replay under a
-   *    different worker, and the 72h record TTL eventually retires them.
-   *    Previously BOTH paths wiped, so a rejected refresh mid-drain silently
-   *    destroyed every queued field completion exactly when the queue's
-   *    "must survive connectivity loss" promise mattered
-   *    (2026-10-01 audit, 07-H). */
+  /** Tear down credentials, views, and the cached shift on every session
+   * exit. Saved actions retain their original actor/farm and idempotency key;
+   * the next user cannot view or send them. Only a server acknowledgement
+   * settles an action. A logout never deletes unresolved field work. */
   const clearSession = useCallback(
-    ({ wipeQueuedOfflineWrites }: { wipeQueuedOfflineWrites: boolean }) => {
+    () => {
       farmRefreshGeneration.current += 1;
       // Stryker disable next-line AssignmentOperator: any clearSession that could race an in-flight establishment first flips the access token (null), whose epoch bump already invalidates that establishment on both its resolved and rejected paths
       sessionEstablishmentGeneration.current += 1;
@@ -289,20 +274,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setFarmIdState(null);
       // Last, so the in-memory teardown above can never be left half applied.
       clearStoredFarmId();
-      if (wipeQueuedOfflineWrites) {
-        // Shared-tablet hygiene: queued offline writes are the departing
-        // worker's, not the next one's.
-        wipeOfflineQueue();
-      }
+      // Pending actor/farm scoped writes survive every session teardown.
+      // Clearing identity and query state prevents the next worker from
+      // seeing/replaying them; deletion is not a prerequisite for handover.
       // The 429 drain backoff belongs to the session either way — leaving it
       // set would gate the next actor's first drain behind the previous
       // actor's Retry-After hint.
       clearOfflineQueueDrainBackoff();
+      clearWorkerOutboxBackoff();
+      void endOfflineShift().catch(() => {});
     },
     [queryClient],
   );
 
-  const signOut = useCallback((): Promise<void> => {
+  const signOut = useCallback((options?: { sessionOnly?: boolean }): Promise<void> => {
     if (!mounted.current) return Promise.resolve();
     const existingFlight = signOutFlight.current;
     // Coalesce duplicate requests only while the locally signed-out session
@@ -321,12 +306,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Fire the revocation while the bearer token is still installed, but
     // never block local teardown on it. A request that neither resolves nor
     // rejects would otherwise leave a shared terminal signed in.
-    const revoked = apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {
+    const revoked = apiFetch(options?.sessionOnly ? "/api/auth/logout-session" : "/api/auth/logout", { method: "POST" }).catch(() => {
       /* cookie may already be gone */
     });
-    // Explicit sign-out: the only teardown allowed to destroy queued offline
-    // writes (see clearSession) — the actor chose to hand the device back.
-    clearSession({ wipeQueuedOfflineWrites: true });
+    clearSession();
     router.replace("/login");
     const task = (async () => {
       await revoked;
@@ -492,7 +475,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // A failed establishment is a session death, not a handover choice:
         // queued writes (possibly this actor's, preserved by an earlier
         // forced logout) must survive the retry (2026-10-01 audit, 07-H).
-        clearSession({ wipeQueuedOfflineWrites: false });
+        clearSession();
         throw error;
       }
     },
@@ -530,7 +513,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // them under a different actor (2026-10-01 audit, 07-H).
       if (forcedLogout.current) return;
       forcedLogout.current = true;
-      clearSession({ wipeQueuedOfflineWrites: false });
+      clearSession();
       router.replace(forcedLogoutDestination(window.location.pathname));
     };
     return setOnAuthFailure(handleAuthFailure);
@@ -547,13 +530,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Another tab tore its session down (clearSession removes the key):
         // mirror the forced-logout cleanup here instead of letting requests
         // 401 one by one against a revoked family. The queue-wipe decision
-        // belonged to the ACTING tab: if it signed out explicitly it already
-        // wiped the shared store, and if its session died the records must
-        // survive — so this mirror never wipes (2026-10-01 audit, 07-H).
+        // belongs to its original actor/farm; every form of session teardown
+        // retains unresolved work, including this mirrored transition.
         if (userRef.current === null) return;
         if (forcedLogout.current) return;
         forcedLogout.current = true;
-        clearSession({ wipeQueuedOfflineWrites: false });
+        clearSession();
         router.replace(forcedLogoutDestination(window.location.pathname));
         return;
       }
@@ -598,6 +580,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initialRefreshStarted.current = true;
     (async () => {
       try {
+        // Offline cached pages have no server authentication. Release the
+        // loading gate immediately so the bounded shift can be recovered;
+        // a refresh timeout must not hide already committed local work.
+        if (typeof navigator !== "undefined" && navigator.onLine === false) return;
         // "unavailable" (5xx/408/429/network/non-JSON) is NOT the server
         // saying the session is over — collapsing it into the signed-out
         // path let one transient blip at tab-open sign the operator out of a
@@ -611,7 +597,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             body = outcome.body;
             break;
           }
-          if (outcome.kind === "rejected") break;
+          if (outcome.kind === "rejected") {
+            await endOfflineShift().catch(() => {});
+            break;
+          }
           if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {
             await new Promise((resolve) => window.setTimeout(resolve, 750));
           }

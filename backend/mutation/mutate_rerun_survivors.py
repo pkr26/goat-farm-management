@@ -1,14 +1,7 @@
-"""Re-run the campaign for every mutant not yet KILLED/TIMEOUT.
+"""Re-measure every incompatible or inconclusive result as a new attempt.
 
-After new gap-killing tests land, a fresh contexts baseline must be collected
-first (`pytest --cov=app --cov-context=test`) so the runner's coverage-guided
-selection sees the new tests. This driver then:
-  * rewrites results.jsonl WITHOUT the SURVIVED / NOT_COVERED / RUN_ERROR
-    records (they must be re-measured; KILLED verdicts stay valid),
-  * runs the runner over exactly those ids.
-
-Usage:
-    .venv/bin/python mutation/mutate_rerun_survivors.py [--workers N] [--dry-run]
+Fresh source/test/harness/lock/coverage identity invalidates old kills as well
+as survivors. Historical receipts remain in the append-only results log.
 """
 
 from __future__ import annotations
@@ -24,7 +17,7 @@ MUTDIR = Path(__file__).resolve().parent.parent / "mutation"
 sys.path.insert(0, str(MUTDIR))
 from mutate_run import Runner  # noqa: E402
 
-REDO = {"SURVIVED", "NOT_COVERED", "RUN_ERROR"}
+REDO = {"SURVIVED", "NOT_COVERED", "RUN_ERROR", "INFRA_ERROR", "INCONCLUSIVE_TIMEOUT", "TIMEOUT"}
 
 
 def main() -> None:
@@ -53,17 +46,13 @@ def main() -> None:
             print("  redo:", m["file"], m["line"], m["kind"], m["detail"])
         return
 
-    with results_path.open("w") as fh:
-        for mid, rec in last.items():
-            if mid not in redo_ids:
-                fh.write(json.dumps(rec) + "\n")
-    print(f"rewrote {results_path} with {len(last) - len(redo_ids)} settled verdicts")
-
+    # A fresh campaign re-measures every incompatible result, including old
+    # kills. Retain the historical append log as untrusted history.
     runner = Runner(workers=args.workers, max_seconds=None)
-    todo = [m for m in todo if m["id"] not in runner.done_ids]
-    print(f"mutants to run: {len(todo)}")
-    if todo:
-        runner.run(todo)
+    try:
+        runner.run([m for m in manifest.values() if m["id"] not in runner.done_ids])
+    finally:
+        runner.close()
 
 
 if __name__ == "__main__":

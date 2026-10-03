@@ -6,6 +6,8 @@ Kept separate from the engine so the API layer can serialise a
 
 from pydantic import BaseModel, Field
 
+from .assumptions import SimulationAssumptions
+
 
 class EventFill(BaseModel):
     """One scheduled event executed this month, with what actually happened.
@@ -77,6 +79,7 @@ class MonthlyRow(BaseModel):
     # ₹, revenues - opex - debt service (so the final month also carries the
     # outstanding loan balance when the loan term outlives the horizon).
     net_cash_flow: float
+    subsidy_receipt: float = 0.0  # approved, dated capital grant; excluded from operating revenue
     cumulative_cash_flow: float  # ₹, including the month-0 equity outflow
     cash_balance: float  # operating liquidity; terminal WC recovery is not counted twice
     fodder_surplus_kg: float  # green DM: cultivated supply - requirement (negative = deficit)
@@ -126,6 +129,7 @@ class AnnualPLRow(BaseModel):
     debt_service: float
     terminal_value: float
     net_cash_flow: float
+    subsidy_receipt: float = 0.0  # capital financing, not operating profit
 
 
 class AmortizationRowModel(BaseModel):
@@ -145,9 +149,16 @@ class ViabilityMetrics(BaseModel):
     project_cost: float
     loan_amount: float
     subsidy_amount: float
+    subsidy_estimate_amount: float | None = None
+    subsidy_status: str = "not_assessed"
+    subsidy_policy_version: str | None = None
+    subsidy_policy_source: str | None = None
+    subsidy_cap: float | None = None
     equity: float  # month-0 promoter outflow
     npv: float  # ₹ at finance.discount_rate_annual
     irr: float | None  # annual appraisal blocks; None without one well-defined root
+    irr_status: str = "not_assessed"
+    irr_solver_domain: str = ""
     mirr: float | None  # timing-accurate monthly modified IRR
     bcr: float | None  # PV(gross benefits) / PV(gross costs); None without costs
     dscr_per_year: list[float]  # 0 for years without debt service
@@ -347,6 +358,8 @@ class SimulationResult(BaseModel):
     terminal_value_breakdown: TerminalValueBreakdown
     model_version: str
     assumptions_fingerprint: str
+    executed_assumptions: SimulationAssumptions | None = None
+    executed_scenario_revision: int | None = None
     # Non-fatal model-coverage caveats for THIS run (e.g. a horizon extending
     # past the last year of the embedded Bakrid calendar, so trailing months
     # carry no festival uplift). Empty for fully covered runs.

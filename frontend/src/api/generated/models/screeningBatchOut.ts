@@ -13,5 +13,6 @@ export interface ScreeningBatchOut {
   images_uploaded?: number;
   images_screened?: number;
   images_flagged?: number;
+  images_unassessable?: number;
   buckets?: ScreeningBatchBucketProgressOut[];
 }

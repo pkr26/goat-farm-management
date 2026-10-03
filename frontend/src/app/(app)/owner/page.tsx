@@ -86,6 +86,10 @@ export default function OwnerPage() {
         description={t("owner.overview.description")}
         ariaBusy={overviewQuery.isFetching}
       >
+        {overviewQuery.isError && overview && <p role="alert" className="mb-3 text-sm text-destructive">
+          {t("owner.refreshFailed")}{" "}
+          <Button size="sm" variant="outline" onClick={() => void overviewQuery.refetch()}>{t("common.retry")}</Button>
+        </p>}
         {overviewQuery.isPending ? (
           <div role="status" aria-live="polite">
             <TableSkeleton rows={4} columns={8} />
@@ -196,11 +200,20 @@ export default function OwnerPage() {
         }
         ariaBusy={benchmarksQuery.isFetching}
       >
+        {benchmarksQuery.isError && benchmarks && <p role="alert" className="mb-3 text-sm text-destructive">
+          {t("owner.refreshFailed")}{" "}
+          <Button size="sm" variant="outline" onClick={() => void benchmarksQuery.refetch()}>{t("common.retry")}</Button>
+        </p>}
         {benchmarksQuery.isPending ? (
           <div role="status" aria-live="polite">
             <TableSkeleton rows={3} columns={7} />
           </div>
-        ) : !benchmarks || benchmarks.farms.length === 0 ? (
+        ) : !benchmarks ? (
+          <EmptyState icon={BarChart3} title={t("common.somethingWentWrong")}
+            description={t("owner.benchmarks.loadFailed")}>
+            <Button variant="outline" onClick={() => void benchmarksQuery.refetch()}>{t("common.retry")}</Button>
+          </EmptyState>
+        ) : benchmarks.farms.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("owner.benchmarks.empty")}</p>
         ) : (
           <div className="overflow-x-auto">

@@ -623,18 +623,19 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
     typeof ALL | TransactionInCategory
   >(() => categoryFromParams(searchParams));
   const [syncedParamsKey, setSyncedParamsKey] = useState(paramsKey);
+  const [offset, setOffset] = useState(0);
   if (paramsKey !== syncedParamsKey) {
     setSyncedParamsKey(paramsKey);
     const synced = new URLSearchParams(paramsKey);
     setMonth(monthFromParams(synced));
     setTypeFilter(typeFromParams(synced));
     setCategoryFilter(categoryFromParams(synced));
+    setOffset(0);
   }
   const [open, setOpen] = useState(false);
   const [correcting, setCorrecting] = useState<TransactionOut | null>(null);
   const [correctionPending, setCorrectionPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [offset, setOffset] = useState(0);
   const limit = 50;
   /** Client-side sort of the fetched ledger page — the API's recency order is
    * the default; clicking a header sorts what you can see. */

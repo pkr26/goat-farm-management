@@ -1,0 +1,253 @@
+
+Running 51 tests using 1 worker
+
+(node:51199) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [chromium] › e2e/a11y-gate.spec.ts:25:5 › a11y gate › /dashboard has no serious accessibility violations (1.5s)
+  ✓   2 [chromium] › e2e/a11y-gate.spec.ts:25:5 › a11y gate › /tasks has no serious accessibility violations (1.4s)
+  ✓   3 [chromium] › e2e/a11y-gate.spec.ts:25:5 › a11y gate › /worker has no serious accessibility violations (1.3s)
+  ✓   4 [chromium] › e2e/a11y-gate.spec.ts:25:5 › a11y gate › /login has no serious accessibility violations (8.4s)
+  ✓   5 [chromium] › e2e/a11y-gate.spec.ts:25:5 › a11y gate › /worker/login has no serious accessibility violations (8.3s)
+  ✓   6 [chromium] › e2e/a11y-gate.spec.ts:25:5 › a11y gate › /screening has no serious accessibility violations (1.4s)
+  ✓   7 [chromium] › e2e/animals.spec.ts:13:3 › animals › create animal, record a weight, move bucket — profile reflects all (3.4s)
+  ✓   8 [chromium] › e2e/api-contract-auth-team.spec.ts:240:3 › frontend proxy auth and team API contracts › proxies the liveness and database-readiness probes (334ms)
+  ✓   9 [chromium] › e2e/api-contract-auth-team.spec.ts:254:3 › frontend proxy auth and team API contracts › persists password changes and returns exact me/export data through the proxy (521ms)
+  ✓  10 [chromium] › e2e/api-contract-auth-team.spec.ts:370:3 › frontend proxy auth and team API contracts › deletes a separate registered non-owner and makes its login unusable (211ms)
+  ✓  11 [chromium] › e2e/api-contract-auth-team.spec.ts:403:3 › frontend proxy auth and team API contracts › persists worker resets and the full custom-role create/update/delete lifecycle (559ms)
+  ✓  12 [chromium] › e2e/api-contract-domain.spec.ts:158:3 › frontend proxy domain API contracts › animal status mutation returns and persists the requested lifecycle facts (52ms)
+  ✓  13 [chromium] › e2e/api-contract-domain.spec.ts:206:3 › frontend proxy domain API contracts › breeding GET, live-pregnancy GET, and pregnancy abort agree on one record (123ms)
+  ✓  14 [chromium] › e2e/api-contract-domain.spec.ts:328:3 › frontend proxy domain API contracts › health batch lookup/preview and restriction clearance round-trip their data (96ms)
+  ✓  15 [chromium] › e2e/api-contract-domain.spec.ts:509:3 › frontend proxy domain API contracts › task GET returns the created duty and skip remains visible on readback (32ms)
+  ✓  16 [chromium] › e2e/api-contract-domain.spec.ts:567:3 › frontend proxy domain API contracts › feeding setting and recipe mix are reflected by plan, inventory, and finished stock (110ms)
+  ✓  17 [chromium] › e2e/api-contract-domain.spec.ts:668:3 › frontend proxy domain API contracts › finance correction returns the replacement and preserves the voided source audit (32ms)
+  ✓  18 [chromium] › e2e/api-contract-domain.spec.ts:747:3 › frontend proxy domain API contracts › herd snapshot and scenario GET/PATCH/compare/DELETE stay consistent (173ms)
+  ✓  19 [chromium] › e2e/auth.spec.ts:21:3 › auth › owner signs in, sees the full nav, and logout returns to /login (500ms)
+  ✓  20 [chromium] › e2e/auth.spec.ts:46:3 › auth › unauthenticated visit to an app page redirects to /login (178ms)
+  ✓  21 [chromium] › e2e/auth.spec.ts:51:3 › auth › wrong password shows an error and stays on /login (280ms)
+  ✓  22 [chromium] › e2e/auth.spec.ts:61:3 › auth › signIn helper lands on the dashboard (395ms)
+  ✘  23 [chromium] › e2e/breeding-flow.spec.ts:16:3 › breeding flow › doe is bred, confirmed pregnant via ultrasound, moves to PREGNANCY_EARLY (22.0s)
+(node:51284) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  24 [chromium] › e2e/cross-tenant.spec.ts:94:3 › cross-tenant and horizontal authorization negatives › a provisioned worker without finance.view is refused 403 on the finance API (780ms)
+  ✓  25 [chromium] › e2e/cross-tenant.spec.ts:157:3 › cross-tenant and horizontal authorization negatives › another farm's owner cannot read this farm's animal: uniform 404s (298ms)
+  ✓  26 [chromium] › e2e/cross-tenant.spec.ts:202:3 › cross-tenant and horizontal authorization negatives › logged-out API access is refused 401 (3ms)
+  ✓  27 [chromium] › e2e/farm-switch.spec.ts:22:3 › farm switching › switching farms renders none of the previous farm's cached data (2.0s)
+  ✓  28 [chromium] › e2e/feeding-finance.spec.ts:6:3 › feeding and finance › feeding plan shows the 40/20/40 shift split and records a dispense (2.1s)
+  ✓  29 [chromium] › e2e/feeding-finance.spec.ts:77:3 › feeding and finance › adding an expense transaction lists it in the ledger (859ms)
+  ✓  30 [chromium] › e2e/feeding-finance.spec.ts:113:3 › feeding and finance › reports page renders herd summary, breeding performance and mortality (1.3s)
+  ✘  31 [chromium] › e2e/health-flow.spec.ts:14:3 › health flow › record a vaccine event — event log, profile health card, schedule badge (6.3s)
+(node:51320) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  32 [chromium] › e2e/kidding-flow.spec.ts:16:3 › kidding flow › overdue pregnancy is kidded with twins — kids become animals, doe moves to RECOVERY (22.2s)
+(node:51346) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  33 [chromium] › e2e/navigation-rbac.spec.ts:25:3 › navigation and access control › every nav item loads its page without errors (4.5s)
+  ✓  34 [chromium] › e2e/navigation-rbac.spec.ts:42:3 › navigation and access control › logged-out direct-URL access redirects every app page to /login (1.1s)
+  ✓  35 [chromium] › e2e/ops-simulation.spec.ts:17:3 › ops simulation › renders its sections and replays the toy herd for one week (797ms)
+  ✓  36 [chromium] › e2e/ops-simulation.spec.ts:62:3 › ops simulation › a row without a tag is reported inline, blocks the run, and never reaches the API (710ms)
+  ✓  37 [chromium] › e2e/planner.spec.ts:23:3 › planner › renders its sections, plans a sale target, and keeps owner access (1.5s)
+  ✓  38 [chromium] › e2e/planner.spec.ts:68:3 › planner › a target in the plan's start month is rejected inline and blocks the run (686ms)
+  ✓  39 [chromium] › e2e/purchases.spec.ts:6:3 › purchases › a new batch stubs animals into QUARANTINE with the 45-day task schedule (2.0s)
+  ✓  40 [chromium] › e2e/register.spec.ts:6:3 › registration › a new user registers, creates a farm and reaches its dashboard (618ms)
+  ✓  41 [chromium] › e2e/screening.spec.ts:161:3 › screening review › scoreboard → queue → detail → confirm → conflict toast, all stubbed at the API (863ms)
+  ✓  42 [chromium] › e2e/simulation.spec.ts:74:3 › simulation › defaults + herd events run end-to-end; save and re-run as a scenario (3.1s)
+  ✓  43 [chromium] › e2e/simulation.spec.ts:183:3 › simulation › an event month beyond the horizon blocks the run with an inline error (832ms)
+  ✓  44 [chromium] › e2e/simulation.spec.ts:202:3 › simulation › farm calibration and all decision analyses render responsively (6.6s)
+  ✘  45 [chromium] › e2e/tasks-guards.spec.ts:15:3 › tasks guards › auto duties are form-linked; a completed duty lands in awaiting verification (22.1s)
+(node:51450) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  46 [chromium] › e2e/tasks-verify.spec.ts:32:3 › tasks verification › owner completes and verifies a cleaning duty — it lands in Completed as VERIFIED (6.3s)
+(node:51469) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  47 [chromium] › e2e/tasks-verify.spec.ts:58:3 › tasks verification › rejected duty is sent back to pending with the note visible (1.4s)
+  ✓  48 [chromium] › e2e/team.spec.ts:6:3 › team management › owner adds a worker, changes their role and toggles them inactive/active (1.2s)
+(node:51481) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  49 [Mobile Chrome] › e2e/mobile-worker-journey.spec.ts:41:3 › mobile worker journey › login → tasks board cards → complete a duty → open the linked form (22.3s)
+(node:51502) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  50 [Mobile Chrome] › e2e/worker-tablet-journey.spec.ts:55:3 › worker tablet › PIN login, offline completion, sync with attribution (6.5s)
+  ✓  51 [Mobile Chrome] › e2e/worker-tablet-journey.spec.ts:203:3 › worker tablet › form-linked duty deep-links to its form and carries returnTo=/worker (1.6s)
+
+
+  1) [chromium] › e2e/breeding-flow.spec.ts:16:3 › breeding flow › doe is bred, confirmed pregnant via ultrasound, moves to PREGNANCY_EARLY 
+
+    Error: Timeout 20000ms exceeded while waiting on the predicate
+
+       at helpers.ts:300
+
+      298 |       { timeout: 20_000 },
+      299 |     )
+    > 300 |     .toBe(true);
+          |      ^
+      301 |
+      302 |   if (await noEligibleBuck.isVisible()) {
+      303 |     await page.keyboard.press("Escape");
+        at createBreeding (/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/helpers.ts:300:6)
+        at /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/breeding-flow.spec.ts:39:5
+
+    Error Context: test-results/breeding-flow-breeding-flo-8324d-nd-moves-to-PREGNANCY-EARLY-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/breeding-flow-breeding-flo-8324d-nd-moves-to-PREGNANCY-EARLY-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/breeding-flow-breeding-flo-8324d-nd-moves-to-PREGNANCY-EARLY-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [chromium] › e2e/health-flow.spec.ts:14:3 › health flow › record a vaccine event — event log, profile health card, schedule badge 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('dialog', { name: 'Add health event' }).getByRole('combobox', { name: 'Animal *', exact: true })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByRole('dialog', { name: 'Add health event' }).getByRole('combobox', { name: 'Animal *', exact: true })
+
+
+       at helpers.ts:161
+
+      159 |   const page = scope.page();
+      160 |   const trigger = scope.getByRole("combobox", { name: label, exact: true });
+    > 161 |   await expect(trigger).toBeVisible();
+          |                         ^
+      162 |   const dialogId = await trigger.getAttribute("aria-controls");
+      163 |   if (!dialogId) throw new Error(`Remote picker "${label}" has no aria-controls target.`);
+      164 |
+        at pickRemoteOption (/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/helpers.ts:161:25)
+        at /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/health-flow.spec.ts:36:11
+
+    Error Context: test-results/health-flow-health-flow-re-5b535--health-card-schedule-badge-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/health-flow-health-flow-re-5b535--health-card-schedule-badge-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/health-flow-health-flow-re-5b535--health-card-schedule-badge-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [chromium] › e2e/kidding-flow.spec.ts:16:3 › kidding flow › overdue pregnancy is kidded with twins — kids become animals, doe moves to RECOVERY 
+
+    Error: Timeout 20000ms exceeded while waiting on the predicate
+
+       at helpers.ts:300
+
+      298 |       { timeout: 20_000 },
+      299 |     )
+    > 300 |     .toBe(true);
+          |      ^
+      301 |
+      302 |   if (await noEligibleBuck.isVisible()) {
+      303 |     await page.keyboard.press("Escape");
+        at createBreeding (/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/helpers.ts:300:6)
+        at /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/kidding-flow.spec.ts:37:5
+
+    Error Context: test-results/kidding-flow-kidding-flow--383aa-imals-doe-moves-to-RECOVERY-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/kidding-flow-kidding-flow--383aa-imals-doe-moves-to-RECOVERY-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/kidding-flow-kidding-flow--383aa-imals-doe-moves-to-RECOVERY-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [chromium] › e2e/tasks-guards.spec.ts:15:3 › tasks guards › auto duties are form-linked; a completed duty lands in awaiting verification 
+
+    Error: Timeout 20000ms exceeded while waiting on the predicate
+
+       at helpers.ts:300
+
+      298 |       { timeout: 20_000 },
+      299 |     )
+    > 300 |     .toBe(true);
+          |      ^
+      301 |
+      302 |   if (await noEligibleBuck.isVisible()) {
+      303 |     await page.keyboard.press("Escape");
+        at createBreeding (/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/helpers.ts:300:6)
+        at /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/tasks-guards.spec.ts:34:5
+
+    Error Context: test-results/tasks-guards-tasks-guards--4e80b-ds-in-awaiting-verification-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/tasks-guards-tasks-guards--4e80b-ds-in-awaiting-verification-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/tasks-guards-tasks-guards--4e80b-ds-in-awaiting-verification-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) [chromium] › e2e/tasks-verify.spec.ts:32:3 › tasks verification › owner completes and verifies a cleaning duty — it lands in Completed as VERIFIED 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('row', { name: /E2E verify-mushfugdlc/ }).getByText('VERIFIED', { exact: true })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByRole('row', { name: /E2E verify-mushfugdlc/ }).getByText('VERIFIED', { exact: true })
+
+
+      52 |     const doneRow = page.getByRole("row", { name: new RegExp(title) });
+      53 |     await expect(doneRow).toBeVisible({ timeout: 15_000 });
+    > 54 |     await expect(doneRow.getByText("VERIFIED", { exact: true })).toBeVisible();
+         |                                                                  ^
+      55 |     await expect(doneRow.getByText("awaiting")).toHaveCount(0);
+      56 |   });
+      57 |
+        at /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/tasks-verify.spec.ts:54:66
+
+    Error Context: test-results/tasks-verify-tasks-verific-28f8d-ds-in-Completed-as-VERIFIED-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/tasks-verify-tasks-verific-28f8d-ds-in-Completed-as-VERIFIED-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/tasks-verify-tasks-verific-28f8d-ds-in-Completed-as-VERIFIED-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6) [Mobile Chrome] › e2e/mobile-worker-journey.spec.ts:41:3 › mobile worker journey › login → tasks board cards → complete a duty → open the linked form 
+
+    Error: Timeout 20000ms exceeded while waiting on the predicate
+
+       at helpers.ts:300
+
+      298 |       { timeout: 20_000 },
+      299 |     )
+    > 300 |     .toBe(true);
+          |      ^
+      301 |
+      302 |   if (await noEligibleBuck.isVisible()) {
+      303 |     await page.keyboard.press("Escape");
+        at createBreeding (/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/helpers.ts:300:6)
+        at /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/mobile-worker-journey.spec.ts:61:5
+
+    Error Context: test-results/mobile-worker-journey-mobi-d691c-duty-→-open-the-linked-form-Mobile-Chrome/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/mobile-worker-journey-mobi-d691c-duty-→-open-the-linked-form-Mobile-Chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/mobile-worker-journey-mobi-d691c-duty-→-open-the-linked-form-Mobile-Chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6 failed
+    [chromium] › e2e/breeding-flow.spec.ts:16:3 › breeding flow › doe is bred, confirmed pregnant via ultrasound, moves to PREGNANCY_EARLY 
+    [chromium] › e2e/health-flow.spec.ts:14:3 › health flow › record a vaccine event — event log, profile health card, schedule badge 
+    [chromium] › e2e/kidding-flow.spec.ts:16:3 › kidding flow › overdue pregnancy is kidded with twins — kids become animals, doe moves to RECOVERY 
+    [chromium] › e2e/tasks-guards.spec.ts:15:3 › tasks guards › auto duties are form-linked; a completed duty lands in awaiting verification 
+    [chromium] › e2e/tasks-verify.spec.ts:32:3 › tasks verification › owner completes and verifies a cleaning duty — it lands in Completed as VERIFIED 
+    [Mobile Chrome] › e2e/mobile-worker-journey.spec.ts:41:3 › mobile worker journey › login → tasks board cards → complete a duty → open the linked form 
+  45 passed (3.0m)

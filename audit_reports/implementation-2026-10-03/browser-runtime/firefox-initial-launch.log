@@ -1,0 +1,37 @@
+
+Running 71 tests using 1 worker
+
+(node:24949) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   1 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /dashboard (en) has no serious accessibility violations (0ms)
+(node:25336) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   2 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /tasks (en) has no serious accessibility violations (0ms)
+
+
+  1) [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /dashboard (en) has no serious accessibility violations 
+
+    TimeoutError: browserType.launch: Timeout 180000ms exceeded.
+    Call log:
+      - <launching> /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-BLjJ34 -juggler-pipe -silent
+      - <launched> pid=24953
+      - [pid=24953][err] *** You are running in headless mode.
+      - [pid=24953][err] sandbox_extension_issue_file_to_process failed for /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app: 1 (Operation not permitted)
+      - [pid=24953][out] Crash Annotation GraphicsCriticalError: |[0][GFX1-]: RenderCompositorSWGL failed mapping default framebuffer, no dt (t=1.57773) [GFX1-]: RenderCompositorSWGL failed mapping default framebuffer, no dt
+
+
+    Error Context: test-results/a11y-gate-a11y-gate-dashbo-8c9af-us-accessibility-violations-firefox/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/a11y-gate-a11y-gate-dashbo-8c9af-us-accessibility-violations-firefox/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/a11y-gate-a11y-gate-dashbo-8c9af-us-accessibility-violations-firefox/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /dashboard (en) has no serious accessibility violations 
+  1 interrupted
+    [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /tasks (en) has no serious accessibility violations 
+  69 did not run

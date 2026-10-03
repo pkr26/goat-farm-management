@@ -25,7 +25,7 @@ from app.utils import today
 from .conftest import owner_with_farm
 
 
-async def _recipe_codes(client: httpx.AsyncClient, owner: dict) -> list[str]:
+async def _recipe_codes(client: httpx.AsyncClient, owner: dict[str, str]) -> list[str]:
     resp = await client.get("/api/feeding/recipes", headers=owner)
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -73,7 +73,9 @@ async def _negate_first_line(code: str) -> None:
         await db.commit()
 
 
-async def _stock_up(client: httpx.AsyncClient, owner: dict, ingredient: str, kg: float) -> None:
+async def _stock_up(
+    client: httpx.AsyncClient, owner: dict[str, str], ingredient: str, kg: float
+) -> None:
     listing = await client.get("/api/feeding/inventory", headers=owner)
     items = listing.json()["items"] if isinstance(listing.json(), dict) else listing.json()
     match = next((i for i in items if i["ingredient"] == ingredient), None)
@@ -142,7 +144,7 @@ async def test_thousand_tiny_mixes_equal_one_big_mix_exactly(client: httpx.Async
     """500 × 1 kg mixes versus 1 × 500 kg mix of the same recipe (1000 would exceed the
     account idempotency-record retention cap): final ingredient inventories
     must be gram-identical (no cumulative rounding drift through the API)."""
-    totals: dict[str, Decimal] = {}
+    totals: dict[str, dict[str, float]] = {}
 
     for label, batches, size in (("tiny", 500, 1.0), ("big", 1, 500.0)):
         owner = await owner_with_farm(client, email=f"drift-{label}@farm.in")

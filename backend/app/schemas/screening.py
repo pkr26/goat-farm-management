@@ -10,10 +10,12 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .common import MAX_FREE_TEXT_LENGTH, MAX_INT32_ID, StrictInputModel
+from .common import MAX_FREE_TEXT_LENGTH, MAX_INT32_ID, PostgresText, StrictInputModel, StrictInt
 
 # Mirrors models.enums.ScreeningImageStatus.
-ScreeningImageStatusStr = Literal["PENDING", "PROCESSING", "HEALTHY", "FLAGGED", "SKIPPED", "ERROR"]
+ScreeningImageStatusStr = Literal[
+    "PENDING", "PROCESSING", "HEALTHY", "UNASSESSABLE", "FLAGGED", "SKIPPED", "ERROR"
+]
 # Mirrors models.enums.ScreeningFindingStatus.
 ScreeningFindingStatusStr = Literal["PENDING_REVIEW", "CONFIRMED", "REJECTED"]
 # Mirrors models.enums.ScreeningRunStatus.
@@ -73,13 +75,14 @@ class ScreeningFindingOut(BaseModel):
     # audit): it was the one attribution the review payload hid.
     reviewed_by_id: int | None
     reviewed_at: datetime | None
+    review_revision: int
     created_at: datetime
 
 
 class ScreeningFindingReviewIn(StrictInputModel):
     """Vet verdict on one finding.
 
-    ``expected_status`` is optimistic concurrency: two reviewers (or a
+    ``expected_revision`` is optimistic concurrency: two reviewers (or a
     reviewer racing a re-screen) get a 409 instead of silently overwriting
     each other's verdict on the training corpus.
     """
@@ -88,7 +91,8 @@ class ScreeningFindingReviewIn(StrictInputModel):
 
     status: Literal["CONFIRMED", "REJECTED"]
     expected_status: ScreeningFindingStatusStr = "PENDING_REVIEW"
-    review_note: str | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
+    expected_revision: Annotated[StrictInt, Field(ge=0, le=MAX_INT32_ID)]
+    review_note: PostgresText | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
 
     @field_validator("review_note")
     @classmethod
@@ -108,6 +112,30 @@ class ScreeningFindingReviewOut(BaseModel):
     # Reviewer attribution, like ScreeningFindingOut (2026-09-28 audit).
     reviewed_by_id: int | None
     reviewed_at: datetime | None
+    review_revision: int
+
+
+class ScreeningFindingReviewHistoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    revision: int
+    previous_status: ScreeningFindingStatusStr
+    status: Literal["CONFIRMED", "REJECTED"]
+    review_note: str | None
+    reviewed_by_id: int
+    reviewed_at: datetime
+
+
+class ScreeningFindingReviewHistoryListOut(BaseModel):
+    finding_id: int
+    review_revision: int
+    # Existing review metadata is retained on the finding; absence of an
+    # event at revision zero does not invent who made an older decision.
+    legacy_review: bool
+    reviews: list[ScreeningFindingReviewHistoryOut]
+    total: int
+    limit: int
+    offset: int
 
 
 class ScreeningCropOut(BaseModel):
@@ -206,6 +234,7 @@ class ScreeningProviderStatsOut(BaseModel):
     model: str
     gate_runs: int
     gate_flagged: int
+    gate_unassessable: int = 0
     gate_errors: int
     avg_gate_latency_ms: int | None
     avg_gate_confidence: Decimal | None
@@ -261,6 +290,7 @@ class ScreeningBatchBucketProgressOut(BaseModel):
     uploaded: int
     screened: int
     flagged: int
+    unassessable: int = 0
 
 
 class ScreeningBatchOut(BaseModel):
@@ -272,6 +302,7 @@ class ScreeningBatchOut(BaseModel):
     images_uploaded: int = 0
     images_screened: int = 0
     images_flagged: int = 0
+    images_unassessable: int = 0
     buckets: list[ScreeningBatchBucketProgressOut] = Field(default_factory=list)
 
 

@@ -6,6 +6,7 @@
  */
 
 export interface LoginIn {
+  tablet_setup?: boolean;
   /** @maxLength 254 */
   email: string;
   /** @maxLength 128 */

@@ -140,6 +140,8 @@ async def _seed_baseline(
             )
         )
         await db.flush()
+        assert upcoming.expected_kidding_date is not None
+        assert overdue.expected_kidding_date is not None
         expected_upcoming = [(upcoming.expected_kidding_date, upcoming.id)]
         expected_overdue = [(overdue.expected_kidding_date, overdue.id)]
         await db.commit()
@@ -236,8 +238,17 @@ async def _seed_dense_population(
             ]
         )
         await db.flush()
-        expected_upcoming = [(row.expected_kidding_date, row.id) for row in upcoming]
-        expected_overdue = [(row.expected_kidding_date, row.id) for row in overdue]
+        assert all(row.expected_kidding_date is not None for row in [*upcoming, *overdue])
+        expected_upcoming = [
+            (row.expected_kidding_date, row.id)
+            for row in upcoming
+            if row.expected_kidding_date is not None
+        ]
+        expected_overdue = [
+            (row.expected_kidding_date, row.id)
+            for row in overdue
+            if row.expected_kidding_date is not None
+        ]
         await db.commit()
     return expected_upcoming, expected_overdue
 

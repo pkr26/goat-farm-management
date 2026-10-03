@@ -1,0 +1,115 @@
+{
+  "started_utc": "2026-10-03T18:53:48.583703+00:00",
+  "probe_id": "herdly-isolation-probe-757bc510c0334cdd",
+  "PL07": {
+    "status": "passed",
+    "root_context_excludes_owned_gitignored_secret_directory": "secrets/pl07-sentinel-757bc510c0334cdd",
+    "expected_copy_rejection_exit": 1,
+    "isolated_positive_builder_control_exit": 0
+  },
+  "PL02": {
+    "status": "passed",
+    "resolved_distinct_app_mount_sources": {
+      "backend": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/api",
+      "migrate": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/migration",
+      "screening-worker": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/worker"
+    },
+    "required_delivery_routes": "API DB, migration DB, worker DB and idempotency HMAC; each missing route rejected by actual guard",
+    "overlapping_directory_guard_exit": 2,
+    "cached_probe_image_id": "sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54",
+    "mount_receipts": {
+      "backend": {
+        "role": "api",
+        "allowed_fake_filenames": [
+          "database_url",
+          "idempotency_request_hmac_secret",
+          "metrics_bearer_token",
+          "msg91_auth_key",
+          "s3_access_key_id",
+          "s3_secret_access_key",
+          "screening_anthropic_api_key",
+          "totp_encryption_key"
+        ],
+        "forbidden_fake_filenames": [
+          "jwt_private.pem",
+          "jwt_public.pem",
+          "migration_database_url",
+          "worker_database_url"
+        ],
+        "output": "/run/secrets/app/database_url\n/run/secrets/app/idempotency_request_hmac_secret\n/run/secrets/app/metrics_bearer_token\n/run/secrets/app/msg91_auth_key\n/run/secrets/app/s3_access_key_id\n/run/secrets/app/s3_secret_access_key\n/run/secrets/app/screening_anthropic_api_key\n/run/secrets/app/totp_encryption_key\n/run/secrets/goatfarm-postgres-ca.pem\n/run/secrets/jwt/jwt_private.pem\n/run/secrets/jwt/jwt_public.pem\nUID=10001; allowed fake files readable; forbidden files absent\n"
+      },
+      "migrate": {
+        "role": "migration",
+        "allowed_fake_filenames": [
+          "migration_database_url"
+        ],
+        "forbidden_fake_filenames": [
+          "database_url",
+          "idempotency_request_hmac_secret",
+          "jwt_private.pem",
+          "jwt_public.pem",
+          "metrics_bearer_token",
+          "msg91_auth_key",
+          "s3_access_key_id",
+          "s3_secret_access_key",
+          "screening_anthropic_api_key",
+          "totp_encryption_key",
+          "worker_database_url"
+        ],
+        "output": "/run/secrets/app/migration_database_url\n/run/secrets/goatfarm-postgres-ca.pem\nUID=10001; allowed fake files readable; forbidden files absent\n"
+      },
+      "screening-worker": {
+        "role": "worker",
+        "allowed_fake_filenames": [
+          "s3_access_key_id",
+          "s3_secret_access_key",
+          "screening_anthropic_api_key",
+          "worker_database_url"
+        ],
+        "forbidden_fake_filenames": [
+          "database_url",
+          "idempotency_request_hmac_secret",
+          "jwt_private.pem",
+          "jwt_public.pem",
+          "metrics_bearer_token",
+          "migration_database_url",
+          "msg91_auth_key",
+          "totp_encryption_key"
+        ],
+        "output": "/run/secrets/app/s3_access_key_id\n/run/secrets/app/s3_secret_access_key\n/run/secrets/app/screening_anthropic_api_key\n/run/secrets/app/worker_database_url\n/run/secrets/goatfarm-postgres-ca.pem\nUID=10001; allowed fake files readable; forbidden files absent\n"
+      }
+    },
+    "scope": "Compose resolution, delivery presence and filesystem isolation only; no production/API/migration/worker process boot, real secret reads, database access or provider/delivery calls"
+  },
+  "cleanup": [
+    {
+      "container": "herdly-isolation-probe-757bc510c0334cdd-api",
+      "absent": true
+    },
+    {
+      "container": "herdly-isolation-probe-757bc510c0334cdd-migration",
+      "absent": true
+    },
+    {
+      "container": "herdly-isolation-probe-757bc510c0334cdd-worker",
+      "absent": true
+    },
+    {
+      "image": "herdly-isolation-probe-757bc510c0334cdd:excluded",
+      "absent": true
+    },
+    {
+      "image": "herdly-isolation-probe-757bc510c0334cdd:positive",
+      "absent": true
+    },
+    {
+      "owned_path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd",
+      "absent": true
+    },
+    {
+      "owned_path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl07-sentinel-757bc510c0334cdd",
+      "absent": true
+    }
+  ],
+  "finished_utc": "2026-10-03T18:53:50.384041+00:00"
+}

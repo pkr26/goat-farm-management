@@ -1,24 +1,8 @@
-"""Full-selection re-verification of every SURVIVED mutant.
+"""Re-measure formerly logged survivors as new isolated, full-selection attempts.
 
-The campaign's phase-2 caps a survivor's covering selection at 60 tests
-(spread round-robin across covering files); the 2026-09-22 campaign showed a
-false-survivor rate at that cap. This script re-runs every SURVIVED mutant
-against its FULL covering selection (capped at 400 by sample_tests) with
-MUTATE_FULL_PHASE=1, then rewrites results.jsonl deduped by id (last record
-wins).
-
-The survivor set is rebuilt from campaign.log (`[wN] SURVIVED file:line
-kind/detail (n)` lines carry every field needed to re-derive the manifest
-id), so the script is idempotent against a results.jsonl that a previous
-re-verify pass already rewrote.
-
-Execution goes through Runner.run — the same per-file-locked worker loop the
-campaign uses. NEVER call Runner.execute from ad-hoc threads: concurrent
-unlocked mutations of one file cross-contaminate verdicts (and have, on
-2026-09-30; that run was discarded and the tree restored from git).
-
-Usage:
-    .venv/bin/python mutation/mutate_reverify.py [--workers N] [--dry-run]
+The log determines candidates only, never a trusted verdict. Current source
+fingerprints, clean coverage provenance and passing exact-selection baselines
+are enforced by the shared Runner. Results append without deleting history.
 """
 
 from __future__ import annotations
@@ -30,7 +14,6 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
 
 BACKEND = Path(__file__).resolve().parent.parent
 MUTDIR = BACKEND / "mutation"
@@ -85,40 +68,12 @@ def main() -> None:
             print("  would re-verify", m["file"], m["line"], m["kind"], m["detail"])
         return
 
-    results_path = MUTDIR / "results.jsonl"
-    records: dict[str, dict[str, Any]] = {}
-    for line in results_path.read_text().splitlines():
-        try:
-            rec = json.loads(line)
-        except Exception:
-            continue
-        records[rec["id"]] = rec  # last wins
-    drop = sum(1 for mid in ids if records.pop(mid, None) is not None)
-    with results_path.open("w") as fh:
-        for rec in records.values():
-            fh.write(json.dumps(rec) + "\n")
-    print(f"dropped {drop} stale survivor records; {len(records)} settled verdicts kept")
-
     os.environ["MUTATE_FULL_PHASE"] = "1"
     runner = Runner(workers=args.workers, max_seconds=None)
-    todo = [m for m in todo if m["id"] not in runner.done_ids]
-    print(f"mutants to re-verify: {len(todo)}")
-    if todo:
+    try:
         runner.run(todo)
-
-    # Dedupe-rewrite (the runner appends; keep last verdict per id).
-    records = {}
-    for line in results_path.read_text().splitlines():
-        try:
-            rec = json.loads(line)
-        except Exception:
-            continue
-        records[rec["id"]] = rec
-    with results_path.open("w") as fh:
-        for rec in records.values():
-            fh.write(json.dumps(rec) + "\n")
-    verdicts = collections.Counter(r["status"] for r in records.values())
-    print(f"final verdicts: {dict(verdicts)} over {len(records)} mutants")
+    finally:
+        runner.close()
 
 
 if __name__ == "__main__":

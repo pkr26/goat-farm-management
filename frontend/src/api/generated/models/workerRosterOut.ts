@@ -18,4 +18,5 @@ import type { WorkerRosterEntryOut } from './workerRosterEntryOut';
  */
 export interface WorkerRosterOut {
   items: WorkerRosterEntryOut[];
+  next_after_membership_id?: number | null;
 }

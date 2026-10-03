@@ -23,9 +23,16 @@ from zoneinfo import ZoneInfo
 import httpx
 import pytest
 from PIL import Image
+from pydantic import SecretStr
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import ScreeningRotationProvider, ScreeningWorkerSettings, Settings
+from app.core.config import (
+    ScreeningRotationProvider,
+    ScreeningWorkerSettings,
+    Settings,
+    get_settings,
+)
 from app.db import get_sessionmaker
 from app.models import (
     Farm,
@@ -36,7 +43,7 @@ from app.models import (
     ScreeningImage,
     ScreeningRun,
 )
-from app.schemas.screening import ScreeningFindingReviewIn
+from app.schemas.screening import MAX_SCREENING_UPLOAD_BYTES, ScreeningFindingReviewIn
 from app.services.screening.detect import (
     DetectionBox,
     DetectionParseError,
@@ -94,6 +101,7 @@ from app.services.screening.specialists import (
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm, provisioned_worker_login
+from .type_helpers import Headers
 
 # Owner-provisioned worker accounts (see _role_worker_headers) share this
 # first password across the suite; the login helper rotates it immediately.
@@ -478,11 +486,11 @@ def _provider_settings() -> Settings:
         environment="development",
         screening_enabled=True,
         s3_bucket="goat-photos",
-        s3_access_key_id="test-access",
-        s3_secret_access_key="test-secret",
+        s3_access_key_id=SecretStr("test-access"),
+        s3_secret_access_key=SecretStr("test-secret"),
         screening_provider="anthropic",
-        screening_anthropic_api_key="test-anthropic-key",
-        screening_openai_api_key="test-openai-key",
+        screening_anthropic_api_key=SecretStr("test-anthropic-key"),
+        screening_openai_api_key=SecretStr("test-openai-key"),
     )
 
 
@@ -570,7 +578,9 @@ def test_provider_http_failure_raises_provider_error() -> None:
         asyncio.run(call())
 
 
-def _scripted_transport(*outcomes: Any) -> tuple[httpx.MockTransport, list[int]]:
+def _scripted_transport(
+    *outcomes: httpx.Response | Exception,
+) -> tuple[httpx.MockTransport, list[int]]:
     """One scripted outcome per POST; counts every transport call made."""
     calls: list[int] = []
 
@@ -640,14 +650,14 @@ def test_post_with_one_retry_does_not_retry_a_4xx_answer() -> None:
 def _rotation_entries() -> list[ScreeningRotationProvider]:
     return [
         ScreeningRotationProvider(
-            kind="anthropic", name="claude", model="claude-sonnet-4-5", api_key="k1"
+            kind="anthropic", name="claude", model="claude-sonnet-4-5", api_key=SecretStr("k1")
         ),
         ScreeningRotationProvider(
             kind="openai_compatible",
             name="glm",
             base_url="https://open.bigmodel.cn/api/paas/v4",
             model="glm-4.6v",
-            api_key="k2",
+            api_key=SecretStr("k2"),
         ),
     ]
 
@@ -657,8 +667,8 @@ def test_rotation_settings_parse_and_enable() -> None:
         environment="development",
         screening_enabled=True,
         s3_bucket="goat-photos",
-        s3_access_key_id="a",
-        s3_secret_access_key="b",
+        s3_access_key_id=SecretStr("a"),
+        s3_secret_access_key=SecretStr("b"),
         screening_provider_rotation=_rotation_entries(),
     )
     assert [entry.name for entry in settings.screening_provider_rotation] == ["claude", "glm"]
@@ -666,36 +676,42 @@ def test_rotation_settings_parse_and_enable() -> None:
 
 def test_rotation_settings_reject_duplicate_names() -> None:
     entries = [
-        ScreeningRotationProvider(kind="anthropic", name="x", model="m", api_key="k"),
-        ScreeningRotationProvider(kind="openai_compatible", name="x", model="m", api_key="k"),
+        ScreeningRotationProvider(kind="anthropic", name="x", model="m", api_key=SecretStr("k")),
+        ScreeningRotationProvider(
+            kind="openai_compatible", name="x", model="m", api_key=SecretStr("k")
+        ),
     ]
     with pytest.raises(ValueError, match="duplicate provider names"):
         Settings(
             environment="development",
             screening_enabled=True,
             s3_bucket="goat-photos",
-            s3_access_key_id="a",
-            s3_secret_access_key="b",
+            s3_access_key_id=SecretStr("a"),
+            s3_secret_access_key=SecretStr("b"),
             screening_provider_rotation=entries,
         )
 
 
 def test_rotation_settings_reject_blank_api_key() -> None:
-    entries = [ScreeningRotationProvider(kind="anthropic", name="x", model="m", api_key=" ")]
+    entries = [
+        ScreeningRotationProvider(kind="anthropic", name="x", model="m", api_key=SecretStr(" "))
+    ]
     with pytest.raises(ValueError, match="blank api_key"):
         Settings(
             environment="development",
             screening_enabled=True,
             s3_bucket="goat-photos",
-            s3_access_key_id="a",
-            s3_secret_access_key="b",
+            s3_access_key_id=SecretStr("a"),
+            s3_secret_access_key=SecretStr("b"),
             screening_provider_rotation=entries,
         )
 
 
 def test_rotation_provider_name_must_be_slug() -> None:
     with pytest.raises(ValueError):
-        ScreeningRotationProvider(kind="anthropic", name="Not A Slug!", model="m", api_key="k")
+        ScreeningRotationProvider(
+            kind="anthropic", name="Not A Slug!", model="m", api_key=SecretStr("k")
+        )
 
 
 def test_presign_post_binds_direct_upload_metadata_and_size() -> None:
@@ -825,7 +841,7 @@ def test_screening_settings_reject_whitespace_only_standard_credentials(
     }
     values[invalid_field] = " \t "
     with pytest.raises(ValueError, match="incomplete screening config"):
-        settings_type(**values)
+        settings_type.model_validate(values)
 
 
 def test_screening_settings_reject_plain_http_provider_url() -> None:
@@ -860,7 +876,7 @@ def test_screening_settings_reject_stale_horizon_below_worst_cascade(
     # One provider at a 600s timeout needs (2·1+6)·600 = 4800s of horizon;
     # 600s is far inside the pathological band.
     with pytest.raises(ValueError, match="worst-case cascade"):
-        settings_type(**values)
+        settings_type.model_validate(values)
 
 
 @pytest.mark.parametrize("settings_type", [Settings, ScreeningWorkerSettings])
@@ -880,7 +896,7 @@ def test_screening_settings_accept_stale_horizon_at_worst_cascade_boundary(
         "screening_provider_timeout_seconds": 75,
         "screening_stale_processing_after_seconds": 600,
     }
-    settings = settings_type(**values)
+    settings = settings_type.model_validate(values)
     assert settings.screening_stale_processing_after_seconds == 600
 
 
@@ -1014,7 +1030,7 @@ def test_detection_box_clamped_helper() -> None:
 
 
 @dataclass
-class FakeStorage:
+class FakeStorage(ScreeningStorage):
     """In-memory stand-in for ScreeningStorage: no network, per-test."""
 
     objects: dict[str, bytes] = field(default_factory=dict)
@@ -1028,6 +1044,9 @@ class FakeStorage:
     # Simulates an overwrite between the worker's HEAD and conditional GET.
     changed_before_download: set[str] = field(default_factory=set)
     download_attempts: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        super().__init__(_cycle_settings())
 
     @property
     def bucket(self) -> str:
@@ -1091,17 +1110,17 @@ def _cycle_settings(
         environment="development",
         screening_enabled=True,
         s3_bucket="goat-photos",
-        s3_access_key_id="test-access",
-        s3_secret_access_key="test-secret",
+        s3_access_key_id=SecretStr("test-access"),
+        s3_secret_access_key=SecretStr("test-secret"),
         screening_provider="anthropic",
-        screening_anthropic_api_key="test-key",
+        screening_anthropic_api_key=SecretStr("test-key"),
         screening_max_images_per_cycle=max_images_per_cycle,
         screening_crop_detection_enabled=crop_detection,
     )
 
 
 async def _register_fake_objects(
-    db: Any,
+    db: AsyncSession,
     farm_id: int,
     storage: FakeStorage,
     *,
@@ -1674,7 +1693,7 @@ async def test_review_api_lists_scopes_and_reviews(client: httpx.AsyncClient) ->
     finding = detail_body["findings"][0]
     confirm = await client.post(
         f"/api/screening/findings/{finding['id']}/review",
-        json={"status": "CONFIRMED", "expected_status": "PENDING_REVIEW"},
+        json={"status": "CONFIRMED", "expected_status": "PENDING_REVIEW", "expected_revision": 0},
         headers=headers,
     )
     assert confirm.status_code == 200, confirm.text
@@ -1684,7 +1703,7 @@ async def test_review_api_lists_scopes_and_reviews(client: httpx.AsyncClient) ->
     # Replaying the original expected_status now conflicts.
     stale = await client.post(
         f"/api/screening/findings/{finding['id']}/review",
-        json={"status": "REJECTED", "expected_status": "PENDING_REVIEW"},
+        json={"status": "REJECTED", "expected_status": "PENDING_REVIEW", "expected_revision": 0},
         headers=headers,
     )
     assert stale.status_code == 409
@@ -1692,7 +1711,12 @@ async def test_review_api_lists_scopes_and_reviews(client: httpx.AsyncClient) ->
     # Re-review with the CURRENT status as expected succeeds.
     overturn = await client.post(
         f"/api/screening/findings/{finding['id']}/review",
-        json={"status": "REJECTED", "expected_status": "CONFIRMED", "review_note": "not visible"},
+        json={
+            "status": "REJECTED",
+            "expected_status": "CONFIRMED",
+            "expected_revision": 1,
+            "review_note": "not visible",
+        },
         headers=headers,
     )
     assert overturn.status_code == 200
@@ -1705,7 +1729,7 @@ async def test_review_api_lists_scopes_and_reviews(client: httpx.AsyncClient) ->
     assert cross.status_code == 404
     cross_review = await client.post(
         f"/api/screening/findings/{finding['id']}/review",
-        json={"status": "CONFIRMED", "expected_status": "PENDING_REVIEW"},
+        json={"status": "CONFIRMED", "expected_status": "PENDING_REVIEW", "expected_revision": 0},
         headers=other,
     )
     assert cross_review.status_code == 404
@@ -1884,8 +1908,9 @@ async def test_stats_endpoint_scores_providers(client: httpx.AsyncClient) -> Non
     payload = response.json()
     by_name = {row["provider"]: row for row in payload["providers"]}
     primary = rotation.primary_for(business_day).name
-    secondary = rotation.secondary_for(business_day).name
-    assert secondary is not None
+    secondary_provider = rotation.secondary_for(business_day)
+    assert secondary_provider is not None
+    secondary = secondary_provider.name
     # The primary ran both gates; the secondary cross-checked the flag.
     assert by_name[primary]["gate_runs"] == 2
     assert by_name[primary]["gate_flagged"] == 1
@@ -1939,7 +1964,7 @@ async def test_export_endpoint_returns_training_corpus(client: httpx.AsyncClient
     # verdict attached.
     confirm = await client.post(
         f"/api/screening/findings/{record['finding_id']}/review",
-        json={"status": "CONFIRMED", "expected_status": "PENDING_REVIEW"},
+        json={"status": "CONFIRMED", "expected_status": "PENDING_REVIEW", "expected_revision": 0},
         headers=headers,
     )
     assert confirm.status_code == 200
@@ -1993,11 +2018,8 @@ async def test_disease_check_walkthrough_end_to_end(
     # The advertised client bound is the exact object cap; the worker's own
     # ceiling deliberately adds the POST policy's multipart-envelope
     # allowance so an object the policy accepted is never rejected later.
-    assert payload["max_upload_bytes"] == screening_api.MAX_SCREENING_UPLOAD_BYTES
-    assert (
-        MAX_DOWNLOAD_BYTES
-        == screening_api.MAX_SCREENING_UPLOAD_BYTES + POST_MULTIPART_OVERHEAD_BYTES
-    )
+    assert payload["max_upload_bytes"] == MAX_SCREENING_UPLOAD_BYTES
+    assert MAX_DOWNLOAD_BYTES == MAX_SCREENING_UPLOAD_BYTES + POST_MULTIPART_OVERHEAD_BYTES
 
     # The phone's constrained POST lands the bytes (here: straight into fake
     # storage), including the policy-bound metadata the worker verifies.
@@ -2097,7 +2119,7 @@ async def test_batch_rules_and_scoping(
 
     # The batch write paths share request_upload's screening_enabled gate,
     # so the rule checks run against a configured deployment...
-    real_get_settings = screening_api.get_settings
+    real_get_settings = get_settings
     enabled_settings = _cycle_settings(crop_detection=False)
     monkeypatch.setattr(screening_api, "get_settings", lambda: enabled_settings)
 
@@ -2189,7 +2211,7 @@ async def test_direct_upload_intake_limits_reclaim_stale_batches_and_preflight_s
         "/api/screening/uploads",
         json={
             **upload_payload,
-            "file_size": screening_api.MAX_SCREENING_UPLOAD_BYTES + 1,
+            "file_size": MAX_SCREENING_UPLOAD_BYTES + 1,
         },
         headers=headers,
     )
@@ -2271,7 +2293,7 @@ async def test_daily_call_budget_per_farm_parks_over_budget_photos(
     # Crop detection off → each claimed image reserves gate + one call per
     # specialist kind + cross-check = 7 calls; the budget must exceed that
     # reservation for the first cycle to claim at all.
-    settings.screening_daily_call_budget_per_farm = 8
+    settings.screening_daily_call_budget_per_farm = 3
     async with get_sessionmaker()() as db:
         await _register_fake_objects(db, farm_id, storage)
         first = await run_screening_cycle(db, settings, storage, ProviderRotation([provider]))
@@ -2280,7 +2302,7 @@ async def test_daily_call_budget_per_farm_parks_over_budget_photos(
         runs = list((await db.execute(select(ScreeningRun))).scalars())
     # Two landscape/portrait photos → at least one run each; spent (>= 2)
     # plus the 7-call reservation overshoots the budget of 8.
-    assert len(runs) >= 1
+    assert len(runs) == provider.calls == 3
 
     # Next cycle: the farm is over budget, so a freshly registered photo is
     # not even claimed — no new runs, no new provider spend — and its row
@@ -2314,7 +2336,7 @@ async def test_daily_call_budget_per_farm_parks_over_budget_photos(
 
 
 async def _budget_ledger_runs(
-    db: Any, farm_id: int, storage: FakeStorage, created_ats: list[dt.datetime]
+    db: AsyncSession, farm_id: int, storage: FakeStorage, created_ats: list[dt.datetime]
 ) -> None:
     """File settled provider calls (one ScreeningRun each) at given times."""
     ledger = ScreeningImage(
@@ -2373,7 +2395,7 @@ async def test_daily_call_budget_window_is_the_farm_local_day(
     settings = _cycle_settings(max_images_per_cycle=10)
     # Crop detection off → 7-call reservation; farm-local spend of 4 plus
     # the reservation overshoots 10.
-    settings.screening_daily_call_budget_per_farm = 10
+    settings.screening_daily_call_budget_per_farm = 8
     async with get_sessionmaker()() as db:
         await _register_fake_objects(db, farm_id, storage)
         await _budget_ledger_runs(
@@ -2389,7 +2411,7 @@ async def test_daily_call_budget_window_is_the_farm_local_day(
         summary = await run_screening_cycle(
             db, settings, storage, ProviderRotation([CountingProvider(name="tz-budget")])
         )
-    # Only the four farm-local-today runs count: 4 + 7 > 10 parks the farm.
+    # Only the four farm-local-today runs count: 2 × 4 = 8 legacy transport attempts parks the farm.
     assert summary.claimed == 0
 
     # Raise the budget so the farm fits iff yesterday's ten runs really are
@@ -2416,7 +2438,7 @@ async def test_daily_call_budget_reservation_parks_a_farm_near_the_cap(
 
     settings = _cycle_settings(max_images_per_cycle=10)
     # Crop detection off → one image can cost 7 calls; 4 settled + 7 > 10.
-    settings.screening_daily_call_budget_per_farm = 10
+    settings.screening_daily_call_budget_per_farm = 8
     async with get_sessionmaker()() as db:
         await _register_fake_objects(db, farm_id, storage)
         await _budget_ledger_runs(db, farm_id, storage, [utcnow()] * 4)
@@ -2431,7 +2453,7 @@ async def test_daily_call_budget_reservation_parks_a_farm_near_the_cap(
     assert row.status == "PENDING"
     assert row.screening_attempts == 0
 
-    # 4 + 7 fits inside 11 exactly: the same farm claims again.
+    # Conservative baseline 8 leaves three actual attempts inside 11.
     settings.screening_daily_call_budget_per_farm = 11
     async with get_sessionmaker()() as db:
         claimed = await run_screening_cycle(
@@ -3163,12 +3185,20 @@ async def test_concurrent_reviews_resolve_to_exactly_one_verdict(
     confirm, reject = await asyncio.gather(
         client.post(
             f"/api/screening/findings/{finding.id}/review",
-            json={"status": "CONFIRMED", "expected_status": "PENDING_REVIEW"},
+            json={
+                "status": "CONFIRMED",
+                "expected_status": "PENDING_REVIEW",
+                "expected_revision": 0,
+            },
             headers=headers,
         ),
         client.post(
             f"/api/screening/findings/{finding.id}/review",
-            json={"status": "REJECTED", "expected_status": "PENDING_REVIEW"},
+            json={
+                "status": "REJECTED",
+                "expected_status": "PENDING_REVIEW",
+                "expected_revision": 0,
+            },
             headers=headers,
         ),
     )
@@ -3286,7 +3316,7 @@ async def test_batches_list_pages_with_total_limit_and_offset(
 
 
 async def _role_worker_headers(
-    client: httpx.AsyncClient, owner: dict, code: str, email: str
+    client: httpx.AsyncClient, owner: Headers, code: str, email: str
 ) -> dict[str, Any]:
     """Owner adds a worker wearing preset role ``code``; farm-scoped headers.
 
@@ -3776,10 +3806,10 @@ async def test_stale_processing_horizon_is_configurable_and_progress_gated(
             environment="development",
             screening_enabled=True,
             s3_bucket="goat-photos",
-            s3_access_key_id="test-access",
-            s3_secret_access_key="test-secret",
+            s3_access_key_id=SecretStr("test-access"),
+            s3_secret_access_key=SecretStr("test-secret"),
             screening_provider="anthropic",
-            screening_anthropic_api_key="test-key",
+            screening_anthropic_api_key=SecretStr("test-key"),
             screening_crop_detection_enabled=False,
             screening_stale_processing_after_seconds=600,
             # The stale horizon must cover one worst-case cascade
@@ -4058,11 +4088,18 @@ def test_finding_review_input_maps_blank_notes_to_none(blank: str | None) -> Non
     rejects blank-but-non-NULL notes, so a whitespace-only review note used to
     surface as an unhandled IntegrityError (500); the request validator maps
     every blank spelling to None."""
-    assert ScreeningFindingReviewIn(status="CONFIRMED", review_note=blank).review_note is None
+    assert (
+        ScreeningFindingReviewIn(
+            status="CONFIRMED", expected_revision=0, review_note=blank
+        ).review_note
+        is None
+    )
 
 
 def test_finding_review_input_preserves_a_real_note() -> None:
-    reviewed = ScreeningFindingReviewIn(status="REJECTED", review_note="  not visible  ")
+    reviewed = ScreeningFindingReviewIn(
+        status="REJECTED", expected_revision=0, review_note="  not visible  "
+    )
     assert reviewed.review_note == "not visible"
 
 

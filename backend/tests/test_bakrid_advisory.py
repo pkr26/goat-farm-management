@@ -16,6 +16,7 @@ from app.services.dashboard import next_bakrid_date
 from app.utils import today
 
 from .conftest import owner_with_farm, provisioned_worker_login
+from .type_helpers import json_object
 
 FROZEN = date(2026, 3, 1)
 NEXT_BAKRID = "2026-05-28"  # simulation/market.py calendar, verified year
@@ -39,7 +40,7 @@ def iso_days_ago(days: int) -> str:
 
 async def make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     *,
     sex: str,
@@ -58,11 +59,15 @@ async def make_animal(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def change_status(
-    client: httpx.AsyncClient, headers: dict, animal_id: int, new_status: str, **extra: object
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    animal_id: int,
+    new_status: str,
+    **extra: object,
 ) -> None:
     resp = await client.post(
         f"/api/animals/{animal_id}/status",

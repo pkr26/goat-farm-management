@@ -281,15 +281,16 @@ async def test_concurrent_bulk_batches_keep_generated_tags_disjoint(
                 ).where(Animal.purchase_batch_id.in_(batch_ids))
             )
         ).one()
-        per_batch = dict(
-            (
+        per_batch = {
+            row[0]: row[1]
+            for row in (
                 await db.execute(
                     select(Animal.purchase_batch_id, func.count(Animal.id))
                     .where(Animal.purchase_batch_id.in_(batch_ids))
                     .group_by(Animal.purchase_batch_id)
                 )
             ).all()
-        )
+        }
     assert animal_count == unique_tags == 200
     assert per_batch == dict.fromkeys(batch_ids, 100)
 

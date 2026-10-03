@@ -64,7 +64,7 @@ test.describe("kidding flow", () => {
     await expect(recordRow).toBeVisible({ timeout: 15_000 });
     await expect(recordRow.getByRole("link", { name: kid1, exact: true })).toBeVisible();
     await expect(recordRow.getByRole("link", { name: kid2, exact: true })).toBeVisible();
-    await expect(recordRow.getByText(/Female, alive/)).toHaveCount(2);
+    await expect(recordRow.getByText(/Female, Alive/)).toHaveCount(2);
 
     // Both kids are now animals (auto-created, source BORN, RECOVERY bucket).
     await page.goto("/animals");

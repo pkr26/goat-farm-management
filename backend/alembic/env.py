@@ -22,10 +22,11 @@ Zero-downtime posture:
 import asyncio
 from logging.config import fileConfig
 
+from alembic.script.revision import RangeNotAncestorError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from alembic import context
+from alembic import context, util
 from app.core.config import get_migration_settings
 from app.db import Base, database_ssl_connect_arg
 from app.models import *  # noqa: F403 — register all tables on Base.metadata
@@ -57,9 +58,42 @@ LOCK_TIMEOUT = "10s"
 # this one-shot Alembic connection closes, including after a failed migration.
 RELEASE_WRITER_ADVISORY_LOCK_ID = 718204614
 
+# These applied revisions consume live query results. Preserve their exact
+# preflights and immutable history: offline ranges crossing them are explicitly
+# online-only until an equivalent, independently reviewed SQL adapter exists.
+ONLINE_ONLY_OFFLINE_STEPS = {
+    "upgrade": frozenset({"c3d4e5f6a7b1", "cad1e2f3a4b5"}),
+    "downgrade": frozenset({"d4e5f6a7b8c9", "f3d4e5f6a7b8"}),
+}
+
+
+def preflight_offline_range() -> None:
+    """Reject unsupported historical walks before emitting any SQL."""
+    start = context.get_starting_revision_argument() or "base"
+    destination = context.get_revision_argument() or "base"
+    try:
+        revisions = list(context.script.iterate_revisions(destination, start))
+        direction = "upgrade"
+    except RangeNotAncestorError:
+        revisions = list(context.script.iterate_revisions(start, destination))
+        direction = "downgrade"
+    blocked = sorted(
+        revision.revision
+        for revision in revisions
+        if revision.revision in ONLINE_ONLY_OFFLINE_STEPS[direction]
+    )
+    if blocked:
+        raise util.CommandError(
+            f"Offline {direction} range is online-only because applied revision(s) "
+            f"{', '.join(blocked)} require live-data preflights. No SQL was emitted. "
+            "Rehearse and run this range online against a disposable restored "
+            "database; see README's offline migration support boundary."
+        )
+
 
 def run_migrations_offline() -> None:
     settings = get_migration_settings()
+    preflight_offline_range()
     context.configure(
         url=settings.migration_database_url or settings.database_url,
         target_metadata=target_metadata,

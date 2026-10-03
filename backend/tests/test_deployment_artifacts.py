@@ -11,6 +11,7 @@ import ast
 import asyncio
 import errno
 import hashlib
+import http.client
 import ipaddress
 import json
 import os
@@ -27,6 +28,7 @@ from typing import Any
 
 import pytest
 import yaml
+from pydantic import SecretStr
 from sqlalchemy.engine import make_url
 
 from app.core.config import ScreeningWorkerSettings, Settings
@@ -41,6 +43,7 @@ from scripts import (
 )
 
 from .conftest import _admin_sql
+from .type_helpers import json_object
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKUP = REPO_ROOT / "backend" / "scripts" / "backup.sh"
@@ -373,7 +376,7 @@ def test_pinned_copy_bounds_and_rejects_a_growing_source(
     source = tmp_path / "growing-source"
     destination = tmp_path / "private-copy"
     source.write_bytes(b"A" * (pinned_copy._COPY_CHUNK_BYTES + 1))
-    real_read = pinned_copy.os.read
+    real_read = os.read
     first_read = True
 
     def append_after_first_read(file_descriptor: int, size: int) -> bytes:
@@ -385,7 +388,7 @@ def test_pinned_copy_bounds_and_rejects_a_growing_source(
                 stream.write(b"raced growth")
         return content
 
-    monkeypatch.setattr(pinned_copy.os, "read", append_after_first_read)
+    monkeypatch.setattr(os, "read", append_after_first_read)
 
     with pytest.raises(pinned_copy.PinnedCopyError, match="grew"):
         pinned_copy.copy_pinned_regular_file(source, destination)
@@ -880,7 +883,7 @@ def test_legacy_helper_never_degrades_to_racy_check_then_rename(
         raise OSError(errno.EINVAL, "exclusive rename unsupported")
 
     monkeypatch.setattr(backup_legacy_lock, "_rename_noreplace_darwin", unsupported)
-    monkeypatch.setattr(backup_legacy_lock.sys, "platform", "darwin")
+    monkeypatch.setattr(sys, "platform", "darwin")
 
     with pytest.raises(OSError, match="exclusive rename unsupported"):
         backup_legacy_lock._platform_rename_noreplace(source, destination)
@@ -1653,9 +1656,9 @@ def test_screening_worker_settings_need_no_api_secrets() -> None:
         db_sslmode="verify-full",
         screening_enabled=True,
         s3_bucket="screening",
-        s3_access_key_id="worker-access-key",
-        s3_secret_access_key="worker-secret-key",
-        screening_anthropic_api_key="provider-key",
+        s3_access_key_id=SecretStr("worker-access-key"),
+        s3_secret_access_key=SecretStr("worker-secret-key"),
+        screening_anthropic_api_key=SecretStr("provider-key"),
     )
 
     assert settings.screening_enabled is True
@@ -1857,9 +1860,9 @@ async def test_screening_worker_restarts_after_only_consecutive_cycle_failures(
     settings = ScreeningWorkerSettings(
         screening_enabled=True,
         s3_bucket="screening",
-        s3_access_key_id="worker-access-key",
-        s3_secret_access_key="worker-secret-key",
-        screening_anthropic_api_key="provider-key",
+        s3_access_key_id=SecretStr("worker-access-key"),
+        s3_secret_access_key=SecretStr("worker-secret-key"),
+        screening_anthropic_api_key=SecretStr("provider-key"),
         screening_poll_interval_seconds=30,
         screening_worker_health_max_age_seconds=60,
         screening_worker_max_consecutive_cycle_failures=2,
@@ -1927,9 +1930,9 @@ async def test_screening_worker_shutdown_closes_owned_provider_clients(
     settings = ScreeningWorkerSettings(
         screening_enabled=True,
         s3_bucket="screening",
-        s3_access_key_id="worker-access-key",
-        s3_secret_access_key="worker-secret-key",
-        screening_anthropic_api_key="provider-key",
+        s3_access_key_id=SecretStr("worker-access-key"),
+        s3_secret_access_key=SecretStr("worker-secret-key"),
+        screening_anthropic_api_key=SecretStr("provider-key"),
     )
     closed: list[str] = []
 
@@ -2029,7 +2032,7 @@ def test_container_readiness_uses_an_allowed_virtual_host(
     monkeypatch.setattr(
         healthcheck, "get_settings", lambda: SimpleNamespace(allowed_hosts=[allowed_host])
     )
-    monkeypatch.setattr(healthcheck.http.client, "HTTPConnection", Connection)
+    monkeypatch.setattr(http.client, "HTTPConnection", Connection)
 
     healthcheck.main()
 
@@ -2481,7 +2484,7 @@ def _render_compose_network(
     )
     compose = compose.replace("${GOATFARM_EDGE_PUBLIC_SCHEME:-http}", public_scheme)
     compose = compose.replace("${GOATFARM_EDGE_BIND_HOST:-127.0.0.1}", edge_bind_host)
-    return yaml.safe_load(compose)
+    return json_object(yaml.safe_load(compose))
 
 
 def _dev_edge_proxy_template() -> str:
@@ -3228,7 +3231,6 @@ def test_production_compose_delivers_secrets_by_read_only_file_mounts() -> None:
         _assert_optional_file_twin(api_env, name)
         assert name in api_env, name
     for name in (
-        "GOATFARM_DATABASE_URL",
         "GOATFARM_S3_ACCESS_KEY_ID",
         "GOATFARM_S3_SECRET_ACCESS_KEY",
         "GOATFARM_SCREENING_ANTHROPIC_API_KEY",
@@ -3245,28 +3247,21 @@ def test_production_compose_delivers_secrets_by_read_only_file_mounts() -> None:
         assert api_only not in worker_env
         assert api_only not in migrate_env
 
-    # The JWT-style directory bind backs the paths: read-only, shared by every
-    # service that consumes a *_FILE twin, and its source is the
-    # GOATFARM_APP_SECRET_DIR interpolation variable with an upgrade-safe
-    # default (the guard and Settings both know the name).
-    anchor_text = (REPO_ROOT / "docker-compose.production.yml").read_text()
-    mounts_by_target = {
-        volume["target"]: volume
-        for service in services.values()
-        for volume in service.get("volumes", [])
+    assert worker_env["GOATFARM_DATABASE_URL"] == "${GOATFARM_WORKER_DATABASE_URL:-}"
+    assert worker_env["GOATFARM_DATABASE_URL_FILE"] == "${GOATFARM_WORKER_DATABASE_URL_FILE:-}"
+    expected = {
+        "backend": "${GOATFARM_API_SECRET_DIR:-./secrets/api}",
+        "migrate": "${GOATFARM_MIGRATION_SECRET_DIR:-./secrets/migration}",
+        "screening-worker": "${GOATFARM_WORKER_SECRET_DIR:-./secrets/worker}",
     }
-    mount = mounts_by_target["/run/secrets/app"]
-    assert mount["read_only"] is True
-    assert mount["type"] == "bind"
-    assert mount["source"] == "${GOATFARM_APP_SECRET_DIR:-./secrets/app}"
-    for name in ("migrate", "backend", "screening-worker"):
-        assert any(v.get("target") == "/run/secrets/app" for v in services[name]["volumes"]), name
-    assert anchor_text.count("- *app-secrets") == 3
-    from app.core.config import NON_APP_ENV_VARS
-
-    assert "GOATFARM_APP_SECRET_DIR" in NON_APP_ENV_VARS
-    # Tracked-file hygiene: the default host directory must never be committable.
+    for name, source in expected.items():
+        mounts = [v for v in services[name]["volumes"] if v["target"] == "/run/secrets/app"]
+        assert len(mounts) == 1
+        assert mounts[0]["read_only"] is True
+        assert mounts[0]["source"] == source
+    assert len(set(expected.values())) == 3
     assert "secrets/" in (REPO_ROOT / ".gitignore").read_text()
+    assert "secrets/" in (REPO_ROOT / ".dockerignore").read_text()
 
 
 def test_compose_pins_capability_hardening_and_db_role_wiring() -> None:
@@ -3294,8 +3289,8 @@ def test_compose_pins_capability_hardening_and_db_role_wiring() -> None:
     # the config-guard preflight enforces exactly-one-of delivery.
     assert api_env["GOATFARM_DATABASE_URL"] == api_url
     assert api_env["GOATFARM_DATABASE_URL_FILE"] == "${GOATFARM_DATABASE_URL_FILE:-}"
-    assert worker_env["GOATFARM_DATABASE_URL"] == api_url
-    assert worker_env["GOATFARM_DATABASE_URL_FILE"] == "${GOATFARM_DATABASE_URL_FILE:-}"
+    assert worker_env["GOATFARM_DATABASE_URL"] == "${GOATFARM_WORKER_DATABASE_URL:-}"
+    assert worker_env["GOATFARM_DATABASE_URL_FILE"] == "${GOATFARM_WORKER_DATABASE_URL_FILE:-}"
     for env in (api_env, worker_env):
         assert "GOATFARM_MIGRATION_DATABASE_URL" not in env
         assert "GOATFARM_MIGRATION_DATABASE_URL_FILE" not in env
@@ -3399,9 +3394,9 @@ def test_production_compose_forwards_every_new_playbook_knob() -> None:
             settings.worker_pin_rate_limit_window_seconds
         ),
     }
-    for knob, default in api_only_knobs.items():
+    for knob, api_default in api_only_knobs.items():
         assert knob in api_env, knob
-        fallback = "" if default is None else str(default)
+        fallback = "" if api_default is None else str(api_default)
         assert api_env[knob] == "${" + knob + ":-" + fallback + "}", knob
 
     # Every GOATFARM_* knob documented in .env.example's notifications and
@@ -3438,6 +3433,7 @@ def test_compose_env_guard_rejects_names_compose_would_otherwise_drop(tmp_path: 
         "GOATFARM_DB_CA_FILE=/secure/ca.pem\n"
         "GOATFARM_JWT_SECRET_DIR=/secure/jwt\n"
         "GOATFARM_COMPOSE_ENV_FILE=/secure/production.env\n"
+        "GOATFARM_WORKER_DATABASE_URL=postgresql+asyncpg://worker:pw@db:5432/goatfarm\n"
         "GOATFARM_DATABASE_URL=postgresql+asyncpg://api:pw@db:5432/goatfarm\n"
         "GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://mig:pw@db:5432/goatfarm\n"
         "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET=stable-secret-0000000000000001\n"
@@ -3502,6 +3498,7 @@ def test_compose_env_guard_enforces_exactly_one_delivery_route(tmp_path: Path) -
     guard = REPO_ROOT / "backend" / "scripts" / "compose_env_guard.py"
     plain = {
         "GOATFARM_DATABASE_URL": "postgresql+asyncpg://api:pw@db:5432/goatfarm",
+        "GOATFARM_WORKER_DATABASE_URL": "postgresql+asyncpg://worker:pw@db:5432/goatfarm",
         "GOATFARM_MIGRATION_DATABASE_URL": "postgresql+asyncpg://mig:pw@db:5432/goatfarm",
         "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET": "stable-secret-0000000000000001",
     }
@@ -3570,6 +3567,7 @@ def test_compose_env_guard_enforces_exactly_one_delivery_route(tmp_path: Path) -
         extra_env={
             "GOATFARM_DATABASE_URL": "postgresql+asyncpg://api:pw@db:5432/goatfarm",
             "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET": "stable-secret-0000000000000001",
+            "GOATFARM_WORKER_DATABASE_URL": "postgresql+asyncpg://worker:pw@db:5432/goatfarm",
         },
     )
     assert shell_only_plain.returncode == 0
@@ -3614,6 +3612,7 @@ def test_compose_env_guard_imports_app_without_an_installed_project(
         "GOATFARM_ENVIRONMENT=production\n"
         # Required secrets since the guard began enforcing delivery routes
         # (2026-10-01 audit, 09-1) — this must remain a bootable env file.
+        "GOATFARM_WORKER_DATABASE_URL=postgresql+asyncpg://worker:pw@db:5432/goatfarm\n"
         "GOATFARM_DATABASE_URL=postgresql+asyncpg://api:pw@db:5432/goatfarm\n"
         "GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://mig:pw@db:5432/goatfarm\n"
         "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET=stable-secret-0000000000000001\n"

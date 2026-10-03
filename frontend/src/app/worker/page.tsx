@@ -4,12 +4,12 @@
  * Worker tablet duty board (ITEM 2 Phase 2, 2026-09-21 playbook).
  *
  * Today + overdue duties as large cards with ≥44px targets. Completion is
- * offline-aware: the mutation carries a fresh Idempotency-Key, so a network
- * failure enqueues it verbatim and the replay lands exactly once. Form-linked
+ * offline-aware: persist each logical action before sending it and keep the
+ * same Idempotency-Key across retries until the server acknowledges it. Form-linked
  * duties deep-link to their form with ?returnTo=/worker.
  */
 
-import { AlertTriangle, Check, ClipboardList, ExternalLink, X } from "lucide-react";
+import { AlertTriangle, Check, ClipboardList, ExternalLink, KeyRound, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -21,22 +21,20 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { apiFetch, ApiError } from "@/lib/api-client";
+import { apiFetch, ApiError, currentRequestScope } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmToday, formatDate } from "@/lib/format";
 import { randomIdempotencyKey } from "@/lib/idempotent-request";
 import { useLanguage, useT } from "@/lib/i18n";
-import {
-  enqueueOfflineMutation,
-  isOfflineQueueableFailure,
-} from "@/lib/offline-queue";
+import { OutboxReviewRequiredError, persistWorkerOperation, settleWorkerOperation, type WorkerOperation } from "@/lib/worker-outbox";
 import { withReturnTo } from "@/lib/permission-navigation";
 import { mapServerError } from "@/lib/server-error-phrases";
 import { permittedTaskActionPath, taskSkipUnavailable } from "@/lib/task-action-access";
 import { applyOptimisticTaskPatch } from "@/lib/task-optimistic";
 import { resolveTaskTitle } from "@/lib/task-title";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
+import { saveOfflineShift } from "@/lib/worker-offline-shift";
 import { useQueryClient } from "@tanstack/react-query";
 
 function DutyCard({
@@ -126,7 +124,8 @@ function DutyCard({
 
 function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
   const t = useT();
-  const { user, farmId } = useAuth();
+  const { language } = useLanguage();
+  const { user, farmId, farms } = useAuth();
   const queryClient = useQueryClient();
   const [busyIds, setBusyIds] = useState<ReadonlySet<number>>(() => new Set<number>());
   const allowed = perms.can("tasks.view");
@@ -148,6 +147,20 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
   );
   const payload = query.data?.status === 200 ? query.data.data : undefined;
   const canComplete = perms.can("tasks.complete");
+  useEffect(() => {
+    const scope = currentRequestScope();
+    const farm = farms.find((item) => item.id === farmId);
+    if (!payload || query.isError || !navigator.onLine || !user || !farm ||
+      scope?.actorScope !== String(user.id) || scope.farmScope !== String(farmId)) return;
+    const tasks = [...payload.overdue, ...payload.today].map((task) => ({
+      id: task.id, title: resolveTaskTitle(task, language), dueDate: task.due_date,
+      canComplete: canComplete && task.status === "PENDING" && !task.action_url,
+      canSkip: canComplete && task.status === "PENDING" && !taskSkipUnavailable(task) && !task.action_url,
+    }));
+    void saveOfflineShift({ actorScope: scope.actorScope, farmScope: scope.farmScope,
+      workerName: user.name ?? t("worker.title"), farmName: farm.name, tasks,
+    }).catch(() => {});
+  }, [payload, query.isError, user, farmId, farms, canComplete, language, t]);
 
   if (!allowed) {
     // The tablet HAS a farm — this account simply lacks tasks.view. The old
@@ -165,6 +178,8 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
   /** One keyed duty mutation with offline fallback. */
   async function runDutyMutation(task: TaskOut, kind: "complete" | "skip") {
     if (user === null || farmId === null) return;
+    const requestScope = currentRequestScope();
+    if (requestScope === null) return;
     const farmScope = captureFarmScope();
     const path = `/api/tasks/${task.id}/${kind}`;
     // NOT crypto.randomUUID(): that exists only in secure contexts, and this
@@ -186,12 +201,19 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
     // idempotency key and the server's pending check answered a spurious 409
     // toast right after a success (2026-10-01 audit, 05-4).
     setBusyIds((prev) => new Set(prev).add(task.id));
+    let operation: WorkerOperation | null = null;
     try {
+      // Save before the first network attempt: a response lost during a
+      // reload or handover must still have the original replay key.
+      operation = await persistWorkerOperation(path, body, {
+        actorScope: String(user.id), farmScope: String(farmId),
+      }, idempotencyKey);
       await apiFetch(path, {
         method: "POST",
         body,
-        headers: { "Idempotency-Key": idempotencyKey },
-      });
+        headers: { "Idempotency-Key": operation.idempotencyKey },
+      }, requestScope);
+      await settleWorkerOperation(operation.id, "sent");
       // Fence the SUCCESS path too, not just the catch (2026-10-01 audit,
       // 07-L2): after a farm-scope change (end-shift/farm switch) mid-flight,
       // toasting "Marked done." and refetching the board under the new scope
@@ -209,27 +231,13 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
       if (!farmScope()) {
         // The write is deliberately discarded with the old scope — say so
         // instead of vanishing with the strike-through (2026-09-29 audit).
-        toast.info(t("worker.dutyDiscarded"));
         return;
       }
-      if (isOfflineQueueableFailure(error)) {
-        const queued = enqueueOfflineMutation(
-          path,
-          {
-            method: "POST",
-            body,
-            headers: { "Idempotency-Key": idempotencyKey },
-          },
-          { actorScope: String(user.id), farmScope: String(farmId) },
-        );
-        if (queued) {
-          // The optimistic strike-through stays: the write WILL land.
-          toast.info(t("worker.queuedToast"));
-        } else {
-          rollback();
-          toast.error(t("worker.queueFull"));
-        }
-      } else {
+      if (operation === null) {
+        rollback(); toast.error(t(error instanceof OutboxReviewRequiredError ? "worker.receipts.review" : "worker.queueFull"));
+      } else if (error instanceof ApiError && error.status >= 400 && error.status < 500 &&
+        ![401, 408, 429].includes(error.status)) {
+        await settleWorkerOperation(operation.id, "review", error.status === 409 ? "conflict" : "rejected", error.status);
         rollback();
         // Route the server's answer through the error mapper — the common
         // duty rejections ("Task is not pending", "not due yet", …) have
@@ -240,7 +248,7 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
             ? mapServerError(t, error.detail, error.status, error.code)
             : t("worker.genericError"),
         );
-      }
+      } else toast.info(t("worker.queuedToast"));
     } finally {
       setBusyIds((prev) => {
         const next = new Set(prev);
@@ -336,6 +344,7 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
 }
 
 export default function WorkerBoardPage() {
+  const t = useT();
   const perms = usePermissions();
   const router = useRouter();
   const { user, farmId, loading } = useAuth();
@@ -347,5 +356,20 @@ export default function WorkerBoardPage() {
     if (user === null || farmId === null) router.replace("/worker/login");
   }, [loading, user, farmId, router]);
   if (!loading && (user === null || farmId === null)) return null;
+  if (user?.must_change_password) {
+    // The header exposes password rotation even for task-only workers.
+    // Their task requests are intentionally forbidden until this flag
+    // clears, so show the required action without mounting its query.
+    return (
+      <section className="space-y-6" data-testid="worker-password-required">
+        <PageHeader title={t("worker.title")} />
+        <EmptyState
+          icon={KeyRound}
+          title={t("account.password.change")}
+          description={t("serverErrors.mustChangePassword")}
+        />
+      </section>
+    );
+  }
   return <WorkerBoardContent perms={perms} />;
 }

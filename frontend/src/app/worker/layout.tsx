@@ -12,9 +12,10 @@
 
 import { LogOut, WifiOff } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
+import { AccountDialog } from "@/components/account-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,15 +26,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth-context";
+import { currentRequestScope, type RequestScope } from "@/lib/api-client";
 import { LANGUAGE_STORAGE_KEY, useLanguage, useT } from "@/lib/i18n";
 import { safeStorage } from "@/lib/safe-storage";
-import {
-  clearOfflineQueueDrainBackoff,
-  drainOfflineQueue,
-  offlineQueueDepth,
-  startOfflineQueueWorkers,
-  wipeOfflineQueue,
-} from "@/lib/offline-queue";
+import { clearAcceptedWorkerReceipts, readWorkerOutbox, startWorkerOutbox, type WorkerOperation } from "@/lib/worker-outbox";
 import { usePermissions } from "@/lib/use-permissions";
 
 /** One-time manager setup pins the tablet's farm (worker login page). */
@@ -53,11 +49,14 @@ function readTabletFarmId(): number | null {
 /** Persist the tablet's farm after a manager picks it in the setup flow. A
  * blocked/corrupted store simply leaves the tablet unpinned: the next load
  * falls back to the setup screen instead of a half-pinned roster. */
-export function writeTabletFarmId(farmId: number): void {
+export function writeTabletFarmId(farmId: number): boolean {
   try {
-    safeStorage("local")?.setItem(TABLET_FARM_STORAGE_KEY, String(farmId));
+    const storage = safeStorage("local");
+    if (storage === null || !Number.isSafeInteger(farmId) || farmId <= 0) return false;
+    storage.setItem(TABLET_FARM_STORAGE_KEY, String(farmId));
+    return storage.getItem(TABLET_FARM_STORAGE_KEY) === String(farmId);
   } catch {
-    /* storage blocked: setup reruns next load */
+    return false;
   }
 }
 
@@ -69,11 +68,31 @@ export function WorkerShell({ children }: { children: ReactNode }) {
   const t = useT();
   const { setLanguage } = useLanguage();
   const [online, setOnline] = useState(true);
-  const [depth, setDepth] = useState(0);
+  const [outbox, setOutbox] = useState<{ scopeKey: string; records: WorkerOperation[]; error: boolean }>({ scopeKey: "", records: [], error: false });
+  const scopeKey = `${user?.id ?? ""}:${farmId ?? ""}`;
+  const receipts = outbox.scopeKey === scopeKey ? outbox.records : [];
+  const depth = receipts.filter((record) => record.state === "pending").length;
+  const reviewCount = receipts.filter((record) => record.state === "review").length;
+  const storageError = outbox.scopeKey === scopeKey && outbox.error;
   /** Non-null = the unsent-duties confirm is open for that many queued
    * records (snapshot at open time, so the copy can't shift under the
    * dialog while the 1.5s badge tick continues). */
-  const [endShiftPendingCount, setEndShiftPendingCount] = useState<number | null>(null);
+  const [endShiftConfirmation, setEndShiftConfirmation] = useState<{ count: number; scope: RequestScope } | null>(null);
+  const [acceptedCleanupConfirmation, setAcceptedCleanupConfirmation] = useState<{ ids: string[]; scope: RequestScope } | null>(null);
+  const receiptActionFlight = useRef(false);
+  const [receiptActionBusy, setReceiptActionBusy] = useState(false);
+  const liveScope = currentRequestScope();
+  const ownsScope = (scope: RequestScope) => {
+    const current = currentRequestScope();
+    return current?.actorScope === scope.actorScope && current.farmScope === scope.farmScope &&
+      current.sessionEpoch === scope.sessionEpoch && current.farmEpoch === scope.farmEpoch;
+  };
+  const cleanupConfirmation = acceptedCleanupConfirmation !== null && ownsScope(acceptedCleanupConfirmation.scope)
+    ? acceptedCleanupConfirmation : null;
+  const endShiftPendingCount = endShiftConfirmation !== null &&
+    liveScope?.sessionEpoch === endShiftConfirmation.scope.sessionEpoch &&
+    liveScope.farmEpoch === endShiftConfirmation.scope.farmEpoch
+      ? endShiftConfirmation.count : null;
 
   // Telugu-first: field workers are the primary audience of this surface; a
   // manager who chose a language keeps their choice. Writing storage before
@@ -126,46 +145,15 @@ export function WorkerShell({ children }: { children: ReactNode }) {
   // Drain workers + a live queue-depth badge for the shell.
   useEffect(() => {
     if (user === null || farmId === null) return;
-    const scopes = () =>
-      user !== null && farmId !== null
-        ? { actorScope: String(user.id), farmScope: String(farmId) }
-        : null;
-    // The badge and the end-shift confirm count with the SAME scope filter
-    // the drain uses: a foreign actor's or farm's residue (a crash before
-    // teardown, or records a forced logout deliberately preserved for their
-    // owner) must not inflate the number this worker is shown or the
-    // "deletes them permanently" copy (2026-10-01 audit, 07-L3).
-    const scopedQueueDepth = () => {
-      const current = scopes();
-      return current === null ? 0 : offlineQueueDepth(current);
+    // Read module state at every asynchronous edge. A closed-over React
+    // user/farm from the previous effect is not a live authorization check.
+    const scopes = () => {
+      const current = currentRequestScope();
+      return current?.actorScope === String(user.id) && current.farmScope === String(farmId) ? current : null;
     };
-    const stop = startOfflineQueueWorkers(scopes, (rejected) => {
-      // A drain settled records the server definitively refused: the duties
-      // stay PENDING and reappear on the board, but the recorded
-      // completions are gone — say so instead of dropping them silently
-      // (2026-09-29 audit).
-      toast.error(
-        t(
-          rejected === 1 ? "worker.offlineRejected_one" : "worker.offlineRejected_many",
-          { count: rejected },
-        ),
-      );
-    });
-    const tick = window.setInterval(() => setDepth(scopedQueueDepth()), 1500);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the badge must reflect the queue depth this session inherited, not wait 1.5s
-    setDepth(scopedQueueDepth());
-    // Arriving online with a queue: drain immediately. The effect's guard
-    // makes scopes() non-null here; the callback form keeps that coupling
-    // visible instead of a dead empty-scope fallback (2026-09-29 audit), and
-    // doubles as the live-session probe so a drain that outlives its login
-    // stops rather than replaying under whoever signs in next
-    // (2026-10-02 audit).
-    const initialScopes = scopes();
-    if (initialScopes !== null) void drainOfflineQueue(initialScopes, undefined, scopes);
-    return () => {
-      stop();
-      window.clearInterval(tick);
-    };
+    return startWorkerOutbox(scopes, (records) => {
+      setOutbox({ scopeKey: `${user.id}:${farmId}`, records, error: false });
+    }, () => setOutbox({ scopeKey: `${user.id}:${farmId}`, records: [], error: true }));
   }, [user, farmId, t]);
 
   // Session gates: mirror the app shell's, aimed at the worker surface.
@@ -175,7 +163,7 @@ export function WorkerShell({ children }: { children: ReactNode }) {
   // (2026-09-28 audit, W1).
   useEffect(() => {
     if (loading) return;
-    if (user === null && pathname !== "/worker/login") {
+    if (user === null && pathname !== "/worker/login" && pathname !== "/worker/offline") {
       router.replace("/worker/login");
     }
   }, [loading, user, pathname, router]);
@@ -190,22 +178,79 @@ export function WorkerShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (user === null) {
+  // These public pages own their own session transitions. Keep the same
+  // parent element when setup commits its temporary manager: replacing it
+  // with authenticated chrome would unmount the login page and trigger its
+  // abandonment revocation before it can show the farm choices.
+  if (user === null || pathname === "/worker/login" || pathname === "/worker/offline") {
     return <main className="min-h-dvh">{children}</main>;
   }
 
   const farm = farms.find((f) => f.id === farmId);
 
   async function endShift() {
-    // End shift is a shared-device handover: the queued writes belong to the
-    // departing worker's session and must not leak to the next one. The
-    // 429 drain backoff is the same session's — clear it so the next
-    // actor's first drain isn't gated by this session's Retry-After
-    // (clearSession clears it too; belt and braces for the worker path).
-    wipeOfflineQueue();
-    clearOfflineQueueDrainBackoff();
-    await signOut();
+    const revocation = signOut();
     router.replace("/worker/login");
+    await revocation;
+  }
+
+  async function requestEndShift() {
+    const scope = currentRequestScope();
+    if (scope === null) return;
+    try {
+      const records = await readWorkerOutbox(scope);
+      const live = currentRequestScope();
+      if (live?.sessionEpoch !== scope.sessionEpoch || live.farmEpoch !== scope.farmEpoch) return;
+      const pending = records.filter((record) => record.state !== "sent").length;
+      if (pending > 0) setEndShiftConfirmation({ count: pending, scope });
+      else await endShift();
+    } catch { setOutbox({ scopeKey, records: receipts, error: true }); toast.error(t("worker.queueFull")); }
+  }
+
+  async function exportReceipts() {
+    const scope = currentRequestScope();
+    if (scope === null) return;
+    try {
+      const records = await readWorkerOutbox(scope);
+      const live = currentRequestScope();
+      if (live?.sessionEpoch !== scope.sessionEpoch || live.farmEpoch !== scope.farmEpoch) return;
+      const url = URL.createObjectURL(new Blob([JSON.stringify({ version: 2, operations: records }, null, 2)], { type: "application/json" }));
+      const anchor = document.createElement("a"); anchor.href = url; anchor.download = "herdly-duty-receipts.json";
+      anchor.click(); URL.revokeObjectURL(url);
+    } catch { setOutbox({ scopeKey, records: receipts, error: true }); }
+  }
+
+  async function requestAcceptedCleanup() {
+    const scope = currentRequestScope();
+    if (scope === null || scope.actorScope !== String(user?.id) || scope.farmScope !== String(farmId) ||
+      receiptActionFlight.current) return;
+    receiptActionFlight.current = true; setReceiptActionBusy(true);
+    try {
+      const records = await readWorkerOutbox(scope);
+      if (!ownsScope(scope)) return;
+      const ids = records.filter((record) => record.state === "sent").map((record) => record.id);
+      if (ids.length > 0) setAcceptedCleanupConfirmation({ ids, scope });
+    } catch {
+      if (ownsScope(scope)) toast.error(t("worker.receipts.clearAcceptedFailed"));
+    } finally { receiptActionFlight.current = false; setReceiptActionBusy(false); }
+  }
+
+  async function confirmAcceptedCleanup() {
+    const confirmation = acceptedCleanupConfirmation;
+    if (confirmation === null || !ownsScope(confirmation.scope) || receiptActionFlight.current) return;
+    receiptActionFlight.current = true; setReceiptActionBusy(true);
+    try {
+      const cleared = await clearAcceptedWorkerReceipts(confirmation.scope, confirmation.ids);
+      if (!ownsScope(confirmation.scope)) return;
+      setAcceptedCleanupConfirmation(null);
+      const clearedIds = new Set(confirmation.ids);
+      setOutbox((previous) => previous.scopeKey === `${confirmation.scope.actorScope}:${confirmation.scope.farmScope}`
+        ? { ...previous, records: previous.records.filter((record) => !clearedIds.has(record.id)) }
+        : previous);
+      toast.success(t("worker.receipts.clearAcceptedSuccess", { count: cleared }));
+    } catch {
+      if (ownsScope(confirmation.scope)) toast.error(t("worker.receipts.clearAcceptedFailed"));
+    } finally { receiptActionFlight.current = false; setReceiptActionBusy(false); }
   }
 
   return (
@@ -219,6 +264,9 @@ export function WorkerShell({ children }: { children: ReactNode }) {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {user.must_change_password && (
+              <AccountDialog name={user.name} email={user.email} passwordOnly />
+            )}
             {!online && (
               <span className="inline-flex items-center gap-1 rounded-full border border-destructive/40 px-3 py-1 text-sm text-destructive">
                 <WifiOff aria-hidden className="size-4" /> {t("worker.offlineBadge")}
@@ -232,6 +280,7 @@ export function WorkerShell({ children }: { children: ReactNode }) {
                 {t("worker.queued", { count: depth })}
               </span>
             )}
+            {reviewCount > 0 && <span className="rounded-full border border-destructive/40 px-3 py-1 text-sm text-destructive">{t("worker.receipts.reviewCount", { count: reviewCount })}</span>}
             {/* h-11: the worker surface's ≥44px touch floor — the default
              * h-9 left End shift at 36px (2026-09-28 audit, W9). A non-empty
              * queue routes through the confirm dialog: the badge promised
@@ -240,9 +289,7 @@ export function WorkerShell({ children }: { children: ReactNode }) {
             <Button
               variant="destructive"
               className="h-11"
-              onClick={() =>
-                depth > 0 ? setEndShiftPendingCount(depth) : void endShift()
-              }
+              onClick={() => void requestEndShift()}
               data-testid="end-shift"
             >
               <LogOut aria-hidden /> {t("worker.endShift")}
@@ -256,12 +303,30 @@ export function WorkerShell({ children }: { children: ReactNode }) {
         )}
       </header>
       <main id="main-content" className="mx-auto max-w-3xl space-y-6 p-4">
+        {storageError && <p role="alert" className="text-destructive">{t("worker.queueFull")}</p>}
+        {receipts.length > 0 && <details className="rounded-lg border bg-card p-4">
+          <summary className="min-h-11 cursor-pointer font-semibold">{t("worker.receipts.title")}</summary>
+          <p className="my-2 text-sm text-muted-foreground">{t("worker.receipts.description")}</p>
+          <ul className="space-y-2" data-testid="worker-receipts">
+            {receipts.slice(-20).reverse().map((record) => <li key={record.id} className="rounded border p-3 text-sm">
+              <p>{t("worker.receipts.task", { id: record.path.match(/\/tasks\/(\d+)/)?.[1] ?? record.id })} · {t(`worker.receipts.${record.state}`)}</p>
+              <p className="text-muted-foreground">{new Date(record.queuedAt).toLocaleString()}</p>
+            </li>)}
+          </ul>
+          <div className="mt-3 flex flex-wrap gap-3">
+            <Button variant="outline" className="h-11" onClick={() => void exportReceipts()}>{t("worker.receipts.export")}</Button>
+            {receipts.some((record) => record.state === "sent") && <Button variant="outline" className="h-11"
+              data-testid="worker-clear-accepted" disabled={receiptActionBusy} onClick={() => void requestAcceptedCleanup()}>
+              {t("worker.receipts.clearAccepted")}
+            </Button>}
+          </div>
+        </details>}
         {children}
       </main>
       <Dialog
         open={endShiftPendingCount !== null}
         onOpenChange={(nextOpen) => {
-          if (!nextOpen) setEndShiftPendingCount(null);
+          if (!nextOpen) setEndShiftConfirmation(null);
         }}
       >
         <DialogContent role="alertdialog">
@@ -280,7 +345,7 @@ export function WorkerShell({ children }: { children: ReactNode }) {
             <Button
               variant="outline"
               className="h-11"
-              onClick={() => setEndShiftPendingCount(null)}
+              onClick={() => setEndShiftConfirmation(null)}
               data-testid="end-shift-cancel"
             >
               {t("common.cancel")}
@@ -289,13 +354,31 @@ export function WorkerShell({ children }: { children: ReactNode }) {
               variant="destructive"
               className="h-11"
               onClick={() => {
-                setEndShiftPendingCount(null);
-                void endShift();
+                const scope = currentRequestScope();
+                if (scope?.sessionEpoch === endShiftConfirmation?.scope.sessionEpoch &&
+                  scope?.farmEpoch === endShiftConfirmation?.scope.farmEpoch) void endShift();
+                setEndShiftConfirmation(null);
               }}
               data-testid="end-shift-confirm"
             >
               {t("worker.endShiftConfirm.confirm")}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={cleanupConfirmation !== null} onOpenChange={(open) => {
+        if (!open && !receiptActionFlight.current) setAcceptedCleanupConfirmation(null);
+      }}>
+        <DialogContent role="alertdialog">
+          <DialogHeader>
+            <DialogTitle>{t("worker.receipts.clearAcceptedTitle")}</DialogTitle>
+            <DialogDescription>{t("worker.receipts.clearAcceptedDescription", { count: cleanupConfirmation?.ids.length ?? 0 })}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" className="h-11" disabled={receiptActionBusy}
+              data-testid="worker-clear-accepted-cancel" onClick={() => setAcceptedCleanupConfirmation(null)}>{t("common.cancel")}</Button>
+            <Button variant="destructive" className="h-11" disabled={receiptActionBusy}
+              data-testid="worker-clear-accepted-confirm" onClick={() => void confirmAcceptedCleanup()}>{t("worker.receipts.clearAcceptedConfirm")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

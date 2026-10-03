@@ -32,6 +32,7 @@ from ..models import (
 )
 from ..utils import today
 from ._common import _add_task
+from .health_rounds import ensure_round_snapshot
 from .tasks import lock_manual_task_queue
 
 _logger = logging.getLogger("goatfarm.cadence")
@@ -269,7 +270,7 @@ async def _ensure_calendar_rounds(
         if already:
             continue
         due = reference if is_current_month else month_end
-        await _add_task(
+        task = await _add_task(
             db,
             farm_id,
             title,
@@ -278,6 +279,9 @@ async def _ensure_calendar_rounds(
             title_key=title_key,
             title_args={"month": month_name, "year": occurrence.year, "due_date": due.isoformat()},
         )
+        if category in (TaskCategory.VACCINE, TaskCategory.DEWORMING):
+            await db.flush()
+            await ensure_round_snapshot(db, task)
         created = True
     return created
 
@@ -573,7 +577,7 @@ async def ensure_cadence_farm_batch(
 ) -> tuple[int, int]:
     """Materialize one bounded keyset page of farms through the cadence sweep.
 
-    Returns ``(farms_processed, last_farm_id)`` so the caller can page the
+    Returns ``(farms_visited, last_farm_id)`` so the caller can page the
     whole tenant list with ``after_farm_id`` and stop on a short page. Farm
     rows are deliberately NOT locked here (a Farm row lock would add the
     inverse Farm -> Animal lock-order edge); the per-farm advisory lock
@@ -582,22 +586,25 @@ async def ensure_cadence_farm_batch(
     """
     if not 1 <= batch_size <= 1000:
         raise ValueError("batch_size must be between 1 and 1000")
-    farms = list(
+    farm_ids = list(
         (
             await db.execute(
-                select(Farm).where(Farm.id > after_farm_id).order_by(Farm.id).limit(batch_size)
+                select(Farm.id).where(Farm.id > after_farm_id).order_by(Farm.id).limit(batch_size)
             )
         )
         .scalars()
         .all()
     )
-    # Snapshot ids before any per-farm rollback: rollback() expires the
-    # ORM instances, and touching an expired attribute afterwards would
-    # lazy-load outside the greenlet (MissingGreenlet).
-    farm_ids = [farm.id for farm in farms]
-    for farm, farm_id in zip(farms, farm_ids, strict=True):
+    # A rollback expires every ORM instance. Fetch each farm afresh after the
+    # previous transaction finishes, including after a poisoned earlier farm.
+    for farm_id in farm_ids:
         try:
+            farm = await db.get(Farm, farm_id, populate_existing=True)
+            if farm is None:
+                continue
             await ensure_cadence_tasks(db, farm)
+            # Release the advisory lock even for a farm with no new duties.
+            await db.commit()
         except Exception:
             # BIZ-2 (2026-09-16): one persistently failing farm must not
             # starve every higher-id farm's cadence materialization forever

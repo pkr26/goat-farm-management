@@ -1,0 +1,141 @@
+
+Running 71 tests using 1 worker
+
+(node:26117) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /dashboard (en) has no serious accessibility violations (3.1s)
+  ✓   2 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /tasks (en) has no serious accessibility violations (2.8s)
+  ✓   3 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /worker (en) has no serious accessibility violations (2.4s)
+  ✓   4 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /login (en) has no serious accessibility violations (1.9s)
+  ✓   5 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /worker/login (en) has no serious accessibility violations (2.1s)
+  ✓   6 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /worker/offline (en) has no serious accessibility violations (1.7s)
+  ✓   7 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /screening (en) has no serious accessibility violations (2.8s)
+  ✓   8 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /team (en) has no serious accessibility violations (2.9s)
+  ✓   9 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /finance/insurance (en) has no serious accessibility violations (2.8s)
+  ✓  10 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /health (en) has no serious accessibility violations (3.3s)
+  ✓  11 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /planner (en) has no serious accessibility violations (2.9s)
+  ✓  12 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /simulation (en) has no serious accessibility violations (3.3s)
+  ✓  13 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /finance (en) has no serious accessibility violations (2.9s)
+  ✓  14 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /dashboard (te) has no serious accessibility violations (2.9s)
+  ✓  15 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /tasks (te) has no serious accessibility violations (2.8s)
+  ✓  16 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /worker (te) has no serious accessibility violations (2.4s)
+  ✓  17 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /login (te) has no serious accessibility violations (1.8s)
+  ✓  18 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /worker/login (te) has no serious accessibility violations (2.2s)
+  ✓  19 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /worker/offline (te) has no serious accessibility violations (1.7s)
+  ✓  20 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /screening (te) has no serious accessibility violations (3.4s)
+  ✓  21 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /team (te) has no serious accessibility violations (3.0s)
+  ✓  22 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /finance/insurance (te) has no serious accessibility violations (2.8s)
+  ✓  23 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /health (te) has no serious accessibility violations (2.8s)
+  ✓  24 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /planner (te) has no serious accessibility violations (2.9s)
+  ✓  25 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /simulation (te) has no serious accessibility violations (3.2s)
+  ✓  26 [firefox] › e2e/a11y-gate.spec.ts:33:7 › a11y gate › /finance (te) has no serious accessibility violations (2.9s)
+  ✓  27 [firefox] › e2e/animals.spec.ts:13:3 › animals › create animal, record a weight, move bucket — profile reflects all (4.6s)
+  ✓  28 [firefox] › e2e/api-contract-auth-team.spec.ts:240:3 › frontend proxy auth and team API contracts › proxies the liveness and database-readiness probes (327ms)
+  ✓  29 [firefox] › e2e/api-contract-auth-team.spec.ts:254:3 › frontend proxy auth and team API contracts › persists password changes and returns exact me/export data through the proxy (515ms)
+  ✓  30 [firefox] › e2e/api-contract-auth-team.spec.ts:370:3 › frontend proxy auth and team API contracts › deletes a separate registered non-owner and makes its login unusable (201ms)
+  ✓  31 [firefox] › e2e/api-contract-auth-team.spec.ts:403:3 › frontend proxy auth and team API contracts › persists worker resets and the full custom-role create/update/delete lifecycle (553ms)
+  ✓  32 [firefox] › e2e/api-contract-domain.spec.ts:158:3 › frontend proxy domain API contracts › animal status mutation returns and persists the requested lifecycle facts (51ms)
+  ✓  33 [firefox] › e2e/api-contract-domain.spec.ts:206:3 › frontend proxy domain API contracts › breeding GET, live-pregnancy GET, and pregnancy abort agree on one record (127ms)
+  ✓  34 [firefox] › e2e/api-contract-domain.spec.ts:328:3 › frontend proxy domain API contracts › health batch lookup/preview and restriction clearance round-trip their data (108ms)
+  ✓  35 [firefox] › e2e/api-contract-domain.spec.ts:510:3 › frontend proxy domain API contracts › task GET returns the created duty and skip remains visible on readback (32ms)
+  ✓  36 [firefox] › e2e/api-contract-domain.spec.ts:568:3 › frontend proxy domain API contracts › feeding setting and recipe mix are reflected by plan, inventory, and finished stock (108ms)
+  ✓  37 [firefox] › e2e/api-contract-domain.spec.ts:669:3 › frontend proxy domain API contracts › finance correction returns the replacement and preserves the voided source audit (45ms)
+  ✓  38 [firefox] › e2e/api-contract-domain.spec.ts:748:3 › frontend proxy domain API contracts › herd snapshot and scenario GET/PATCH/compare/DELETE stay consistent (177ms)
+  ✓  39 [firefox] › e2e/auth.spec.ts:21:3 › auth › owner signs in, sees the full nav, and logout returns to /login (1.5s)
+  ✓  40 [firefox] › e2e/auth.spec.ts:46:3 › auth › unauthenticated visit to an app page redirects to /login (1.1s)
+  ✓  41 [firefox] › e2e/auth.spec.ts:51:3 › auth › wrong password shows an error and stays on /login (1.5s)
+  ✓  42 [firefox] › e2e/auth.spec.ts:61:3 › auth › signIn helper lands on the dashboard (1.4s)
+  ✓  43 [firefox] › e2e/breeding-flow.spec.ts:16:3 › breeding flow › doe is bred, confirmed pregnant via ultrasound, moves to PREGNANCY_EARLY (6.5s)
+  ✓  44 [firefox] › e2e/cross-tenant.spec.ts:94:3 › cross-tenant and horizontal authorization negatives › a provisioned worker without finance.view is refused 403 on the finance API (740ms)
+  ✓  45 [firefox] › e2e/cross-tenant.spec.ts:157:3 › cross-tenant and horizontal authorization negatives › another farm's owner cannot read this farm's animal: uniform 404s (275ms)
+  ✓  46 [firefox] › e2e/cross-tenant.spec.ts:202:3 › cross-tenant and horizontal authorization negatives › logged-out API access is refused 401 (2ms)
+  ✓  47 [firefox] › e2e/farm-switch.spec.ts:22:3 › farm switching › switching farms renders none of the previous farm's cached data (3.1s)
+  ✓  48 [firefox] › e2e/feeding-finance.spec.ts:6:3 › feeding and finance › feeding plan shows the 40/20/40 shift split and records a dispense (4.1s)
+  ✓  49 [firefox] › e2e/feeding-finance.spec.ts:77:3 › feeding and finance › adding an expense transaction lists it in the ledger (2.2s)
+  ✓  50 [firefox] › e2e/feeding-finance.spec.ts:113:3 › feeding and finance › reports page renders herd summary, breeding performance and mortality (2.8s)
+  ✓  51 [firefox] › e2e/health-flow.spec.ts:14:3 › health flow › record a vaccine event — event log, profile health card, schedule badge (5.3s)
+  ✓  52 [firefox] › e2e/kidding-flow.spec.ts:16:3 › kidding flow › overdue pregnancy is kidded with twins — kids become animals, doe moves to RECOVERY (10.0s)
+  ✓  53 [firefox] › e2e/navigation-rbac.spec.ts:25:3 › navigation and access control › every nav item loads its page without errors (7.4s)
+  ✓  54 [firefox] › e2e/navigation-rbac.spec.ts:42:3 › navigation and access control › logged-out direct-URL access redirects every app page to /login (4.0s)
+  ✓  55 [firefox] › e2e/ops-simulation.spec.ts:17:3 › ops simulation › renders its sections and replays the toy herd for one week (2.1s)
+  ✓  56 [firefox] › e2e/ops-simulation.spec.ts:62:3 › ops simulation › a row without a tag is reported inline, blocks the run, and never reaches the API (1.8s)
+  ✓  57 [firefox] › e2e/ownership-transfer.spec.ts:18:1 › an owner transfers a separate farm to a password-rotated member through Team (3.2s)
+  ✓  58 [firefox] › e2e/planner.spec.ts:23:3 › planner › renders its sections, plans a sale target, and keeps owner access (2.8s)
+  ✓  59 [firefox] › e2e/planner.spec.ts:68:3 › planner › a target in the plan's start month is rejected inline and blocks the run (1.9s)
+  ✘  60 [firefox] › e2e/purchases.spec.ts:6:3 › purchases › a new batch stubs animals into QUARANTINE with the 45-day task schedule (2.4s)
+(node:26176) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  61 [firefox] › e2e/register.spec.ts:6:3 › registration › a new user registers, creates a farm and reaches its dashboard (2.8s)
+  ✓  62 [firefox] › e2e/screening.spec.ts:161:3 › screening review › scoreboard → queue → detail → confirm → conflict toast, all stubbed at the API (2.2s)
+  ✓  63 [firefox] › e2e/simulation.spec.ts:74:3 › simulation › defaults + herd events run end-to-end; save and re-run as a scenario (5.4s)
+  ✓  64 [firefox] › e2e/simulation.spec.ts:183:3 › simulation › an event month beyond the horizon blocks the run with an inline error (1.9s)
+  ✓  65 [firefox] › e2e/simulation.spec.ts:202:3 › simulation › farm calibration and all decision analyses render responsively (3.5s)
+  ✘  66 [firefox] › e2e/tasks-guards.spec.ts:15:3 › tasks guards › auto duties are form-linked; a completed duty lands in awaiting verification (6.4s)
+(node:26200) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  67 [firefox] › e2e/tasks-verify.spec.ts:32:3 › tasks verification › owner completes and verifies a cleaning duty — it lands in Completed as VERIFIED (3.0s)
+  ✓  68 [firefox] › e2e/tasks-verify.spec.ts:58:3 › tasks verification › rejected duty is sent back to pending with the note visible (2.8s)
+  ✓  69 [firefox] › e2e/team.spec.ts:6:3 › team management › owner adds a worker, changes their role and toggles them inactive/active (3.0s)
+  ✓  70 [firefox] › e2e/worker-onboarding.spec.ts:43:1 › task-only password worker completes first password rotation on the worker board (3.8s)
+  ✓  71 [firefox] › e2e/worker-onboarding.spec.ts:70:1 › owner creates and resets a PIN worker through Team and pins the tablet through the UI (4.6s)
+
+
+  1) [firefox] › e2e/purchases.spec.ts:6:3 › purchases › a new batch stubs animals into QUARANTINE with the 45-day task schedule 
+
+    Error: page.goto: NS_BINDING_ABORTED
+    Call log:
+      - navigating to "http://localhost:3000/animals?bucket=QUARANTINE", waiting until "load"
+
+
+      69 |     // The herd list's quarantine bucket shows the stubbed animal. (The day-45
+      70 |     // release is due 44 days out — not automatable without date travel.)
+    > 71 |     await page.goto("/animals?bucket=QUARANTINE");
+         |                ^
+      72 |     await page.getByPlaceholder("Search by tag…").fill(firstTag);
+      73 |     const herdRow = page.getByRole("row", { name: new RegExp(firstTag) });
+      74 |     await expect(herdRow).toBeVisible({ timeout: 15_000 });
+        at /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/purchases.spec.ts:71:16
+
+    Error Context: test-results/purchases-purchases-a-new--7b54d-th-the-45-day-task-schedule-firefox/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/purchases-purchases-a-new--7b54d-th-the-45-day-task-schedule-firefox/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/purchases-purchases-a-new--7b54d-th-the-45-day-task-schedule-firefox/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [firefox] › e2e/tasks-guards.spec.ts:15:3 › tasks guards › auto duties are form-linked; a completed duty lands in awaiting verification 
+
+    Error: page.goto: NS_BINDING_ABORTED
+    Call log:
+      - navigating to "http://localhost:3000/breeding", waiting until "load"
+
+
+       at helpers.ts:345
+
+      343 | /** Record a pregnant ultrasound (default kid count 2) for the doe's PENDING record. */
+      344 | export async function recordUltrasoundPregnant(page: Page, doeTag: string): Promise<void> {
+    > 345 |   await page.goto("/breeding");
+          |              ^
+      346 |   const row = page.getByRole("row", { name: new RegExp(doeTag) });
+      347 |   await expect(row).toBeVisible({ timeout: 15_000 });
+      348 |   await row.getByRole("button", { name: "Ultrasound result" }).click();
+        at recordUltrasoundPregnant (/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/helpers.ts:345:14)
+        at /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/tasks-guards.spec.ts:48:11
+
+    Error Context: test-results/tasks-guards-tasks-guards--4e80b-ds-in-awaiting-verification-firefox/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/tasks-guards-tasks-guards--4e80b-ds-in-awaiting-verification-firefox/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/tasks-guards-tasks-guards--4e80b-ds-in-awaiting-verification-firefox/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [firefox] › e2e/purchases.spec.ts:6:3 › purchases › a new batch stubs animals into QUARANTINE with the 45-day task schedule 
+    [firefox] › e2e/tasks-guards.spec.ts:15:3 › tasks guards › auto duties are form-linked; a completed duty lands in awaiting verification 
+  69 passed (3.1m)

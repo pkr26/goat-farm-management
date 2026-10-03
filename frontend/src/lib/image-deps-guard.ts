@@ -153,11 +153,14 @@ export function reportImageDecodeSafety(
 
 /**
  * Hook used by next.config.ts: hard-fail during a production build
- * (NEXT_PHASE=phase-production-build), warn in every other context so a
+ * (the documented configuration phase), warn in every other context so a
  * broken developer tree cannot be shipped as a build artifact.
  */
-export function assertImageDecodeSafetyForBuild(): void {
+export function assertImageDecodeSafetyForBuild(
+  phase: string,
+  deps: InstalledImageDeps = {},
+): void {
   const mode: SafetyReportMode =
-    process.env.NEXT_PHASE === "phase-production-build" ? "enforce" : "warn";
-  reportImageDecodeSafety(checkInstalledImageDecodeSafety(), mode);
+    phase === "phase-production-build" ? "enforce" : "warn";
+  reportImageDecodeSafety(checkInstalledImageDecodeSafety(deps), mode);
 }

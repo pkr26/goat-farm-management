@@ -31,6 +31,7 @@ from app.schemas.kidding import KiddingCreateIn
 from app.utils import today
 
 from .conftest import owner_with_farm
+from .type_helpers import JsonObject, json_object
 
 
 def iso(d: date) -> str:
@@ -52,7 +53,7 @@ async def make_animal(
     }
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def breed(
@@ -72,7 +73,7 @@ async def breed(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def confirm_pregnancy(
@@ -93,7 +94,7 @@ async def confirm_pregnancy(
         headers=headers,
     )
     assert scan.status_code == 200, scan.text
-    return (await client.get(f"/api/breeding/{breeding_id}", headers=headers)).json()
+    return json_object((await client.get(f"/api/breeding/{breeding_id}", headers=headers)).json())
 
 
 async def confirmed_pregnancy(
@@ -103,7 +104,7 @@ async def confirmed_pregnancy(
     tag: str,
     bred_days_ago: int,
     kid_count: int = 2,
-) -> tuple[dict, dict, dict]:
+) -> tuple[JsonObject, JsonObject, JsonObject]:
     """Doe + buck, service `bred_days_ago` back, ultrasound-confirmed."""
     doe = await make_animal(client, headers, f"{tag}-F", sex="F")
     buck = await make_animal(client, headers, f"{tag}-M", sex="M")

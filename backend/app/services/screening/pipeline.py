@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, NamedTuple, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import exists, func, literal, or_, select, union, update
+from sqlalchemy import Select, exists, func, literal, or_, select, union, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,8 +52,10 @@ from ...models.enums import (
     ScreeningRunStatus,
     ScreeningStage,
 )
+from ...models.screening import ScreeningDailyBudget
 from ...schemas.screening import MAX_SCREENING_UPLOAD_BYTES
 from ...utils import DEFAULT_BUSINESS_TIMEZONE, today, utcnow
+from .budget import ScreeningBudgetExhausted, reserve_provider_attempt
 from .detect import (
     DETECT_PROMPT_VERSION,
     DETECT_SYSTEM_PROMPT,
@@ -70,7 +72,7 @@ from .images import (
     crop_image,
     normalize_image,
 )
-from .providers import ProviderError, VisionProvider
+from .providers import BudgetedProvider, ProviderError, VisionProvider
 from .providers import gate as run_gate
 from .rotation import GateExhaustedError, GateOutcome, ProviderRotation
 from .s3 import (
@@ -103,6 +105,7 @@ class ScreeningErrorReason:
     PROVIDER_ERROR = "PROVIDER_ERROR"
     DOWNLOAD_FAILED = "DOWNLOAD_FAILED"
     INVALID_IMAGE = "INVALID_IMAGE"
+    QUALITY_PROBLEM = "QUALITY_PROBLEM"
     OBJECT_TOO_LARGE = "OBJECT_TOO_LARGE"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
@@ -111,6 +114,9 @@ _SCREENING_ERROR_MESSAGES = {
     ScreeningErrorReason.PROVIDER_ERROR: "screening provider call failed",
     ScreeningErrorReason.DOWNLOAD_FAILED: "photo storage could not be reached",
     ScreeningErrorReason.INVALID_IMAGE: "photo bytes could not be processed",
+    ScreeningErrorReason.QUALITY_PROBLEM: (
+        "photo cannot be assessed; take and upload a clearer photo"
+    ),
     ScreeningErrorReason.OBJECT_TOO_LARGE: "photo exceeds the size limit",
     ScreeningErrorReason.INTERNAL_ERROR: "unexpected screening failure",
 }
@@ -260,6 +266,8 @@ def cropped_derivative_key(
 class CycleSummary:
     claimed: int = 0
     healthy: int = 0
+    unassessable: int = 0
+    budget_deferred: int = 0
     flagged: int = 0
     skipped: int = 0
     errors: int = 0
@@ -380,19 +388,6 @@ async def _terminate_budget_exhausted_processing(
     return int(result.rowcount or 0)
 
 
-def _worst_case_calls_per_image(settings: ScreeningRuntimeSettings) -> int:
-    """Claim-time reservation: the most provider calls one image can cost.
-
-    One detection call plus, per crop, the full cascade (gate + one call per
-    specialist kind + cross-check). Without crop detection the whole photo
-    runs a single cascade. Actual spend stays the ScreeningRun ledger; this
-    only decides whether one more claim would overshoot the daily budget."""
-    cascade_calls = 2 + len(SpecialistKind)  # gate + specialists + cross-check
-    if settings.screening_crop_detection_enabled:
-        return 1 + settings.screening_max_crops_per_image * cascade_calls
-    return cascade_calls
-
-
 async def _farm_local_day_starts(db: AsyncSession, now: dt.datetime) -> dict[str, dt.datetime]:
     """Each farm timezone's local midnight today, as naive UTC.
 
@@ -422,7 +417,6 @@ async def _claim_retry_rows(
     abandoned_after: dt.timedelta,
     stale_after: dt.timedelta,
     daily_call_budget_per_farm: int = 0,
-    claim_reservation: int = 1,
 ) -> tuple[list[ScreeningImage], int, int]:
     """PENDING uploads, stale PROCESSING claims and aged ERROR rows, oldest first.
 
@@ -461,37 +455,52 @@ async def _claim_retry_rows(
             ScreeningCrop.status == ScreeningImageStatus.ERROR.value,
         )
     )
-    # ITEM 6 (2026-09-21 playbook): the per-farm daily provider-call budget.
-    # Spend is measured as the farm's ScreeningRun rows since its own local
-    # midnight — every provider call records exactly one run — and a farm is
-    # over budget when settled spend plus the worst-case reservation for one
-    # more claimed image would exceed the cap, so a multi-crop cascade
-    # claimed near the cap cannot overshoot by its full run count. Errored
-    # calls count too (the provider was paid). An over-budget farm simply has
-    # no claimable rows this cycle; its photos stay PENDING and drain
-    # tomorrow, when its local-day window reopens.
+    # This is only an inexpensive queue filter. Every outbound initial,
+    # retry and fallback attempt has independent durable admission below.
+    # No per-image worst-case formula can reserve a concurrent batch safely.
     budget = daily_call_budget_per_farm
-    budget_ok: ColumnElement[bool]
-    if budget > 0 and claim_reservation > budget:
-        # One image's worst case alone exceeds the cap: nothing may claim.
-        budget_ok = literal(False)
-    elif budget > 0:
+    budget_ok: ColumnElement[bool] = ~literal(False)
+    if budget > 0:
         day_starts = await _farm_local_day_starts(db, now)
-        if not day_starts:
-            budget_ok = ~literal(False)
-        else:
-            over_budget_parts = [
+        over_budget_parts: list[Select[tuple[int]]] = []
+        for timezone_name, day_start in day_starts.items():
+            try:
+                zone = ZoneInfo(timezone_name)
+            except ZoneInfoNotFoundError:
+                zone = ZoneInfo(DEFAULT_BUSINESS_TIMEZONE)
+            local_date = now.replace(tzinfo=dt.UTC).astimezone(zone).date()
+            charged = (
+                select(ScreeningDailyBudget.farm_id)
+                .join(Farm, Farm.id == ScreeningDailyBudget.farm_id)
+                .where(
+                    Farm.timezone == timezone_name,
+                    ScreeningDailyBudget.local_date == local_date,
+                    ScreeningDailyBudget.reserved_calls >= budget,
+                )
+            )
+            # Legacy logical calls have up to two transport attempts. Once a
+            # daily counter exists, it is authoritative and already includes
+            # that conservative baseline; never count its new run rows twice.
+            legacy = (
                 select(ScreeningRun.farm_id)
                 .join(Farm, Farm.id == ScreeningRun.farm_id)
-                .where(ScreeningRun.created_at >= day_start, Farm.timezone == timezone_name)
+                .where(
+                    ScreeningRun.created_at >= day_start,
+                    Farm.timezone == timezone_name,
+                    ~exists(
+                        select(ScreeningDailyBudget.farm_id).where(
+                            ScreeningDailyBudget.farm_id == ScreeningRun.farm_id,
+                            ScreeningDailyBudget.local_date == local_date,
+                        )
+                    ),
+                )
                 .group_by(ScreeningRun.farm_id)
-                .having(func.count() > budget - claim_reservation)
-                for timezone_name, day_start in day_starts.items()
-            ]
+                .having(func.count() * 2 >= budget)
+            )
+            over_budget_parts.extend((charged, legacy))
+        if over_budget_parts:
             over_budget_farms = union(*over_budget_parts).subquery()
             budget_ok = ~ScreeningImage.farm_id.in_(select(over_budget_farms.c.farm_id))
-    else:
-        budget_ok = ~literal(False)
 
     eligible = (
         (ScreeningImage.screening_attempts < MAX_SCREENING_ATTEMPTS)
@@ -622,7 +631,6 @@ async def run_screening_cycle(
         abandoned_after,
         stale_after,
         settings.screening_daily_call_budget_per_farm,
-        _worst_case_calls_per_image(settings),
     )
     summary.retried_errors += error_retries
     summary.retried_flagged += flagged_retries
@@ -655,27 +663,56 @@ async def run_screening_cycle(
     claimed_snapshot = [(image, image.id, image.screening_attempts) for image in claimed]
     identities_expired = False
     for image, image_id, attempts in claimed_snapshot:
+        budget_deferred = False
         try:
             if identities_expired:
                 # A previous iteration's rollback expired this row too;
                 # reload its columns before anything reads them.
                 await db.refresh(image)
-                identities_expired = False
             # Farm FK integrity guarantees this lookup.  The defensive India
             # fallback prevents a corrupt legacy row from crashing the whole
             # worker cycle while preserving existing date-helper behavior.
             business_today = today(
                 farm_timezones.get(image_farm_ids[image_id], DEFAULT_BUSINESS_TIMEZONE)
             )
+            budgeted_providers: list[VisionProvider] = []
+            for provider in rotation:
+
+                async def admit(
+                    provider_name: str = provider.name, admitted_image_id: int = image_id
+                ) -> None:
+                    await reserve_provider_attempt(
+                        db,
+                        farm_id=image_farm_ids[admitted_image_id],
+                        timezone_name=farm_timezones.get(
+                            image_farm_ids[admitted_image_id], DEFAULT_BUSINESS_TIMEZONE
+                        ),
+                        provider=provider_name,
+                        cap=settings.screening_daily_call_budget_per_farm,
+                        now=utcnow(),
+                    )
+
+                budgeted_providers.append(BudgetedProvider(provider, admit))
             await _process_image(
                 db,
                 settings,
                 storage,
-                rotation,
+                ProviderRotation(budgeted_providers),
                 image,
                 summary,
                 business_today,
             )
+        except ScreeningBudgetExhausted:
+            # No external request started. Preserve already written evidence,
+            # defer the unfinished image, and do not burn its failure budget.
+            budget_deferred = True
+            image.status = ScreeningImageStatus.ERROR.value
+            image.error = (
+                "Daily screening call budget reached; "
+                "unfinished screening waits for the next local day"
+            )
+            image.screening_attempts = max(0, attempts - 1)
+            summary.budget_deferred += 1
         except Exception as exc:
             # Log from the snapshot id: if the failure was the loop-top
             # refresh itself (dead connection), the instance is still
@@ -698,7 +735,11 @@ async def run_screening_cycle(
             # traceback for the operator.
             image.error = _tenant_safe_error(exc)
             summary.errors += 1
-        if image.status == ScreeningImageStatus.ERROR.value and attempts >= MAX_SCREENING_ATTEMPTS:
+        if (
+            image.status == ScreeningImageStatus.ERROR.value
+            and attempts >= MAX_SCREENING_ATTEMPTS
+            and not budget_deferred
+        ):
             # Central terminal marker: every ERROR path funnels through this
             # per-image boundary, and the claim predicate above refuses rows
             # at the budget, so this row will never be retried again.  Say so
@@ -903,7 +944,13 @@ async def _run_cascade(
         provider=gate_result.provider,
         model=gate_result.model,
         prompt_version=gate_result.prompt_version,
-        verdict="flagged" if gate_result.response.flagged else "healthy",
+        verdict=(
+            "unassessable"
+            if gate_result.response.quality_problem
+            else "flagged"
+            if gate_result.response.flagged
+            else "healthy"
+        ),
         confidence=gate_result.response.confidence,
         latency_ms=gate_result.latency_ms,
         detail={
@@ -915,6 +962,9 @@ async def _run_cascade(
         crop_id=crop_id,
     )
     db.add(gate_run)
+
+    if gate_result.response.quality_problem:
+        return ScreeningImageStatus.UNASSESSABLE.value
 
     if not gate_result.response.flagged:
         # The cascade stops here: one call, filed as healthy.
@@ -950,12 +1000,23 @@ async def _run_cascade(
             observation
         )
     gate_observations_lost: list[GateObservation] = []
-    for kind, region in kinds:
+    budget_limited = False
+    for kind_index, (kind, region) in enumerate(kinds):
         if serving is None:
             gate_observations_lost.extend(observations_by_kind.get(kind, []))
             continue
         try:
             specialist: SpecialistCallResult = await run_specialist(serving, jpeg, kind)
+        except ScreeningBudgetExhausted:
+            # Preserve the gate's urgent observations even when optional
+            # refinement has no admission. A denied request is not a paid
+            # error run; its absence is explicit in the gate provenance.
+            for remaining_kind, _ in kinds[kind_index:]:
+                gate_observations_lost.extend(observations_by_kind.get(remaining_kind, []))
+            gate_run.detail = {**(gate_run.detail or {}), "budget_limited": True}
+            summary.budget_deferred += 1
+            budget_limited = True
+            break
         except ProviderError as exc:
             db.add(
                 _record_run(
@@ -1043,7 +1104,7 @@ async def _run_cascade(
     secondary = rotation.cross_checker_for(
         business_today, gate_result.provider, outcome.failed_providers
     )
-    if secondary is not None and secondary.name != gate_result.provider:
+    if not budget_limited and secondary is not None and secondary.name != gate_result.provider:
         try:
             check = await run_gate(secondary, jpeg)
             db.add(
@@ -1053,13 +1114,26 @@ async def _run_cascade(
                     provider=check.provider,
                     model=check.model,
                     prompt_version=check.prompt_version,
-                    verdict="flagged" if check.response.flagged else "healthy",
+                    verdict=(
+                        "unassessable"
+                        if check.response.quality_problem
+                        else "flagged"
+                        if check.response.flagged
+                        else "healthy"
+                    ),
                     confidence=check.response.confidence,
                     latency_ms=check.latency_ms,
-                    detail={"cross_check_of": gate_run.id, "agrees": check.response.flagged},
+                    detail={
+                        "cross_check_of": gate_run.id,
+                        "agrees": check.response.flagged and not check.response.quality_problem,
+                        "quality_problem": check.response.quality_problem,
+                    },
                     crop_id=crop_id,
                 )
             )
+        except ScreeningBudgetExhausted:
+            gate_run.detail = {**(gate_run.detail or {}), "budget_limited": True}
+            summary.budget_deferred += 1
         except ProviderError as exc:
             db.add(
                 _record_run(
@@ -1089,6 +1163,8 @@ def _aggregate_crop_statuses(statuses: list[str]) -> str:
         return ScreeningImageStatus.FLAGGED.value
     if ScreeningImageStatus.ERROR.value in statuses:
         return ScreeningImageStatus.ERROR.value
+    if ScreeningImageStatus.UNASSESSABLE.value in statuses:
+        return ScreeningImageStatus.UNASSESSABLE.value
     return ScreeningImageStatus.HEALTHY.value if statuses else ScreeningImageStatus.ERROR.value
 
 
@@ -1135,6 +1211,7 @@ async def _resolve_content_claim_conflict(
     ).scalar_one_or_none()
     if owner_status in (
         ScreeningImageStatus.HEALTHY.value,
+        ScreeningImageStatus.UNASSESSABLE.value,
         ScreeningImageStatus.FLAGGED.value,
         ScreeningImageStatus.SKIPPED.value,
     ):
@@ -1441,6 +1518,7 @@ async def _process_image(
                 ScreeningImage.status.in_(
                     [
                         ScreeningImageStatus.HEALTHY.value,
+                        ScreeningImageStatus.UNASSESSABLE.value,
                         ScreeningImageStatus.FLAGGED.value,
                         ScreeningImageStatus.SKIPPED.value,
                     ]
@@ -1523,6 +1601,9 @@ async def _process_image(
             summary.flagged += 1
         elif status == ScreeningImageStatus.HEALTHY.value:
             summary.healthy += 1
+        elif status == ScreeningImageStatus.UNASSESSABLE.value:
+            image.error = _reason_text(ScreeningErrorReason.QUALITY_PROBLEM)
+            summary.unassessable += 1
         else:
             image.error = _reason_text(ScreeningErrorReason.PROVIDER_ERROR)
             summary.errors += 1
@@ -1562,6 +1643,9 @@ async def _process_image(
             summary.flagged += 1
         elif status == ScreeningImageStatus.HEALTHY.value:
             summary.healthy += 1
+        elif status == ScreeningImageStatus.UNASSESSABLE.value:
+            image.error = _reason_text(ScreeningErrorReason.QUALITY_PROBLEM)
+            summary.unassessable += 1
         else:
             image.error = _reason_text(ScreeningErrorReason.PROVIDER_ERROR)
             summary.errors += 1
@@ -1632,6 +1716,8 @@ async def _process_image(
         crop.status = status
         if status == ScreeningImageStatus.ERROR.value:
             crop.error = _reason_text(ScreeningErrorReason.PROVIDER_ERROR)
+        elif status == ScreeningImageStatus.UNASSESSABLE.value:
+            crop.error = _reason_text(ScreeningErrorReason.QUALITY_PROBLEM)
         crop_statuses.append(status)
         # One completed crop = one lease renewal: a multi-crop photo must
         # never look stale while it is still making per-crop progress.
@@ -1642,6 +1728,9 @@ async def _process_image(
         summary.flagged += 1
     elif image.status == ScreeningImageStatus.HEALTHY.value:
         summary.healthy += 1
+    elif image.status == ScreeningImageStatus.UNASSESSABLE.value:
+        image.error = _reason_text(ScreeningErrorReason.QUALITY_PROBLEM)
+        summary.unassessable += 1
     else:
         image.error = "one or more goats could not be screened (see crop rows)"
         summary.errors += 1

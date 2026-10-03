@@ -35,4 +35,5 @@ export interface AnnualPLRow {
   debt_service: number;
   terminal_value: number;
   net_cash_flow: number;
+  subsidy_receipt?: number;
 }

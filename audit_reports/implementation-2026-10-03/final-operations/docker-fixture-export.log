@@ -1,0 +1,8 @@
+Command: docker export --output /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/fixture-container.tar herdly-context-proof-effd93f5fff24aaca0c5553704bf53d0
+Cwd: /Users/pradeepreddy/Desktop/goat-farm-management-main
+Exit code: 0
+Expected exit: 0
+
+STDOUT:
+
+STDERR:

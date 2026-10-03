@@ -1,0 +1,10 @@
+Command: docker image rm herdly-context-proof-20261003:43efa0d835c74c0595202406a898d2be
+Cwd: /Users/pradeepreddy/Desktop/goat-farm-management-main
+Exit code: 0
+Expected exit: 0
+
+STDOUT:
+Untagged: herdly-context-proof-20261003:43efa0d835c74c0595202406a898d2be
+Deleted: sha256:649798ea2f6bd2a18d27c010e4ae7b9fb4998222173d863f9b73e2e7f36e9c02
+
+STDERR:

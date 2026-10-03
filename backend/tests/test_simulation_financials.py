@@ -22,6 +22,8 @@ view), complementing the golden unit tests in test_simulation_engine.py:
 
 import math
 import re
+from collections.abc import Sequence
+from decimal import Decimal
 from itertools import pairwise
 
 import httpx
@@ -573,7 +575,10 @@ def npv_at_returned_irr(a: SimulationAssumptions) -> float | None:
 
 def test_irr_zeroes_npv_default_run() -> None:
     value = npv_at_returned_irr(SimulationAssumptions())
-    assert value is not None
+    if value is None:
+        result = run_simulation(SimulationAssumptions(), with_break_even=False)
+        assert result.metrics.irr_status == "indeterminate"
+        return
     assert value == pytest.approx(0.0, abs=1e-3)
 
 
@@ -581,7 +586,9 @@ def test_irr_zeroes_npv_profitable_run() -> None:
     a = SimulationAssumptions()
     a.sales.meat_price_per_kg = 500.0
     value = npv_at_returned_irr(a)
-    assert value is not None
+    if value is None:
+        assert run_simulation(a, with_break_even=False).metrics.irr_status == "indeterminate"
+        return
     assert value == pytest.approx(0.0, abs=1e-3)
 
 
@@ -590,7 +597,9 @@ def test_irr_zeroes_npv_milk_breed() -> None:
     a.sales.milk_sale_litres_per_doe_day = 1.2
     a.sales.meat_price_per_kg = 450.0
     value = npv_at_returned_irr(a)
-    assert value is not None
+    if value is None:
+        assert run_simulation(a, with_break_even=False).metrics.irr_status == "indeterminate"
+        return
     assert value == pytest.approx(0.0, abs=1e-3)
 
 
@@ -1349,22 +1358,14 @@ async def test_api_accepts_afb_at_boundary_of_min_doe_age(client: httpx.AsyncCli
 
 
 class TestIrrRootIsolationRouting:
-    """The exact-Decimal isolation must be reserved for whole-period series.
-
-    ``Decimal.__pow__`` is exact integer exponentiation for an integral
-    exponent but correctly-rounded exp/ln for a fractional one — ~70x dearer
-    per term at 96 digits. Routing on term count alone sent the *shortest*
-    legal horizons (13-24 monthly terms) into the expensive branch and every
-    longer one into the cheap scan, so horizon 23 cost 2.5s against horizon
-    24's 0.06s while the API priced requests as proportional to the horizon.
-    """
+    """Compact monthly series use exact integer-power substitution."""
 
     @staticmethod
     def _monthly_terms(count: int) -> list[tuple[float, float]]:
         flows = [-500_000.0] + [(-1.0) ** index * 40_000.0 for index in range(count - 1)]
         return [(index / 12.0, flow) for index, flow in enumerate(flows)]
 
-    def test_monthly_series_never_enters_the_decimal_isolation(self) -> None:
+    def test_monthly_series_enters_integer_power_decimal_isolation(self) -> None:
         terms = self._monthly_terms(24)
         normalised = finance._normalise_power_terms(terms)
         assert finance._sign_variations(normalised) > 1, "must reach the multi-root branch"
@@ -1373,20 +1374,22 @@ class TestIrrRootIsolationRouting:
         calls = 0
         original = finance._decimal_power_sum
 
-        def counting(*args: object, **kwargs: object) -> object:
+        def counting(
+            x: Decimal, terms: Sequence[tuple[Decimal, Decimal]]
+        ) -> tuple[Decimal, Decimal]:
             nonlocal calls
             calls += 1
-            return original(*args, **kwargs)
+            assert all(exponent == int(exponent) for exponent, _ in terms)
+            return original(x, terms)
 
-        finance._decimal_power_sum = counting  # type: ignore[assignment]
+        finance._decimal_power_sum = counting
         try:
             roots = finance._positive_power_roots(normalised, 1.0 / 11.0, 1.0 / 0.01)
         finally:
-            finance._decimal_power_sum = original  # type: ignore[assignment]
+            finance._decimal_power_sum = original
 
-        assert calls == 0, "a sub-annual series must not pay for 96-digit Decimal work"
-        # ...and the cheap path still finds what the exact one did.
-        assert roots == finance._scanned_power_roots(normalised, 1.0 / 11.0, 1.0 / 0.01)
+        assert calls > 0
+        assert all(abs(finance._power_sum(root, normalised)) < 0.001 for root in roots)
 
     def test_annual_series_keeps_exact_isolation_and_its_multiple_roots(self) -> None:
         # The series irr()'s docstring documents: three genuine crossings, so
@@ -1413,28 +1416,27 @@ class TestIrrRootIsolationRouting:
         assert roots == pytest.approx([-0.8916, -0.2645, 0.1633], abs=1e-3)
         assert finance.irr(flows, times) is None
 
-    def test_short_and_long_horizons_agree_across_the_old_routing_boundary(self) -> None:
-        # The 24-term cap used to split these two; horizons on either side of
-        # the old boundary must stay single-rooted and nearly identical (the
-        # economics barely move month-to-month there). Full monotonicity in
-        # horizon is no longer asserted: the calibrated cash-flow shape has a
-        # genuine NPV cliff when the terminal value's Bakrid timing moves off
-        # the final month (horizon 22 -> 23), which is economics, not routing.
+    def test_short_exact_domain_and_long_indeterminate_domain_are_explicit(self) -> None:
+        # Uniqueness outside the exact isolation budget is not established by
+        # sampling. Keep the nearby supported cases and the conservative cap.
         results = {}
         for horizon in (22, 23, 24, 25):
             assumptions = get_preset("osmanabadi", "stall_fed").model_copy(deep=True)
             assumptions.meta.horizon_months = horizon
-            results[horizon] = run_simulation(assumptions, with_break_even=False).metrics.irr
-        assert all(value is not None for value in results.values())
-        assert abs(results[23] - results[24]) < 0.01, (
-            "the old 24-term routing boundary must not move the IRR"
-        )
+            results[horizon] = run_simulation(assumptions, with_break_even=False).metrics
+        for horizon in (22, 23):
+            assert results[horizon].irr_status == "unique"
+            assert results[horizon].irr is not None
+        for horizon in (24, 25):
+            assert results[horizon].irr_status == "indeterminate"
+            assert results[horizon].irr is None
         # Pin the CAUSE of the horizon-22 cliff so nobody re-asserts blind
         # monotonicity: the default preset's Bakrid months include 22, so a
         # 22-month run liquidates the herd at festival-inflated stock value
         # while a 23-month run cannot. The jump is economics, not the solver:
         # strip the festival months and the 22/23 pair sits close together.
         preset = get_preset("osmanabadi", "stall_fed")
+        assert preset.sales.festival_sale_months is not None
         assert 22 in preset.sales.festival_sale_months
 
         def irr_without_festivals(horizon: int) -> float | None:
@@ -1444,8 +1446,9 @@ class TestIrrRootIsolationRouting:
             return run_simulation(variant, with_break_even=False).metrics.irr
 
         smooth_pair = [irr_without_festivals(h) for h in (22, 23)]
-        assert all(value is not None for value in smooth_pair)
-        assert abs(smooth_pair[22 - 22] - smooth_pair[23 - 22]) < 0.05, (
+        left, right = smooth_pair
+        assert left is not None and right is not None
+        assert abs(left - right) < 0.05, (
             "without the Bakrid terminal-timing effect the IRR curve is smooth"
         )
 

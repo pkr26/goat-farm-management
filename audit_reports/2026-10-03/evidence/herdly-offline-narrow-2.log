@@ -1,0 +1,55 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Generating static SQL
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running downgrade f3d4e5f6a7b8 -> f2c3d4e5f6a7, actor-scoped farm creation idempotency and task-check validation
+Traceback (most recent call last):
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/alembic", line 10, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/config.py", line 1039, in main
+    CommandLine(prog=prog).main(argv=argv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/config.py", line 1029, in main
+    self.run_cmd(cfg, options)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/config.py", line 963, in run_cmd
+    fn(
+    ~~^
+        config,
+        ^^^^^^^
+        *[getattr(options, k, None) for k in positional],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **{k: getattr(options, k, None) for k in kwarg},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/command.py", line 534, in downgrade
+    script.run_env()
+    ~~~~~~~~~~~~~~^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/script/base.py", line 550, in run_env
+    util.load_python_file(self.dir, "env.py")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/util/pyfiles.py", line 114, in load_python_file
+    module = load_module_py(module_id, path)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/util/pyfiles.py", line 132, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/alembic/env.py", line 120, in <module>
+    run_migrations_offline()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/alembic/env.py", line 71, in run_migrations_offline
+    context.run_migrations()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "<string>", line 8, in run_migrations
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/runtime/environment.py", line 967, in run_migrations
+    self.get_context().run_migrations(**kw)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/alembic/runtime/migration.py", line 621, in run_migrations
+    step.migration_fn(**kw)
+    ~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/alembic/versions/f3d4e5f6a7b8_actor_scoped_farm_idempotency.py", line 196, in downgrade
+    ).scalars()
+      ^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'scalars'

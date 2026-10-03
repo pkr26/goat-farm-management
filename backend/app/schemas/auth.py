@@ -65,6 +65,8 @@ class RegisterIn(EmailMixin):
 
 
 class LoginIn(EmailMixin):
+    # A temporary manager setup proof must not replace a worker browser cookie.
+    tablet_setup: bool = False
     email: str = Field(max_length=MAX_EMAIL_LENGTH)
     password: PasswordString = Field(max_length=128)
 
@@ -154,6 +156,7 @@ class WorkerRosterOut(BaseModel):
     # Deliberate legacy name (2026-09-28 audit): domain-noun siblings use
     # e.g. ``animals``, but ``items`` is locked into the wire contract.
     items: list[WorkerRosterEntryOut]
+    next_after_membership_id: int | None = None
 
 
 class TotpRecoveryCodesOut(BaseModel):
@@ -176,6 +179,11 @@ class TotpRecoveryRegenerateIn(StrictInputModel):
 
 
 class AccountDeleteIn(StrictInputModel):
+    current_password: PasswordString = Field(min_length=1, max_length=128)
+
+
+class FarmOwnershipTransferIn(StrictInputModel):
+    membership_id: int = Field(ge=1, le=MAX_INT32_ID)
     current_password: PasswordString = Field(min_length=1, max_length=128)
 
 

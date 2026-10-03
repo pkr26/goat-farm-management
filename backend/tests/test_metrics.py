@@ -54,6 +54,12 @@ def _sample_value(samples: dict[tuple[str, str], float], name: str, labels: str)
     return next((v for (n, lab), v in samples.items() if n == name and lab == labels), None)
 
 
+def _required_sample_value(samples: dict[tuple[str, str], float], name: str, labels: str) -> float:
+    value = _sample_value(samples, name, labels)
+    assert value is not None, f"Missing metric {name} {labels}"
+    return value
+
+
 def _any_labeled_sample(
     samples: dict[tuple[str, str], float], name: str, required_label: str
 ) -> bool:
@@ -217,10 +223,11 @@ async def test_screening_provider_call_counters_track_outcomes_and_cost(
         )
     after_ok = _samples(metrics.render())
     assert (
-        _sample_value(after_ok, calls, ok_labels) - (_sample_value(before, calls, ok_labels) or 0.0)
+        _required_sample_value(after_ok, calls, ok_labels)
+        - (_sample_value(before, calls, ok_labels) or 0.0)
         == 1.0
     )
-    assert _sample_value(after_ok, cost, 'provider="metrics-probe"') - (
+    assert _required_sample_value(after_ok, cost, 'provider="metrics-probe"') - (
         _sample_value(before, cost, 'provider="metrics-probe"') or 0.0
     ) == pytest.approx(0.50)
 
@@ -235,11 +242,11 @@ async def test_screening_provider_call_counters_track_outcomes_and_cost(
         )
     after_err = _samples(metrics.render())
     assert (
-        _sample_value(after_err, calls, err_labels)
+        _required_sample_value(after_err, calls, err_labels)
         - (_sample_value(after_ok, calls, err_labels) or 0.0)
         == 1.0
     )
-    assert _sample_value(after_err, cost, 'provider="metrics-probe-fail"') - (
+    assert _required_sample_value(after_err, cost, 'provider="metrics-probe-fail"') - (
         _sample_value(after_ok, cost, 'provider="metrics-probe-fail"') or 0.0
     ) == pytest.approx(0.50)
 

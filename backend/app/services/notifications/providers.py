@@ -15,7 +15,7 @@ from typing import Protocol
 
 import httpx
 
-from ...core.config import Settings
+from ...core.config import Settings, _has_nonblank_secret
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,11 @@ class DeliveryResult:
 
 
 class NotificationDeliveryError(Exception):
-    """Transport-level failure; the caller records it in the log and moves on."""
+    """A failed attempt; retry only when no request could have been accepted."""
+
+    def __init__(self, message: str, *, safe_to_retry: bool = False) -> None:
+        super().__init__(message)
+        self.safe_to_retry = safe_to_retry
 
 
 class NotificationProvider(Protocol):
@@ -116,16 +120,21 @@ class Msg91Provider:
                 return DeliveryResult(ok=False, error=str(payload)[:500])
             return DeliveryResult(ok=True, message_id=str(payload.get("message", ""))[:64])
         except httpx.HTTPError as exc:
-            raise NotificationDeliveryError(str(exc)) from exc
+            raise NotificationDeliveryError(
+                str(exc),
+                safe_to_retry=isinstance(
+                    exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+                ),
+            ) from exc
 
 
 def build_notification_provider(settings: Settings) -> NotificationProvider:
     if settings.notifications_provider == "msg91":
         auth_key = settings.msg91_auth_key
-        if auth_key is None:
+        if not _has_nonblank_secret(auth_key):
             raise ValueError("notifications_provider=msg91 requires GOATFARM_MSG91_AUTH_KEY")
         return Msg91Provider(
-            auth_key.get_secret_value(),
+            auth_key.get_secret_value() if auth_key is not None else "",
             settings.msg91_sender_id,
             settings.msg91_template_id,
         )

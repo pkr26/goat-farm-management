@@ -1,0 +1,15 @@
+{
+  "recorded_at": "2026-10-03T19:00:17.098410+00:00",
+  "command": "/tmp/herdly-pip-audit-runtime/bin/python -m pip_audit -r /tmp/herdly-runtime-requirements.txt --no-deps --disable-pip --progress-spinner off --format json",
+  "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+  "exit_code": 0,
+  "dependencies_audited": 44,
+  "known_vulnerabilities": 0,
+  "frozen_runtime_export_matches_current_lock": true,
+  "source_sha256": {
+    "uv.lock": "9383a7d338e4807e9e7e4d76b281eb71f9c8097bf1cdc4608bc072723e47a119",
+    "pyproject.toml": "9e808de3f0356f42f02ecfaa2e9913d3cca25474545a338dd3cdd42c14ed6d72",
+    "/tmp/herdly-runtime-requirements.txt": "3de4ef628aa8218ba6cfe0408f2a57e3f4ee3da85c391c9e9164424b2e337464"
+  },
+  "scope": "Runtime-only pinned dependency advisory audit; export contents match current frozen lock. No production deployment proof."
+}

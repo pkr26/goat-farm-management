@@ -32,16 +32,8 @@ jobs:
         # additions; modifying/renaming/deleting an existing
         # backend/alembic/versions/*.py must ship as a NEW revision instead.
         #
-        # The one sanctioned exception: a defect INSIDE an applied revision's
-        # own DDL (a child-wipe ordering that FK-aborts, a guarded UPDATE a
-        # later trigger rejects) can never be pre-empted by a later revision —
-        # the broken statement runs before any successor gets a turn, so the
-        # correction must edit the revision itself. Both DB populations stay
-        # safe because alembic runs each revision transactionally (a database
-        # that aborted sits at the prior revision and re-runs the fixed file;
-        # a database that succeeded had no matching rows, making the added
-        # statements no-ops). The allowlist is deliberately explicit, per file
-        # and per incident, so the gate stays closed to everything else.
+        # Historical incident exemptions are retired; no applied revision
+        # is exempt from this gate.
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             range="${{ github.event.pull_request.base.sha }}..HEAD"
@@ -73,37 +65,19 @@ jobs:
               range="$before..HEAD"
             fi
           fi
-          # 2026-09-20 audit P1-6 (bd201c1cdc1b: wipe feed lines/finished
-          # stock before recipes) and P2-13 (b5d7f9a1c3e5: detach ORF-linked
-          # health_events before the template delete, behind the trigger).
-          # (The 2026-09-29 D6 re-parenting entries — a4b5c6d7e8f9,
-          # c6d7e8f9a0b1, e8f9a0b1c2d3 — were removed once that push landed:
-          # the allowlist only ever names genuinely-applied revisions whose
-          # in-place correction shipped, never permanently.)
-          # 2026-10-02 audit: commit 213e9a1 added a DOCSTRING-ONLY audit
-          # acceptance note to c8f1d3a5e709 (the same revision the header
-          # above already discusses) — zero DDL/behavior change, no applied
-          # database affected, but the edit landed in the push range and this
-          # gate correctly flagged it. Retro-sanctioned here so a re-run of
-          # that push is green and the incident is recorded where the gate
-          # keeps its bookkeeping; remove this entry with the next push that
-          # does not touch it (D6 precedent).
-          sanctioned="backend/alembic/versions/bd201c1cdc1b_goat_only_simplification.py backend/alembic/versions/b5d7f9a1c3e5_backfill_species_reference_data.py backend/alembic/versions/c8f1d3a5e709_finance_feed_task_integrity.py"
+          # Applied history is immutable; past incident exemptions are retired.
           touched="$(git diff --name-only --diff-filter=MDR "$range" -- 'backend/alembic/versions/')"
           unexpected=""
           while IFS= read -r file; do
             [ -z "$file" ] && continue
-            case " $sanctioned " in
-              *" $file "*) echo "::notice::Sanctioned in-place correction (2026-09-20 audit P1-6/P2-13): $file" ;;
-              *) unexpected="${unexpected}${file}"$'\n' ;;
-            esac
+            unexpected="${unexpected}${file}"$'\n'
           done <<< "$touched"
           if [ -n "$unexpected" ]; then
             echo "::error::Modified or deleted applied-migration files (ship corrections as NEW revisions):"
             printf '%s' "$unexpected"
             exit 1
           fi
-          echo "no unsanctioned applied revision was modified — immutability holds"
+          echo "no applied revision was modified — immutability holds"
 
   backend:
     runs-on: ubuntu-latest
@@ -182,11 +156,14 @@ jobs:
         working-directory: backend
         run: python -m mypy --strict mutation
 
-      - name: mypy --strict over tests (counted ratchet)
-        # The 113-file test suite predates strict typing; the ratchet fails
-        # CI when the error count GROWS and asks for the lowered baseline
-        # file on every deliberate decrease (same vehicle as coverage
-        # fail_under) — full strictness is the destination (2026-09-29).
+      - name: Backend mutation harness contracts (isolated fixtures)
+        working-directory: backend
+        run: python -m pytest -q tests/test_mutation_harness_20261003.py
+
+      - name: mypy --strict over tests (zero-error gate)
+        # The original 1778-error ratchet reached zero on 2026-10-03.
+        # Both the strict run and the checked-in baseline must stay at zero;
+        # --update cannot accept new typing debt.
         working-directory: backend
         run: python scripts/mypy_tests_ratchet.py
 
@@ -295,6 +272,10 @@ jobs:
           pnpm orval
           git diff --exit-code -- src/api/generated
 
+      - name: Frontend mutation harness contracts (isolated Vitest fixtures)
+        working-directory: frontend
+        run: node --test mutation/mutate_harness.test.mjs
+
       - name: Vitest (coverage thresholds enforced)
         working-directory: frontend
         # test:coverage = `vitest run --coverage`; without --coverage the
@@ -322,7 +303,7 @@ jobs:
 
       - name: Dependency vulnerability scan
         working-directory: frontend
-        run: pnpm audit --audit-level=low
+        run: pnpm audit:verified
 
   # End-to-end: Playwright drives the real SPA against a live FastAPI +
   # PostgreSQL.

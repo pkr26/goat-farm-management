@@ -21,21 +21,25 @@ x-db-ca: &db-ca
   target: /run/secrets/goatfarm-postgres-ca.pem
   read_only: true
 
-# File-delivered application secrets (2026-10-01 audit, 09-1): the same
-# read-only bind-mount delivery the JWT PEMs and the database CA above
-# already use, so these values never appear in `docker inspect` output or
-# /proc/<pid>/environ — only their container-side *_FILE paths do. Each
-# consuming service receives the GOATFARM_*_FILE in-container paths it
-# needs; setting one makes the app read the secret from that file INSTEAD
-# of the plain environment variable (plain delivery keeps working for
-# deployments that have not migrated; the config-guard preflight refuses an
-# env file that delivers a required secret by both routes or by neither).
-# The default host directory is auto-created empty and simply unused by
-# env-var deployments, so upgrades do not break; point it at a real
-# mode-0600/UID-10001-readable directory to adopt file delivery.
-x-app-secrets: &app-secrets
+# Each database-capable service gets its own secret directory. Keep DDL
+# credentials in migration/, API HMAC/TOTP/metrics credentials in api/, and
+# only worker DB/storage/provider credentials in worker/. Identical in-container
+# paths remain compatible after splitting an older shared host directory.
+x-api-secrets: &api-secrets
   type: bind
-  source: '${GOATFARM_APP_SECRET_DIR:-./secrets/app}'
+  source: '${GOATFARM_API_SECRET_DIR:-./secrets/api}'
+  target: /run/secrets/app
+  read_only: true
+
+x-migration-secrets: &migration-secrets
+  type: bind
+  source: '${GOATFARM_MIGRATION_SECRET_DIR:-./secrets/migration}'
+  target: /run/secrets/app
+  read_only: true
+
+x-worker-secrets: &worker-secrets
+  type: bind
+  source: '${GOATFARM_WORKER_SECRET_DIR:-./secrets/worker}'
   target: /run/secrets/app
   read_only: true
 
@@ -72,6 +76,12 @@ services:
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE:-}'
       GOATFARM_TOTP_ENCRYPTION_KEY: '${GOATFARM_TOTP_ENCRYPTION_KEY:-}'
       GOATFARM_TOTP_ENCRYPTION_KEY_FILE: '${GOATFARM_TOTP_ENCRYPTION_KEY_FILE:-}'
+      GOATFARM_WORKER_DATABASE_URL: '${GOATFARM_WORKER_DATABASE_URL:-}'
+      GOATFARM_WORKER_DATABASE_URL_FILE: '${GOATFARM_WORKER_DATABASE_URL_FILE:-}'
+      GOATFARM_APP_SECRET_DIR: '${GOATFARM_APP_SECRET_DIR:-}'
+      GOATFARM_API_SECRET_DIR: '${GOATFARM_API_SECRET_DIR:-./secrets/api}'
+      GOATFARM_MIGRATION_SECRET_DIR: '${GOATFARM_MIGRATION_SECRET_DIR:-./secrets/migration}'
+      GOATFARM_WORKER_SECRET_DIR: '${GOATFARM_WORKER_SECRET_DIR:-./secrets/worker}'
     volumes:
       - type: bind
         source: '${GOATFARM_COMPOSE_ENV_FILE:?set this to the exact production --env-file path}'
@@ -111,7 +121,7 @@ services:
       GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS: ${GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS:-0}
     volumes:
       - *db-ca
-      - *app-secrets
+      - *migration-secrets
     networks:
       - goatfarm_app
 
@@ -146,6 +156,10 @@ services:
       GOATFARM_ENVIRONMENT: production
       GOATFARM_DB_SSLMODE: verify-full
       GOATFARM_DB_SSLROOTCERT_PATH: /run/secrets/goatfarm-postgres-ca.pem
+      GOATFARM_METRICS_ENABLED: ${GOATFARM_METRICS_ENABLED:-true}
+      GOATFARM_METRICS_PUBLIC_ENABLED: "false"
+      GOATFARM_METRICS_BEARER_TOKEN: '${GOATFARM_METRICS_BEARER_TOKEN:-}'
+      GOATFARM_METRICS_BEARER_TOKEN_FILE: '${GOATFARM_METRICS_BEARER_TOKEN_FILE:-}'
       GOATFARM_COOKIE_SECURE: "true"
       GOATFARM_CORS_ORIGINS: '${GOATFARM_CORS_ORIGINS:?set exact public HTTPS SPA origin JSON}'
       GOATFARM_ALLOWED_HOSTS: '${GOATFARM_ALLOWED_HOSTS:?set exact public API host JSON}'
@@ -221,9 +235,19 @@ services:
       # worker roster is an enumeration oracle by documented design, and sites
       # that never show the tap-your-name screen can close it entirely.
       GOATFARM_WORKER_ROSTER_ENABLED: ${GOATFARM_WORKER_ROSTER_ENABLED:-true}
+      # Bound each maintenance pass; the cursor resumes on the next tick.
+      GOATFARM_RETENTION_SWEEP_ENABLED: ${GOATFARM_RETENTION_SWEEP_ENABLED:-false}
+      GOATFARM_RETENTION_SWEEP_INTERVAL_SECONDS: ${GOATFARM_RETENTION_SWEEP_INTERVAL_SECONDS:-86400}
+      GOATFARM_RETENTION_SCREENING_DAYS: ${GOATFARM_RETENTION_SCREENING_DAYS:-180}
+      GOATFARM_RETENTION_TERMINAL_TASK_DAYS: ${GOATFARM_RETENTION_TERMINAL_TASK_DAYS:-365}
+      GOATFARM_RETENTION_DELETE_BATCH_SIZE: ${GOATFARM_RETENTION_DELETE_BATCH_SIZE:-500}
+      GOATFARM_RETENTION_FARM_BATCH_SIZE: ${GOATFARM_RETENTION_FARM_BATCH_SIZE:-100}
+      GOATFARM_RETENTION_MAX_BATCHES_PER_FARM: ${GOATFARM_RETENTION_MAX_BATCHES_PER_FARM:-4}
+      GOATFARM_RETENTION_LOCK_TIMEOUT_MS: ${GOATFARM_RETENTION_LOCK_TIMEOUT_MS:-250}
+      GOATFARM_RETENTION_STATEMENT_TIMEOUT_MS: ${GOATFARM_RETENTION_STATEMENT_TIMEOUT_MS:-5000}
     volumes:
       - *db-ca
-      - *app-secrets
+      - *api-secrets
       - type: bind
         source: '${GOATFARM_JWT_SECRET_DIR:?set GOATFARM_JWT_SECRET_DIR to a read-only PEM directory}'
         target: /run/secrets/jwt
@@ -259,8 +283,8 @@ services:
       # Same dual-mode secret delivery as the backend (2026-10-01 audit,
       # 09-1): a set *_FILE container path wins over the plain value; the
       # worker receives only the secrets its image-processing role needs.
-      GOATFARM_DATABASE_URL: '${GOATFARM_DATABASE_URL:-}'
-      GOATFARM_DATABASE_URL_FILE: '${GOATFARM_DATABASE_URL_FILE:-}'
+      GOATFARM_DATABASE_URL: '${GOATFARM_WORKER_DATABASE_URL:-}'
+      GOATFARM_DATABASE_URL_FILE: '${GOATFARM_WORKER_DATABASE_URL_FILE:-}'
       GOATFARM_ENVIRONMENT: production
       GOATFARM_DB_SSLMODE: verify-full
       GOATFARM_DB_SSLROOTCERT_PATH: /run/secrets/goatfarm-postgres-ca.pem
@@ -302,7 +326,7 @@ services:
       GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES: ${GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES:-3}
     volumes:
       - *db-ca
-      - *app-secrets
+      - *worker-secrets
     networks:
       - goatfarm_app
 

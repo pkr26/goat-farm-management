@@ -1,0 +1,54 @@
+(node:51465) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+┌─────────────────────┬────────────────────────────────────────────────────────┐
+│ critical            │ Next.js: Remote Code Execution in next/og              │
+│                     │ ImageResponse                                          │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ Package             │ next                                                   │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ Vulnerable versions │ >=16.2.0 <16.3.6                                       │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ Patched versions    │ >=16.3.6                                               │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ Paths               │ . > next@16.3.3                                        │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ More info           │ https://github.com/advisories/GHSA-vcvr-r3jv-pc5j      │
+└─────────────────────┴────────────────────────────────────────────────────────┘
+┌─────────────────────┬────────────────────────────────────────────────────────┐
+│ moderate            │ fast-uri vulnerable to inconsistent host case          │
+│                     │ normalization via percent-encoded octets               │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ Package             │ fast-uri                                               │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ Vulnerable versions │ >=4.0.0 <4.1.5                                         │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ Patched versions    │ >=4.1.5                                                │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ Paths               │ . > @hookform/resolvers@5.7.1 > ajv@8.20.0 >           │
+│                     │ fast-uri@4.1.4                                         │
+│                     │                                                        │
+│                     │ . > @hookform/resolvers@5.7.1 > ajv-formats@2.1.1 >    │
+│                     │ ajv@8.20.0 > fast-uri@4.1.4                            │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ More info           │ https://github.com/advisories/GHSA-hrr3-gc8f-f4qj      │
+└─────────────────────┴────────────────────────────────────────────────────────┘
+┌─────────────────────┬────────────────────────────────────────────────────────┐
+│ moderate            │ fast-uri vulnerable to mailto header injection via     │
+│                     │ percent-encoded field-name desynchronization           │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ Package             │ fast-uri                                               │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ Vulnerable versions │ >=4.1.3 <4.1.5                                         │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ Patched versions    │ >=4.1.5                                                │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ Paths               │ . > @hookform/resolvers@5.7.1 > ajv@8.20.0 >           │
+│                     │ fast-uri@4.1.4                                         │
+│                     │                                                        │
+│                     │ . > @hookform/resolvers@5.7.1 > ajv-formats@2.1.1 >    │
+│                     │ ajv@8.20.0 > fast-uri@4.1.4                            │
+├─────────────────────┼────────────────────────────────────────────────────────┤
+│ More info           │ https://github.com/advisories/GHSA-jvvf-x445-j334      │
+└─────────────────────┴────────────────────────────────────────────────────────┘
+3 vulnerabilities found
+Severity: 2 moderate | 1 critical

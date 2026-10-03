@@ -16,9 +16,10 @@ import httpx
 from app.utils import today
 
 from .conftest import login_and_rotate, owner_with_farm
+from .type_helpers import json_int
 
 
-async def _shared_role_id(client: httpx.AsyncClient, owner: dict) -> int:
+async def _shared_role_id(client: httpx.AsyncClient, owner: dict[str, str]) -> int:
     role = await client.post(
         "/api/team/roles",
         json={
@@ -28,11 +29,11 @@ async def _shared_role_id(client: httpx.AsyncClient, owner: dict) -> int:
         headers=owner,
     )
     assert role.status_code == 201, role.text
-    return role.json()["id"]
+    return json_int(role.json()["id"])
 
 
 async def _worker(
-    client: httpx.AsyncClient, owner: dict, email: str, role_id: int
+    client: httpx.AsyncClient, owner: dict[str, str], email: str, role_id: int
 ) -> dict[str, Any]:
     await client.post(
         "/api/team/workers",

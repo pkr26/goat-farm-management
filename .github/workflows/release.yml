@@ -449,13 +449,30 @@ jobs:
           # Pin the published digests in the notes so deployments can verify
           # what the tag resolved to at release time. Idempotent on re-run.
           gh release view "$tag" --json body --jq .body > release-body.md
-          if ! grep -q "Published image digests" release-body.md; then
-            {
-              echo
-              echo "### Published image digests"
-              echo
-              echo "- \`${BACKEND_IMAGE}:${tag}\` (linux/amd64, linux/arm64) → \`${BACKEND_DIGEST}\`"
-              echo "- \`${FRONTEND_IMAGE}:${tag}\` (linux/amd64, linux/arm64) → \`${FRONTEND_DIGEST}\`"
-            } >> release-body.md
-            gh release edit "$tag" --notes-file release-body.md
-          fi
+          python3 - <<'PYNOTES'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("release-body.md")
+          body = path.read_text()
+          # Replace only the exact workflow heading, preserving authored notes
+          # and later sections. The old unmarked block is adopted on first rerun.
+          body = re.sub(
+              r"(?m)^### Published image digests[ \t]*\n.*?(?=^#{1,3} |\Z)",
+              "",
+              body,
+              flags=re.S,
+          ).rstrip()
+          tag = os.environ["GITHUB_REF_NAME"]
+          block = ["### Published image digests", ""]
+          for component in ("BACKEND", "FRONTEND"):
+              image = os.environ[f"{component}_IMAGE"]
+              digest = os.environ[f"{component}_DIGEST"]
+              block.append(f"- `{image}:{tag}` (linux/amd64, linux/arm64) → `{digest}`")
+          block.extend(["", "SBOM assets from this build:"])
+          for asset in sorted(Path("release-assets").glob("*.spdx.json")):
+              block.append(f"- `{asset.name}`")
+          path.write_text(body + "\n\n" + "\n".join(block) + "\n")
+          PYNOTES
+          gh release edit "$tag" --notes-file release-body.md

@@ -1,179 +1,90 @@
-// Builds the line -> covering-test-file map used to select tests per mutant.
-//
-// Vitest 4 has no per-test coverage, so we run each test FILE once with
-// coverage (v8 provider, json reporter) and record which source lines that
-// file's run executed. Output: mutation/coverage-map.json
-//
-//   { testFiles: ["src/lib/utils.test.ts", ...],
-//     files: { "src/lib/utils.ts": { "<line>": [0, 4, 9], ... } } }
-//
-// line numbers are 1-based (matching manifest mutants). Lines not present
-// were never executed by any test file.
-//
-// Runs are parallelised (default 6 concurrent single-file vitest processes);
-// each writes its coverage JSON to a scratch dir which is parsed and deleted.
-
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+// Per-test contributions replace previous coverage; publish only passing, stable inputs.
+import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
+import { atomicJSON, digest, inputs, readJSON } from "./mutate_identity.mjs";
+import { FRONTEND, runVitest } from "./mutate_run.mjs";
 
-const FRONTEND = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const CONCURRENCY = Number(process.env.COVER_CONCURRENCY ?? 6);
-
-function listTestFiles() {
-  // Respect the base vitest include: src/**/*.test.{ts,tsx}
-  // `vitest list` prints "<file> > <test name>" lines; keep the file part.
-  const out = execFileSync(
-    process.execPath,
-    [
-      path.join(FRONTEND, "node_modules", "vitest", "vitest.mjs"),
-      "list",
-      "--config",
-      "vitest.mutation.config.ts",
-    ],
-    { cwd: FRONTEND, encoding: "utf8" },
-  )
-    .split("\n")
-    .map((l) => l.trim().split(" > ")[0])
-    .filter((l) => /\.test\.(ts|tsx)$/.test(l));
-  return [...new Set(out)];
-}
-
-async function main() {
-  const scratch = path.join(FRONTEND, "mutation", "cov-scratch");
-  rmSync(scratch, { recursive: true, force: true });
-  mkdirSync(scratch, { recursive: true });
-
-  const testFiles = listTestFiles();
-  console.log(`test files: ${testFiles.length}`);
-
-  // --only <substr,substr>: (re)run just the named test files and MERGE the
-  // result into an existing coverage-map.json (testFiles union, line sets
-  // intersected per file so dropped coverage is preserved by other runs).
-  const onlyIdx = process.argv.indexOf("--only");
-  const onlyPats =
-    onlyIdx !== -1 && process.argv[onlyIdx + 1]
-      ? process.argv[onlyIdx + 1].split(",").map((s) => s.trim())
-      : null;
-
-  // line -> Set(testIdx) keyed by test FILE PATH when merging (index space of
-  // the old map must not be reused); converted to indices at the end.
-  const files = {}; // rel src path -> { line -> Set<string testFile> }
-  const knownTestFiles = []; // final ordered union
-  const existing = path.join(FRONTEND, "mutation", "coverage-map.json");
-  if (onlyPats && existsSync(existing)) {
-    const old = JSON.parse(readFileSync(existing, "utf8"));
-    knownTestFiles.push(...old.testFiles);
-    for (const [f, lines] of Object.entries(old.files)) {
-      const entry = (files[f] ??= {});
-      for (const [l, idxs] of Object.entries(lines)) {
-        const set = (entry[l] ??= new Set());
-        // NB: Set.add is single-argument — a spread call silently keeps only
-        // the first coverer and corrupts every selection built from the map.
-        for (const i of idxs) set.add(old.testFiles[i]);
-      }
+export function listTestFiles(root) {
+  const files = [];
+  function walk(relative) {
+    for (const entry of readdirSync(path.join(root, relative), { withFileTypes: true })) {
+      const file = path.join(relative, entry.name);
+      if (entry.isDirectory()) walk(file);
+      else if (/\.test\.(ts|tsx)$/.test(file)) files.push(file);
     }
   }
-  const selected = onlyPats
-    ? testFiles.filter((tf) => onlyPats.some((p) => tf.includes(p)))
-    : testFiles;
-  console.log(`running: ${selected.length} test files`);
-  let done = 0;
-  let failures = 0;
-
-  const runOne = async (idx, tf) => {
-    const reportDir = path.join(scratch, `c${idx}`);
-    const args = [
-      path.join(FRONTEND, "node_modules", "vitest", "vitest.mjs"),
-      "run",
-      "--config",
-      "vitest.mutation.config.ts",
-      "--testTimeout=240000",
-      "--hookTimeout=240000",
-      "--coverage.enabled",
-      "--coverage.reporter=json",
-      `--coverage.reportsDirectory=${reportDir}`,
-      "--coverage.include=src/**",
-      "--coverage.exclude=src/**/*.test.*",
-      "--coverage.exclude=src/test/**",
-      "--coverage.exclude=src/api/generated/**",
-      "--coverage.all=false",
-      tf,
-    ];
-    const res = await new Promise((resolve) => {
-      const p = spawn(process.execPath, args, {
-        cwd: FRONTEND,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      let out = "";
-      p.stdout.on("data", (d) => (out += d));
-      p.stderr.on("data", (d) => (out += d));
-      const killer = setTimeout(() => p.kill("SIGKILL"), 600_000);
-      p.on("close", (code) => {
-        clearTimeout(killer);
-        resolve({ code, out });
-      });
-    });
-    done += 1;
-    if (done % 25 === 0) console.log(`  ${done}/${selected.length}`);
-
-    const jsonPath = path.join(reportDir, "coverage-final.json");
-    if (res.code !== 0 || !existsSync(jsonPath)) {
-      failures += 1;
-      console.log(`  [WARN] ${tf} exit=${res.code} — excluded from map`);
-      return;
+  walk("src"); return files.sort();
+}
+export function coverageContribution(raw, root) {
+  const files = {};
+  for (const [absolute, data] of Object.entries(raw)) {
+    const relative = path.relative(realpathSync(root), existsSync(absolute) ? realpathSync(absolute) : absolute);
+    if (!relative.startsWith("src/") || /\.test\./.test(relative) || relative.startsWith("src/test/") || relative.startsWith("src/api/generated/")) continue;
+    const lines = new Set();
+    for (const [statement, count] of Object.entries(data.s ?? {})) if (count > 0) {
+      const location = data.statementMap[statement];
+      if (location) for (let line = location.start.line; line <= location.end.line; line++) lines.add(line);
     }
-    const cov = JSON.parse(readFileSync(jsonPath, "utf8"));
-    if (!knownTestFiles.includes(tf)) knownTestFiles.push(tf);
-    for (const [absFile, data] of Object.entries(cov)) {
-      const rel = path.relative(FRONTEND, absFile);
-      if (!rel.startsWith("src/")) continue;
-      const entry = (files[rel] ??= {});
-      for (const [sid, count] of Object.entries(data.s ?? {})) {
-        if (!count) continue;
-        const loc = data.statementMap[sid];
-        if (!loc) continue;
-        // attribute the whole statement range line-wise (start line .. end line)
-        for (let l = loc.start.line; l <= loc.end.line; l++) {
-          (entry[l] ??= new Set()).add(tf);
-        }
-      }
-    }
-    rmSync(reportDir, { recursive: true, force: true });
-  };
-
-  const queue = selected.map((tf, idx) => [idx, tf]);
-  const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
-    while (queue.length) {
-      const next = queue.shift();
-      if (!next) break;
-      await runOne(next[0], next[1]);
+    files[relative] = [...lines].sort((a, b) => a - b);
+  }
+  return files;
+}
+export function buildCoverageMap({ previous, currentInputs, testFiles, replacements }) {
+  const sourceHashes = Object.fromEntries(Object.entries(currentInputs).filter(([file]) => file.startsWith("src/") && !/\.test\./.test(file)));
+  const harnessHashes = Object.fromEntries(Object.entries(currentInputs).filter(([file]) => !file.startsWith("src/")));
+  const compatible = previous?.schema === 2 && digest(previous.sourceHashes) === digest(sourceHashes) && digest(previous.harnessHashes) === digest(harnessHashes);
+  const contributions = {};
+  for (const testFile of testFiles) {
+    const replacement = replacements[testFile];
+    const old = compatible && previous.contributions?.[testFile];
+    const files = replacement ?? (old?.testSha === currentInputs[testFile] ? old.files : null);
+    if (files) contributions[testFile] = { testSha: currentInputs[testFile], files };
+  }
+  const files = {};
+  testFiles.forEach((testFile, index) => {
+    for (const [file, lines] of Object.entries(contributions[testFile]?.files ?? {})) {
+      if (!sourceHashes[file]) continue;
+      for (const line of lines) (files[file] ??= {})[line] = [...((files[file] ?? {})[line] ?? []), index];
     }
   });
-  await Promise.all(workers);
-
-  const index = new Map(knownTestFiles.map((tf, i) => [tf, i]));
-  const serialized = {};
-  for (const [f, lines] of Object.entries(files)) {
-    serialized[f] = {};
-    for (const [l, set] of Object.entries(lines)) {
-      serialized[f][l] = [...set]
-        .map((tf) => index.get(tf))
-        .filter((i) => i !== undefined)
-        .sort((a, b) => a - b);
-    }
-  }
-  writeFileSync(
-    path.join(FRONTEND, "mutation", "coverage-map.json"),
-    JSON.stringify({ testFiles: knownTestFiles, files: serialized }),
-  );
-  rmSync(scratch, { recursive: true, force: true });
-  const totalLines = Object.values(serialized).reduce((a, f) => a + Object.keys(f).length, 0);
-  console.log(`map written: ${Object.keys(serialized).length} source files, ${totalLines} covered lines, ${failures} failing test runs`);
+  return { schema: 2, complete: testFiles.length > 0 && testFiles.every((testFile) => contributions[testFile]), generatedAt: new Date().toISOString(), inputs: currentInputs, sourceHashes, harnessHashes, testFiles, contributions, files };
 }
-
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+export async function collectCoverage({ root = FRONTEND, only = null, run = runVitest, concurrency = Number(process.env.COVER_CONCURRENCY ?? 2) } = {}) {
+  const mapPath = path.join(root, "mutation/coverage-map.json");
+  const before = inputs(root);
+  const testFiles = listTestFiles(root);
+  const selected = only ? testFiles.filter((file) => only.some((pattern) => file.includes(pattern))) : testFiles;
+  if (!selected.length) throw new Error("No coverage test files selected");
+  const previous = only && existsSync(mapPath) ? readJSON(mapPath) : null;
+  const scratch = mkdtempSync(path.join(os.tmpdir(), "herdly-frontend-coverage-"));
+  const replacements = {};
+  const queue = selected.slice();
+  const failures = [];
+  try {
+    await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+      while (queue.length) {
+        const file = queue.shift();
+        const reportDirectory = path.join(scratch, String(testFiles.indexOf(file)));
+        const result = await run(null, [file], 600_000, { root, extraArgs: ["--testTimeout=240000", "--hookTimeout=240000", "--coverage.enabled", "--coverage.reporter=json", `--coverage.reportsDirectory=${reportDirectory}`, "--coverage.include=src/**", "--coverage.exclude=src/**/*.test.*", "--coverage.exclude=src/test/**", "--coverage.exclude=src/api/generated/**"] });
+        const report = path.join(reportDirectory, "coverage-final.json");
+        if (result.verdict !== "SURVIVED" || !existsSync(report)) { failures.push({ file, verdict: result.verdict, tail: result.out }); continue; }
+        replacements[file] = coverageContribution(readJSON(report), root);
+      }
+    }));
+    if (failures.length) throw new Error(`Coverage failed; published map unchanged: ${JSON.stringify(failures)}`);
+    if (digest(before) !== digest(inputs(root))) throw new Error("Inputs changed while collecting coverage; published map unchanged");
+    const map = buildCoverageMap({ previous, currentInputs: before, testFiles, replacements });
+    atomicJSON(mapPath, map);
+    return map;
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+}
+export async function main(args = process.argv.slice(2)) {
+  const index = args.indexOf("--only");
+  const only = index < 0 ? null : args[index + 1].split(",");
+  if (args.includes("--dry-run")) { console.log(JSON.stringify({ selected: listTestFiles(FRONTEND).filter((file) => !only || only.some((pattern) => file.includes(pattern))) })); return; }
+  const map = await collectCoverage({ only });
+  console.log(JSON.stringify({ complete: map.complete, testFiles: map.testFiles.length, sourceFiles: Object.keys(map.files).length }));
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch((error) => { console.error(error); process.exitCode = 1; });

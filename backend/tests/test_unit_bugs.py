@@ -27,11 +27,12 @@ from app.schemas.kidding import KiddingCreateIn
 from app.utils import today
 
 from .conftest import owner_with_farm, register
+from .type_helpers import json_int
 
 TODAY = today().isoformat()
 
 
-async def _make_animal(client: httpx.AsyncClient, headers: dict) -> int:
+async def _make_animal(client: httpx.AsyncClient, headers: dict[str, str]) -> int:
     resp = await client.post(
         "/api/animals",
         json={
@@ -43,7 +44,7 @@ async def _make_animal(client: httpx.AsyncClient, headers: dict) -> int:
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    return json_int(resp.json()["id"])
 
 
 # FIXED — regression test
@@ -168,15 +169,14 @@ async def test_status_notes_unbounded_exceeds_db_column(client: httpx.AsyncClien
 # persists. The literal remains a closed set — anything outside the four
 # documented values still fails schema validation.
 def test_kidding_ease_accepts_caesarean() -> None:
-    payload = KiddingCreateIn(
-        breeding_record_id=1,
-        date=TODAY,
-        ease="CAESAREAN",
-        kids=[{"sex": "M"}],
+    payload = KiddingCreateIn.model_validate(
+        {"breeding_record_id": 1, "date": TODAY, "ease": "CAESAREAN", "kids": [{"sex": "M"}]}
     )
     assert payload.ease == "CAESAREAN"
     with pytest.raises(ValidationError):
-        KiddingCreateIn(breeding_record_id=1, date=TODAY, ease="EPISIOTOMY", kids=[{"sex": "M"}])
+        KiddingCreateIn.model_validate(
+            {"breeding_record_id": 1, "date": TODAY, "ease": "EPISIOTOMY", "kids": [{"sex": "M"}]}
+        )
 
 
 # FIXED — regression test

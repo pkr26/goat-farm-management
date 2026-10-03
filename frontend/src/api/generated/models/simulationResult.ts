@@ -14,6 +14,7 @@ import type { OptimizationResult } from './optimizationResult';
 import type { ProjectCostBreakdown } from './projectCostBreakdown';
 import type { ReportSection } from './reportSection';
 import type { SensitivityItem } from './sensitivityItem';
+import type { SimulationAssumptions } from './simulationAssumptions';
 import type { TerminalValueBreakdown } from './terminalValueBreakdown';
 import type { ViabilityMetrics } from './viabilityMetrics';
 
@@ -30,6 +31,8 @@ export interface SimulationResult {
   terminal_value_breakdown: TerminalValueBreakdown;
   model_version: string;
   assumptions_fingerprint: string;
+  executed_assumptions?: SimulationAssumptions | null;
+  executed_scenario_revision?: number | null;
   warnings?: string[];
   metric_explanations?: MetricExplanation[];
   narrative_report?: ReportSection[];

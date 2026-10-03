@@ -1,0 +1,34 @@
+{
+  "started_utc": "2026-10-03T18:51:29.247265+00:00",
+  "probe_id": "herdly-isolation-probe-3ed8e719a4304d7d",
+  "PL07": {
+    "status": "passed",
+    "root_context_excludes_owned_gitignored_secret_directory": "secrets/pl07-sentinel-3ed8e719a4304d7d",
+    "expected_copy_rejection_exit": 1,
+    "isolated_positive_builder_control_exit": 0
+  },
+  "failure": "AssertionError: unexpected exit 125: docker run --pull=never --rm --name herdly-isolation-probe-3ed8e719a4304d7d-api --network=none --read-only --cap-drop=ALL --security-opt=no-new-privileges:true --user=10001:10001 --entrypoint=/bin/sh --mount type=bind,src=/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/FAKE-postgres-ca.pem,dst=/run/secrets/goatfarm-postgres-ca.pem,readonly --mount type=bind,src=/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/api,dst=/run/secrets/app,readonly --mount type=bind,src=/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/jwt,dst=/run/secrets/jwt,readonly sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54 -ec 'test -r /run/secrets/app/database_url\ntest -r /run/secrets/app/idempotency_request_hmac_secret\ntest -r /run/secrets/app/metrics_bearer_token\ntest -r /run/secrets/app/msg91_auth_key\ntest -r /run/secrets/app/s3_access_key_id\ntest -r /run/secrets/app/s3_secret_access_key\ntest -r /run/secrets/app/screening_anthropic_api_key\ntest -r /run/secrets/app/totp_encryption_key\ntest ! -e /run/secrets/app/jwt_private.pem\ntest ! -e /run/secrets/app/jwt_public.pem\ntest ! -e /run/secrets/app/migration_database_url\ntest ! -e /run/secrets/app/worker_database_url\ntest -r /run/secrets/goatfarm-postgres-ca.pem\ntest -r /run/secrets/jwt/jwt_private.pem\ntest -r /run/secrets/jwt/jwt_public.pem\nfind /run/secrets -type f -print | sort\nprintf '\"'\"'UID=%s; allowed fake files readable; forbidden files absent\\n'\"'\"' \"$(id -u)\"'",
+  "cleanup": [
+    {
+      "container": "herdly-isolation-probe-3ed8e719a4304d7d-api",
+      "absent": true
+    },
+    {
+      "image": "herdly-isolation-probe-3ed8e719a4304d7d:excluded",
+      "absent": true
+    },
+    {
+      "image": "herdly-isolation-probe-3ed8e719a4304d7d:positive",
+      "absent": true
+    },
+    {
+      "owned_path": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51",
+      "absent": true
+    },
+    {
+      "owned_path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl07-sentinel-3ed8e719a4304d7d",
+      "absent": true
+    }
+  ],
+  "finished_utc": "2026-10-03T18:51:30.788532+00:00"
+}

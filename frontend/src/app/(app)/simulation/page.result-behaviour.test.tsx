@@ -14,6 +14,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
+import { LanguageProvider, useLanguage } from "@/lib/i18n";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
@@ -346,6 +347,31 @@ function cells(row: HTMLElement): HTMLElement[] {
   return within(row).getAllByRole("cell");
 }
 
+describe("executed decision evidence", () => {
+  it("binds a stored run to its executed revision even when the cached list is older", async () => {
+    const user = await renderLoaded({ scenarios: [scenario()] });
+    server.use(http.post("/api/simulation/scenarios/1/run", () => HttpResponse.json({
+      ...RESULT, executed_scenario_revision: 4,
+      executed_assumptions: { ...DEFAULTS, herd: { ...DEFAULTS.herd, does: 75 } },
+      assumptions_fingerprint: "actual-current-revision-sha256",
+    })));
+    const row = (await screen.findByText("Plan A")).closest("tr")!;
+    await user.click(within(row).getByRole("button", { name: "Run" }));
+    expect(await screen.findByText("Executed saved revision: 4")).toBeInTheDocument();
+    expect(screen.getByTitle("actual-current-revision-sha256")).toBeInTheDocument();
+    expect(screen.getByText(/These results do not match the current saved scenario/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Execution snapshot unavailable/)).not.toBeInTheDocument();
+  });
+
+  it("withholds an arbitrary returned IRR and displays the solver status", async () => {
+    await runAdHoc({ runResult: { ...RESULT,
+      metrics: { ...RESULT.metrics, irr: 0.87654, irr_status: "multiple_roots" } } });
+    expect(screen.getByText(/IRR assessment: Multiple roots/i)).toBeInTheDocument();
+    expect(screen.queryByText("87.7%")).not.toBeInTheDocument();
+    expect(screen.getByText("IRR").closest("[data-slot='card']")).toHaveTextContent("—");
+  });
+});
+
 describe("SimulationPage sensitivity ranking", () => {
   // The ranking answers "which assumption can move NPV furthest", so each
   // parameter is measured on the wider of its two swings. Ranking on the
@@ -420,6 +446,31 @@ describe("SimulationPage result provenance", () => {
 });
 
 describe("SimulationPage narrative report", () => {
+  it("changes the full report language while preserving its conditional cost facts", async () => {
+    const paragraph = "No hired labour is charged: the plan assumes family labour. At the configured ₹6,000/month wage the same attendance would cost about ₹3.60 lakh over the projection — profit is earned on unpaid family work, not the market.";
+    registerApiHandlers({ runResult: { ...RESULT, narrative_report: [{
+      key: "cost_mix", title: "Where the money goes", paragraphs: [paragraph], figures: {},
+    }] } });
+    function SwitchLanguage() {
+      const { language, setLanguage } = useLanguage();
+      return <button onClick={() => setLanguage(language === "en" ? "te" : "en")}>Switch report language</button>;
+    }
+    const user = userEvent.setup();
+    renderWithProviders(<LanguageProvider><SwitchLanguage /><SimulationPage /></LanguageProvider>);
+    await screen.findByText("Horizon Months");
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    await screen.findByText(paragraph);
+    const report = cardOf("Report");
+    await user.click(screen.getByRole("button", { name: "Switch report language" }));
+    expect(within(report).getByRole("heading", { name: "ఖర్చుల వివరాలు" })).toBeInTheDocument();
+    const translated = within(report).getByText(/జీతం చెల్లించని కుటుంబ శ్రమ/);
+    expect(translated).toHaveTextContent("₹6,000");
+    expect(translated).toHaveTextContent("₹3.60 లక్షలు");
+    expect(within(report).queryByText(paragraph)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Switch report language" }));
+    expect(within(report).getByText(paragraph)).toBeInTheDocument();
+  });
+
   // The verdict badge is driven by a figure the section may simply not carry;
   // a report section without figures is still a section, not a crash.
   it("renders a verdict section that carries no figures, without a badge", async () => {

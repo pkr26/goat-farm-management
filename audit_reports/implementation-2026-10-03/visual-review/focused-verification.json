@@ -1,0 +1,32 @@
+{
+  "status": "passed",
+  "focused_tests": {
+    "files": 4,
+    "passed": 28,
+    "log": "focused-tests.log"
+  },
+  "adjacent_stored_payload_tests": {
+    "files": 1,
+    "passed": 33,
+    "log": "stored-payload-tests.log"
+  },
+  "typecheck": {
+    "exit_code": 0,
+    "log": "typecheck.log"
+  },
+  "scoped_eslint": {
+    "exit_code": 0,
+    "log": "eslint.log"
+  },
+  "approved_findings": [
+    "ADD-10",
+    "ADD-11"
+  ],
+  "postfix_production_capture": {
+    "status": "captured and all four images inspected with view_image",
+    "build_id": "CWwqRg-tXDDZQ8xWOAWpZ",
+    "screenshots": 4,
+    "domain_form_submissions": 0,
+    "receipt": "after/capture-results.json"
+  }
+}

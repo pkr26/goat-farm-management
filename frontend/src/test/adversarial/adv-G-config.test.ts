@@ -154,7 +154,7 @@ describe("ADV G3: secret & persistence surface scan", () => {
     }
   });
 
-  it("every localStorage write goes through a pinned allowlisted key", () => {
+  it("every browser storage write goes through a pinned allowlisted key", () => {
     // The app writes via constants, not literals — so the invariant is:
     // (a) each constant's value, and (b) no other setItem target. The
     // language preference joins the farm id as reviewed UI state (never a
@@ -176,6 +176,11 @@ describe("ADV G3: secret & persistence surface scan", () => {
     );
     const i18n = readFileSync(join(SRC_ROOT, "lib", "i18n", "index.tsx"), "utf8");
     expect(i18n).toContain('LANGUAGE_STORAGE_KEY = "herdly.language"');
+    const shift = readFileSync(join(SRC_ROOT, "lib", "worker-offline-shift.ts"), "utf8");
+    expect(shift).toContain('ACTIVE_SHIFT_KEY = "herdly:offline-shift:v1"');
+    expect(shift).toContain('safeStorage("session")');
+    // This per-tab marker contains only actor/farm IDs and a fixed expiry.
+    // The separately tested IndexedDB snapshot supplies no credential or API authority.
     for (const file of files) {
       const text = readFileSync(file, "utf8");
       for (const match of text.matchAll(/\.setItem\(\s*([^,)]+)/g)) {
@@ -183,7 +188,7 @@ describe("ADV G3: secret & persistence surface scan", () => {
           match[1].trim(),
           `${file} writes storage key ${match[1]}`,
         ).toMatch(
-          /^(FARM_STORAGE_KEY|TABLET_FARM_STORAGE_KEY|OFFLINE_QUEUE_STORAGE_KEY|OFFLINE_QUEUE_WIPE_EPOCH_KEY|IDEMPOTENCY_SESSION_STORAGE_KEY|LANGUAGE_STORAGE_KEY)$/,
+          /^(FARM_STORAGE_KEY|TABLET_FARM_STORAGE_KEY|OFFLINE_QUEUE_STORAGE_KEY|OFFLINE_QUEUE_WIPE_EPOCH_KEY|IDEMPOTENCY_SESSION_STORAGE_KEY|LANGUAGE_STORAGE_KEY|ACTIVE_SHIFT_KEY)$/,
         );
       }
     }

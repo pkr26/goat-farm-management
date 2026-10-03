@@ -1,0 +1,12 @@
+{
+  "command": "E2E_BROWSER=firefox PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:61880/ PW_TEST_CONNECT_EXPOSE_NETWORK='<loopback>' pnpm exec playwright test",
+  "exit_code": 1,
+  "passed": 69,
+  "failed": 2,
+  "skipped": 0,
+  "retries": 0,
+  "duration_minutes": 3.1,
+  "failure_type": "NS_BINDING_ABORTED during new hard navigation; cause under investigation",
+  "log": "firefox-first-full.log",
+  "raw_traces_retained_in_repository": false
+}

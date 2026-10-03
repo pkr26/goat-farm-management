@@ -10,12 +10,17 @@ import type { ScreeningFindingReviewInStatus } from './screeningFindingReviewInS
 /**
  * Vet verdict on one finding.
  *
- * ``expected_status`` is optimistic concurrency: two reviewers (or a
+ * ``expected_revision`` is optimistic concurrency: two reviewers (or a
  * reviewer racing a re-screen) get a 409 instead of silently overwriting
  * each other's verdict on the training corpus.
  */
 export interface ScreeningFindingReviewIn {
   status: ScreeningFindingReviewInStatus;
   expected_status?: ScreeningFindingReviewInExpectedStatus;
+  /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+  expected_revision: number;
   review_note?: string | null;
 }

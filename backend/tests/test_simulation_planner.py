@@ -1,5 +1,8 @@
 """Planner tests: feasibility, gap closing, risk scoring, and the API surface."""
 
+import random
+
+import httpx
 import pytest
 
 from app.simulation.assumptions import (
@@ -9,6 +12,7 @@ from app.simulation.assumptions import (
 )
 from app.simulation.engine import _run_core
 from app.simulation.market import bakrid_festival_months
+from app.simulation.montecarlo import _apply_annual_price_variation
 from app.simulation.planner import (
     SaleTarget,
     build_plan_report,
@@ -16,6 +20,7 @@ from app.simulation.planner import (
     evaluate_plan,
     plan_probabilities,
 )
+from app.simulation.shocks import MonthlyShockPath
 
 
 def base_assumptions(**overrides: object) -> SimulationAssumptions:
@@ -77,6 +82,7 @@ def test_festival_months_round_trip_120_24_120_restores_the_full_list() -> None:
     first two months; extending back to 120 must re-derive the FULL calendar,
     not carry the 2-month prefix forever."""
     full = SimulationAssumptions().sales.festival_sale_months
+    assert full is not None
     assert len(full) == 10  # the default decade start covers ten Bakrids
 
     document = SimulationAssumptions().model_dump(mode="json")
@@ -103,7 +109,8 @@ def test_festival_months_empty_list_re_anchors_when_the_horizon_grows() -> None:
     )
     # NOT []: an empty calendar is never materialized, because a stored []
     # is the user's explicit "no festival months" and must be respected.
-    assert short.sales.festival_sale_months is None
+    # The corrected calendar includes the SECOND 2039 occurrence in December.
+    assert short.sales.festival_sale_months == [11]
 
     decade_document = short.model_dump(mode="json")
     decade_document["meta"]["horizon_months"] = 120
@@ -117,9 +124,9 @@ def test_genuinely_festival_free_horizon_and_explicit_empty_list() -> None:
     live (None, not []) — 2039-02 + 22 months ends before the month-23
     Bakrid of 2040. An explicitly empty list, by contrast, is the user's
     "no festival months" and is respected verbatim on ANY horizon."""
-    assert bakrid_festival_months("2039-02", 22) == []
+    assert bakrid_festival_months("2051-02", 12) == []
     validated = SimulationAssumptions.model_validate(
-        {"meta": {"start_year_month": "2039-02", "horizon_months": 22}}
+        {"meta": {"start_year_month": "2051-02", "horizon_months": 12}}
     )
     assert validated.sales.festival_sale_months is None
     # Round-tripping the None keeps the auto-fill live for a later extension.
@@ -260,10 +267,15 @@ def test_plan_probabilities_honors_within_run_price_variation(
     purchases, _, closed, _ = close_gaps(a, targets)
     assert closed
 
-    real = planner_module._apply_annual_price_variation
+    real = _apply_annual_price_variation
     calls: list[int] = []
 
-    def spying(path, draws, assumptions, rng):
+    def spying(
+        path: MonthlyShockPath,
+        draws: dict[str, float],
+        assumptions: SimulationAssumptions,
+        rng: random.Random,
+    ) -> dict[str, float]:
         calls.append(1)
         return real(path, draws, assumptions, rng)
 
@@ -337,7 +349,7 @@ def test_run_simulation_revalidates_mutated_assumptions() -> None:
 # ---------------------------------------------------------------------------
 # API surface
 # ---------------------------------------------------------------------------
-async def test_run_endpoint_returns_structured_event_fills(client) -> None:
+async def test_run_endpoint_returns_structured_event_fills(client: httpx.AsyncClient) -> None:
     """The /run response carries the planner's structured fills end to end."""
     from .conftest import owner_with_farm
 

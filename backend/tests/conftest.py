@@ -9,9 +9,8 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
-from typing import Any
 from uuid import uuid4
 
 import asyncpg
@@ -56,7 +55,7 @@ def _admin_sql(sql: str) -> None:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _database(request: pytest.FixtureRequest):
+def _database(request: pytest.FixtureRequest) -> Iterator[None]:
     _admin_sql(f'DROP DATABASE IF EXISTS "{TEST_DB}" WITH (FORCE)')
     _admin_sql(f'CREATE DATABASE "{TEST_DB}"')
     # Invoke alembic via the current interpreter so this works both under
@@ -85,7 +84,7 @@ def _database(request: pytest.FixtureRequest):
 
 
 @pytest.fixture(autouse=True)
-async def _clean_tables(request: pytest.FixtureRequest):
+async def _clean_tables(request: pytest.FixtureRequest) -> AsyncGenerator[None]:
     yield
     _ROTATED_EMAILS.clear()
     tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
@@ -283,7 +282,7 @@ async def register(
     email: str = "owner@farm.in",
     password: str = OWNER_PW,
     name: str | None = None,
-) -> dict[str, Any]:
+) -> dict[str, str]:
     """Register (which also logs in) → bearer headers."""
     resp = await client.post(
         "/api/auth/register", json={"email": email, "password": password, "name": name}
@@ -292,7 +291,7 @@ async def register(
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def login_and_rotate(client: httpx.AsyncClient, email: str, password: str) -> dict[str, Any]:
+async def login_and_rotate(client: httpx.AsyncClient, email: str, password: str) -> dict[str, str]:
     """Log in an owner-provisioned worker and complete the forced rotation
     through THIS client, so its cookie jar holds the post-rotation refresh
     session (session-lifecycle tests need exactly that)."""
@@ -320,7 +319,7 @@ async def login_and_rotate(client: httpx.AsyncClient, email: str, password: str)
     return {"Authorization": f"Bearer {changed.json()['access_token']}"}
 
 
-async def login(client: httpx.AsyncClient, email: str, password: str) -> dict[str, Any]:
+async def login(client: httpx.AsyncClient, email: str, password: str) -> dict[str, str]:
     resp = await client.post("/api/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200, resp.text
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
@@ -328,7 +327,7 @@ async def login(client: httpx.AsyncClient, email: str, password: str) -> dict[st
 
 async def provisioned_worker_login(
     client: httpx.AsyncClient, email: str, password: str
-) -> tuple[dict, int]:
+) -> tuple[dict[str, str], int]:
     """Explicitly rotate an owner-provisioned worker's first login; returns
     (bearer headers, user id).
 
@@ -345,9 +344,9 @@ async def provisioned_worker_login(
 
 async def create_farm(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     name: str = "Alpha Farm",
-) -> dict[str, Any]:
+) -> dict[str, str]:
     """Create a farm → headers with X-Farm-Id added."""
     resp = await client.post("/api/auth/farms", json={"name": name}, headers=headers)
     assert resp.status_code == 201, resp.text
@@ -356,6 +355,6 @@ async def create_farm(
 
 async def owner_with_farm(
     client: httpx.AsyncClient, email: str = "owner@farm.in", farm_name: str = "Alpha Farm"
-) -> dict[str, Any]:
+) -> dict[str, str]:
     headers = await register(client, email)
     return await create_farm(client, headers, farm_name)

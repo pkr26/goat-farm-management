@@ -1,0 +1,170 @@
+{
+  "recorded_at": "2026-10-03T18:38:17.127785+00:00",
+  "scope": "Final independent backend static checks; source left unchanged",
+  "commands_passed": 9,
+  "all_passed": true,
+  "ruff_formatted_files": 399,
+  "strict_app_script_files": 144,
+  "strict_mutation_files": 12,
+  "strict_source_files_total": 156,
+  "strict_test_files": 140,
+  "strict_errors": 0,
+  "strict_test_baseline": 0,
+  "uv_locked_packages": 62,
+  "alembic_head_count": 1,
+  "alembic_head": "f7d1e5f9b4c2",
+  "receipts": [
+    {
+      "name": "ruff-check",
+      "command": ".venv/bin/ruff check .",
+      "argv": [
+        ".venv/bin/ruff",
+        "check",
+        "."
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+      "started_at": "2026-10-03T18:37:44.105389+00:00",
+      "finished_at": "2026-10-03T18:37:44.151317+00:00",
+      "exit_code": 0,
+      "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/ruff-check.log",
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "name": "ruff-format-check",
+      "command": ".venv/bin/ruff format --check .",
+      "argv": [
+        ".venv/bin/ruff",
+        "format",
+        "--check",
+        "."
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+      "started_at": "2026-10-03T18:37:44.105472+00:00",
+      "finished_at": "2026-10-03T18:37:44.151036+00:00",
+      "exit_code": 0,
+      "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/ruff-format-check.log",
+      "stdout": "399 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "name": "mypy-app-scripts",
+      "command": ".venv/bin/python -m mypy --strict app scripts",
+      "argv": [
+        ".venv/bin/python",
+        "-m",
+        "mypy",
+        "--strict",
+        "app",
+        "scripts"
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+      "started_at": "2026-10-03T18:37:44.105392+00:00",
+      "finished_at": "2026-10-03T18:37:44.394974+00:00",
+      "exit_code": 0,
+      "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/mypy-app-scripts.log",
+      "stdout": "Success: no issues found in 144 source files\n",
+      "stderr": ""
+    },
+    {
+      "name": "mypy-mutation",
+      "command": ".venv/bin/python -m mypy --strict mutation",
+      "argv": [
+        ".venv/bin/python",
+        "-m",
+        "mypy",
+        "--strict",
+        "mutation"
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+      "started_at": "2026-10-03T18:37:44.105414+00:00",
+      "finished_at": "2026-10-03T18:37:44.393160+00:00",
+      "exit_code": 0,
+      "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/mypy-mutation.log",
+      "stdout": "Success: no issues found in 12 source files\n",
+      "stderr": ""
+    },
+    {
+      "name": "mypy-tests",
+      "command": ".venv/bin/python -m mypy --strict tests",
+      "argv": [
+        ".venv/bin/python",
+        "-m",
+        "mypy",
+        "--strict",
+        "tests"
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+      "started_at": "2026-10-03T18:37:44.105466+00:00",
+      "finished_at": "2026-10-03T18:37:44.386006+00:00",
+      "exit_code": 0,
+      "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/mypy-tests.log",
+      "stdout": "Success: no issues found in 140 source files\n",
+      "stderr": ""
+    },
+    {
+      "name": "mypy-zero-gate",
+      "command": ".venv/bin/python scripts/mypy_tests_ratchet.py",
+      "argv": [
+        ".venv/bin/python",
+        "scripts/mypy_tests_ratchet.py"
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+      "started_at": "2026-10-03T18:37:44.105398+00:00",
+      "finished_at": "2026-10-03T18:37:44.486510+00:00",
+      "exit_code": 0,
+      "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/mypy-zero-gate.log",
+      "stdout": "mypy --strict over tests/ passes with zero errors\n",
+      "stderr": ""
+    },
+    {
+      "name": "uv-lock-check",
+      "command": "uv lock --check",
+      "argv": [
+        "uv",
+        "lock",
+        "--check"
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+      "started_at": "2026-10-03T18:37:44.105491+00:00",
+      "finished_at": "2026-10-03T18:37:44.170802+00:00",
+      "exit_code": 0,
+      "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/uv-lock-check.log",
+      "stdout": "",
+      "stderr": "Resolved 62 packages in 11ms\n"
+    },
+    {
+      "name": "alembic-heads",
+      "command": ".venv/bin/python -m alembic heads",
+      "argv": [
+        ".venv/bin/python",
+        "-m",
+        "alembic",
+        "heads"
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+      "started_at": "2026-10-03T18:37:44.105390+00:00",
+      "finished_at": "2026-10-03T18:37:44.391801+00:00",
+      "exit_code": 0,
+      "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/alembic-heads.log",
+      "stdout": "f7d1e5f9b4c2 (head)\n",
+      "stderr": ""
+    },
+    {
+      "name": "git-diff-check",
+      "command": "git diff --check",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+      "started_at": "2026-10-03T18:37:44.107485+00:00",
+      "finished_at": "2026-10-03T18:37:44.239420+00:00",
+      "exit_code": 0,
+      "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/git-diff-check.log",
+      "stdout": "",
+      "stderr": ""
+    }
+  ]
+}

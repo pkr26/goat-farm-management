@@ -1,0 +1,1041 @@
+{
+  "test": "purchases",
+  "policy": "URLs/methods/timing/status only; no headers/bodies/cookies/tokens/snapshots/credentials",
+  "trace_events": [
+    {
+      "call_id": "call@1721",
+      "start_time_ms": 312970.612,
+      "class": "Frame",
+      "method": "click",
+      "end_time_ms": 313030.976,
+      "error_kind": null
+    },
+    {
+      "time_ms": 312971.43,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313005.47,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313032.729,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1722",
+      "start_time_ms": 313034.153,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313036.973,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313034.943,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313037.854,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1723",
+      "start_time_ms": 313039.165,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313042.109,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313040.01,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313043.196,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1724",
+      "start_time_ms": 313044.45,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313048.829,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313046.324,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313049.444,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1725",
+      "start_time_ms": 313050.715,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313053.252,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313051.391,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313053.848,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1726",
+      "start_time_ms": 313054.822,
+      "class": "Frame",
+      "method": "click",
+      "end_time_ms": 313110.428,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313055.729,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313088.708,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313111.565,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1727",
+      "start_time_ms": 313112.838,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313154.709,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313113.698,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313158.467,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1728",
+      "start_time_ms": 313159.774,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313164.923,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313163.254,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313165.593,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1729",
+      "start_time_ms": 313166.722,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313170.574,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313167.481,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313172.07,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1730",
+      "start_time_ms": 313173.297,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313177.508,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313174.07,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313178.179,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1731",
+      "start_time_ms": 313179.243,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313183.256,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313179.909,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313183.893,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1732",
+      "start_time_ms": 313184.819,
+      "class": "Frame",
+      "method": "textContent",
+      "end_time_ms": 313189.359,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313185.514,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313190.579,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1733",
+      "start_time_ms": 313191.823,
+      "class": "Frame",
+      "method": "click",
+      "end_time_ms": 313247.875,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313192.573,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313222.62,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313252.525,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "call_id": "call@1734",
+      "start_time_ms": 313253.935,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313266.714,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313260.692,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases"
+    },
+    {
+      "time_ms": 313268.399,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "call_id": "call@1735",
+      "start_time_ms": 313269.752,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313278.388,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313274.323,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "time_ms": 313280.061,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "call_id": "call@1736",
+      "start_time_ms": 313281.424,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313289.627,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313282.624,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "time_ms": 313291.148,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "call_id": "call@1737",
+      "start_time_ms": 313292.258,
+      "class": "Frame",
+      "method": "innerText",
+      "end_time_ms": 313299.912,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313293.015,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "time_ms": 313300.644,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "call_id": "call@1738",
+      "start_time_ms": 313301.738,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313309.451,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313302.582,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "time_ms": 313310.701,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "call_id": "call@1739",
+      "start_time_ms": 313311.832,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313319.466,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313312.497,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "time_ms": 313321.474,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "call_id": "call@1740",
+      "start_time_ms": 313322.847,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313327.842,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313324.2,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "time_ms": 313328.603,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "call_id": "call@1741",
+      "start_time_ms": 313329.872,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313334.564,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313330.681,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "time_ms": 313335.33,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "call_id": "call@1742",
+      "start_time_ms": 313336.451,
+      "class": "Page",
+      "method": "keyboardPress",
+      "end_time_ms": 313343.049,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313338.183,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "time_ms": 313346.392,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "call_id": "call@1743",
+      "start_time_ms": 313347.572,
+      "class": "Frame",
+      "method": "expect",
+      "end_time_ms": 313350.418,
+      "error_kind": null
+    },
+    {
+      "time_ms": 313348.826,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "time_ms": 313350.98,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "call_id": "call@1744",
+      "start_time_ms": 313351.999,
+      "class": "Frame",
+      "method": "goto",
+      "url": "http://localhost:3000/animals?bucket=QUARANTINE",
+      "end_time_ms": 313359.724,
+      "error_kind": "NS_BINDING_ABORTED"
+    },
+    {
+      "time_ms": 313352.714,
+      "method": "frame_snapshot_url_only",
+      "url": "http://localhost:3000/purchases?batch=13"
+    },
+    {
+      "time_ms": 313359.242,
+      "method": "RSC_fetch_fallback_console_error",
+      "url": "http://localhost:3000/purchases"
+    }
+  ],
+  "network": [
+    {
+      "time_ms": 311233.922,
+      "started_at": "2026-10-03T19:48:16.633Z",
+      "duration_ms": 660.674,
+      "resource_type": "document",
+      "method": "GET",
+      "url": "http://localhost:3000/login",
+      "status": 200
+    },
+    {
+      "time_ms": 312058.805,
+      "started_at": "2026-10-03T19:48:17.016Z",
+      "duration_ms": 2.349,
+      "resource_type": "image",
+      "method": "GET",
+      "url": "http://localhost:3000/apple-icon.png",
+      "status": 200
+    },
+    {
+      "time_ms": 312058.827,
+      "started_at": "2026-10-03T19:48:17.016Z",
+      "duration_ms": 2.4819999999999998,
+      "resource_type": "image",
+      "method": "GET",
+      "url": "http://localhost:3000/icon.svg",
+      "status": 200
+    },
+    {
+      "time_ms": 312095.763,
+      "started_at": "2026-10-03T19:48:17.495Z",
+      "duration_ms": 45.808,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/register?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312143.719,
+      "started_at": "2026-10-03T19:48:17.543Z",
+      "duration_ms": 43.049,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/register?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312307.429,
+      "started_at": "2026-10-03T19:48:17.706Z",
+      "duration_ms": 43.841,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/dashboard?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312422.433,
+      "started_at": "2026-10-03T19:48:17.821Z",
+      "duration_ms": 2.633,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/owner?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312422.635,
+      "started_at": "2026-10-03T19:48:17.821Z",
+      "duration_ms": 2.634,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/animals?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312423.058,
+      "started_at": "2026-10-03T19:48:17.821Z",
+      "duration_ms": 2.303,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/buckets?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312423.13,
+      "started_at": "2026-10-03T19:48:17.822Z",
+      "duration_ms": 2.187,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/breeding?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312427.853,
+      "started_at": "2026-10-03T19:48:17.827Z",
+      "duration_ms": 42.263000000000005,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/health?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312428.226,
+      "started_at": "2026-10-03T19:48:17.827Z",
+      "duration_ms": 41.903,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/screening?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312427.238,
+      "started_at": "2026-10-03T19:48:17.826Z",
+      "duration_ms": 42.897,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/kidding?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312428.42,
+      "started_at": "2026-10-03T19:48:17.827Z",
+      "duration_ms": 42.327,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/feeding?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312471.95,
+      "started_at": "2026-10-03T19:48:17.871Z",
+      "duration_ms": -1,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/purchases?_rsc=%3Credacted%3E",
+      "status": -1
+    },
+    {
+      "time_ms": 312473.279,
+      "started_at": "2026-10-03T19:48:17.873Z",
+      "duration_ms": -1,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/farm-select?returnTo=%3Credacted%3E&_rsc=%3Credacted%3E",
+      "status": -1
+    },
+    {
+      "time_ms": 312472.321,
+      "started_at": "2026-10-03T19:48:17.872Z",
+      "duration_ms": -1,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/tasks?_rsc=%3Credacted%3E",
+      "status": -1
+    },
+    {
+      "time_ms": 312473.122,
+      "started_at": "2026-10-03T19:48:17.873Z",
+      "duration_ms": -1,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/finance?_rsc=%3Credacted%3E",
+      "status": -1
+    },
+    {
+      "time_ms": 312512.579,
+      "started_at": "2026-10-03T19:48:17.911Z",
+      "duration_ms": 4.295,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/tasks?tab=today&_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312513.251,
+      "started_at": "2026-10-03T19:48:17.912Z",
+      "duration_ms": 3.6660000000000004,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/animals/165?returnTo=%3Credacted%3E&_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312513.509,
+      "started_at": "2026-10-03T19:48:17.912Z",
+      "duration_ms": 3.575,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/breeding?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312513.772,
+      "started_at": "2026-10-03T19:48:17.912Z",
+      "duration_ms": 3.436,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/animals?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312510.782,
+      "started_at": "2026-10-03T19:48:17.909Z",
+      "duration_ms": 48.782,
+      "resource_type": "document",
+      "method": "GET",
+      "url": "http://localhost:3000/purchases",
+      "status": 200
+    },
+    {
+      "time_ms": 312519.83,
+      "started_at": "2026-10-03T19:48:17.919Z",
+      "duration_ms": 42.870000000000005,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/owner?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312519.288,
+      "started_at": "2026-10-03T19:48:17.918Z",
+      "duration_ms": 43.437999999999995,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/animals/165?returnTo=%3Credacted%3E&_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312519.14,
+      "started_at": "2026-10-03T19:48:17.918Z",
+      "duration_ms": 43.623000000000005,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/tasks?tab=today&_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312522.095,
+      "started_at": "2026-10-03T19:48:17.919Z",
+      "duration_ms": 41.742000000000004,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/buckets?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312740.039,
+      "started_at": "2026-10-03T19:48:17.976Z",
+      "duration_ms": 0,
+      "resource_type": "image",
+      "method": "GET",
+      "url": "http://localhost:3000/apple-icon.png",
+      "status": 200
+    },
+    {
+      "time_ms": 312740.213,
+      "started_at": "2026-10-03T19:48:17.976Z",
+      "duration_ms": 0,
+      "resource_type": "image",
+      "method": "GET",
+      "url": "http://localhost:3000/icon.svg",
+      "status": 200
+    },
+    {
+      "time_ms": 312768.054,
+      "started_at": "2026-10-03T19:48:18.160Z",
+      "duration_ms": 7.170000000000001,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/farm-select?returnTo=%3Credacted%3E&_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312783.102,
+      "started_at": "2026-10-03T19:48:18.182Z",
+      "duration_ms": 2.258,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/owner?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312783.338,
+      "started_at": "2026-10-03T19:48:18.182Z",
+      "duration_ms": 2.631,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/animals?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312783.732,
+      "started_at": "2026-10-03T19:48:18.183Z",
+      "duration_ms": 2.277,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/buckets?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312782.934,
+      "started_at": "2026-10-03T19:48:18.182Z",
+      "duration_ms": 42.53,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/dashboard?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312788.394,
+      "started_at": "2026-10-03T19:48:18.187Z",
+      "duration_ms": 42.835,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/health?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312788.232,
+      "started_at": "2026-10-03T19:48:18.186Z",
+      "duration_ms": 44.437,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/breeding?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312788.339,
+      "started_at": "2026-10-03T19:48:18.187Z",
+      "duration_ms": 43.732,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/kidding?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312826.908,
+      "started_at": "2026-10-03T19:48:18.226Z",
+      "duration_ms": 45.093,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/screening?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312833.13,
+      "started_at": "2026-10-03T19:48:18.232Z",
+      "duration_ms": 41.583,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/tasks?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312832.675,
+      "started_at": "2026-10-03T19:48:18.232Z",
+      "duration_ms": 42.063,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/feeding?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312833.584,
+      "started_at": "2026-10-03T19:48:18.233Z",
+      "duration_ms": 41.167,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/finance?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312875.211,
+      "started_at": "2026-10-03T19:48:18.274Z",
+      "duration_ms": 42.617,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/dashboard?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312907.153,
+      "started_at": "2026-10-03T19:48:18.306Z",
+      "duration_ms": 42.564,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/animals?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312906.982,
+      "started_at": "2026-10-03T19:48:18.306Z",
+      "duration_ms": 42.782999999999994,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/owner?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312907.383,
+      "started_at": "2026-10-03T19:48:18.306Z",
+      "duration_ms": 42.501999999999995,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/buckets?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312922.518,
+      "started_at": "2026-10-03T19:48:18.321Z",
+      "duration_ms": 43.092,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/breeding?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312951.739,
+      "started_at": "2026-10-03T19:48:18.351Z",
+      "duration_ms": 45.583,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/kidding?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312954.592,
+      "started_at": "2026-10-03T19:48:18.353Z",
+      "duration_ms": 42.784,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/screening?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312954.412,
+      "started_at": "2026-10-03T19:48:18.353Z",
+      "duration_ms": 43.021,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/health?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312968.337,
+      "started_at": "2026-10-03T19:48:18.367Z",
+      "duration_ms": 42.681,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/feeding?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 312999.391,
+      "started_at": "2026-10-03T19:48:18.398Z",
+      "duration_ms": 43.319,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/purchases?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 313001.03,
+      "started_at": "2026-10-03T19:48:18.400Z",
+      "duration_ms": 43.601,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/tasks?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 313001.21,
+      "started_at": "2026-10-03T19:48:18.400Z",
+      "duration_ms": 43.287,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/finance?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 313012.577,
+      "started_at": "2026-10-03T19:48:18.412Z",
+      "duration_ms": 42.116,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/farm-select?returnTo=%3Credacted%3E&_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 313058.293,
+      "started_at": "2026-10-03T19:48:18.457Z",
+      "duration_ms": 43.303999999999995,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/farm-select?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 313247.676,
+      "started_at": "2026-10-03T19:48:18.647Z",
+      "duration_ms": 2.721,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/purchases?batch=13&_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 313275.951,
+      "started_at": "2026-10-03T19:48:18.674Z",
+      "duration_ms": 2.166,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/animals/173?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 313275.11,
+      "started_at": "2026-10-03T19:48:18.674Z",
+      "duration_ms": 44.167,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/animals/171?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 313275.433,
+      "started_at": "2026-10-03T19:48:18.674Z",
+      "duration_ms": 43.972,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/animals/172?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 313280.597,
+      "started_at": "2026-10-03T19:48:18.680Z",
+      "duration_ms": 42.055,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/animals/173?_rsc=%3Credacted%3E",
+      "status": 200
+    },
+    {
+      "time_ms": 313323.043,
+      "started_at": "2026-10-03T19:48:18.723Z",
+      "duration_ms": -1,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/animals/172?_rsc=%3Credacted%3E",
+      "status": -1
+    },
+    {
+      "time_ms": 313342.955,
+      "started_at": "2026-10-03T19:48:18.742Z",
+      "duration_ms": -1,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/purchases?_rsc=%3Credacted%3E",
+      "status": -1
+    },
+    {
+      "time_ms": 313322.8,
+      "started_at": "2026-10-03T19:48:18.722Z",
+      "duration_ms": -1,
+      "resource_type": "fetch",
+      "method": "GET",
+      "url": "http://localhost:3000/animals/171?_rsc=%3Credacted%3E",
+      "status": -1
+    },
+    {
+      "time_ms": 313353.642,
+      "started_at": "2026-10-03T19:48:18.752Z",
+      "duration_ms": 3.398,
+      "resource_type": "document",
+      "method": "GET",
+      "url": "http://localhost:3000/animals?bucket=QUARANTINE",
+      "status": 200
+    },
+    {
+      "time_ms": 313361.541,
+      "started_at": "2026-10-03T19:48:18.761Z",
+      "duration_ms": -1,
+      "resource_type": "document",
+      "method": "GET",
+      "url": "http://localhost:3000/purchases",
+      "status": -1
+    }
+  ]
+}

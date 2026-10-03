@@ -30,6 +30,7 @@ from typing import Any
 import httpx
 import pytest
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_sessionmaker
 from app.models import Animal, Farm, FeedInventory, Task, TaskStatus
@@ -37,6 +38,7 @@ from app.services.cadence import ensure_cadence_tasks
 from app.utils import utcnow
 
 from .conftest import owner_with_farm
+from .type_helpers import Headers, json_int, json_object
 
 FMD_TITLE_TEMPLATE = (
     "FMD vaccination round ({month} {year}) — all animals; "
@@ -65,7 +67,7 @@ def freeze_business_date(monkeypatch: pytest.MonkeyPatch, frozen: date) -> date:
 
 async def make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: Headers,
     tag: str,
     *,
     sex: str = "F",
@@ -85,7 +87,7 @@ async def make_animal(
         payload["estimated_dob"] = estimated_dob
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def load_farm(farm_id: int) -> Farm:
@@ -480,7 +482,11 @@ async def test_buck_rotation_age_math_and_coalesced_dob(
 
     await run_ensure(farm_id)
     rotations = await farm_tasks(farm_id, "BUCK_ROTATION")
-    assert sorted(t.animal_id for t in rotations) == [old_buck["id"], estimated_buck["id"]]
+    assert all(task.animal_id is not None for task in rotations)
+    assert sorted(task.animal_id for task in rotations if task.animal_id is not None) == [
+        old_buck["id"],
+        estimated_buck["id"],
+    ]
     by_animal = {t.animal_id: t for t in rotations}
     assert by_animal[old_buck["id"]].title == (
         "Rotate/replace buck B-OLD — 36 months old (inbreeding management)"
@@ -910,17 +916,19 @@ async def test_farm_batch_isolates_per_farm_failures(
 
     from sqlalchemy import inspect
 
-    def farm_id_of(farm) -> int:
+    def farm_id_of(farm: Farm) -> int:
         # farm.id attribute access lazy-loads once the session rolls a
         # poisoned farm back; the identity key survives expiration.
-        return inspect(farm).identity[0]
+        identity = inspect(farm).identity
+        assert identity is not None
+        return json_int(identity[0])
 
-    async def flaky(db, farm):
+    async def flaky(db: AsyncSession, farm: Farm) -> None:
         fid = farm_id_of(farm)
         calls.append(fid)
         if fid == farm_a:
             raise RuntimeError("persistent per-farm poison")
-        return await real(db, farm)
+        await real(db, farm)
 
     monkeypatch.setattr(cadence_module, "ensure_cadence_tasks", flaky)
     async with get_sessionmaker()() as db:

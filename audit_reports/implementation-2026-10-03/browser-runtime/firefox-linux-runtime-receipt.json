@@ -1,0 +1,84 @@
+{
+  "recorded_at": "2026-10-03T19:46:35.617719+00:00",
+  "image_tag": "mcr.microsoft.com/playwright:v1.62.1-noble",
+  "repo_digests": [
+    "mcr.microsoft.com/playwright@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e"
+  ],
+  "image_id": "sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e",
+  "os": "linux",
+  "architecture": "arm64",
+  "container_id": "7c15ed2fc1eb2147f63705ab40ab54958c1d34144b13c58608ef10cd0017819f",
+  "container_name": "herdly-firefox-runtime-e80a4878c80f",
+  "container_user": "pwuser",
+  "entrypoint": null,
+  "command": [
+    "/bin/sh",
+    "-c",
+    "npx -y playwright@1.62.1 run-server --port 3001 --host 0.0.0.0"
+  ],
+  "start_command": [
+    "docker",
+    "run",
+    "--detach",
+    "--rm",
+    "--init",
+    "--name",
+    "herdly-firefox-runtime-e80a4878c80f",
+    "--publish",
+    "127.0.0.1:61880:3001",
+    "--workdir",
+    "/home/pwuser",
+    "--user",
+    "pwuser",
+    "mcr.microsoft.com/playwright:v1.62.1-noble",
+    "/bin/sh",
+    "-c",
+    "npx -y playwright@1.62.1 run-server --port 3001 --host 0.0.0.0"
+  ],
+  "port_bindings": {
+    "3001/tcp": [
+      {
+        "HostIp": "127.0.0.1",
+        "HostPort": "61880"
+      }
+    ]
+  },
+  "mounts": [],
+  "privileged": false,
+  "cap_add": null,
+  "server_version_command": [
+    "docker",
+    "exec",
+    "herdly-firefox-runtime-e80a4878c80f",
+    "node",
+    "-e",
+    "console.log(JSON.stringify({playwright:require('/home/pwuser/.npm/_npx/db89d7302a373f10/node_modules/playwright/package.json').version,firefox:require('/home/pwuser/.npm/_npx/db89d7302a373f10/node_modules/playwright-core/browsers.json').browsers.find(b=>b.name==='firefox')},null,2))"
+  ],
+  "server_version": {
+    "playwright": "1.62.1",
+    "firefox": {
+      "name": "firefox",
+      "revision": "1538",
+      "installByDefault": true,
+      "browserVersion": "153.0",
+      "title": "Firefox"
+    }
+  },
+  "endpoint": "ws://127.0.0.1:61880/",
+  "test_environment": {
+    "E2E_BROWSER": "firefox",
+    "PW_TEST_CONNECT_WS_ENDPOINT": "ws://127.0.0.1:61880/",
+    "PW_TEST_CONNECT_EXPOSE_NETWORK": "<loopback>"
+  },
+  "cleanup_status": "complete; owned container stopped and absent; official image cache retained",
+  "final_full_gate": {
+    "passed": 71,
+    "failed": 0,
+    "retries": 0,
+    "skipped": 0,
+    "exit_code": 0,
+    "elapsed_minutes": 3.1,
+    "evidence_log": "../final-verification/firefox.log",
+    "evidence_receipt": "../final-verification/firefox-receipt.json"
+  }
+}

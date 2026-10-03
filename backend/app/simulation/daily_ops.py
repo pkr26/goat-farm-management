@@ -419,9 +419,11 @@ class SimExit(BaseModel):
 
 
 class FeedLine(BaseModel):
-    """One (building, recipe) ration line for a day: the per-head rate, the
-    daily total and the 40/20/40 shift split (gram-exact: the daily total is
-    the sum of the three shifts)."""
+    """One pen/recipe/rate line with independently measured shift occupants.
+
+    Each current head receives the 40/20/40 share at its actual pen. Total
+    delivered feed is the gram-rounded sum; prepared/unused stock is separate.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -429,12 +431,15 @@ class FeedLine(BaseModel):
     building: str
     recipe: str
     recipe_display: str
-    heads: int
+    heads: int  # maximum occupied head at any recorded shift; shift counts are authoritative
     kg_per_head: float
     daily_kg: float
     morning_kg: float
     afternoon_kg: float
     night_kg: float
+    morning_heads: int | None = None
+    afternoon_heads: int | None = None
+    night_heads: int | None = None
 
 
 class OccupancyRow(BaseModel):
@@ -454,6 +459,8 @@ class DayRecord(BaseModel):
     births: list[SimBirth] = Field(default_factory=list)
     exits: list[SimExit] = Field(default_factory=list)
     feeding: list[FeedLine] = Field(default_factory=list)
+    feed_prepared_kg_by_recipe: dict[str, float] = Field(default_factory=dict)
+    feed_unused_kg_by_recipe: dict[str, float] = Field(default_factory=dict)
     occupancy: list[OccupancyRow] = Field(default_factory=list)
 
 
@@ -781,7 +788,7 @@ class _DailyOpsRun:
 
     # -- phase 1/5/6: feeding ---------------------------------------------------
 
-    def _feed_lines(self, day: int) -> list[FeedLine]:
+    def _feed_lines(self, day: int, shift: FeedingShift) -> list[FeedLine]:
         record = self.days[day - 1]
         # Creep kids group by age band (the operational plan's ramp); kids
         # younger than the creep start produce no line at all. Non-creep
@@ -819,41 +826,78 @@ class _DailyOpsRun:
             else:
                 kg_per_head = GOAT_BUCKET_KG_PER_HEAD[building]
             daily = len(members) * kg_per_head
-            morning = round(daily * SHIFT_SPLIT[FeedingShift.MORNING], 3)
-            afternoon = round(daily * SHIFT_SPLIT[FeedingShift.AFTERNOON], 3)
-            night = round(daily * SHIFT_SPLIT[FeedingShift.NIGHT], 3)
-            lines.append(
-                FeedLine(
+            kg = round(daily * SHIFT_SPLIT[shift], 3)
+            # Separate rates/bands retain exact attribution if creep group's
+            # mean age changes after a mortality or orphan movement.
+            existing = next(
+                (
+                    line
+                    for line in record.feeding
+                    if line.building == building
+                    and line.recipe_display == display
+                    and line.kg_per_head == kg_per_head
+                ),
+                None,
+            )
+            if existing is None:
+                existing = FeedLine(
                     day=day,
                     building=building,
                     recipe=recipe,
                     recipe_display=display,
-                    heads=len(members),
+                    heads=0,
                     kg_per_head=kg_per_head,
-                    daily_kg=round(morning + afternoon + night, 3),
-                    morning_kg=morning,
-                    afternoon_kg=afternoon,
-                    night_kg=night,
+                    daily_kg=0.0,
+                    morning_kg=0.0,
+                    afternoon_kg=0.0,
+                    night_kg=0.0,
+                    morning_heads=0,
+                    afternoon_heads=0,
+                    night_heads=0,
                 )
+                record.feeding.append(existing)
+            share_name = {
+                FeedingShift.MORNING: "morning_kg",
+                FeedingShift.AFTERNOON: "afternoon_kg",
+                FeedingShift.NIGHT: "night_kg",
+            }[shift]
+            heads_name = share_name.replace("_kg", "_heads")
+            setattr(existing, share_name, kg)
+            setattr(existing, heads_name, len(members))
+            existing.heads = max(existing.heads, len(members))
+            existing.daily_kg = round(
+                existing.morning_kg + existing.afternoon_kg + existing.night_kg, 3
             )
-        record.feeding.extend(lines)
+            lines.append(existing)
         return lines
 
     def _feed_round(self, day: int, shift: FeedingShift, time: str) -> None:
-        lines = self.days[day - 1].feeding
+        record = self.days[day - 1]
+        lines = self._feed_lines(day, shift)
         share = {"MORNING": "morning_kg", "AFTERNOON": "afternoon_kg", "NIGHT": "night_kg"}[
             shift.value
         ]
         if shift == FeedingShift.MORNING:
-            # Mixing manifest first: one batch per recipe across buildings.
+            # Keep the morning preparation forecast separate from deliveries.
+            # Actual afternoon/night occupancy can change that requirement.
+            self._feed_on_hand: dict[str, float] = {}
             by_recipe: dict[str, float] = {}
             for line in lines:
-                by_recipe[line.recipe] = round(by_recipe.get(line.recipe, 0.0) + line.daily_kg, 3)
+                planned = sum(
+                    round(line.heads * line.kg_per_head * share, 3)
+                    for share in SHIFT_SPLIT.values()
+                )
+                by_recipe[line.recipe] = round(by_recipe.get(line.recipe, 0.0) + planned, 3)
+            self._feed_on_hand.update(by_recipe)
+            record.feed_prepared_kg_by_recipe.update(by_recipe)
             for recipe in sorted(by_recipe):
                 if recipe == DRY_ROUGHAGE:
                     detail = "Direct-fed from dry roughage stock — no mixing (zero-grain ration)."
                 else:
-                    detail = "One batch covers all buildings today; sweep bunks before feeding."
+                    detail = (
+                        "Morning occupancy forecast for today's batches; later deliveries "
+                        "are recomputed after lifecycle events, with top-ups/unused feed recorded."
+                    )
                 self._record(
                     day,
                     time,
@@ -863,10 +907,35 @@ class _DailyOpsRun:
                     f"Mix {by_recipe[recipe]:.3f} kg — {RECIPE_DISPLAY.get(recipe, recipe)}",
                     detail,
                 )
+        needed: dict[str, float] = {}
+        for line in lines:
+            needed[line.recipe] = round(needed.get(line.recipe, 0.0) + getattr(line, share), 3)
+        for recipe, total in sorted(needed.items()):
+            shortfall = round(max(0.0, total - self._feed_on_hand.get(recipe, 0.0)), 3)
+            if shortfall > 0.0:
+                self._feed_on_hand[recipe] = round(
+                    self._feed_on_hand.get(recipe, 0.0) + shortfall, 3
+                )
+                record.feed_prepared_kg_by_recipe[recipe] = round(
+                    record.feed_prepared_kg_by_recipe.get(recipe, 0.0) + shortfall, 3
+                )
+                self._record(
+                    day,
+                    time,
+                    "FEED",
+                    FEED_STORE,
+                    [],
+                    f"Prepare top-up {shortfall:.3f} kg — {RECIPE_DISPLAY.get(recipe, recipe)}",
+                    "Actual post-event occupants require more of this recipe "
+                    "than the morning forecast.",
+                )
         for line in lines:
             kg = getattr(line, share)
             if kg <= 0:
                 continue
+            self._feed_on_hand[line.recipe] = round(
+                max(0.0, self._feed_on_hand.get(line.recipe, 0.0) - kg), 3
+            )
             self._record(
                 day,
                 time,
@@ -878,7 +947,8 @@ class _DailyOpsRun:
                     f"{GOAT_BUILDING_NAMES[line.building]}"
                 ),
                 (
-                    f"{line.heads} head × {line.kg_per_head} kg/day × "
+                    f"{getattr(line, share.replace('_kg', '_heads'))} head × "
+                    f"{line.kg_per_head} kg/day × "
                     f"{round(SHIFT_SPLIT[shift] * 100)}% shift share"
                 ),
             )
@@ -1537,7 +1607,6 @@ class _DailyOpsRun:
     def run(self) -> DailyOpsResult:
         for day in range(1, self.payload.horizon_days + 1):
             self.days.append(DayRecord(day=day, date=self._date(day)))
-            self._feed_lines(day)
             self._feed_round(day, FeedingShift.MORNING, TIME_MORNING_FEED)
             self._cleaning_round(day, TIME_MORNING_CLEAN, "morning (after feeding)")
             self._quarantine_duties(day)
@@ -1551,6 +1620,21 @@ class _DailyOpsRun:
             self._sales(day)
             self._feed_round(day, FeedingShift.AFTERNOON, TIME_AFTERNOON_FEED)
             self._feed_round(day, FeedingShift.NIGHT, TIME_NIGHT_FEED)
+            record = self.days[day - 1]
+            record.feed_unused_kg_by_recipe = {
+                recipe: kg for recipe, kg in sorted(self._feed_on_hand.items()) if kg > 0.0
+            }
+            for recipe, kg in record.feed_unused_kg_by_recipe.items():
+                self._record(
+                    day,
+                    TIME_NIGHT_FEED,
+                    "FEED",
+                    FEED_STORE,
+                    [],
+                    f"Reconcile unused {kg:.3f} kg — {RECIPE_DISPLAY.get(recipe, recipe)}",
+                    "Not delivered after movements/exits; record safe reuse or disposal "
+                    "under the farm feed policy.",
+                )
             self._cleaning_round(day, TIME_NIGHT_CLEAN, "night (after the night feed)")
             self.days[day - 1].occupancy = self._occupancy()
             # Enforce the output-side ceiling on the STANDING herd, births
@@ -1711,11 +1795,13 @@ def _build_explanations(result: DailyOpsResult, run: _DailyOpsRun) -> list[Metri
         ),
         MetricExplanation(
             key="feed",
-            title="Feed mixed once, delivered three times",
+            title="Morning feed preparation, three current-occupancy deliveries",
             explanation=(
                 "Each morning the day's ration per recipe is mixed at the feed store and "
-                "then delivered per building in the 40/20/40 shift split (6:30 AM / 1:30 PM "
-                "7:30 PM). Per-head rates are the seeded bucket defaults (kids 1.0 kg, "
+                "then delivered to actual occupied buildings in the 40/20/40 shift split "
+                "(6:30 AM / 1:30 PM / 7:30 PM). Moves, births and exits are applied before "
+                "later shifts; recipe top-ups and unused quantities reconcile to prepared feed. "
+                "Per-head rates are the seeded bucket defaults (kids 1.0 kg, "
                 "does 1.2 kg, late pregnancy 1.4 kg, delivery/recovery 1.5 kg, quarantine "
                 "1.1 kg); unweaned kids in RECOVERY are fed the creep line at 0.3 kg, "
                 "never the doe's lactating TMR."

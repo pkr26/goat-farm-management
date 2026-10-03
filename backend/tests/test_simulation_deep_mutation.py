@@ -72,7 +72,8 @@ from app.simulation.optimization import (
     _unique_bounded,
     run_optimization,
 )
-from app.simulation.planner import build_plan_report, close_gaps, plan_probabilities
+from app.simulation.planner import SaleTarget, build_plan_report, close_gaps, plan_probabilities
+from app.simulation.results import SimulationResult
 
 
 def toy_assumptions(**herd_overrides: object) -> SimulationAssumptions:
@@ -611,7 +612,9 @@ def test_metric_explanations_irr_and_mirr_undefined() -> None:
     result = run_simulation(a)
     assert result.metrics.irr is None
     texts = {entry.key: entry.explanation for entry in result.metric_explanations}
-    assert "IRR is undefined for this cash-flow pattern" in texts["irr"]
+    assert result.metrics.irr_status == "no_root"
+    assert "IRR is undefined or unproven for this cash-flow pattern" in texts["irr"]
+    assert "status: no_root" in texts["irr"]
     # With the empty-herd cultivation skip (2026-10-01 audit, 08-L8) the
     # zero-animal farm also books no cultivation opex, so the year-1 average
     # monthly opex — and with it the terminal working-capital recovery — is
@@ -656,8 +659,7 @@ def test_payback_by_liquidation_wording() -> None:
 # --- planner / milk planner / backward planner: default-argument contracts ------
 
 
-def _toy_targets() -> list:
-    from app.simulation.planner import SaleTarget
+def _toy_targets() -> list[SaleTarget]:
 
     # 20 weaners from 10 does is deliberately unreachable: the gap closer
     # must recommend purchases.
@@ -712,7 +714,7 @@ def _opening_head(a: SimulationAssumptions) -> float:
     )
 
 
-def _assert_mass_balance(a: SimulationAssumptions, result) -> None:
+def _assert_mass_balance(a: SimulationAssumptions, result: SimulationResult) -> None:
     previous = _opening_head(a)
     for m in result.months:
         expected = previous + m.births + m.purchases_head - m.deaths - m.sales_head - m.culls_head
@@ -1129,13 +1131,16 @@ def test_opening_stock_cost_values_young_stock_at_class_weights() -> None:
     sale_age = g.sale_age_months
     f_mid = 6 + (afb - 6) // 2
     m_mid = 6 + (sale_age - 6) // 2
+    # Independently expand the male premium for each young opening cohort;
+    # male weights also use the explicit adult buck endpoint.
+    premium = 1 + g.young_male_weight_premium
     young_kg = (
-        5 * weight_at_age(1, g, g.adult_weight_doe_kg)
-        + 2 * weight_at_age(4, g, g.adult_weight_doe_kg)
+        2 * weight_at_age(1, g, g.adult_weight_doe_kg)
+        + 3 * weight_at_age(1, g, g.adult_weight_buck_kg) * premium
+        + weight_at_age(4, g, g.adult_weight_doe_kg)
+        + weight_at_age(4, g, g.adult_weight_buck_kg) * premium
         + 2 * weight_at_age(f_mid, g, g.adult_weight_doe_kg)
-        # Opening male growers book at the plain curve slot (the premium only
-        # applies to the male weight helper), pinning the engine's intent.
-        + 2 * weight_at_age(m_mid, g, g.adult_weight_doe_kg)
+        + 2 * weight_at_age(m_mid, g, g.adult_weight_buck_kg) * premium
     )
     expected = (
         10 * a.herd.doe_purchase_price

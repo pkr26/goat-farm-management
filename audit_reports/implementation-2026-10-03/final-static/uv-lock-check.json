@@ -1,0 +1,16 @@
+{
+  "name": "uv-lock-check",
+  "command": "uv lock --check",
+  "argv": [
+    "uv",
+    "lock",
+    "--check"
+  ],
+  "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+  "started_at": "2026-10-03T19:01:46.062563+00:00",
+  "finished_at": "2026-10-03T19:01:46.087260+00:00",
+  "exit_code": 0,
+  "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/uv-lock-check.log",
+  "stdout": "",
+  "stderr": "Resolved 62 packages in 10ms\n"
+}

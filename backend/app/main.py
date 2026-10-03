@@ -38,6 +38,7 @@ from .api import (
     finance,
     health,
     kidding,
+    operational_metrics,
     ops_simulation,
     owner,
     planner,
@@ -47,7 +48,7 @@ from .api import (
     tasks,
     team,
 )
-from .core.config import get_settings
+from .core.config import Settings, get_settings
 from .db import get_engine, get_sessionmaker
 from .deps import deactivate_deleted_user_memberships, purge_expired_refresh_sessions
 from .models import Farm
@@ -62,6 +63,8 @@ from .services.idempotency import (
     MAX_IDEMPOTENCY_KEY_LENGTH,
     purge_expired_idempotency_records,
 )
+from .services.maintenance_progress import MaintenancePage, run_maintenance_page
+from .services.notifications.providers import NotificationProvider
 from .services.retention import run_retention_sweep
 from .utils import utcnow
 
@@ -385,14 +388,16 @@ async def _retention_sweep_loop() -> None:
     if not settings.retention_sweep_enabled:
         return
     first = True
+    after_farm_id = 0
     while True:
         if not first:
             await asyncio.sleep(settings.retention_sweep_interval_seconds)
         first = False
         try:
             async with get_sessionmaker()() as db:
-                summary = await run_retention_sweep(db, settings)
+                summary = await run_retention_sweep(db, settings, after_farm_id=after_farm_id)
                 await db.commit()
+            after_farm_id = 0 if summary.exhausted else summary.last_farm_id
             metrics.record_maintenance_batch("retention_sweep", summary.total_deleted)
             if summary.failed_farms:
                 logger.error(
@@ -418,6 +423,63 @@ async def _retention_sweep_loop() -> None:
             logger.exception("periodic retention sweep failed")
 
 
+async def _notification_alert_farm_batch(
+    settings: Settings, provider: NotificationProvider, after_farm_id: int
+) -> tuple[int, int, bool]:
+    """One ordered farm page; each tenant's commits and rollback are isolated."""
+    from sqlalchemy import select
+
+    from .services.notifications import (
+        feed_reorder_daily,
+        kidding_watch_daily,
+        overdue_critical_sweep,
+    )
+
+    async with get_sessionmaker()() as db:
+        ids = list(
+            (
+                await db.execute(
+                    select(Farm.id)
+                    .where(Farm.id > after_farm_id)
+                    .order_by(Farm.id)
+                    .limit(settings.notifications_loop_batch_size + 1)
+                )
+            ).scalars()
+        )
+    page = ids[: settings.notifications_loop_batch_size]
+    for farm_id in page:
+        try:
+            async with get_sessionmaker()() as db:
+                farm = await db.get(Farm, farm_id)
+                if farm is None:
+                    continue
+                await overdue_critical_sweep(db, settings, provider, farm)
+                await kidding_watch_daily(db, settings, provider, farm)
+                await feed_reorder_daily(db, settings, provider, farm)
+        except Exception:
+            logger.exception("hourly notification alerts failed for farm %s", farm_id)
+    return (
+        len(page),
+        page[-1] if page else after_farm_id,
+        len(ids) <= settings.notifications_loop_batch_size,
+    )
+
+
+async def _notification_alert_maintenance_page(
+    settings: Settings, provider: NotificationProvider, sweep_hour: datetime
+) -> MaintenancePage | None:
+    async def alert_page(after_farm_id: int) -> MaintenancePage:
+        processed, cursor, exhausted = await _notification_alert_farm_batch(
+            settings, provider, after_farm_id
+        )
+        return MaintenancePage(processed, cursor, exhausted)
+
+    async with get_sessionmaker()() as checkpoint_db:
+        return await run_maintenance_page(
+            checkpoint_db, "notification_alerts", alert_page, sweep_hour=sweep_hour
+        )
+
+
 async def _notifications_loop() -> None:
     """Minute-tick notification dispatch (ITEM 4, 2026-09-21 playbook).
 
@@ -431,14 +493,10 @@ async def _notifications_loop() -> None:
     from .services.notifications import (
         build_notification_provider,
         farms_ready_for_digest,
-        feed_reorder_daily,
-        kidding_watch_daily,
-        overdue_critical_sweep,
         run_digest_for_farm,
     )
 
     provider = None
-    last_sweep_hour: int | None = None
     try:
         while True:
             await asyncio.sleep(60)
@@ -455,26 +513,36 @@ async def _notifications_loop() -> None:
                         continue
                     provider = active_provider
                 now = utcnow().replace(tzinfo=UTC)
-                async with get_sessionmaker()() as db:
-                    for farm in await farms_ready_for_digest(db, settings, now):
-                        summary = await run_digest_for_farm(db, settings, active_provider, farm)
-                        if summary.sent or summary.skipped:
-                            logger.info(
-                                "digest farm=%s sent=%d skipped=%d",
-                                farm.id,
-                                summary.sent,
-                                summary.skipped,
-                            )
-                    if last_sweep_hour != now.hour:
-                        last_sweep_hour = now.hour
-                        from sqlalchemy import select as _select
+                from .services.notifications.outbox import dispatch_pending_alerts
 
-                        for farm in (await db.execute(_select(Farm))).scalars():
-                            await overdue_critical_sweep(db, settings, active_provider, farm)
-                            # Day-dedupe makes these daily in effect (payload is
-                            # the farm-local date): hourly runs are idempotent.
-                            await kidding_watch_daily(db, settings, active_provider, farm)
-                            await feed_reorder_daily(db, settings, active_provider, farm)
+                await dispatch_pending_alerts(settings, active_provider)
+                async with get_sessionmaker()() as db:
+                    digest_ids = [
+                        farm.id for farm in await farms_ready_for_digest(db, settings, now)
+                    ]
+                for farm_id in digest_ids:
+                    try:
+                        async with get_sessionmaker()() as db:
+                            farm = await db.get(Farm, farm_id)
+                            if farm is None:
+                                continue
+                            summary = await run_digest_for_farm(db, settings, active_provider, farm)
+                            if summary.sent or summary.skipped:
+                                logger.info(
+                                    "digest farm=%s sent=%d skipped=%d",
+                                    farm_id,
+                                    summary.sent,
+                                    summary.skipped,
+                                )
+                    except Exception:
+                        logger.exception("notification digest failed for farm %s", farm_id)
+                sweep_hour = now.replace(minute=0, second=0, microsecond=0)
+
+                page = await _notification_alert_maintenance_page(
+                    settings, active_provider, sweep_hour
+                )
+                if page is not None:
+                    metrics.record_maintenance_batch("notification_alerts", page.processed)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -498,24 +566,35 @@ async def _cadence_materialization_loop(
     The task board GET is read-only; this short-interval sweep is what brings
     each farm's cadence calendar onto the board. Pages are finite and keyset
     (id > cursor), and the per-farm advisory lock inside the cadence service
-    serializes any overlap between two sweeps of a rolling deploy.
+    serializes any overlap between two sweeps of a rolling deploy. A separate
+    durable checkpoint transaction excludes simultaneous schedulers and
+    advances only after one whole page finishes; restarts resume that cursor.
     """
+
+    async def cadence_page(after_farm_id: int) -> MaintenancePage:
+        # The cadence service commits each farm independently. Its session
+        # must never own the page checkpoint lock.
+        async with get_sessionmaker()() as db:
+            processed, cursor = await ensure_cadence_farm_batch(
+                db,
+                batch_size=farm_batch_size,
+                after_farm_id=after_farm_id,
+            )
+            await db.commit()
+        return MaintenancePage(processed, cursor, processed < farm_batch_size)
+
     while True:
         await asyncio.sleep(interval_seconds)
         try:
             processed_total = 0
-            after_farm_id = 0
             for _batch in range(max_batches):
-                async with get_sessionmaker()() as db:
-                    processed, after_farm_id = await ensure_cadence_farm_batch(
-                        db,
-                        batch_size=farm_batch_size,
-                        after_farm_id=after_farm_id,
-                    )
-                    await db.commit()
-                metrics.record_maintenance_batch("cadence_materialization", processed)
-                processed_total += processed
-                if processed < farm_batch_size:
+                async with get_sessionmaker()() as checkpoint_db:
+                    page = await run_maintenance_page(checkpoint_db, "cadence", cadence_page)
+                if page is None:
+                    break
+                metrics.record_maintenance_batch("cadence_materialization", page.processed)
+                processed_total += page.processed
+                if page.exhausted:
                     break
             if processed_total:
                 logger.info("cadence sweep materialized duties for %d farms", processed_total)
@@ -1050,16 +1129,7 @@ def create_app() -> FastAPI:
         },
         include_in_schema=True,
     )(readyz)
-    if settings.metrics_enabled:
-        # Deliberately NOT under /api: the compose edge routes /api/ to the
-        # backend and everything else to the frontend, so this endpoint is
-        # unreachable from the public internet in the shipped topology and
-        # can stay unauthenticated for internal scrapers. It is likewise kept
-        # out of the OpenAPI contract (include_in_schema=False) because it is
-        # an operational interface, not part of the client API. When
-        # GOATFARM_METRICS_ENABLED=false the route is not registered at all
-        # (404) and app.metrics collectors take no observations.
-        app.get("/metrics", include_in_schema=False)(metrics_endpoint)
+    app.include_router(operational_metrics.router)
     app.include_router(auth.router)
     app.include_router(animals.router)
     app.include_router(buckets.router)

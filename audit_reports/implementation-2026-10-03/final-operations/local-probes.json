@@ -1,0 +1,159 @@
+{
+  "recorded_at": "2026-10-03T18:44:26.357114+00:00",
+  "checks": {
+    "effective_compose": {
+      "passed": true,
+      "service_app_mounts": {
+        "api": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/secrets/api",
+        "migration": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/secrets/migration",
+        "worker": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/secrets/worker"
+      },
+      "api_worker_db_file_routes_distinct": true,
+      "api_not_host_published": true
+    },
+    "private_ca_helper": {
+      "passed": true,
+      "mixed_export_and_dotenv": true,
+      "explicit_export_precedence": true,
+      "scope": "Settings/helper resolution only; no database TLS negotiation"
+    },
+    "docker_fixture_context": {
+      "passed": true,
+      "exported_files": [
+        ".dockerenv",
+        "dev",
+        "dev/console",
+        "dev/pts",
+        "dev/shm",
+        "etc",
+        "etc/hostname",
+        "etc/hosts",
+        "etc/mtab",
+        "etc/resolv.conf",
+        "fixture",
+        "fixture/Dockerfile",
+        "fixture/visible.fixture",
+        "proc",
+        "sys"
+      ],
+      "context_secret_sentinels_absent": true,
+      "container_started": false,
+      "scope": "Actual Docker daemon build/export of scratch fixture with current .dockerignore; production image build remains pending"
+    }
+  },
+  "source_sha256": {
+    ".dockerignore": "b3084d8eec5df931ed724617c460bd614dd01b27401ff4db74da504ce0b4583d",
+    "docker-compose.production.yml": "eec0d08ae5c72ebabb1f8af5ba22d20d64b1875014ba05749d0a4587d9f17699",
+    "backend/scripts/backup_env.sh": "14105b28d55cab8365a6abf0b671f6bf6e4076b4ee6a9da6f3afb5e03b1095e9",
+    "backend/scripts/compose_env_guard.py": "8e4c93b737dcd4e71dd00e951b6a241d6d6756d77706ac2e72d6fd4bdb544e41"
+  },
+  "receipts": [
+    {
+      "name": "compose-effective-config",
+      "command": "docker compose --env-file /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/deployment.env -f /Users/pradeepreddy/Desktop/goat-farm-management-main/docker-compose.production.yml config --format json",
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+      "started_at": "2026-10-03T18:44:26.043111+00:00",
+      "finished_at": "2026-10-03T18:44:26.092785+00:00",
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stdout": "{\n  \"configs\": {\n    \"edge_entrypoint\": {\n      \"name\": \"goat-farm-management-main_edge_entrypoint\",\n      \"file\": \"/Users/pradeepreddy/Desktop/goat-farm-management-main/docker/edge-entrypoint.sh\"\n    },\n    \"edge_proxy\": {\n      \"name\": \"goat-farm-management-main_edge_proxy\",\n      \"file\": \"/Users/pradeepreddy/Desktop/goat-farm-management-main/docker/edge-proxy.production.conf.template\"\n    }\n  },\n  \"name\": \"goat-farm-management-main\",\n  \"networks\": {\n    \"goatfarm_app\": {\n      \"name\": \"goat-farm-management-main_goatfarm_app\",\n      \"ipam\": {\n        \"config\": [\n          {\n            \"subnet\": \"172.28.250.0/24\"\n          }\n        ]\n      }\n    }\n  },\n  \"services\": {\n    \"backend\": {\n      \"cap_drop\": [\n        \"ALL\"\n      ],\n      \"cpus\": 2,\n      \"command\": null,\n      \"depends_on\": {\n        \"config-guard\": {\n          \"condition\": \"service_completed_successfully\",\n          \"required\": true\n        },\n        \"migrate\": {\n          \"condition\": \"service_completed_successfully\",\n          \"required\": true\n        }\n      },\n      \"entrypoint\": null,\n      \"environment\": {\n        \"GOATFARM_ALLOWED_HOSTS\": \"[\\\"fixture.example\\\"]\",\n        \"GOATFARM_COOKIE_SECURE\": \"true\",\n        \"GOATFARM_CORS_ORIGINS\": \"[\\\"https://fixture.example\\\"]\",\n        \"GOATFARM_DATABASE_URL\": \"\",\n        \"GOATFARM_DATABASE_URL_FILE\": \"/run/secrets/app/api-credential.fake\",\n        \"GOATFARM_DB_SSLMODE\": \"verify-full\",\n        \"GOATFARM_DB_SSLROOTCERT_PATH\": \"/run/secrets/goatfarm-postgres-ca.pem\",\n        \"GOATFARM_ENVIRONMENT\": \"production\",\n        \"GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS\": \"[]\",\n        \"GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET\": \"\",\n        \"GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE\": \"/run/secrets/app/hmac.fake\",\n        \"GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS\": \"[]\",\n        \"GOATFARM_JWT_PRIVATE_KEY_PATH\": \"/run/secrets/jwt/jwt_private.pem\",\n        \"GOATFARM_JWT_PUBLIC_KEY_PATH\": \"/run/secrets/jwt/jwt_public.pem\",\n        \"GOATFARM_MAX_FARMS_PER_USER\": \"25\",\n        \"GOATFARM_MAX_REQUEST_BODY_BYTES\": \"1048576\",\n        \"GOATFARM_MAX_REQUEST_TARGET_BYTES\": \"8192\",\n        \"GOATFARM_METRICS_BEARER_TOKEN\": \"\",\n        \"GOATFARM_METRICS_BEARER_TOKEN_FILE\": \"/run/secrets/app/metrics.fake\",\n        \"GOATFARM_METRICS_ENABLED\": \"true\",\n        \"GOATFARM_METRICS_PUBLIC_ENABLED\": \"false\",\n        \"GOATFARM_MIN_PASSWORD_LENGTH\": \"12\",\n        \"GOATFARM_MSG91_AUTH_KEY\": \"\",\n        \"GOATFARM_MSG91_AUTH_KEY_FILE\": \"\",\n        \"GOATFARM_MSG91_SENDER_ID\": \"HERDLY\",\n        \"GOATFARM_MSG91_TEMPLATE_ID\": \"\",\n        \"GOATFARM_NOTIFICATIONS_DIGEST_HOUR\": \"6\",\n        \"GOATFARM_NOTIFICATIONS_DIGEST_MINUTE\": \"30\",\n        \"GOATFARM_NOTIFICATIONS_ENABLED\": \"false\",\n        \"GOATFARM_NOTIFICATIONS_FARM_DAILY_CAP\": \"50\",\n        \"GOATFARM_NOTIFICATIONS_LOOP_BATCH_SIZE\": \"100\",\n        \"GOATFARM_NOTIFICATIONS_PROVIDER\": \"console\",\n        \"GOATFARM_NOTIFICATIONS_QUIET_END_HOUR\": \"6\",\n        \"GOATFARM_NOTIFICATIONS_QUIET_START_HOUR\": \"21\",\n        \"GOATFARM_NOTIFICATIONS_SEND_RETRY_ATTEMPTS\": \"2\",\n        \"GOATFARM_NOTIFICATIONS_SEND_RETRY_BACKOFF_SECONDS\": \"2.0\",\n        \"GOATFARM_RETENTION_DELETE_BATCH_SIZE\": \"500\",\n        \"GOATFARM_RETENTION_FARM_BATCH_SIZE\": \"100\",\n        \"GOATFARM_RETENTION_LOCK_TIMEOUT_MS\": \"250\",\n        \"GOATFARM_RETENTION_MAX_BATCHES_PER_FARM\": \"4\",\n        \"GOATFARM_RETENTION_SCREENING_DAYS\": \"180\",\n        \"GOATFARM_RETENTION_STATEMENT_TIMEOUT_MS\": \"5000\",\n        \"GOATFARM_RETENTION_SWEEP_ENABLED\": \"false\",\n        \"GOATFARM_RETENTION_SWEEP_INTERVAL_SECONDS\": \"86400\",\n        \"GOATFARM_RETENTION_TERMINAL_TASK_DAYS\": \"365\",\n        \"GOATFARM_S3_ACCESS_KEY_ID\": \"\",\n        \"GOATFARM_S3_ACCESS_KEY_ID_FILE\": \"\",\n        \"GOATFARM_S3_BUCKET\": \"\",\n        \"GOATFARM_S3_ENDPOINT_URL\": \"\",\n        \"GOATFARM_S3_REGION\": \"us-east-1\",\n        \"GOATFARM_S3_SECRET_ACCESS_KEY\": \"\",\n        \"GOATFARM_S3_SECRET_ACCESS_KEY_FILE\": \"\",\n        \"GOATFARM_SCREENING_ANTHROPIC_API_KEY\": \"\",\n        \"GOATFARM_SCREENING_ANTHROPIC_API_KEY_FILE\": \"\",\n        \"GOATFARM_SCREENING_ANTHROPIC_BASE_URL\": \"https://api.anthropic.com\",\n        \"GOATFARM_SCREENING_ANTHROPIC_MODEL\": \"claude-sonnet-4-5\",\n        \"GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM\": \"400\",\n        \"GOATFARM_SCREENING_ENABLED\": \"false\",\n        \"GOATFARM_SCREENING_OPENAI_API_KEY\": \"\",\n        \"GOATFARM_SCREENING_OPENAI_API_KEY_FILE\": \"\",\n        \"GOATFARM_SCREENING_OPENAI_BASE_URL\": \"https://api.openai.com/v1\",\n        \"GOATFARM_SCREENING_OPENAI_MODEL\": \"gpt-5\",\n        \"GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS\": \"900\",\n        \"GOATFARM_SCREENING_PROVIDER\": \"anthropic\",\n        \"GOATFARM_SCREENING_PROVIDER_ROTATION\": \"[]\",\n        \"GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS\": \"120\",\n        \"GOATFARM_SCREENING_S3_PREFIX\": \"raw\",\n        \"GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS\": \"1800\",\n        \"GOATFARM_TOTP_ENCRYPTION_KEY\": \"\",\n        \"GOATFARM_TOTP_ENCRYPTION_KEY_FILE\": \"/run/secrets/app/totp.fake\",\n        \"GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS\": \"[]\",\n        \"GOATFARM_TRUSTED_PROXY_HOSTS\": \"172.28.250.2\",\n        \"GOATFARM_WORKER_PIN_MIN_LENGTH\": \"6\",\n        \"GOATFARM_WORKER_PIN_RATE_LIMIT_MAX_ATTEMPTS\": \"10\",\n        \"GOATFARM_WORKER_PIN_RATE_LIMIT_WINDOW_SECONDS\": \"300\",\n        \"GOATFARM_WORKER_ROSTER_ENABLED\": \"true\"\n      },\n      \"expose\": [\n        \"8000\"\n      ],\n      \"image\": \"example.invalid/herdly/backend@sha256:0000000000000000000000000000000000000000000000000000000000000000\",\n      \"logging\": {\n        \"driver\": \"json-file\",\n        \"options\": {\n          \"max-file\": \"3\",\n          \"max-size\": \"10m\"\n        }\n      },\n      \"mem_limit\": \"2147483648\",\n      \"networks\": {\n        \"goatfarm_app\": null\n      },\n      \"read_only\": true,\n      \"restart\": \"unless-stopped\",\n      \"security_opt\": [\n        \"no-new-privileges:true\"\n      ],\n      \"stop_grace_period\": \"40s\",\n      \"tmpfs\": [\n        \"/tmp:size=64m\"\n      ],\n      \"volumes\": [\n        {\n          \"type\": \"bind\",\n          \"source\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/private-ca.pem\",\n          \"target\": \"/run/secrets/goatfarm-postgres-ca.pem\",\n          \"read_only\": true\n        },\n        {\n          \"type\": \"bind\",\n          \"source\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/secrets/api\",\n          \"target\": \"/run/secrets/app\",\n          \"read_only\": true\n        },\n        {\n          \"type\": \"bind\",\n          \"source\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/jwt\",\n          \"target\": \"/run/secrets/jwt\",\n          \"read_only\": true\n        }\n      ]\n    },\n    \"config-guard\": {\n      \"cap_drop\": [\n        \"ALL\"\n      ],\n      \"cpus\": 0.25,\n      \"command\": [\n        \"python\",\n        \"scripts/compose_env_guard.py\",\n        \"/run/config/compose.env\"\n      ],\n      \"entrypoint\": null,\n      \"environment\": {\n        \"GOATFARM_API_SECRET_DIR\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/secrets/api\",\n        \"GOATFARM_APP_SECRET_DIR\": \"\",\n        \"GOATFARM_DATABASE_URL\": \"\",\n        \"GOATFARM_DATABASE_URL_FILE\": \"/run/secrets/app/api-credential.fake\",\n        \"GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET\": \"\",\n        \"GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE\": \"/run/secrets/app/hmac.fake\",\n        \"GOATFARM_MIGRATION_DATABASE_URL\": \"\",\n        \"GOATFARM_MIGRATION_DATABASE_URL_FILE\": \"/run/secrets/app/migration-credential.fake\",\n        \"GOATFARM_MIGRATION_SECRET_DIR\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/secrets/migration\",\n        \"GOATFARM_TOTP_ENCRYPTION_KEY\": \"\",\n        \"GOATFARM_TOTP_ENCRYPTION_KEY_FILE\": \"/run/secrets/app/totp.fake\",\n        \"GOATFARM_WORKER_DATABASE_URL\": \"\",\n        \"GOATFARM_WORKER_DATABASE_URL_FILE\": \"/run/secrets/app/worker-credential.fake\",\n        \"GOATFARM_WORKER_SECRET_DIR\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/secrets/worker\"\n      },\n      \"healthcheck\": {\n        \"disable\": true\n      },\n      \"image\": \"example.invalid/herdly/backend@sha256:0000000000000000000000000000000000000000000000000000000000000000\",\n      \"logging\": {\n        \"driver\": \"json-file\",\n        \"options\": {\n          \"max-file\": \"3\",\n          \"max-size\": \"10m\"\n        }\n      },\n      \"mem_limit\": \"134217728\",\n      \"network_mode\": \"none\",\n      \"read_only\": true,\n      \"restart\": \"no\",\n      \"security_opt\": [\n        \"no-new-privileges:true\"\n      ],\n      \"volumes\": [\n        {\n          \"type\": \"bind\",\n          \"source\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/deployment.env\",\n          \"target\": \"/run/config/compose.env\",\n          \"read_only\": true,\n          \"bind\": {\n            \"create_host_path\": false\n          }\n        }\n      ]\n    },\n    \"edge\": {\n      \"cap_add\": [\n        \"CHOWN\",\n        \"SETGID\",\n        \"SETUID\"\n      ],\n      \"cap_drop\": [\n        \"ALL\"\n      ],\n      \"cpus\": 0.5,\n      \"command\": [\n        \"/bin/sh\",\n        \"/edge-entrypoint.sh\"\n      ],\n      \"configs\": [\n        {\n          \"source\": \"edge_proxy\",\n          \"target\": \"/edge-proxy.template\"\n        },\n        {\n          \"source\": \"edge_entrypoint\",\n          \"target\": \"/edge-entrypoint.sh\",\n          \"mode\": \"0555\"\n        }\n      ],\n      \"depends_on\": {\n        \"backend\": {\n          \"condition\": \"service_healthy\",\n          \"required\": true\n        },\n        \"frontend\": {\n          \"condition\": \"service_healthy\",\n          \"required\": true\n        }\n      },\n      \"entrypoint\": null,\n      \"environment\": {\n        \"GOATFARM_CSP_CONNECT_ORIGINS\": \"\",\n        \"GOATFARM_CSP_IMG_ORIGINS\": \"\",\n        \"GOATFARM_EDGE_AUTH_BURST\": \"20\",\n        \"GOATFARM_EDGE_AUTH_RATE\": \"5r/s\",\n        \"GOATFARM_EDGE_BIND_HOST\": \"127.0.0.1\",\n        \"GOATFARM_EDGE_MAX_BODY_SIZE\": \"1m\",\n        \"GOATFARM_EDGE_PUBLIC_SCHEME\": \"https\",\n        \"GOATFARM_ENVIRONMENT\": \"production\",\n        \"GOATFARM_SCREENING_ENABLED\": \"false\"\n      },\n      \"healthcheck\": {\n        \"test\": [\n          \"CMD\",\n          \"wget\",\n          \"-q\",\n          \"--spider\",\n          \"http://127.0.0.1:3000/edge-healthz\"\n        ],\n        \"timeout\": \"5s\",\n        \"interval\": \"30s\",\n        \"retries\": 3,\n        \"start_period\": \"10s\"\n      },\n      \"image\": \"nginx:1.30-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c\",\n      \"logging\": {\n        \"driver\": \"json-file\",\n        \"options\": {\n          \"max-file\": \"3\",\n          \"max-size\": \"10m\"\n        }\n      },\n      \"mem_limit\": \"268435456\",\n      \"networks\": {\n        \"goatfarm_app\": {\n          \"ipv4_address\": \"172.28.250.2\"\n        }\n      },\n      \"ports\": [\n        {\n          \"mode\": \"ingress\",\n          \"host_ip\": \"127.0.0.1\",\n          \"target\": 3000,\n          \"published\": \"3000\",\n          \"protocol\": \"tcp\"\n        }\n      ],\n      \"read_only\": true,\n      \"restart\": \"unless-stopped\",\n      \"security_opt\": [\n        \"no-new-privileges:true\"\n      ],\n      \"tmpfs\": [\n        \"/var/cache/nginx:size=64m\",\n        \"/var/run:size=1m\",\n        \"/etc/nginx/conf.d:size=1m\"\n      ]\n    },\n    \"frontend\": {\n      \"cap_drop\": [\n        \"ALL\"\n      ],\n      \"cpus\": 1,\n      \"command\": null,\n      \"depends_on\": {\n        \"backend\": {\n          \"condition\": \"service_healthy\",\n          \"required\": true\n        }\n      },\n      \"entrypoint\": null,\n      \"environment\": {\n        \"GOATFARM_CSP_CONNECT_ORIGINS\": \"\",\n        \"GOATFARM_CSP_IMG_ORIGINS\": \"\"\n      },\n      \"expose\": [\n        \"3000\"\n      ],\n      \"image\": \"example.invalid/herdly/frontend@sha256:1111111111111111111111111111111111111111111111111111111111111111\",\n      \"logging\": {\n        \"driver\": \"json-file\",\n        \"options\": {\n          \"max-file\": \"3\",\n          \"max-size\": \"10m\"\n        }\n      },\n      \"mem_limit\": \"1073741824\",\n      \"networks\": {\n        \"goatfarm_app\": null\n      },\n      \"read_only\": true,\n      \"restart\": \"unless-stopped\",\n      \"security_opt\": [\n        \"no-new-privileges:true\"\n      ],\n      \"tmpfs\": [\n        \"/tmp:size=64m\",\n        \"/app/.next/cache:size=128m\"\n      ]\n    },\n    \"migrate\": {\n      \"cap_drop\": [\n        \"ALL\"\n      ],\n      \"cpus\": 1,\n      \"command\": [\n        \"alembic\",\n        \"upgrade\",\n        \"head\"\n      ],\n      \"depends_on\": {\n        \"config-guard\": {\n          \"condition\": \"service_completed_successfully\",\n          \"required\": true\n        }\n      },\n      \"entrypoint\": null,\n      \"environment\": {\n        \"GOATFARM_DB_SSLMODE\": \"verify-full\",\n        \"GOATFARM_DB_SSLROOTCERT_PATH\": \"/run/secrets/goatfarm-postgres-ca.pem\",\n        \"GOATFARM_ENVIRONMENT\": \"production\",\n        \"GOATFARM_MIGRATION_DATABASE_URL\": \"\",\n        \"GOATFARM_MIGRATION_DATABASE_URL_FILE\": \"/run/secrets/app/migration-credential.fake\",\n        \"GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS\": \"0\"\n      },\n      \"image\": \"example.invalid/herdly/backend@sha256:0000000000000000000000000000000000000000000000000000000000000000\",\n      \"logging\": {\n        \"driver\": \"json-file\",\n        \"options\": {\n          \"max-file\": \"3\",\n          \"max-size\": \"10m\"\n        }\n      },\n      \"mem_limit\": \"1073741824\",\n      \"networks\": {\n        \"goatfarm_app\": null\n      },\n      \"read_only\": true,\n      \"security_opt\": [\n        \"no-new-privileges:true\"\n      ],\n      \"tmpfs\": [\n        \"/tmp:size=16m\"\n      ],\n      \"volumes\": [\n        {\n          \"type\": \"bind\",\n          \"source\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/private-ca.pem\",\n          \"target\": \"/run/secrets/goatfarm-postgres-ca.pem\",\n          \"read_only\": true\n        },\n        {\n          \"type\": \"bind\",\n          \"source\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/secrets/migration\",\n          \"target\": \"/run/secrets/app\",\n          \"read_only\": true\n        }\n      ]\n    },\n    \"screening-worker\": {\n      \"cap_drop\": [\n        \"ALL\"\n      ],\n      \"cpus\": 1,\n      \"command\": [\n        \"python\",\n        \"-m\",\n        \"app.worker\"\n      ],\n      \"depends_on\": {\n        \"migrate\": {\n          \"condition\": \"service_completed_successfully\",\n          \"required\": true\n        }\n      },\n      \"entrypoint\": null,\n      \"environment\": {\n        \"GOATFARM_DATABASE_URL\": \"\",\n        \"GOATFARM_DATABASE_URL_FILE\": \"/run/secrets/app/worker-credential.fake\",\n        \"GOATFARM_DB_SSLMODE\": \"verify-full\",\n        \"GOATFARM_DB_SSLROOTCERT_PATH\": \"/run/secrets/goatfarm-postgres-ca.pem\",\n        \"GOATFARM_ENVIRONMENT\": \"production\",\n        \"GOATFARM_S3_ACCESS_KEY_ID\": \"\",\n        \"GOATFARM_S3_ACCESS_KEY_ID_FILE\": \"\",\n        \"GOATFARM_S3_BUCKET\": \"\",\n        \"GOATFARM_S3_ENDPOINT_URL\": \"\",\n        \"GOATFARM_S3_REGION\": \"us-east-1\",\n        \"GOATFARM_S3_SECRET_ACCESS_KEY\": \"\",\n        \"GOATFARM_S3_SECRET_ACCESS_KEY_FILE\": \"\",\n        \"GOATFARM_SCREENING_ANTHROPIC_API_KEY\": \"\",\n        \"GOATFARM_SCREENING_ANTHROPIC_API_KEY_FILE\": \"\",\n        \"GOATFARM_SCREENING_ANTHROPIC_BASE_URL\": \"https://api.anthropic.com\",\n        \"GOATFARM_SCREENING_ANTHROPIC_MODEL\": \"claude-sonnet-4-5\",\n        \"GOATFARM_SCREENING_CROP_DETECTION_ENABLED\": \"true\",\n        \"GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM\": \"400\",\n        \"GOATFARM_SCREENING_ENABLED\": \"false\",\n        \"GOATFARM_SCREENING_IMAGE_MAX_EDGE_PX\": \"1568\",\n        \"GOATFARM_SCREENING_MAX_CROPS_PER_IMAGE\": \"8\",\n        \"GOATFARM_SCREENING_MAX_IMAGES_PER_CYCLE\": \"50\",\n        \"GOATFARM_SCREENING_OPENAI_API_KEY\": \"\",\n        \"GOATFARM_SCREENING_OPENAI_API_KEY_FILE\": \"\",\n        \"GOATFARM_SCREENING_OPENAI_BASE_URL\": \"https://api.openai.com/v1\",\n        \"GOATFARM_SCREENING_OPENAI_MODEL\": \"gpt-5\",\n        \"GOATFARM_SCREENING_POLL_INTERVAL_SECONDS\": \"300\",\n        \"GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS\": \"900\",\n        \"GOATFARM_SCREENING_PROVIDER\": \"anthropic\",\n        \"GOATFARM_SCREENING_PROVIDER_ROTATION\": \"[]\",\n        \"GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS\": \"120\",\n        \"GOATFARM_SCREENING_S3_PREFIX\": \"raw\",\n        \"GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS\": \"1800\",\n        \"GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS\": \"900\",\n        \"GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH\": \"/tmp/goatfarm-screening-worker.json\",\n        \"GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES\": \"3\"\n      },\n      \"healthcheck\": {\n        \"test\": [\n          \"CMD\",\n          \"python\",\n          \"screening_worker_healthcheck.py\"\n        ],\n        \"timeout\": \"5s\",\n        \"interval\": \"30s\",\n        \"retries\": 3,\n        \"start_period\": \"30s\"\n      },\n      \"image\": \"example.invalid/herdly/backend@sha256:0000000000000000000000000000000000000000000000000000000000000000\",\n      \"logging\": {\n        \"driver\": \"json-file\",\n        \"options\": {\n          \"max-file\": \"3\",\n          \"max-size\": \"10m\"\n        }\n      },\n      \"mem_limit\": \"1073741824\",\n      \"networks\": {\n        \"goatfarm_app\": null\n      },\n      \"read_only\": true,\n      \"restart\": \"unless-stopped\",\n      \"security_opt\": [\n        \"no-new-privileges:true\"\n      ],\n      \"stop_grace_period\": \"40s\",\n      \"tmpfs\": [\n        \"/tmp:size=16m\"\n      ],\n      \"volumes\": [\n        {\n          \"type\": \"bind\",\n          \"source\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/private-ca.pem\",\n          \"target\": \"/run/secrets/goatfarm-postgres-ca.pem\",\n          \"read_only\": true\n        },\n        {\n          \"type\": \"bind\",\n          \"source\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/secrets/worker\",\n          \"target\": \"/run/secrets/app\",\n          \"read_only\": true\n        }\n      ]\n    }\n  },\n  \"x-api-secrets\": {\n    \"read_only\": true,\n    \"source\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/secrets/api\",\n    \"target\": \"/run/secrets/app\",\n    \"type\": \"bind\"\n  },\n  \"x-db-ca\": {\n    \"read_only\": true,\n    \"source\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/private-ca.pem\",\n    \"target\": \"/run/secrets/goatfarm-postgres-ca.pem\",\n    \"type\": \"bind\"\n  },\n  \"x-default-logging\": {\n    \"driver\": \"json-file\",\n    \"options\": {\n      \"max-file\": \"3\",\n      \"max-size\": \"10m\"\n    }\n  },\n  \"x-migration-secrets\": {\n    \"read_only\": true,\n    \"source\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/secrets/migration\",\n    \"target\": \"/run/secrets/app\",\n    \"type\": \"bind\"\n  },\n  \"x-service-hardening\": {\n    \"cap_drop\": [\n      \"ALL\"\n    ],\n    \"logging\": {\n      \"driver\": \"json-file\",\n      \"options\": {\n        \"max-file\": \"3\",\n        \"max-size\": \"10m\"\n      }\n    },\n    \"security_opt\": [\n      \"no-new-privileges:true\"\n    ]\n  },\n  \"x-worker-secrets\": {\n    \"read_only\": true,\n    \"source\": \"/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/secrets/worker\",\n    \"target\": \"/run/secrets/app\",\n    \"type\": \"bind\"\n  }\n}",
+      "stderr": ""
+    },
+    {
+      "name": "compose-file-delivery-guard",
+      "command": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/compose_env_guard.py /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/deployment.env",
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+      "started_at": "2026-10-03T18:44:26.093344+00:00",
+      "finished_at": "2026-10-03T18:44:26.185055+00:00",
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "name": "private-ca-mixed-sources",
+      "command": "bash -c 'SCRIPT_DIR=\"$1\"; PYTHON_BIN=\"$2\"; source \"$3\"; load_app_safety_settings; validate_app_settings; printf \"%s\\n\" \"$ENVIRONMENT\" \"$DB_SSLMODE\" \"$DB_SSLROOTCERT_PATH\"' fixture /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/helper/scripts /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/backup_env.sh",
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+      "started_at": "2026-10-03T18:44:26.185776+00:00",
+      "finished_at": "2026-10-03T18:44:26.210713+00:00",
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stdout": "production\nverify-full\n/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/private-ca.pem\n",
+      "stderr": ""
+    },
+    {
+      "name": "private-ca-export-precedence",
+      "command": "bash -c 'SCRIPT_DIR=\"$1\"; PYTHON_BIN=\"$2\"; source \"$3\"; load_app_safety_settings; validate_app_settings; printf \"%s\\n\" \"$ENVIRONMENT\" \"$DB_SSLMODE\" \"$DB_SSLROOTCERT_PATH\"' fixture /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/helper/scripts /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/backup_env.sh",
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+      "started_at": "2026-10-03T18:44:26.211143+00:00",
+      "finished_at": "2026-10-03T18:44:26.214183+00:00",
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stdout": "production\nverify-full\n/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/exported-ca.pem\n",
+      "stderr": ""
+    },
+    {
+      "name": "docker-fixture-context-build",
+      "command": "docker build --network=none --tag herdly-context-proof-20261003:43efa0d835c74c0595202406a898d2be /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/context",
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+      "started_at": "2026-10-03T18:44:26.215630+00:00",
+      "finished_at": "2026-10-03T18:44:26.260358+00:00",
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stdout": "Sending build context to Docker daemon   5.12kB\n\nStep 1/2 : FROM scratch\n ---> \nStep 2/2 : COPY . /fixture/\n ---> 649798ea2f6b\nSuccessfully built 649798ea2f6b\nSuccessfully tagged herdly-context-proof-20261003:43efa0d835c74c0595202406a898d2be\n",
+      "stderr": "DEPRECATED: The legacy builder is deprecated and will be removed in a future release.\n            BuildKit is currently disabled; enable it by removing the DOCKER_BUILDKIT=0\n            environment-variable.\n\n"
+    },
+    {
+      "name": "docker-fixture-create-no-start",
+      "command": "docker create --network=none --name herdly-context-proof-effd93f5fff24aaca0c5553704bf53d0 herdly-context-proof-20261003:43efa0d835c74c0595202406a898d2be /not-executed",
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+      "started_at": "2026-10-03T18:44:26.260803+00:00",
+      "finished_at": "2026-10-03T18:44:26.286563+00:00",
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stdout": "61ab8ae6d2f9fca8149488d8092ba517f56dacd7928c03ac46595f2900c7a61d\n",
+      "stderr": ""
+    },
+    {
+      "name": "docker-fixture-export",
+      "command": "docker export --output /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/fixture-container.tar herdly-context-proof-effd93f5fff24aaca0c5553704bf53d0",
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+      "started_at": "2026-10-03T18:44:26.286947+00:00",
+      "finished_at": "2026-10-03T18:44:26.307275+00:00",
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "name": "docker-fixture-container-cleanup",
+      "command": "docker rm herdly-context-proof-effd93f5fff24aaca0c5553704bf53d0",
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+      "started_at": "2026-10-03T18:44:26.308528+00:00",
+      "finished_at": "2026-10-03T18:44:26.327998+00:00",
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stdout": "herdly-context-proof-effd93f5fff24aaca0c5553704bf53d0\n",
+      "stderr": ""
+    },
+    {
+      "name": "docker-fixture-image-cleanup",
+      "command": "docker image rm herdly-context-proof-20261003:43efa0d835c74c0595202406a898d2be",
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+      "started_at": "2026-10-03T18:44:26.328348+00:00",
+      "finished_at": "2026-10-03T18:44:26.355205+00:00",
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stdout": "Untagged: herdly-context-proof-20261003:43efa0d835c74c0595202406a898d2be\nDeleted: sha256:649798ea2f6bd2a18d27c010e4ae7b9fb4998222173d863f9b73e2e7f36e9c02\n",
+      "stderr": ""
+    }
+  ],
+  "pending": [
+    "Production image build and boot",
+    "Real DB private-CA/TLS negotiation",
+    "External provider execution",
+    "Received external test alert",
+    "Production-size migration lock-window rehearsal",
+    "Restart workload soak"
+  ]
+}

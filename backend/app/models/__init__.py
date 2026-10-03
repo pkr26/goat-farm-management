@@ -75,7 +75,15 @@ from .enums import (
 )
 from .feeding import FeedFinishedStock, FeedingRecord, FeedInventory, FeedRecipe, FeedRecipeLine
 from .finance import InsurancePolicy, InsurancePremium, Transaction
-from .health import HealthEvent, MovementRestrictionAction, VaccineTemplate
+from .health import (
+    HealthEvent,
+    HealthRound,
+    HealthRoundCoverage,
+    HealthRoundExclusion,
+    HealthRoundTarget,
+    MovementRestrictionAction,
+    VaccineTemplate,
+)
 from .helpers import (
     QUARANTINE_PROTOCOL,
     QuarantineTaskSpec,
@@ -85,7 +93,8 @@ from .helpers import (
     quarantine_schedule,
 )
 from .idempotency import IdempotencyRecord
-from .notifications import NotificationLog, NotificationRecipient
+from .maintenance import MaintenanceProgress
+from .notifications import NotificationLog, NotificationOutbox, NotificationRecipient
 from .planner import PlannerPlan
 from .purchases import PurchaseBatch
 from .screening import (
@@ -96,9 +105,12 @@ from .screening import (
     MAX_SCREENING_PROVIDER_LENGTH,
     MAX_SCREENING_REGION_LENGTH,
     ScreeningBatch,
+    ScreeningCallReservation,
     ScreeningContentClaim,
     ScreeningCrop,
+    ScreeningDailyBudget,
     ScreeningFinding,
+    ScreeningFindingReview,
     ScreeningImage,
     ScreeningRun,
 )
@@ -169,6 +181,10 @@ __all__ = [
     "FeedingShift",
     "HealthEvent",
     "HealthEventType",
+    "HealthRound",
+    "HealthRoundCoverage",
+    "HealthRoundExclusion",
+    "HealthRoundTarget",
     "IdempotencyRecord",
     "IngredientCategory",
     "InsurancePolicy",
@@ -177,9 +193,11 @@ __all__ = [
     "KidStatus",
     "KiddingEase",
     "KiddingRecord",
+    "MaintenanceProgress",
     "MortalityCause",
     "MovementRestrictionAction",
     "NotificationLog",
+    "NotificationOutbox",
     "NotificationRecipient",
     "PlannerPlan",
     "PurchaseBatch",
@@ -187,9 +205,12 @@ __all__ = [
     "RefreshSession",
     "Role",
     "ScreeningBatch",
+    "ScreeningCallReservation",
     "ScreeningContentClaim",
     "ScreeningCrop",
+    "ScreeningDailyBudget",
     "ScreeningFinding",
+    "ScreeningFindingReview",
     "ScreeningFindingStatus",
     "ScreeningImage",
     "ScreeningImageStatus",

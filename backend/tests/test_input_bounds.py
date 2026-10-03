@@ -22,6 +22,7 @@ from app.schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from app.utils import today
 
 from .conftest import owner_with_farm, register
+from .type_helpers import json_int
 
 MONEY_CAP = 1_000_000_000
 QTY_KG_CAP = 1_000_000
@@ -86,8 +87,8 @@ async def test_negative_out_of_range_path_ids_never_reach_asyncpg(
     # Worker status is now desired-state PUT, so provide its required body;
     # otherwise request validation would stop at the missing JSON payload and
     # this test would never exercise the path-id bound.
-    kwargs = {"json": {"is_active": True}} if method == "PUT" else {}
-    response = await client.request(method, url, headers=owner, **kwargs)
+    json_payload = {"is_active": True} if method == "PUT" else None
+    response = await client.request(method, url, headers=owner, json=json_payload)
     assert response.status_code == 404, response.text
 
 
@@ -248,7 +249,7 @@ def iso(d: date) -> str:
 
 
 async def post_raw_json(
-    client: httpx.AsyncClient, url: str, payload: dict, headers: dict
+    client: httpx.AsyncClient, url: str, payload: dict[str, object], headers: dict[str, str]
 ) -> httpx.Response:
     """POST with a manually serialized body: httpx's `json=` refuses non-finite
     floats, but Python's json.dumps emits the non-standard `NaN`/`Infinity`
@@ -260,20 +261,22 @@ async def post_raw_json(
     )
 
 
-async def make_animal(client: httpx.AsyncClient, headers: dict, tag: str = "A-001") -> int:
+async def make_animal(
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "A-001"
+) -> int:
     resp = await client.post(
         "/api/animals",
         json={"tag_number": tag, "sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"},
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    return json_int(resp.json()["id"])
 
 
-async def inventory_item_id(client: httpx.AsyncClient, headers: dict) -> int:
+async def inventory_item_id(client: httpx.AsyncClient, headers: dict[str, str]) -> int:
     resp = await client.get("/api/feeding/inventory", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()[0]["id"]
+    return json_int(resp.json()[0]["id"])
 
 
 # ---------------------------------------------------------------------------
@@ -646,7 +649,7 @@ async def test_finance_survives_previously_poisoned_rows(client: httpx.AsyncClie
     # migration sanitizes those rows before converting to NUMERIC(14, 2);
     # after migration even a direct ORM write is rejected by PostgreSQL.
     farm_id = int(owner["X-Farm-Id"])
-    for amount in (float("inf"), float("nan")):
+    for nonfinite_amount in (float("inf"), float("nan")):
         async with get_sessionmaker()() as db:
             db.add(
                 Transaction(
@@ -654,7 +657,7 @@ async def test_finance_survives_previously_poisoned_rows(client: httpx.AsyncClie
                     date=today(),
                     type="INCOME",
                     category="OTHER",
-                    amount=amount,
+                    amount=nonfinite_amount,
                 )
             )
             with pytest.raises(DBAPIError):

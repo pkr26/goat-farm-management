@@ -7,7 +7,7 @@ from datetime import date
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import false, func, or_, select
+from sqlalchemy import exists, false, func, or_, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -20,6 +20,10 @@ from ..models import (
     Farm,
     HealthEvent,
     HealthEventType,
+    HealthRound,
+    HealthRoundCoverage,
+    HealthRoundExclusion,
+    HealthRoundTarget,
     MovementRestrictionAction,
     PurchaseBatch,
     Task,
@@ -50,6 +54,9 @@ from ..schemas.health import (
     HealthEventOut,
     HealthPurchaseBatchOptionListOut,
     HealthPurchaseBatchOptionOut,
+    HealthRoundOut,
+    HealthRoundTargetChangeIn,
+    HealthRoundTargetOut,
     MovementRestrictionActionOut,
     MovementRestrictionClearIn,
     MovementRestrictionHistoryOut,
@@ -76,6 +83,15 @@ from ..services import (
     vaccination_schedule_for_animal,
     validated_template,
 )
+from ..services.health_rounds import (
+    add_round_coverage,
+    ensure_round_snapshot,
+    is_herd_round,
+    recorded_components,
+    require_round_targets,
+    round_counts,
+    round_is_complete,
+)
 from ..utils import today, utcnow
 from ._shared import sms_safe_text, visible_to
 
@@ -86,6 +102,258 @@ MANAGE = Annotated[set[str], Depends(require_perm("health.manage"))]
 
 HEALTH_LOOKUP_DEFAULT_LIMIT = 50
 HEALTH_LOOKUP_MAX_LIMIT = 100
+
+
+async def _round_task(
+    db: DbSession, farm: CurrentFarm, task_id: int, *, lock: bool = False
+) -> Task:
+    query = select(Task).where(Task.farm_id == farm.id, Task.id == task_id)
+    if lock:
+        query = query.with_for_update()
+    task = (await db.execute(query)).scalar_one_or_none() if 1 <= task_id <= MAX_INT32_ID else None
+    if task is None or not is_herd_round(task):
+        raise HTTPException(status_code=404, detail="Herd health duty not found")
+    return task
+
+
+async def _round_out(
+    db: DbSession, task: Task, *, limit: int = 100, offset: int = 0
+) -> HealthRoundOut:
+    round_ = await db.get(HealthRound, task.id)
+    components = (
+        round_.required_components
+        if round_ is not None
+        else list(template_names_for_task(task.title, task.category))
+    )
+    total, excluded, covered, remaining = (
+        await round_counts(db, round_) if round_ is not None else (0, 0, 0, 0)
+    )
+    available = (
+        await db.execute(
+            select(func.count())
+            .select_from(Animal)
+            .where(
+                Animal.farm_id == task.farm_id,
+                Animal.status == AnimalStatus.ACTIVE.value,
+                ~exists().where(
+                    HealthRoundTarget.task_id == task.id, HealthRoundTarget.animal_id == Animal.id
+                ),
+            )
+        )
+    ).scalar_one()
+    targets: list[HealthRoundTargetOut] = []
+    if round_ is not None:
+        rows = (
+            await db.execute(
+                select(HealthRoundTarget, Animal, HealthRoundExclusion)
+                .join(Animal, Animal.id == HealthRoundTarget.animal_id)
+                .outerjoin(
+                    HealthRoundExclusion,
+                    (HealthRoundExclusion.task_id == HealthRoundTarget.task_id)
+                    & (HealthRoundExclusion.animal_id == HealthRoundTarget.animal_id),
+                )
+                .where(HealthRoundTarget.task_id == task.id)
+                .order_by(HealthRoundTarget.animal_id)
+                .limit(limit)
+                .offset(offset)
+            )
+        ).all()
+        coverage: dict[int, list[str]] = {}
+        if rows:
+            for animal_id, component in (
+                await db.execute(
+                    select(HealthRoundCoverage.animal_id, HealthRoundCoverage.component).where(
+                        HealthRoundCoverage.task_id == task.id,
+                        HealthRoundCoverage.animal_id.in_([row[0].animal_id for row in rows]),
+                    )
+                )
+            ).all():
+                coverage.setdefault(animal_id, []).append(component)
+        for target, animal, exclusion in rows:
+            targets.append(
+                HealthRoundTargetOut(
+                    animal_id=animal.id,
+                    animal_tag=animal.tag_number,
+                    animal_status=animal.status,
+                    current_bucket=animal.current_bucket,
+                    covered_components=sorted(coverage.get(animal.id, [])),
+                    exclusion_reason=exclusion.reason if exclusion is not None else None,
+                    excluded_by_id=exclusion.recorded_by_id if exclusion is not None else None,
+                    excluded_at=exclusion.recorded_at if exclusion is not None else None,
+                    inclusion_reason=target.inclusion_reason,
+                    added_at=target.added_at,
+                )
+            )
+    return HealthRoundOut(
+        task_id=task.id,
+        task_status=task.status,
+        initialized=round_ is not None,
+        snapshot_at=round_.snapshot_at if round_ is not None else None,
+        required_components=components,
+        total_targets=total,
+        excluded_targets=excluded,
+        covered_targets=covered,
+        remaining_units=remaining,
+        available_additions=available,
+        targets=targets,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/rounds/{task_id}")
+async def health_round_progress(
+    task_id: int,
+    db: DbSession,
+    farm: CurrentFarm,
+    _perms: VIEW,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
+) -> HealthRoundOut:
+    """Read-only progress; legacy completed duties have no invented cohort."""
+    return await _round_out(db, await _round_task(db, farm, task_id), limit=limit, offset=offset)
+
+
+async def _writable_round_task(
+    db: DbSession,
+    farm: CurrentFarm,
+    task_id: int,
+    user: CurrentUser,
+    membership: CurrentMembership,
+) -> Task:
+    task = await _round_task(db, farm, task_id, lock=True)
+    if task.status != TaskStatus.PENDING.value:
+        raise lifecycle_conflict(detail="Only a pending health round can change")
+    if not await visible_to(db, task, user, farm, membership, lock_assignee=True):
+        raise HTTPException(status_code=403, detail="This duty is not assigned to you")
+    return task
+
+
+@router.post("/rounds/{task_id}/start")
+async def start_health_round(
+    task_id: int,
+    db: DbSession,
+    farm: CurrentFarm,
+    user: CurrentUser,
+    membership: CurrentMembership,
+    _perms: MANAGE,
+) -> HealthRoundOut:
+    # Snapshot foreign keys take Animal KEY SHARE locks. Acquire them before
+    # the Task, matching lifecycle writers, so another pen's status/event
+    # mutation cannot hold Animal while waiting for our Task lock.
+    await lock_manual_task_queue(db, farm)
+    await db.execute(
+        select(Animal.id)
+        .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
+        .order_by(Animal.id)
+        .with_for_update(read=True, key_share=True)
+    )
+    task = await _writable_round_task(db, farm, task_id, user, membership)
+    try:
+        await ensure_round_snapshot(db, task)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    await db.commit()
+    return await _round_out(db, task)
+
+
+async def _change_round_targets(
+    task_id: int,
+    payload: HealthRoundTargetChangeIn,
+    db: DbSession,
+    farm: CurrentFarm,
+    user: CurrentUser,
+    membership: CurrentMembership,
+    *,
+    exclude: bool,
+) -> HealthRoundOut:
+    # Match the event and lifecycle writers' ANIMAL -> TASK order. A recurring
+    # task can spawn a successor, so take the queue mutex before either lock.
+    await lock_manual_task_queue(db, farm)
+    animals = (
+        (
+            await db.execute(
+                select(Animal)
+                .where(Animal.farm_id == farm.id, Animal.id.in_(payload.animal_ids))
+                .order_by(Animal.id)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(animals) != len(payload.animal_ids):
+        raise HTTPException(status_code=404, detail="Round animal not found")
+    task = await _writable_round_task(db, farm, task_id, user, membership)
+    round_ = await db.get(HealthRound, task.id)
+    if round_ is None:
+        raise stale_state_conflict(detail="Start the herd round before changing targets")
+    for animal in animals:
+        target = await db.get(HealthRoundTarget, (task.id, animal.id))
+        if exclude:
+            if target is None:
+                raise stale_state_conflict(detail="Animal is not a declared round target")
+            previous = await db.get(HealthRoundExclusion, (task.id, animal.id))
+            if previous is not None:
+                if previous.reason != payload.reason or previous.recorded_by_id != user.id:
+                    raise stale_state_conflict(detail="Round exclusion is already recorded")
+                continue
+            db.add(
+                HealthRoundExclusion(
+                    farm_id=farm.id,
+                    task_id=task.id,
+                    animal_id=animal.id,
+                    reason=payload.reason,
+                    recorded_by_id=user.id,
+                )
+            )
+        else:
+            if animal.status != AnimalStatus.ACTIVE.value:
+                raise lifecycle_conflict(detail="Only an active animal can join a round")
+            if target is not None:
+                if target.inclusion_reason == payload.reason and target.added_by_id == user.id:
+                    continue
+                raise stale_state_conflict(detail="Animal is already a round target")
+            db.add(
+                HealthRoundTarget(
+                    farm_id=farm.id,
+                    task_id=task.id,
+                    animal_id=animal.id,
+                    inclusion_reason=payload.reason,
+                    added_by_id=user.id,
+                )
+            )
+    await db.flush()
+    if exclude and await round_is_complete(db, round_):
+        await complete_task(db, task, user)
+    await db.commit()
+    return await _round_out(db, task)
+
+
+@router.post("/rounds/{task_id}/targets")
+async def add_health_round_targets(
+    task_id: int,
+    payload: HealthRoundTargetChangeIn,
+    db: DbSession,
+    farm: CurrentFarm,
+    user: CurrentUser,
+    membership: CurrentMembership,
+    _perms: MANAGE,
+) -> HealthRoundOut:
+    return await _change_round_targets(task_id, payload, db, farm, user, membership, exclude=False)
+
+
+@router.post("/rounds/{task_id}/exclusions")
+async def exclude_health_round_targets(
+    task_id: int,
+    payload: HealthRoundTargetChangeIn,
+    db: DbSession,
+    farm: CurrentFarm,
+    user: CurrentUser,
+    membership: CurrentMembership,
+    _perms: MANAGE,
+) -> HealthRoundOut:
+    return await _change_round_targets(task_id, payload, db, farm, user, membership, exclude=True)
 
 
 def _event_out(event: HealthEvent) -> HealthEventOut:
@@ -518,27 +786,51 @@ async def _bulk_target_snapshot(
         # unlinked writes alike, so a reviewed preview can be submitted
         # unchanged.
         filters.append(Animal.current_bucket == Bucket.QUARANTINE.value)
-        if target.task_id is not None:
-            if target.task_id > MAX_INT32_ID:
-                raise lifecycle_conflict(detail="Linked health task is unavailable")
-            task = (
-                await db.execute(
-                    select(Task).where(
-                        Task.id == target.task_id,
-                        Task.farm_id == farm_id,
-                        Task.status == TaskStatus.PENDING.value,
-                        Task.category.in_(
-                            (TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value)
-                        ),
-                    )
+    if target.task_id is not None:
+        if target.task_id > MAX_INT32_ID:
+            raise lifecycle_conflict(detail="Linked health task is unavailable")
+        task = (
+            await db.execute(
+                select(Task).where(
+                    Task.id == target.task_id,
+                    Task.farm_id == farm_id,
+                    Task.status == TaskStatus.PENDING.value,
+                    Task.category.in_((TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value)),
                 )
-            ).scalar_one_or_none()
-            if task is None:
-                raise lifecycle_conflict(detail="Linked health task is not pending or compatible")
-            if task.purchase_batch_id != target.purchase_batch_id:
-                raise HTTPException(
-                    status_code=422, detail="Health preview scope must match the linked batch"
-                )
+            )
+        ).scalar_one_or_none()
+        if task is None:
+            raise lifecycle_conflict(detail="Linked health task is not pending or compatible")
+        if is_herd_round(task):
+            round_ = await db.get(HealthRound, task.id)
+            if round_ is None:
+                raise stale_state_conflict(detail="Start the herd round before reviewing targets")
+            component = target.round_component
+            if component not in round_.required_components:
+                raise HTTPException(status_code=422, detail="Select a required round component")
+            filters.extend(
+                [
+                    exists().where(
+                        HealthRoundTarget.task_id == task.id,
+                        HealthRoundTarget.animal_id == Animal.id,
+                    ),
+                    ~exists().where(
+                        HealthRoundExclusion.task_id == task.id,
+                        HealthRoundExclusion.animal_id == Animal.id,
+                    ),
+                    ~exists().where(
+                        HealthRoundCoverage.task_id == task.id,
+                        HealthRoundCoverage.animal_id == Animal.id,
+                        HealthRoundCoverage.component == component,
+                    ),
+                ]
+            )
+        elif target.scope != "batch" or task.purchase_batch_id != target.purchase_batch_id:
+            raise HTTPException(
+                status_code=422, detail="Health preview scope must match the linked batch"
+            )
+        elif target.round_component is not None:
+            raise HTTPException(status_code=422, detail="Round component requires a herd duty")
     # Full entities (the age computation needs effective_dob): scalars(), or
     # each row is a one-column Row whose attribute access raises KeyError.
     rows = list(
@@ -585,6 +877,7 @@ async def preview_bulk_event_targets(
         bucket=payload.bucket,
         purchase_batch_id=payload.purchase_batch_id,
         task_id=payload.task_id,
+        round_component=payload.round_component,
         target_animal_ids=ids,
         target_animals=identities,
         target_animal_ages_months=ages,
@@ -793,6 +1086,8 @@ async def _record_event_mutation(
         linked_batch_id=linked_batch_id,
     )
     task: Task | None = None
+    round_: HealthRound | None = None
+    round_components: list[str] = []
     if payload.task_id is not None and payload.task_id <= MAX_INT32_ID:
         task = (
             await db.execute(
@@ -924,11 +1219,7 @@ async def _record_event_mutation(
                     status_code=422, detail="Health event scope must match the linked animal"
                 )
         else:
-            # A herd-level round duty (the cadence-generated vaccination and
-            # deworming rounds carry no animal/batch target): close it on
-            # bucket- or batch-scoped evidence of the round being
-            # administered. A single-animal event never satisfies a herd
-            # round.
+            # Herd duties accumulate per-animal evidence across reviewed pens.
             if payload.scope not in ("bucket", "batch"):
                 raise HTTPException(
                     status_code=422,
@@ -944,15 +1235,35 @@ async def _record_event_mutation(
                 raise HTTPException(
                     status_code=422, detail="Disease target does not match the linked task"
                 )
-            chosen_template = preferred_template_for_target(disease_target, expected_templates)
+            chosen_template = template_name or preferred_template_for_target(
+                disease_target, expected_templates
+            )
             try:
                 template = await validated_template(db, chosen_template, payload.type)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from None
             template_name = chosen_template
             if not disease_target:
-                disease_target = canonical_target_for_task(task.title, task.category) or ""
-        await complete_task(db, task, user)
+                # A blank form records the chosen item; it cannot manufacture
+                # the other half of a multi-component herd round.
+                disease_target = (
+                    chosen_template
+                    if is_herd_round(task)
+                    else canonical_target_for_task(task.title, task.category) or ""
+                )
+        if is_herd_round(task):
+            round_ = await db.get(HealthRound, task.id)
+            if round_ is None:
+                raise stale_state_conflict(
+                    detail="Start the herd round before recording its components"
+                )
+            try:
+                round_components = recorded_components(round_, disease_target, template_name)
+                await require_round_targets(
+                    db, round_, [animal.id for animal in animals], round_components
+                )
+            except ValueError as exc:
+                raise stale_state_conflict(detail=str(exc)) from None
 
     if template is None:
         template = await inferred_schedule_template(
@@ -995,11 +1306,27 @@ async def _record_event_mutation(
         purchase_batch_id=batch_id,
         created_by_id=user.id,
     )
+    if round_ is not None:
+        await add_round_coverage(db, round_, events, round_components)
+    if task is not None and (round_ is None or await round_is_complete(db, round_)):
+        await complete_task(db, task, user)
     outs = []
     for event in events:
         out = HealthEventOut.model_validate(event)
         out.animal_tag = tags.get(event.animal_id) if event.animal_id is not None else None
         outs.append(out)
+    if payload.suspected_scheduled_disease and events:
+        from ..services.notifications.outbox import enqueue_alert
+
+        target = sms_safe_text(payload.disease_target) or "scheduled disease"
+        await enqueue_alert(
+            db,
+            farm.id,
+            "MOVEMENT_RESTRICTION",
+            f"Herdly: suspected {target} recorded in the health log — "
+            "movement restriction placed. Check the restricted animals.",
+            f"movement-restriction:health:{events[0].id}",
+        )
     return HealthEventMutationOut(root=outs)
 
 
@@ -1056,7 +1383,7 @@ async def record_event(
             "MOVEMENT_RESTRICTION",
             f"Herdly: suspected {target} recorded in the health log — "
             "movement restriction placed. Check the restricted animals.",
-            f"movement-restriction:health:{target.lower()}",
+            f"movement-restriction:health:{result.root[0].id}",
         )
     return result
 

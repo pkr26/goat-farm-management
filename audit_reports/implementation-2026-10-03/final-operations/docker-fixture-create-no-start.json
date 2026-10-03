@@ -1,0 +1,11 @@
+{
+  "name": "docker-fixture-create-no-start",
+  "command": "docker create --network=none --name herdly-context-proof-effd93f5fff24aaca0c5553704bf53d0 herdly-context-proof-20261003:43efa0d835c74c0595202406a898d2be /not-executed",
+  "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+  "started_at": "2026-10-03T18:44:26.260803+00:00",
+  "finished_at": "2026-10-03T18:44:26.286563+00:00",
+  "expected_exit": 0,
+  "exit_code": 0,
+  "stdout": "61ab8ae6d2f9fca8149488d8092ba517f56dacd7928c03ac46595f2900c7a61d\n",
+  "stderr": ""
+}

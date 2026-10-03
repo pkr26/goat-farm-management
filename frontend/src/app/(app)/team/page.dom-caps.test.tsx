@@ -124,7 +124,7 @@ describe("TeamPage DOM caps", () => {
 
     expect(within(dialog).getByLabelText(/name/i)).toHaveAttribute("maxlength", "120");
     expect(within(dialog).getByLabelText(/email/i)).toHaveAttribute("maxlength", "254");
-    expect(within(dialog).getByLabelText(/password/i)).toHaveAttribute("maxlength", "128");
+    expect(within(dialog).getByLabelText(/^Password \(min 12 chars\) \*$/i)).toHaveAttribute("maxlength", "128");
   });
 
   it("caps the reset-password form at 128", async () => {
@@ -132,7 +132,7 @@ describe("TeamPage DOM caps", () => {
     await renderLoaded();
     await user.click(within(mobileRow("ravi@example.com")).getByRole("button", { name: "Reset password" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByLabelText(/password/i)).toHaveAttribute("maxlength", "128");
+    expect(within(dialog).getByLabelText(/^New password/i)).toHaveAttribute("maxlength", "128");
   });
 
   it("caps the notification phone at 20", async () => {

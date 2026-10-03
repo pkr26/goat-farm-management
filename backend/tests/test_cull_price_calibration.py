@@ -17,7 +17,7 @@ from .conftest import owner_with_farm
 
 async def _record_priced_exit(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     *,
     tag: str,
     sex: str,

@@ -8,7 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, Plus } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useForm, useWatch, type DefaultValues } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -154,14 +154,16 @@ function AddPolicyDialog({
   canViewAnimals,
   onClose,
   onSaved,
+  writeFlight,
 }: {
   canViewAnimals: boolean;
   onClose: () => void;
   onSaved: () => void;
+  writeFlight: ReturnType<typeof useSingleFlight>;
 }) {
   const mutationErrorMessage = useMutationError();
   const mutation = useAddInsurancePolicyApiFinanceInsurancePost();
-  const saveFlight = useSingleFlight();
+  const saveFlight = writeFlight;
   const t = useT();
   const localizedPolicySchema = useMemo(() => buildPolicySchema(t), [t]);
   const [formError, setFormError] = useState<string | null>(null);
@@ -207,7 +209,7 @@ function AddPolicyDialog({
         onClose();
       } catch (err) {
         if (!farmScope()) return;
-        const message = mutationErrorMessage(err);
+        const message = err instanceof ApiError && err.status === 409 ? err.detail : mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -235,7 +237,7 @@ function AddPolicyDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-          <fieldset disabled={saveBusy} className="contents">
+          <fieldset disabled={isSubmitting} className="contents">
             {formError && (
               <p role="alert" className="text-sm text-destructive">
                 {formError}
@@ -428,14 +430,16 @@ function RenewPolicyDialog({
   policy,
   onClose,
   onSaved,
+  writeFlight,
 }: {
   policy: InsurancePolicyOut;
   onClose: () => void;
   onSaved: () => void;
+  writeFlight: ReturnType<typeof useSingleFlight>;
 }) {
   const mutationErrorMessage = useMutationError();
   const mutation = useRenewPolicyApiFinanceInsurancePolicyIdRenewPost();
-  const renewFlight = useSingleFlight();
+  const renewFlight = writeFlight;
   const t = useT();
   const [formError, setFormError] = useState<string | null>(null);
   const localizedRenewalResolver = useMemo(
@@ -486,7 +490,7 @@ function RenewPolicyDialog({
         onClose();
       } catch (err) {
         if (!farmScope()) return;
-        const message = mutationErrorMessage(err);
+        const message = err instanceof ApiError && err.status === 409 ? err.detail : mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -507,7 +511,7 @@ function RenewPolicyDialog({
           <DialogDescription>{t("insurance.renewDescription")}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-          <fieldset disabled={renewBusy} className="contents">
+          <fieldset disabled={isSubmitting} className="contents">
             {formError && (
               <p role="alert" className="text-sm text-destructive">
                 {formError}
@@ -573,14 +577,16 @@ function ClaimPolicyDialog({
   policy,
   onClose,
   onSaved,
+  writeFlight,
 }: {
   policy: InsurancePolicyOut;
   onClose: () => void;
   onSaved: () => void;
+  writeFlight: ReturnType<typeof useSingleFlight>;
 }) {
   const mutationErrorMessage = useMutationError();
   const mutation = useClaimPolicyApiFinanceInsurancePolicyIdClaimPost();
-  const claimFlight = useSingleFlight();
+  const claimFlight = writeFlight;
   const t = useT();
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -598,7 +604,7 @@ function ClaimPolicyDialog({
         onClose();
       } catch (err) {
         if (!farmScope()) return;
-        const message = mutationErrorMessage(err);
+        const message = err instanceof ApiError && err.status === 409 ? err.detail : mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -793,9 +799,11 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
   const canViewAnimals = can("animals.view");
   const queryClient = useQueryClient();
   const [offset, setOffset] = useState(0);
-  const [creating, setCreating] = useState(false);
-  const [renewing, setRenewing] = useState<InsurancePolicyOut | null>(null);
-  const [claiming, setClaiming] = useState<InsurancePolicyOut | null>(null);
+  const writeFlight = useSingleFlight();
+  const dialogSerial = useRef(0);
+  const [creating, setCreating] = useState<number | null>(null);
+  const [renewing, setRenewing] = useState<{ policy: InsurancePolicyOut; serial: number } | null>(null);
+  const [claiming, setClaiming] = useState<{ policy: InsurancePolicyOut; serial: number } | null>(null);
 
   const query = useListInsurancePoliciesApiFinanceInsuranceGet(
     { limit: INSURANCE_PAGE_LIMIT, offset },
@@ -847,7 +855,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
         description={t("insurance.description")}
         actions={
           canManage && (
-            <Button disabled={settling} onClick={() => setCreating(true)}>
+            <Button disabled={settling} onClick={() => setCreating(++dialogSerial.current)}>
               <Plus /> {t("insurance.registerPolicy")}
             </Button>
           )
@@ -863,7 +871,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
           description={t("insurance.empty.description")}
         >
           {canManage && (
-            <Button disabled={settling} onClick={() => setCreating(true)}>
+            <Button disabled={settling} onClick={() => setCreating(++dialogSerial.current)}>
               <Plus /> {t("insurance.registerFirstPolicy")}
             </Button>
           )}
@@ -933,7 +941,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                       variant="outline"
                       className="h-11 px-4"
                       disabled={settling || policy.status === "claimed"}
-                      onClick={() => setRenewing(policy)}
+                      onClick={() => setRenewing({ policy, serial: ++dialogSerial.current })}
                     >
                       {t("insurance.renew")}
                     </Button>
@@ -942,7 +950,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                       variant="outline"
                       className="h-11 px-4"
                       disabled={settling || policy.status === "claimed"}
-                      onClick={() => setClaiming(policy)}
+                      onClick={() => setClaiming({ policy, serial: ++dialogSerial.current })}
                     >
                       {t("insurance.claim")}
                     </Button>
@@ -1009,7 +1017,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                           size="sm"
                           variant="outline"
                           disabled={settling || policy.status === "claimed"}
-                          onClick={() => setRenewing(policy)}
+                          onClick={() => setRenewing({ policy, serial: ++dialogSerial.current })}
                         >
                           {t("insurance.renew")}
                         </Button>
@@ -1017,7 +1025,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                           size="sm"
                           variant="outline"
                           disabled={settling || policy.status === "claimed"}
-                          onClick={() => setClaiming(policy)}
+                          onClick={() => setClaiming({ policy, serial: ++dialogSerial.current })}
                         >
                           {t("insurance.claim")}
                         </Button>
@@ -1044,24 +1052,30 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
         </DataTableCard>
       )}
 
-      {creating && (
+      {creating !== null && (
         <AddPolicyDialog
+          key={creating}
+          writeFlight={writeFlight}
           canViewAnimals={canViewAnimals}
-          onClose={() => setCreating(false)}
+          onClose={() => setCreating((current) => current === creating ? null : current)}
           onSaved={refresh}
         />
       )}
       {renewing && (
         <RenewPolicyDialog
-          policy={renewing}
-          onClose={() => setRenewing(null)}
+          key={renewing.serial}
+          writeFlight={writeFlight}
+          policy={renewing.policy}
+          onClose={() => setRenewing((current) => current?.serial === renewing.serial ? null : current)}
           onSaved={refresh}
         />
       )}
       {claiming && (
         <ClaimPolicyDialog
-          policy={claiming}
-          onClose={() => setClaiming(null)}
+          key={claiming.serial}
+          writeFlight={writeFlight}
+          policy={claiming.policy}
+          onClose={() => setClaiming((current) => current?.serial === claiming.serial ? null : current)}
           onSaved={refresh}
         />
       )}

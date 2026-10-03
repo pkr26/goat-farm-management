@@ -26,6 +26,7 @@ from app.services.animals import bucket_transition_error
 from app.utils import today
 
 from .conftest import owner_with_farm
+from .type_helpers import json_object
 
 
 def iso(d: date) -> str:
@@ -37,7 +38,7 @@ def iso(d: date) -> str:
 # ---------------------------------------------------------------------------
 async def make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     *,
     sex: str = "F",
@@ -53,11 +54,15 @@ async def make_animal(
     } | overrides
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def change_status(
-    client: httpx.AsyncClient, headers: dict, animal_id: int, status: str, **overrides: object
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    animal_id: int,
+    status: str,
+    **overrides: object,
 ) -> httpx.Response:
     return await client.post(
         f"/api/animals/{animal_id}/status",
@@ -67,7 +72,11 @@ async def change_status(
 
 
 async def move_bucket(
-    client: httpx.AsyncClient, headers: dict, animal_id: int, to_bucket: str, **overrides: object
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    animal_id: int,
+    to_bucket: str,
+    **overrides: object,
 ) -> httpx.Response:
     return await client.post(
         f"/api/animals/{animal_id}/move",
@@ -76,12 +85,12 @@ async def move_bucket(
     )
 
 
-async def fetch_animal_columns(animal_id: int, *columns: Any) -> tuple:
+async def fetch_animal_columns(animal_id: int, *columns: Any) -> tuple[object, ...]:
     """Read persisted columns the wire model intentionally does not expose."""
     async with get_sessionmaker()() as db:
         row = (await db.execute(select(*columns).where(Animal.id == animal_id))).one_or_none()
     assert row is not None
-    return row
+    return tuple(row)
 
 
 def validation_error_text(resp: httpx.Response) -> str:
@@ -96,7 +105,9 @@ def validation_error_text(resp: httpx.Response) -> str:
     return " ".join(f"{error.get('loc', '')} {error.get('msg', '')}" for error in detail)
 
 
-async def sale_transaction(client: httpx.AsyncClient, headers: dict, tag: str) -> dict[str, Any]:
+async def sale_transaction(
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str
+) -> dict[str, Any]:
     resp = await client.get("/api/finance", headers=headers)
     assert resp.status_code == 200, resp.text
     return next(
@@ -244,7 +255,7 @@ def test_resting_flush_guard_without_residency_fact_is_not_enforced() -> None:
 # POST /move — RESTING minimum stay through the endpoint
 # ---------------------------------------------------------------------------
 async def _breeding_eligible_resting_doe(
-    client: httpx.AsyncClient, headers: dict, tag: str, *, purchase_date: date
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str, *, purchase_date: date
 ) -> dict[str, Any]:
     # purchase_date drives the initial RESTING placement's effective_date
     # (the create path stamps entry with purchase_date ?? DOB ?? today), so
@@ -432,7 +443,7 @@ async def test_sold_male_below_weight_window_gets_advisory_note(
     )
     assert resp.status_code == 200, resp.text  # soft window: sale proceeds
     (notes,) = await fetch_animal_columns(male["id"], Animal.status_notes)
-    assert notes is not None and "sold below the 24–28 kg market window" in notes
+    assert isinstance(notes, str) and "sold below the 24–28 kg market window" in notes
 
 
 async def test_sold_male_without_dob_requires_a_sale_time_estimate(
@@ -533,7 +544,7 @@ async def test_sold_advisories_compose_with_operator_notes(client: httpx.AsyncCl
     )
     assert resp.status_code == 200, resp.text
     (notes,) = await fetch_animal_columns(male["id"], Animal.status_notes)
-    assert notes is not None
+    assert isinstance(notes, str)
     assert notes.startswith("emergency sale")
     assert "sold below the 24–28 kg market window" in notes
 
@@ -610,7 +621,7 @@ async def test_dead_without_necropsy_persists_false_and_nones(client: httpx.Asyn
     ],
 )
 async def test_status_change_field_coherence_rejections(
-    client: httpx.AsyncClient, status: str, overrides: dict, fragment: str | None
+    client: httpx.AsyncClient, status: str, overrides: dict[str, object], fragment: str | None
 ) -> None:
     headers = await owner_with_farm(client, "coher@farm.in", "Coherence Farm")
     animal = await make_animal(

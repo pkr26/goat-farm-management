@@ -1,0 +1,567 @@
+{
+  "configs": {
+    "edge_entrypoint": {
+      "name": "herdly-isolation-probe-757bc510c0334cdd_edge_entrypoint",
+      "file": "/Users/pradeepreddy/Desktop/goat-farm-management-main/docker/edge-entrypoint.sh"
+    },
+    "edge_proxy": {
+      "name": "herdly-isolation-probe-757bc510c0334cdd_edge_proxy",
+      "file": "/Users/pradeepreddy/Desktop/goat-farm-management-main/docker/edge-proxy.production.conf.template"
+    }
+  },
+  "name": "herdly-isolation-probe-757bc510c0334cdd",
+  "networks": {
+    "goatfarm_app": {
+      "name": "herdly-isolation-probe-757bc510c0334cdd_goatfarm_app",
+      "ipam": {
+        "config": [
+          {
+            "subnet": "192.168.233.0/24"
+          }
+        ]
+      }
+    }
+  },
+  "services": {
+    "backend": {
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 2,
+      "command": null,
+      "depends_on": {
+        "config-guard": {
+          "condition": "service_completed_successfully",
+          "required": true
+        },
+        "migrate": {
+          "condition": "service_completed_successfully",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_ALLOWED_HOSTS": "[\"probe.invalid\",\"backend\"]",
+        "GOATFARM_COOKIE_SECURE": "true",
+        "GOATFARM_CORS_ORIGINS": "[\"https://probe.invalid\"]",
+        "GOATFARM_DATABASE_URL": "",
+        "GOATFARM_DATABASE_URL_FILE": "/run/secrets/app/database_url",
+        "GOATFARM_DB_SSLMODE": "verify-full",
+        "GOATFARM_DB_SSLROOTCERT_PATH": "/run/secrets/goatfarm-postgres-ca.pem",
+        "GOATFARM_ENVIRONMENT": "production",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS": "[]",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET": "",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE": "/run/secrets/app/idempotency_request_hmac_secret",
+        "GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS": "[]",
+        "GOATFARM_JWT_PRIVATE_KEY_PATH": "/run/secrets/jwt/jwt_private.pem",
+        "GOATFARM_JWT_PUBLIC_KEY_PATH": "/run/secrets/jwt/jwt_public.pem",
+        "GOATFARM_MAX_FARMS_PER_USER": "25",
+        "GOATFARM_MAX_REQUEST_BODY_BYTES": "1048576",
+        "GOATFARM_MAX_REQUEST_TARGET_BYTES": "8192",
+        "GOATFARM_METRICS_BEARER_TOKEN": "",
+        "GOATFARM_METRICS_BEARER_TOKEN_FILE": "/run/secrets/app/metrics_bearer_token",
+        "GOATFARM_METRICS_ENABLED": "true",
+        "GOATFARM_METRICS_PUBLIC_ENABLED": "false",
+        "GOATFARM_MIN_PASSWORD_LENGTH": "12",
+        "GOATFARM_MSG91_AUTH_KEY": "",
+        "GOATFARM_MSG91_AUTH_KEY_FILE": "/run/secrets/app/msg91_auth_key",
+        "GOATFARM_MSG91_SENDER_ID": "HERDLY",
+        "GOATFARM_MSG91_TEMPLATE_ID": "",
+        "GOATFARM_NOTIFICATIONS_DIGEST_HOUR": "6",
+        "GOATFARM_NOTIFICATIONS_DIGEST_MINUTE": "30",
+        "GOATFARM_NOTIFICATIONS_ENABLED": "false",
+        "GOATFARM_NOTIFICATIONS_FARM_DAILY_CAP": "50",
+        "GOATFARM_NOTIFICATIONS_LOOP_BATCH_SIZE": "100",
+        "GOATFARM_NOTIFICATIONS_PROVIDER": "console",
+        "GOATFARM_NOTIFICATIONS_QUIET_END_HOUR": "6",
+        "GOATFARM_NOTIFICATIONS_QUIET_START_HOUR": "21",
+        "GOATFARM_NOTIFICATIONS_SEND_RETRY_ATTEMPTS": "2",
+        "GOATFARM_NOTIFICATIONS_SEND_RETRY_BACKOFF_SECONDS": "2.0",
+        "GOATFARM_RETENTION_DELETE_BATCH_SIZE": "500",
+        "GOATFARM_RETENTION_FARM_BATCH_SIZE": "100",
+        "GOATFARM_RETENTION_LOCK_TIMEOUT_MS": "250",
+        "GOATFARM_RETENTION_MAX_BATCHES_PER_FARM": "4",
+        "GOATFARM_RETENTION_SCREENING_DAYS": "180",
+        "GOATFARM_RETENTION_STATEMENT_TIMEOUT_MS": "5000",
+        "GOATFARM_RETENTION_SWEEP_ENABLED": "false",
+        "GOATFARM_RETENTION_SWEEP_INTERVAL_SECONDS": "86400",
+        "GOATFARM_RETENTION_TERMINAL_TASK_DAYS": "365",
+        "GOATFARM_S3_ACCESS_KEY_ID": "",
+        "GOATFARM_S3_ACCESS_KEY_ID_FILE": "/run/secrets/app/s3_access_key_id",
+        "GOATFARM_S3_BUCKET": "",
+        "GOATFARM_S3_ENDPOINT_URL": "",
+        "GOATFARM_S3_REGION": "us-east-1",
+        "GOATFARM_S3_SECRET_ACCESS_KEY": "",
+        "GOATFARM_S3_SECRET_ACCESS_KEY_FILE": "/run/secrets/app/s3_secret_access_key",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY": "",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY_FILE": "/run/secrets/app/screening_anthropic_api_key",
+        "GOATFARM_SCREENING_ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+        "GOATFARM_SCREENING_ANTHROPIC_MODEL": "claude-sonnet-4-5",
+        "GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM": "400",
+        "GOATFARM_SCREENING_ENABLED": "false",
+        "GOATFARM_SCREENING_OPENAI_API_KEY": "",
+        "GOATFARM_SCREENING_OPENAI_API_KEY_FILE": "",
+        "GOATFARM_SCREENING_OPENAI_BASE_URL": "https://api.openai.com/v1",
+        "GOATFARM_SCREENING_OPENAI_MODEL": "gpt-5",
+        "GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS": "900",
+        "GOATFARM_SCREENING_PROVIDER": "anthropic",
+        "GOATFARM_SCREENING_PROVIDER_ROTATION": "[]",
+        "GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS": "120",
+        "GOATFARM_SCREENING_S3_PREFIX": "raw",
+        "GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS": "1800",
+        "GOATFARM_TOTP_ENCRYPTION_KEY": "",
+        "GOATFARM_TOTP_ENCRYPTION_KEY_FILE": "/run/secrets/app/totp_encryption_key",
+        "GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS": "[]",
+        "GOATFARM_TRUSTED_PROXY_HOSTS": "192.168.233.10",
+        "GOATFARM_WORKER_PIN_MIN_LENGTH": "6",
+        "GOATFARM_WORKER_PIN_RATE_LIMIT_MAX_ATTEMPTS": "10",
+        "GOATFARM_WORKER_PIN_RATE_LIMIT_WINDOW_SECONDS": "300",
+        "GOATFARM_WORKER_ROSTER_ENABLED": "true"
+      },
+      "expose": [
+        "8000"
+      ],
+      "image": "probe.invalid/herdly/backend@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "2147483648",
+      "networks": {
+        "goatfarm_app": null
+      },
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stop_grace_period": "40s",
+      "tmpfs": [
+        "/tmp:size=64m"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/FAKE-postgres-ca.pem",
+          "target": "/run/secrets/goatfarm-postgres-ca.pem",
+          "read_only": true
+        },
+        {
+          "type": "bind",
+          "source": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/api",
+          "target": "/run/secrets/app",
+          "read_only": true
+        },
+        {
+          "type": "bind",
+          "source": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/jwt",
+          "target": "/run/secrets/jwt",
+          "read_only": true
+        }
+      ]
+    },
+    "config-guard": {
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 0.25,
+      "command": [
+        "python",
+        "scripts/compose_env_guard.py",
+        "/run/config/compose.env"
+      ],
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_API_SECRET_DIR": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/api",
+        "GOATFARM_APP_SECRET_DIR": "",
+        "GOATFARM_DATABASE_URL": "",
+        "GOATFARM_DATABASE_URL_FILE": "/run/secrets/app/database_url",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET": "",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE": "/run/secrets/app/idempotency_request_hmac_secret",
+        "GOATFARM_MIGRATION_DATABASE_URL": "",
+        "GOATFARM_MIGRATION_DATABASE_URL_FILE": "/run/secrets/app/migration_database_url",
+        "GOATFARM_MIGRATION_SECRET_DIR": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/migration",
+        "GOATFARM_TOTP_ENCRYPTION_KEY": "",
+        "GOATFARM_TOTP_ENCRYPTION_KEY_FILE": "/run/secrets/app/totp_encryption_key",
+        "GOATFARM_WORKER_DATABASE_URL": "",
+        "GOATFARM_WORKER_DATABASE_URL_FILE": "/run/secrets/app/worker_database_url",
+        "GOATFARM_WORKER_SECRET_DIR": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/worker"
+      },
+      "healthcheck": {
+        "disable": true
+      },
+      "image": "probe.invalid/herdly/backend@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "134217728",
+      "network_mode": "none",
+      "read_only": true,
+      "restart": "no",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/production.env",
+          "target": "/run/config/compose.env",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ]
+    },
+    "edge": {
+      "cap_add": [
+        "CHOWN",
+        "SETGID",
+        "SETUID"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 0.5,
+      "command": [
+        "/bin/sh",
+        "/edge-entrypoint.sh"
+      ],
+      "configs": [
+        {
+          "source": "edge_proxy",
+          "target": "/edge-proxy.template"
+        },
+        {
+          "source": "edge_entrypoint",
+          "target": "/edge-entrypoint.sh",
+          "mode": "0555"
+        }
+      ],
+      "depends_on": {
+        "backend": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "frontend": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_CSP_CONNECT_ORIGINS": "",
+        "GOATFARM_CSP_IMG_ORIGINS": "",
+        "GOATFARM_EDGE_AUTH_BURST": "20",
+        "GOATFARM_EDGE_AUTH_RATE": "5r/s",
+        "GOATFARM_EDGE_BIND_HOST": "127.0.0.1",
+        "GOATFARM_EDGE_MAX_BODY_SIZE": "1m",
+        "GOATFARM_EDGE_PUBLIC_SCHEME": "https",
+        "GOATFARM_ENVIRONMENT": "production",
+        "GOATFARM_SCREENING_ENABLED": "false"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "wget",
+          "-q",
+          "--spider",
+          "http://127.0.0.1:3000/edge-healthz"
+        ],
+        "timeout": "5s",
+        "interval": "30s",
+        "retries": 3,
+        "start_period": "10s"
+      },
+      "image": "nginx:1.30-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "268435456",
+      "networks": {
+        "goatfarm_app": {
+          "ipv4_address": "192.168.233.10"
+        }
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "host_ip": "127.0.0.1",
+          "target": 3000,
+          "published": "3000",
+          "protocol": "tcp"
+        }
+      ],
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/var/cache/nginx:size=64m",
+        "/var/run:size=1m",
+        "/etc/nginx/conf.d:size=1m"
+      ]
+    },
+    "frontend": {
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 1,
+      "command": null,
+      "depends_on": {
+        "backend": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_CSP_CONNECT_ORIGINS": "",
+        "GOATFARM_CSP_IMG_ORIGINS": ""
+      },
+      "expose": [
+        "3000"
+      ],
+      "image": "probe.invalid/herdly/frontend@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "1073741824",
+      "networks": {
+        "goatfarm_app": null
+      },
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp:size=64m",
+        "/app/.next/cache:size=128m"
+      ]
+    },
+    "migrate": {
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 1,
+      "command": [
+        "alembic",
+        "upgrade",
+        "head"
+      ],
+      "depends_on": {
+        "config-guard": {
+          "condition": "service_completed_successfully",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_DB_SSLMODE": "verify-full",
+        "GOATFARM_DB_SSLROOTCERT_PATH": "/run/secrets/goatfarm-postgres-ca.pem",
+        "GOATFARM_ENVIRONMENT": "production",
+        "GOATFARM_MIGRATION_DATABASE_URL": "",
+        "GOATFARM_MIGRATION_DATABASE_URL_FILE": "/run/secrets/app/migration_database_url",
+        "GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS": "0"
+      },
+      "image": "probe.invalid/herdly/backend@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "1073741824",
+      "networks": {
+        "goatfarm_app": null
+      },
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp:size=16m"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/FAKE-postgres-ca.pem",
+          "target": "/run/secrets/goatfarm-postgres-ca.pem",
+          "read_only": true
+        },
+        {
+          "type": "bind",
+          "source": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/migration",
+          "target": "/run/secrets/app",
+          "read_only": true
+        }
+      ]
+    },
+    "screening-worker": {
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 1,
+      "command": [
+        "python",
+        "-m",
+        "app.worker"
+      ],
+      "depends_on": {
+        "migrate": {
+          "condition": "service_completed_successfully",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_DATABASE_URL": "",
+        "GOATFARM_DATABASE_URL_FILE": "/run/secrets/app/worker_database_url",
+        "GOATFARM_DB_SSLMODE": "verify-full",
+        "GOATFARM_DB_SSLROOTCERT_PATH": "/run/secrets/goatfarm-postgres-ca.pem",
+        "GOATFARM_ENVIRONMENT": "production",
+        "GOATFARM_S3_ACCESS_KEY_ID": "",
+        "GOATFARM_S3_ACCESS_KEY_ID_FILE": "/run/secrets/app/s3_access_key_id",
+        "GOATFARM_S3_BUCKET": "",
+        "GOATFARM_S3_ENDPOINT_URL": "",
+        "GOATFARM_S3_REGION": "us-east-1",
+        "GOATFARM_S3_SECRET_ACCESS_KEY": "",
+        "GOATFARM_S3_SECRET_ACCESS_KEY_FILE": "/run/secrets/app/s3_secret_access_key",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY": "",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY_FILE": "/run/secrets/app/screening_anthropic_api_key",
+        "GOATFARM_SCREENING_ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+        "GOATFARM_SCREENING_ANTHROPIC_MODEL": "claude-sonnet-4-5",
+        "GOATFARM_SCREENING_CROP_DETECTION_ENABLED": "true",
+        "GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM": "400",
+        "GOATFARM_SCREENING_ENABLED": "false",
+        "GOATFARM_SCREENING_IMAGE_MAX_EDGE_PX": "1568",
+        "GOATFARM_SCREENING_MAX_CROPS_PER_IMAGE": "8",
+        "GOATFARM_SCREENING_MAX_IMAGES_PER_CYCLE": "50",
+        "GOATFARM_SCREENING_OPENAI_API_KEY": "",
+        "GOATFARM_SCREENING_OPENAI_API_KEY_FILE": "",
+        "GOATFARM_SCREENING_OPENAI_BASE_URL": "https://api.openai.com/v1",
+        "GOATFARM_SCREENING_OPENAI_MODEL": "gpt-5",
+        "GOATFARM_SCREENING_POLL_INTERVAL_SECONDS": "300",
+        "GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS": "900",
+        "GOATFARM_SCREENING_PROVIDER": "anthropic",
+        "GOATFARM_SCREENING_PROVIDER_ROTATION": "[]",
+        "GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS": "120",
+        "GOATFARM_SCREENING_S3_PREFIX": "raw",
+        "GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS": "1800",
+        "GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS": "900",
+        "GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH": "/tmp/goatfarm-screening-worker.json",
+        "GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES": "3"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "screening_worker_healthcheck.py"
+        ],
+        "timeout": "5s",
+        "interval": "30s",
+        "retries": 3,
+        "start_period": "30s"
+      },
+      "image": "probe.invalid/herdly/backend@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "1073741824",
+      "networks": {
+        "goatfarm_app": null
+      },
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stop_grace_period": "40s",
+      "tmpfs": [
+        "/tmp:size=16m"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/FAKE-postgres-ca.pem",
+          "target": "/run/secrets/goatfarm-postgres-ca.pem",
+          "read_only": true
+        },
+        {
+          "type": "bind",
+          "source": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/worker",
+          "target": "/run/secrets/app",
+          "read_only": true
+        }
+      ]
+    }
+  },
+  "x-api-secrets": {
+    "read_only": true,
+    "source": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/api",
+    "target": "/run/secrets/app",
+    "type": "bind"
+  },
+  "x-db-ca": {
+    "read_only": true,
+    "source": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/FAKE-postgres-ca.pem",
+    "target": "/run/secrets/goatfarm-postgres-ca.pem",
+    "type": "bind"
+  },
+  "x-default-logging": {
+    "driver": "json-file",
+    "options": {
+      "max-file": "3",
+      "max-size": "10m"
+    }
+  },
+  "x-migration-secrets": {
+    "read_only": true,
+    "source": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/migration",
+    "target": "/run/secrets/app",
+    "type": "bind"
+  },
+  "x-service-hardening": {
+    "cap_drop": [
+      "ALL"
+    ],
+    "logging": {
+      "driver": "json-file",
+      "options": {
+        "max-file": "3",
+        "max-size": "10m"
+      }
+    },
+    "security_opt": [
+      "no-new-privileges:true"
+    ]
+  },
+  "x-worker-secrets": {
+    "read_only": true,
+    "source": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl02-fixtures-757bc510c0334cdd/worker",
+    "target": "/run/secrets/app",
+    "type": "bind"
+  }
+}

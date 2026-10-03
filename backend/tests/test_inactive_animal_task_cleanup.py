@@ -7,6 +7,7 @@ from contextlib import suppress
 import httpx
 import pytest
 from sqlalchemy import func, insert, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.main as main_module
 from app.db import get_sessionmaker
@@ -104,12 +105,12 @@ async def test_high_cardinality_retirement_is_hidden_then_converges_in_batches(
 
 
 async def test_periodic_cleanup_commits_only_fixed_batches(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[int] = []
     results = iter((500, 3))
 
-    async def fake_cleanup(_db, *, batch_size: int) -> int:
+    async def fake_cleanup(_db: AsyncSession, *, batch_size: int) -> int:
         calls.append(batch_size)
         return next(results)
 
@@ -219,7 +220,7 @@ async def test_periodic_cleanup_keeps_sweeping_after_a_completed_pass(
     calls: list[int] = []
     third_sweep = asyncio.Event()
 
-    async def fake_cleanup(_db, *, batch_size: int) -> int:
+    async def fake_cleanup(_db: AsyncSession, *, batch_size: int) -> int:
         calls.append(batch_size)
         if len(calls) == 3:
             third_sweep.set()
@@ -257,7 +258,7 @@ async def test_periodic_cleanup_logs_the_total_number_of_skipped_tasks(
     """Pin the converged-sweep INFO record: the running total, once, formatted."""
     results = iter((500, 3))
 
-    async def fake_cleanup(_db, *, batch_size: int) -> int:
+    async def fake_cleanup(_db: AsyncSession, *, batch_size: int) -> int:
         return next(results)
 
     monkeypatch.setattr(main_module, "skip_inactive_animal_tasks_batch", fake_cleanup)
@@ -291,7 +292,7 @@ async def test_periodic_cleanup_logs_the_failure_reason_and_survives(
 ) -> None:
     """Pin the swallowed-failure signal: one ERROR with a traceback, worker alive."""
 
-    async def failing_cleanup(_db, *, batch_size: int) -> int:
+    async def failing_cleanup(_db: AsyncSession, *, batch_size: int) -> int:
         raise RuntimeError("connection pool exhausted")
 
     monkeypatch.setattr(main_module, "skip_inactive_animal_tasks_batch", failing_cleanup)

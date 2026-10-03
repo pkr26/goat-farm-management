@@ -15,4 +15,5 @@ export interface HealthBulkTargetIn {
   bucket?: HealthBulkTargetInBucket;
   purchase_batch_id?: number | null;
   task_id?: number | null;
+  round_component?: string | null;
 }

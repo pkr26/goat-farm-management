@@ -723,13 +723,14 @@ async def run_scenario(
     farm_id = farm.id
     user_id = user.id
     nouns = GOAT_NOUNS
-    scenario = await _get_scenario(db, farm_id, scenario_id)
+    scenario = await _get_scenario(db, farm_id, scenario_id, for_update=True)
     assumptions = _load_assumptions(scenario)
+    executed_revision = scenario.revision
     # The validated assumptions are a complete point-in-time scenario snapshot;
     # the simulation no longer needs the ORM row or its authorization
     # transaction. Release the connection and auth SHARE locks before CPU work.
     await db.rollback()
-    return await _run_for_farm(
+    result = await _run_for_farm(
         farm_id,
         user_id,
         assumptions,
@@ -738,3 +739,5 @@ async def run_scenario(
         optimization,
         nouns,
     )
+    result.executed_scenario_revision = executed_revision
+    return result

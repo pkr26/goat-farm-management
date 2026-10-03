@@ -388,6 +388,30 @@
               "minimum": 1,
               "title": "Farm Id"
             }
+          },
+          {
+            "name": "after_membership_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 2147483647,
+              "minimum": 0,
+              "default": 0,
+              "title": "After Membership Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
           }
         ],
         "responses": {
@@ -836,6 +860,153 @@
             }
           }
         }
+      }
+    },
+    "/api/auth/logout-session": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Logout Session",
+        "description": "Cancel exactly the bearer session; a newer browser cookie is untouched.",
+        "operationId": "logout_session_api_auth_logout_session_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Bad request (invalid values against stable state)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/auth/logout": {
@@ -1963,6 +2134,181 @@
         },
         "responses": {
           "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FarmOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (invalid values against stable state)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/farms/{farm_id}/transfer-ownership": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Transfer Farm Ownership",
+        "description": "Transfer the farm to an active member before deleting the former owner's account.\n\nThe successor must already have taken sole possession of a password.\nOperational records retain their farm and actor IDs throughout transfer.",
+        "operationId": "transfer_farm_ownership_api_auth_farms__farm_id__transfer_ownership_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "farm_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Farm Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FarmOwnershipTransferIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -6175,6 +6521,743 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BreedingRecordOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (invalid values against stable state)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health/rounds/{task_id}": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Round Progress",
+        "description": "Read-only progress; legacy completed duties have no invented cohort.",
+        "operationId": "health_round_progress_api_health_rounds__task_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthRoundOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (invalid values against stable state)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health/rounds/{task_id}/start": {
+      "post": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Start Health Round",
+        "operationId": "start_health_round_api_health_rounds__task_id__start_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthRoundOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (invalid values against stable state)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health/rounds/{task_id}/targets": {
+      "post": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Add Health Round Targets",
+        "operationId": "add_health_round_targets_api_health_rounds__task_id__targets_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HealthRoundTargetChangeIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthRoundOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (invalid values against stable state)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health/rounds/{task_id}/exclusions": {
+      "post": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Exclude Health Round Targets",
+        "operationId": "exclude_health_round_targets_api_health_rounds__task_id__exclusions_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HealthRoundTargetChangeIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthRoundOut"
                 }
               }
             }
@@ -19384,6 +20467,7 @@
                     "PENDING",
                     "PROCESSING",
                     "HEALTHY",
+                    "UNASSESSABLE",
                     "FLAGGED",
                     "SKIPPED",
                     "ERROR"
@@ -19780,7 +20864,7 @@
           "screening"
         ],
         "summary": "Review Finding",
-        "description": "Record a vet verdict on one finding (confirm / reject).\n\n``expected_status`` is optimistic concurrency: the transition runs as\none guarded UPDATE (``WHERE status = expected_status``), so a review\nracing another reviewer \u2014 or a re-screen \u2014 fails with 409 instead of\nsilently overwriting the corpus, no matter how the requests interleave.\nRe-reviewing a settled finding re-submits with its current status as\n``expected_status``.",
+        "description": "Record a vet verdict on one finding (confirm / reject).\n\nThe locked revision detects same-status edits and ABA transitions. Each\naccepted decision appends an audit event in the same transaction.",
         "operationId": "review_finding_api_screening_findings__finding_id__review_post",
         "security": [
           {
@@ -19824,6 +20908,203 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ScreeningFindingReviewOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (invalid values against stable state)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/screening/findings/{finding_id}/reviews": {
+      "get": {
+        "tags": [
+          "screening"
+        ],
+        "summary": "Finding Review History",
+        "operationId": "finding_review_history_api_screening_findings__finding_id__reviews_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "finding_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Finding Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreeningFindingReviewHistoryListOut"
                 }
               }
             }
@@ -22861,6 +24142,11 @@
           "net_cash_flow": {
             "type": "number",
             "title": "Net Cash Flow"
+          },
+          "subsidy_receipt": {
+            "type": "number",
+            "title": "Subsidy Receipt",
+            "default": 0.0
           }
         },
         "type": "object",
@@ -24911,6 +26197,20 @@
             "type": "array",
             "title": "Feeding"
           },
+          "feed_prepared_kg_by_recipe": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Feed Prepared Kg By Recipe"
+          },
+          "feed_unused_kg_by_recipe": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Feed Unused Kg By Recipe"
+          },
           "occupancy": {
             "items": {
               "$ref": "#/components/schemas/OccupancyRow"
@@ -25227,6 +26527,29 @@
           "role"
         ],
         "title": "FarmOut"
+      },
+      "FarmOwnershipTransferIn": {
+        "properties": {
+          "membership_id": {
+            "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Membership Id"
+          },
+          "current_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Current Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "membership_id",
+          "current_password"
+        ],
+        "title": "FarmOwnershipTransferIn"
       },
       "FeedAssumptions": {
         "properties": {
@@ -25613,6 +26936,39 @@
           "night_kg": {
             "type": "number",
             "title": "Night Kg"
+          },
+          "morning_heads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Morning Heads"
+          },
+          "afternoon_heads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Afternoon Heads"
+          },
+          "night_heads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Night Heads"
           }
         },
         "additionalProperties": false,
@@ -25630,7 +26986,7 @@
           "night_kg"
         ],
         "title": "FeedLine",
-        "description": "One (building, recipe) ration line for a day: the per-head rate, the\ndaily total and the 40/20/40 shift split (gram-exact: the daily total is\nthe sum of the three shifts)."
+        "description": "One pen/recipe/rate line with independently measured shift occupants.\n\nEach current head receives the 40/20/40 share at its actual pen. Total\ndelivered feed is the gram-rounded sum; prepared/unused stock is separate."
       },
       "FeedRecipeLineOut": {
         "properties": {
@@ -26020,6 +27376,66 @@
             "title": "Nlm Subsidy",
             "default": false
           },
+          "nlm_unit_females": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nlm Unit Females"
+          },
+          "nlm_unit_males": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nlm Unit Males"
+          },
+          "nlm_eligible_capital_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nlm Eligible Capital Cost"
+          },
+          "nlm_approved_subsidy_amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nlm Approved Subsidy Amount"
+          },
+          "nlm_subsidy_receipts": {
+            "items": {
+              "$ref": "#/components/schemas/SubsidyReceipt"
+            },
+            "type": "array",
+            "maxItems": 2,
+            "title": "Nlm Subsidy Receipts"
+          },
           "discount_rate_annual": {
             "type": "number",
             "maximum": 0.5,
@@ -26390,6 +27806,18 @@
               }
             ],
             "title": "Task Id"
+          },
+          "round_component": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Component"
           }
         },
         "additionalProperties": false,
@@ -26454,6 +27882,17 @@
               }
             ],
             "title": "Task Id"
+          },
+          "round_component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Component"
           },
           "target_animal_ids": {
             "items": {
@@ -27305,6 +28744,212 @@
         ],
         "title": "HealthPurchaseBatchOptionOut",
         "description": "Opaque health-workflow selector; purchase-ledger facts stay private."
+      },
+      "HealthRoundOut": {
+        "properties": {
+          "task_id": {
+            "type": "integer",
+            "title": "Task Id"
+          },
+          "task_status": {
+            "type": "string",
+            "title": "Task Status"
+          },
+          "initialized": {
+            "type": "boolean",
+            "title": "Initialized"
+          },
+          "snapshot_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot At"
+          },
+          "required_components": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Components"
+          },
+          "total_targets": {
+            "type": "integer",
+            "title": "Total Targets"
+          },
+          "excluded_targets": {
+            "type": "integer",
+            "title": "Excluded Targets"
+          },
+          "covered_targets": {
+            "type": "integer",
+            "title": "Covered Targets"
+          },
+          "remaining_units": {
+            "type": "integer",
+            "title": "Remaining Units"
+          },
+          "available_additions": {
+            "type": "integer",
+            "title": "Available Additions"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/HealthRoundTargetOut"
+            },
+            "type": "array",
+            "title": "Targets"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "task_status",
+          "initialized",
+          "snapshot_at",
+          "required_components",
+          "total_targets",
+          "excluded_targets",
+          "covered_targets",
+          "remaining_units",
+          "available_additions",
+          "targets",
+          "limit",
+          "offset"
+        ],
+        "title": "HealthRoundOut"
+      },
+      "HealthRoundTargetChangeIn": {
+        "properties": {
+          "animal_ids": {
+            "items": {
+              "type": "integer",
+              "maximum": 2147483647.0,
+              "minimum": 1.0
+            },
+            "type": "array",
+            "maxItems": 250,
+            "minItems": 1,
+            "title": "Animal Ids"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "animal_ids",
+          "reason"
+        ],
+        "title": "HealthRoundTargetChangeIn"
+      },
+      "HealthRoundTargetOut": {
+        "properties": {
+          "animal_id": {
+            "type": "integer",
+            "title": "Animal Id"
+          },
+          "animal_tag": {
+            "type": "string",
+            "title": "Animal Tag"
+          },
+          "animal_status": {
+            "type": "string",
+            "title": "Animal Status"
+          },
+          "current_bucket": {
+            "type": "string",
+            "title": "Current Bucket"
+          },
+          "covered_components": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Covered Components"
+          },
+          "exclusion_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclusion Reason"
+          },
+          "excluded_by_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded By Id"
+          },
+          "excluded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded At"
+          },
+          "inclusion_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inclusion Reason"
+          },
+          "added_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Added At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "animal_id",
+          "animal_tag",
+          "animal_status",
+          "current_bucket",
+          "covered_components",
+          "exclusion_reason",
+          "excluded_by_id",
+          "excluded_at",
+          "inclusion_reason",
+          "added_at"
+        ],
+        "title": "HealthRoundTargetOut"
       },
       "HealthStatusOut": {
         "properties": {
@@ -28562,6 +30207,11 @@
       },
       "LoginIn": {
         "properties": {
+          "tablet_setup": {
+            "type": "boolean",
+            "title": "Tablet Setup",
+            "default": false
+          },
           "email": {
             "type": "string",
             "maxLength": 254,
@@ -29226,6 +30876,11 @@
           "net_cash_flow": {
             "type": "number",
             "title": "Net Cash Flow"
+          },
+          "subsidy_receipt": {
+            "type": "number",
+            "title": "Subsidy Receipt",
+            "default": 0.0
           },
           "cumulative_cash_flow": {
             "type": "number",
@@ -32606,6 +34261,33 @@
             ],
             "title": "Festival Sale Months"
           },
+          "festival_date_overrides": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Festival Date Overrides"
+          },
+          "festival_date_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Festival Date Source"
+          },
           "festival_hold_months": {
             "type": "integer",
             "maximum": 12.0,
@@ -33061,6 +34743,11 @@
           "flagged": {
             "type": "integer",
             "title": "Flagged"
+          },
+          "unassessable": {
+            "type": "integer",
+            "title": "Unassessable",
+            "default": 0
           }
         },
         "type": "object",
@@ -33142,6 +34829,11 @@
             "title": "Images Flagged",
             "default": 0
           },
+          "images_unassessable": {
+            "type": "integer",
+            "title": "Images Unassessable",
+            "default": 0
+          },
           "buckets": {
             "items": {
               "$ref": "#/components/schemas/ScreeningBatchBucketProgressOut"
@@ -33190,6 +34882,7 @@
               "PENDING",
               "PROCESSING",
               "HEALTHY",
+              "UNASSESSABLE",
               "FLAGGED",
               "SKIPPED",
               "ERROR"
@@ -33547,6 +35240,10 @@
             ],
             "title": "Reviewed At"
           },
+          "review_revision": {
+            "type": "integer",
+            "title": "Review Revision"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -33566,9 +35263,111 @@
           "review_note",
           "reviewed_by_id",
           "reviewed_at",
+          "review_revision",
           "created_at"
         ],
         "title": "ScreeningFindingOut"
+      },
+      "ScreeningFindingReviewHistoryListOut": {
+        "properties": {
+          "finding_id": {
+            "type": "integer",
+            "title": "Finding Id"
+          },
+          "review_revision": {
+            "type": "integer",
+            "title": "Review Revision"
+          },
+          "legacy_review": {
+            "type": "boolean",
+            "title": "Legacy Review"
+          },
+          "reviews": {
+            "items": {
+              "$ref": "#/components/schemas/ScreeningFindingReviewHistoryOut"
+            },
+            "type": "array",
+            "title": "Reviews"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "finding_id",
+          "review_revision",
+          "legacy_review",
+          "reviews",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "ScreeningFindingReviewHistoryListOut"
+      },
+      "ScreeningFindingReviewHistoryOut": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "previous_status": {
+            "type": "string",
+            "enum": [
+              "PENDING_REVIEW",
+              "CONFIRMED",
+              "REJECTED"
+            ],
+            "title": "Previous Status"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "CONFIRMED",
+              "REJECTED"
+            ],
+            "title": "Status"
+          },
+          "review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Note"
+          },
+          "reviewed_by_id": {
+            "type": "integer",
+            "title": "Reviewed By Id"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Reviewed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision",
+          "previous_status",
+          "status",
+          "review_note",
+          "reviewed_by_id",
+          "reviewed_at"
+        ],
+        "title": "ScreeningFindingReviewHistoryOut"
       },
       "ScreeningFindingReviewIn": {
         "properties": {
@@ -33590,6 +35389,12 @@
             "title": "Expected Status",
             "default": "PENDING_REVIEW"
           },
+          "expected_revision": {
+            "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Expected Revision"
+          },
           "review_note": {
             "anyOf": [
               {
@@ -33606,10 +35411,11 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "status"
+          "status",
+          "expected_revision"
         ],
         "title": "ScreeningFindingReviewIn",
-        "description": "Vet verdict on one finding.\n\n``expected_status`` is optimistic concurrency: two reviewers (or a\nreviewer racing a re-screen) get a 409 instead of silently overwriting\neach other's verdict on the training corpus."
+        "description": "Vet verdict on one finding.\n\n``expected_revision`` is optimistic concurrency: two reviewers (or a\nreviewer racing a re-screen) get a 409 instead of silently overwriting\neach other's verdict on the training corpus."
       },
       "ScreeningFindingReviewOut": {
         "properties": {
@@ -33659,6 +35465,10 @@
               }
             ],
             "title": "Reviewed At"
+          },
+          "review_revision": {
+            "type": "integer",
+            "title": "Review Revision"
           }
         },
         "type": "object",
@@ -33667,7 +35477,8 @@
           "status",
           "review_note",
           "reviewed_by_id",
-          "reviewed_at"
+          "reviewed_at",
+          "review_revision"
         ],
         "title": "ScreeningFindingReviewOut"
       },
@@ -33683,6 +35494,7 @@
               "PENDING",
               "PROCESSING",
               "HEALTHY",
+              "UNASSESSABLE",
               "FLAGGED",
               "SKIPPED",
               "ERROR"
@@ -33891,6 +35703,7 @@
               "PENDING",
               "PROCESSING",
               "HEALTHY",
+              "UNASSESSABLE",
               "FLAGGED",
               "SKIPPED",
               "ERROR"
@@ -34044,6 +35857,11 @@
           "gate_flagged": {
             "type": "integer",
             "title": "Gate Flagged"
+          },
+          "gate_unassessable": {
+            "type": "integer",
+            "title": "Gate Unassessable",
+            "default": 0
           },
           "gate_errors": {
             "type": "integer",
@@ -34712,6 +36530,27 @@
             "type": "string",
             "title": "Assumptions Fingerprint"
           },
+          "executed_assumptions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationAssumptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "executed_scenario_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executed Scenario Revision"
+          },
           "warnings": {
             "items": {
               "type": "string"
@@ -35030,6 +36869,30 @@
           "qty_kg"
         ],
         "title": "StockAddIn"
+      },
+      "SubsidyReceipt": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "maximum": 240.0,
+            "minimum": 1.0,
+            "title": "Month"
+          },
+          "amount": {
+            "type": "number",
+            "maximum": 1000000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Amount"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "month",
+          "amount"
+        ],
+        "title": "SubsidyReceipt",
+        "description": "An explicitly supplied approved installment's expected receipt date.\n\nMonth zero is intentionally unavailable: prior financing/expenditure and\nverification milestones must be met. Timing is supplied, never guessed."
       },
       "TargetFill": {
         "properties": {
@@ -36401,6 +38264,55 @@
             "type": "number",
             "title": "Subsidy Amount"
           },
+          "subsidy_estimate_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subsidy Estimate Amount"
+          },
+          "subsidy_status": {
+            "type": "string",
+            "title": "Subsidy Status",
+            "default": "not_assessed"
+          },
+          "subsidy_policy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subsidy Policy Version"
+          },
+          "subsidy_policy_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subsidy Policy Source"
+          },
+          "subsidy_cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subsidy Cap"
+          },
           "equity": {
             "type": "number",
             "title": "Equity"
@@ -36419,6 +38331,16 @@
               }
             ],
             "title": "Irr"
+          },
+          "irr_status": {
+            "type": "string",
+            "title": "Irr Status",
+            "default": "not_assessed"
+          },
+          "irr_solver_domain": {
+            "type": "string",
+            "title": "Irr Solver Domain",
+            "default": ""
           },
           "mirr": {
             "anyOf": [
@@ -36802,6 +38724,17 @@
             },
             "type": "array",
             "title": "Items"
+          },
+          "next_after_membership_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After Membership Id"
           }
         },
         "type": "object",

@@ -4,6 +4,8 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { DayRecordFeedPreparedKgByRecipe } from './dayRecordFeedPreparedKgByRecipe';
+import type { DayRecordFeedUnusedKgByRecipe } from './dayRecordFeedUnusedKgByRecipe';
 import type { FeedLine } from './feedLine';
 import type { OccupancyRow } from './occupancyRow';
 import type { SimBirth } from './simBirth';
@@ -19,5 +21,7 @@ export interface DayRecord {
   births?: SimBirth[];
   exits?: SimExit[];
   feeding?: FeedLine[];
+  feed_prepared_kg_by_recipe?: DayRecordFeedPreparedKgByRecipe;
+  feed_unused_kg_by_recipe?: DayRecordFeedUnusedKgByRecipe;
   occupancy?: OccupancyRow[];
 }

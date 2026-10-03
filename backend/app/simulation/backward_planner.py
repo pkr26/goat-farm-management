@@ -228,20 +228,25 @@ class _ClassWindow:
 
 
 def _effective_conception(assumptions: SimulationAssumptions) -> tuple[float, str]:
-    """Conception probability per service-ready doe within the retry policy,
-    plus a qualifier for the chain's explanation.
+    """Probability of conception in the chain's single dated service month.
 
-    ``max_services_before_cull == 0`` means unlimited monthly retries in the
-    engine (failures stay in the pool and are re-served, never culled), so
-    every bred doe eventually conceives — some on a later service."""
+    A retry can improve eventual conception but also shifts the birth date.
+    The forward feasibility/stage plan models those later monthly attempts;
+    the dated backward instruction must not promise their cumulative success
+    at the first attempt's birth date.
+    """
     rate = assumptions.reproduction.conception_rate
     cap = assumptions.reproduction.max_services_before_cull
+    if rate <= 0.0:
+        return 0.0, "no successful conception"
     if cap == 0:
-        return 1.0, "retries until pregnant"
+        # An eventual probability of one is not a dated breeding plan: later
+        # retries give later births. The chain's single birth month allows one
+        # service; the forward feasibility engine accounts for later retries.
+        return rate, "one timely service; later retries move the birth date"
     if cap == 1:
         return rate, "one service"
-    # P(conceive within the cull cap of services), geometric sum.
-    return 1.0 - math.pow(1.0 - rate, cap), f"up to {cap} services"
+    return rate, f"one timely service; up to {cap} services includes later births"
 
 
 def _requirement_chain(
@@ -265,8 +270,7 @@ def _requirement_chain(
         r.sex_ratio_female if target.animal_class.startswith("female") else 1.0 - r.sex_ratio_female
     )
     survival = _survival_to_event_age(mort, window.typical_age)
-    per_birth_of_sex = r.litter_size * (1.0 - r.stillbirth_rate) * sex_share
-    if per_birth_of_sex <= 0.0:
+    if sex_share <= 0.0:
         # sex_ratio_female is schema-valid at exactly 0 and 1, and the matching
         # share is then exactly zero — an all-one-sex birth policy cannot
         # produce the target's sex at all. Refuse as a 422 with the cause and
@@ -278,7 +282,9 @@ def _requirement_chain(
             "sex_ratio_female strictly between 0 and 1, or target the other sex."
         )
     kids_of_sex_needed = math.ceil(target.count / survival)
-    total_kids_needed = math.ceil(kids_of_sex_needed / per_birth_of_sex)
+    # Both-sex LIVE births have units of head, not litters. Litter size is
+    # applied exactly once when converting live births into kidding does.
+    total_kids_needed = math.ceil(kids_of_sex_needed / sex_share)
     kids_per_doe = r.litter_size * (1.0 - r.stillbirth_rate)
     does_kidded = math.ceil(total_kids_needed / kids_per_doe)
     conception, service_note = _effective_conception(assumptions)
@@ -318,9 +324,9 @@ def _requirement_chain(
     young_loss_pct = round((1.0 - survival) * 100.0)
     explanation = (
         f"Selling {target.count:g} {nouns.event_label(target.animal_class)} at "
-        f"~{window.typical_age} months needs ~{kids_of_sex_needed} alive at sale; "
+        f"~{window.typical_age} months needs ~{kids_of_sex_needed} live births of that sex; "
         f"with {young_loss_pct}% born-to-sale mortality that is ~{total_kids_needed} "
-        f"{nouns.young_plural} born around {month_label(start, birth_month)} "
+        f"live {nouns.young_plural} born around {month_label(start, birth_month)} "
         f"(litter size {r.litter_size:g}, {round(sex_share * 100)}% of the sex you "
         f"sell), from ~{does_kidded} {nouns.female}(s) {nouns.parturition} and ~{does_bred} "
         f"bred about {r.gestation_months} months earlier. Your herd must hold that many "

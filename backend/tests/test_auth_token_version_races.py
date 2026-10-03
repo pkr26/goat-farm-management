@@ -7,6 +7,7 @@ import httpx
 import pytest
 from fastapi import HTTPException, Response
 from sqlalchemy import event, func, select, text
+from starlette.requests import Request
 
 import app.api.auth as auth_api
 from app.api.auth import create_farm
@@ -18,6 +19,7 @@ from app.security import verify_password_async as real_verify_password_async
 from app.security import verify_password_with_work_async as real_verify_password_with_work_async
 
 from .conftest import login_and_rotate, owner_with_farm
+from .type_helpers import json_object
 
 WORKER_PASSWORD = "workerpass123"
 
@@ -60,7 +62,7 @@ async def _provision_worker(
         headers=owner,
     )
     assert created.status_code == 201, created.text
-    return created.json()
+    return json_object(created.json())
 
 
 async def test_password_reset_winning_rejects_stale_create_farm_principal(
@@ -98,6 +100,9 @@ async def test_password_reset_winning_rejects_stale_create_farm_principal(
             await create_farm(
                 FarmCreateIn(name="Must Not Exist"),
                 Response(),
+                Request(
+                    {"type": "http", "method": "POST", "path": "/api/auth/farms", "headers": []}
+                ),
                 stale_request_db,
                 stale_principal,
                 idempotency_key="stale-create-farm-key",

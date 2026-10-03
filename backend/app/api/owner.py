@@ -40,7 +40,7 @@ from ..models import (
     Transaction,
     WeightRecord,
 )
-from ..models.enums import KidStatus
+from ..models.enums import KidStatus, TransactionType
 from ..models.helpers import ASSESSED_OUTCOMES, CONCEIVED_OUTCOMES
 from ..schemas.common import COMMON_ERROR_RESPONSES
 from ..schemas.owner import (
@@ -163,7 +163,11 @@ async def owner_overview(
                 func.sum(Transaction.amount),
             )
             .join(Farm, Transaction.farm_id == Farm.id)
-            .where(Transaction.farm_id.in_(farm_ids), Transaction.date >= month_start)
+            .where(
+                Transaction.farm_id.in_(farm_ids),
+                Transaction.date >= month_start,
+                Transaction.voided_at.is_(None),
+            )
             .group_by(Transaction.farm_id, Transaction.type)
         )
     ).all()
@@ -264,26 +268,50 @@ async def owner_benchmarks(
         )
     ).all()
 
-    # Daily gain: per animal (max-min weight)/(days between), averaged per
-    # farm. Scoped to the owned farms and each farm's local calendar like
-    # every other benchmark; animals weighed once contribute nothing
-    # (HAVING count >= 2 — a single weighing has no interval to gain over).
-    weight_window = (
+    # Weight is ordered by its observation date and stable ID, not magnitude:
+    # loss and nonmonotonic growth are meaningful. Same-day observations have
+    # no elapsed growth interval and must not contribute a phantom day.
+    ordered_weights = (
         select(
             WeightRecord.farm_id.label("farm_id"),
             WeightRecord.animal_id.label("animal_id"),
-            func.min(WeightRecord.weight_kg).label("first_weight"),
-            func.max(WeightRecord.weight_kg).label("last_weight"),
-            func.min(WeightRecord.date).label("first_date"),
-            func.max(WeightRecord.date).label("last_date"),
+            WeightRecord.weight_kg,
+            WeightRecord.date,
+            func.row_number()
+            .over(
+                partition_by=(WeightRecord.farm_id, WeightRecord.animal_id),
+                order_by=(WeightRecord.date, WeightRecord.id),
+            )
+            .label("first_rank"),
+            func.row_number()
+            .over(
+                partition_by=(WeightRecord.farm_id, WeightRecord.animal_id),
+                order_by=(WeightRecord.date.desc(), WeightRecord.id.desc()),
+            )
+            .label("last_rank"),
         )
         .join(Farm, WeightRecord.farm_id == Farm.id)
         .where(
             WeightRecord.farm_id.in_(farm_ids),
             WeightRecord.date >= window_start,
         )
-        .group_by(WeightRecord.farm_id, WeightRecord.animal_id)
-        .having(func.count() >= 2)
+        .subquery()
+    )
+    weight_window = (
+        select(
+            ordered_weights.c.farm_id,
+            ordered_weights.c.animal_id,
+            func.max(ordered_weights.c.weight_kg)
+            .filter(ordered_weights.c.first_rank == 1)
+            .label("first_weight"),
+            func.max(ordered_weights.c.weight_kg)
+            .filter(ordered_weights.c.last_rank == 1)
+            .label("last_weight"),
+            func.min(ordered_weights.c.date).label("first_date"),
+            func.max(ordered_weights.c.date).label("last_date"),
+        )
+        .group_by(ordered_weights.c.farm_id, ordered_weights.c.animal_id)
+        .having(func.min(ordered_weights.c.date) < func.max(ordered_weights.c.date))
         .subquery()
     )
     gain_rows = (
@@ -294,8 +322,7 @@ async def owner_benchmarks(
                     (weight_window.c.last_weight - weight_window.c.first_weight)
                     / func.nullif(
                         cast(weight_window.c.last_date, Date)
-                        - cast(weight_window.c.first_date, Date)
-                        + 1,
+                        - cast(weight_window.c.first_date, Date),
                         0,
                     )
                 ),
@@ -313,6 +340,8 @@ async def owner_benchmarks(
                 Transaction.farm_id.in_(farm_ids),
                 Transaction.date >= window_start,
                 Transaction.category == "FEED",
+                Transaction.type == TransactionType.EXPENSE.value,
+                Transaction.voided_at.is_(None),
             )
             .group_by(Transaction.farm_id)
         )

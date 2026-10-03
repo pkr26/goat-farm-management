@@ -66,6 +66,7 @@ from ..services.finance import (
     create_insurance_policy,
     feed_stock_value,
     lifetime_pnl,
+    lock_insurance_policy,
     mortality_memo,
     renew_insurance_policy,
 )
@@ -930,15 +931,8 @@ async def renew_policy(
         if not 1 <= policy_id <= MAX_INT32_ID:
             policy = None
         else:
-            # FOR UPDATE serializes a concurrent pair of renewals so the
-            # horizon cannot move backwards between two read-modify-writes.
-            policy = (
-                await db.execute(
-                    select(InsurancePolicy)
-                    .where(InsurancePolicy.id == policy_id, InsurancePolicy.farm_id == farm.id)
-                    .with_for_update()
-                )
-            ).scalar_one_or_none()
+            # Linked Animal precedes Policy, matching sale/death/cull writers.
+            policy = await lock_insurance_policy(db, farm, policy_id)
         if policy is None or policy.farm_id != farm.id:
             raise HTTPException(status_code=404, detail="Insurance policy not found")
         try:
@@ -998,13 +992,7 @@ async def claim_policy(
     if not 1 <= policy_id <= MAX_INT32_ID:
         policy = None
     else:
-        policy = (
-            await db.execute(
-                select(InsurancePolicy)
-                .where(InsurancePolicy.id == policy_id, InsurancePolicy.farm_id == farm.id)
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+        policy = await lock_insurance_policy(db, farm, policy_id)
     if policy is None or policy.farm_id != farm.id:
         raise HTTPException(status_code=404, detail="Insurance policy not found")
     claim_date = payload.claim_date or today(farm.timezone)

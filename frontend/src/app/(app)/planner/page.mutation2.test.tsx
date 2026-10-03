@@ -1159,21 +1159,37 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     expect(screen.getByRole("button", { name: /Update “Festival plan”/ })).toBeInTheDocument();
   });
 
-  it("recovers from a 409 conflict by adopting the fresh revision and retrying", async () => {
+  it("preserves the original draft/revision until latest full contents are explicitly loaded", async () => {
     const user = userEvent.setup();
     const state = await renderLoaded2({ savedPlans: [savedPlanRow()], updateStatus: 409 });
     await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
-    await waitFor(() =>
-      expect(toastMocks.error).toHaveBeenCalledWith(
-        "This plan changed in another tab. The latest revision was loaded — press Update again.",
-      ),
-    );
-    // The refreshed row (revision 2, new name) is adopted for the retry.
-    expect(await screen.findByRole("button", { name: /Update “Festival plan v2”/ })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Update “Festival plan v2”/ }));
+    const dialog = await screen.findByRole("dialog", { name: "This plan changed" });
+    expect(screen.getByRole("button", { name: /Update “Festival plan”/, hidden: true })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Keep my draft" }));
+    await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
     await waitFor(() => expect(state.updatedBodies.length).toBe(2));
-    expect(state.updatedBodies[1]!.expected_revision).toBe(2);
+    expect(state.updatedBodies[1]!.expected_revision).toBe(1);
+  });
+
+  it("loads the complete newer plan before updating its newer revision", async () => {
+    const user = userEvent.setup();
+    const state = await renderLoaded2({ savedPlans: [savedPlanRow()], updateStatus: 409 });
+    const latest = savedPlanRow({ name: "Festival plan v2", revision: 2,
+      start_year_month: "2028-01", targets: [{ year_month: "2029-12", animal_class: "male_grower", count: 99 }],
+      assumptions: { ...GOAT_DEFAULTS, herd: { ...GOAT_DEFAULTS.herd, does: 123 } } });
+    server.use(http.get("/api/planner/plans/:id", () => HttpResponse.json(latest)));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
+    await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
+    const dialog = await screen.findByRole("dialog", { name: "This plan changed" });
+    await user.click(within(dialog).getByRole("button", { name: "Load latest contents" }));
+    await user.click(await screen.findByRole("button", { name: /Update “Festival plan v2”/ }));
+    await waitFor(() => expect(state.updatedBodies.length).toBe(2));
+    const sent = state.updatedBodies[1]!;
+    expect(sent.expected_revision).toBe(2);
+    expect(sent.start_year_month).toBe("2028-01");
+    expect(sent.targets).toEqual(latest.targets);
+    expect((sent.assumptions as { herd: { does: number } }).herd.does).toBe(123);
   });
 
   it("keeps the open plan when the conflict refresh returns a non-200 body", async () => {
@@ -1187,7 +1203,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
     await waitFor(() =>
       expect(toastMocks.error).toHaveBeenCalledWith(
-        "This plan changed in another tab. The latest revision was loaded — press Update again.",
+        "This plan changed. Review the latest saved contents before updating.",
       ),
     );
     await waitFor(() => expect(state.getPlanCalls).toBeGreaterThan(0));
@@ -1207,7 +1223,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
     await waitFor(() =>
       expect(toastMocks.error).toHaveBeenCalledWith(
-        "This plan changed in another tab. The latest revision was loaded — press Update again.",
+        "This plan changed. Review the latest saved contents before updating.",
       ),
     );
     await waitFor(() => expect(state.getPlanCalls).toBeGreaterThan(0));
@@ -1463,12 +1479,16 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
 });
 
 describe("PlannerPage mutation round 2: saved plans table", () => {
-  it("hides invalid plans from the list", async () => {
+  it("shows invalid plans with recovery detail and prevents invalid execution", async () => {
     await renderLoaded2({
       savedPlans: [savedPlanRow({ valid: false, name: "Broken plan" })],
     });
-    expect(await screen.findByText("No saved plans")).toBeInTheDocument();
-    expect(screen.queryByText("Broken plan")).toBeNull();
+    expect((await screen.findAllByText("Broken plan")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("No saved plans")).toBeNull();
+    for (const button of screen.getAllByRole("button", { name: "Open" })) expect(button).toBeDisabled();
+    for (const button of screen.getAllByRole("button", { name: /^Download DPR/ })) expect(button).toBeDisabled();
+    expect(screen.getAllByText(/This saved plan needs repair/).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Delete plan/ })[0]).toBeEnabled();
   });
 
   it("renders each plan's targets and notes with em-dash fallbacks", async () => {
@@ -1498,14 +1518,13 @@ describe("PlannerPage mutation round 2: saved plans table", () => {
     expect(cells[3]!.textContent).toBe("—");
   });
 
-  it("notes when the list is truncated", async () => {
+  it("shows the server total through the shared pagination control", async () => {
     await renderLoaded2({
       savedPlans: [savedPlanRow()],
       savedPlansTotal: 3,
     });
-    expect(
-      await screen.findByText("Showing the first 1 of 3 saved plans."),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("navigation", { name: "records pagination" })).toHaveTextContent("Showing 1–3 of 3 records");
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
 
   it("stays quiet when every saved plan fits on the page", async () => {

@@ -1,17 +1,16 @@
-"""mypy --strict over tests/ — counted ratchet (2026-09-29 audit, T5).
+"""Permanent zero-error mypy --strict gate over tests/.
 
-The 113-file test suite predates strict typing (1,778 strict errors at the
-ratchet's introduction, after a mechanical pass annotated every bare
-``dict`` generic). Full strictness is the destination; the ratchet is the
-vehicle: CI fails when the count GROWS, and every deliberate decrease is
-committed together with the lowered baseline file (same pattern as the
-coverage ``fail_under`` and the English-literal ceiling).
+The original 1,778-error ratchet reached zero on 2026-10-03. Both the
+checked-in baseline and the current strict run must stay at zero. The
+compatible ``--update`` command can record a successful zero-error run,
+but cannot accept new typing debt.
 
 Run locally:  python scripts/mypy_tests_ratchet.py [--update]
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,10 +27,14 @@ def current_count() -> int:
         check=False,
     )
     for line in reversed(proc.stdout.splitlines()):
-        if line.startswith("Found ") and " error" in line:
-            return int(line.split()[1])
-    # Zero errors is the ratchet's destination and prints a Success line.
-    if any(line.startswith("Success: no issues found") for line in proc.stdout.splitlines()):
+        match = re.fullmatch(
+            r"Found (\d+) errors? in \d+ files? \(checked \d+ source files?\)", line
+        )
+        if match is not None and proc.returncode == 1:
+            return int(match.group(1))
+    if proc.returncode == 0 and any(
+        line.startswith("Success: no issues found") for line in proc.stdout.splitlines()
+    ):
         return 0
     # Anything else (a crashed mypy — bad flag, unreadable file, fatal
     # error) prints no summary at all; treating that as zero would announce
@@ -43,27 +46,23 @@ def current_count() -> int:
 
 def main() -> int:
     count = current_count()
-    recorded = int(BASELINE.read_text().strip())
+    if count != 0:
+        print(f"mypy --strict over tests/ found {count} errors; the permanent baseline is zero.")
+        print("Fix the typing errors before updating the baseline or passing CI.")
+        return 1
     if "--update" in sys.argv:
-        BASELINE.write_text(f"{count}\n")
-        print(f"baseline updated to {count}")
+        BASELINE.write_text("0\n")
+        print("zero-error baseline confirmed")
         return 0
-    if count > recorded:
-        print(
-            f"mypy --strict over tests/ grew: {recorded} -> {count} errors.\n"
-            "New test code must be typed (see backend/AGENTS conventions); fix the\n"
-            "new errors, or — for a deliberate, reviewed bulk decrease — run\n"
-            "python scripts/mypy_tests_ratchet.py --update after improving types."
-        )
+    try:
+        recorded = int(BASELINE.read_text().strip())
+    except (OSError, ValueError) as exc:
+        print(f"Cannot read the zero-error test typing baseline: {exc}")
         return 1
-    if count < recorded:
-        print(
-            f"mypy --strict over tests/ improved: {recorded} -> {count} errors.\n"
-            "Commit the lowered baseline with this change:\n"
-            "python scripts/mypy_tests_ratchet.py --update"
-        )
+    if recorded != 0:
+        print("The permanent test typing baseline must be zero; it cannot be raised.")
         return 1
-    print(f"mypy --strict over tests/ holds at {count} errors (ratchet)")
+    print("mypy --strict over tests/ passes with zero errors")
     return 0
 
 

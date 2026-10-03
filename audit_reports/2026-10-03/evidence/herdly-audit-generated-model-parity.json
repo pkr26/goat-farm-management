@@ -1,0 +1,1160 @@
+{
+  "reviewed": [
+    {
+      "file": "frontend/src/api/generated/models/accountDeleteIn.ts",
+      "schema": "AccountDeleteIn",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/accountExportOut.ts",
+      "schema": "AccountExportOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/accountIdentityExport.ts",
+      "schema": "AccountIdentityExport",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/amortizationRowModel.ts",
+      "schema": "AmortizationRowModel",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/animalCreateIn.ts",
+      "schema": "AnimalCreateIn",
+      "properties": 19
+    },
+    {
+      "file": "frontend/src/api/generated/models/animalIdentityOut.ts",
+      "schema": "AnimalIdentityOut",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/animalJourney.ts",
+      "schema": "AnimalJourney",
+      "properties": 11
+    },
+    {
+      "file": "frontend/src/api/generated/models/animalListOut.ts",
+      "schema": "AnimalListOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/animalOffspringOut.ts",
+      "schema": "AnimalOffspringOut",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/animalOut.ts",
+      "schema": "AnimalOut",
+      "properties": 47
+    },
+    {
+      "file": "frontend/src/api/generated/models/animalProfileOut.ts",
+      "schema": "AnimalProfileOut",
+      "properties": 17
+    },
+    {
+      "file": "frontend/src/api/generated/models/animalStartSpec.ts",
+      "schema": "AnimalStartSpec",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/animalUpdateIn.ts",
+      "schema": "AnimalUpdateIn",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/annualPLRow.ts",
+      "schema": "AnnualPLRow",
+      "properties": 26
+    },
+    {
+      "file": "frontend/src/api/generated/models/backwardPlanIn.ts",
+      "schema": "BackwardPlanIn",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/backwardPlanReport.ts",
+      "schema": "BackwardPlanReport",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/breedingCandidateAvailabilityOut.ts",
+      "schema": "BreedingCandidateAvailabilityOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/breedingCandidateListOut.ts",
+      "schema": "BreedingCandidateListOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/breedingCandidateOut.ts",
+      "schema": "BreedingCandidateOut",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/breedingCreateIn.ts",
+      "schema": "BreedingCreateIn",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/breedingListOut.ts",
+      "schema": "BreedingListOut",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/breedingRecordOut.ts",
+      "schema": "BreedingRecordOut",
+      "properties": 23
+    },
+    {
+      "file": "frontend/src/api/generated/models/breedingStatsOut.ts",
+      "schema": "BreedingStatsOut",
+      "properties": 9
+    },
+    {
+      "file": "frontend/src/api/generated/models/breedsOut.ts",
+      "schema": "BreedsOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/bucketAllocationOut.ts",
+      "schema": "BucketAllocationOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/bucketAnimalOut.ts",
+      "schema": "BucketAnimalOut",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/bucketBoardRow.ts",
+      "schema": "BucketBoardRow",
+      "properties": 9
+    },
+    {
+      "file": "frontend/src/api/generated/models/bucketCountOut.ts",
+      "schema": "BucketCountOut",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/bucketMoveOut.ts",
+      "schema": "BucketMoveOut",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/bucketReportRow.ts",
+      "schema": "BucketReportRow",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/calibrationEvidence.ts",
+      "schema": "CalibrationEvidence",
+      "properties": 9
+    },
+    {
+      "file": "frontend/src/api/generated/models/changePasswordIn.ts",
+      "schema": "ChangePasswordIn",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/costsAssumptions.ts",
+      "schema": "CostsAssumptions",
+      "properties": 17
+    },
+    {
+      "file": "frontend/src/api/generated/models/cullingAssumptions.ts",
+      "schema": "CullingAssumptions",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/dailyOpsParams.ts",
+      "schema": "DailyOpsParams",
+      "properties": 13
+    },
+    {
+      "file": "frontend/src/api/generated/models/dailyOpsResult.ts",
+      "schema": "DailyOpsResult",
+      "properties": 12
+    },
+    {
+      "file": "frontend/src/api/generated/models/dailyOpsRunIn.ts",
+      "schema": "DailyOpsRunIn",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/dailyOpsRunOut.ts",
+      "schema": "DailyOpsRunOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/dailyOpsTotals.ts",
+      "schema": "DailyOpsTotals",
+      "properties": 14
+    },
+    {
+      "file": "frontend/src/api/generated/models/dashboardAdvisoryOut.ts",
+      "schema": "DashboardAdvisoryOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/dashboardKiddingDueOut.ts",
+      "schema": "DashboardKiddingDueOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/dashboardOut.ts",
+      "schema": "DashboardOut",
+      "properties": 25
+    },
+    {
+      "file": "frontend/src/api/generated/models/dashboardWeightOut.ts",
+      "schema": "DashboardWeightOut",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/dayRecord.ts",
+      "schema": "DayRecord",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/dispenseIn.ts",
+      "schema": "DispenseIn",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/dispensingAggregateOut.ts",
+      "schema": "DispensingAggregateOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/errorOut.ts",
+      "schema": "ErrorOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/eventFill.ts",
+      "schema": "EventFill",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/farmCalibrationOut.ts",
+      "schema": "FarmCalibrationOut",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/farmCreateIn.ts",
+      "schema": "FarmCreateIn",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/farmOut.ts",
+      "schema": "FarmOut",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/feedAssumptions.ts",
+      "schema": "FeedAssumptions",
+      "properties": 38
+    },
+    {
+      "file": "frontend/src/api/generated/models/feedInventoryOut.ts",
+      "schema": "FeedInventoryOut",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/feedLine.ts",
+      "schema": "FeedLine",
+      "properties": 10
+    },
+    {
+      "file": "frontend/src/api/generated/models/feedRecipeLineOut.ts",
+      "schema": "FeedRecipeLineOut",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/feedRecipeOut.ts",
+      "schema": "FeedRecipeOut",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/feedSettingIn.ts",
+      "schema": "FeedSettingIn",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/feedSummary.ts",
+      "schema": "FeedSummary",
+      "properties": 12
+    },
+    {
+      "file": "frontend/src/api/generated/models/feedingHistoryOut.ts",
+      "schema": "FeedingHistoryOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/feedingPlanOut.ts",
+      "schema": "FeedingPlanOut",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/feedingRecordOut.ts",
+      "schema": "FeedingRecordOut",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/financeAssumptions.ts",
+      "schema": "FinanceAssumptions",
+      "properties": 16
+    },
+    {
+      "file": "frontend/src/api/generated/models/financeOut.ts",
+      "schema": "FinanceOut",
+      "properties": 9
+    },
+    {
+      "file": "frontend/src/api/generated/models/finishedFeedStockOut.ts",
+      "schema": "FinishedFeedStockOut",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/growthAssumptions.ts",
+      "schema": "GrowthAssumptions",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/healthAnimalOptionListOut.ts",
+      "schema": "HealthAnimalOptionListOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/healthAnimalOptionOut.ts",
+      "schema": "HealthAnimalOptionOut",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/healthBulkTargetIn.ts",
+      "schema": "HealthBulkTargetIn",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/healthBulkTargetPreviewOut.ts",
+      "schema": "HealthBulkTargetPreviewOut",
+      "properties": 9
+    },
+    {
+      "file": "frontend/src/api/generated/models/healthEventIn.ts",
+      "schema": "HealthEventIn",
+      "properties": 29
+    },
+    {
+      "file": "frontend/src/api/generated/models/healthEventListOut.ts",
+      "schema": "HealthEventListOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/healthEventOut.ts",
+      "schema": "HealthEventOut",
+      "properties": 28
+    },
+    {
+      "file": "frontend/src/api/generated/models/healthPurchaseBatchOptionListOut.ts",
+      "schema": "HealthPurchaseBatchOptionListOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/healthPurchaseBatchOptionOut.ts",
+      "schema": "HealthPurchaseBatchOptionOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/herdAssumptions.ts",
+      "schema": "HerdAssumptions",
+      "properties": 17
+    },
+    {
+      "file": "frontend/src/api/generated/models/herdEventAssumptions.ts",
+      "schema": "HerdEventAssumptions",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/herdSnapshotOut.ts",
+      "schema": "HerdSnapshotOut",
+      "properties": 9
+    },
+    {
+      "file": "frontend/src/api/generated/models/insuranceClaimIn.ts",
+      "schema": "InsuranceClaimIn",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/insuranceExpiringOut.ts",
+      "schema": "InsuranceExpiringOut",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/insuranceListOut.ts",
+      "schema": "InsuranceListOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/insurancePolicyHistoryOut.ts",
+      "schema": "InsurancePolicyHistoryOut",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/insurancePolicyIn.ts",
+      "schema": "InsurancePolicyIn",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/insurancePolicyOut.ts",
+      "schema": "InsurancePolicyOut",
+      "properties": 15
+    },
+    {
+      "file": "frontend/src/api/generated/models/insurancePremiumOut.ts",
+      "schema": "InsurancePremiumOut",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/insuranceRenewalIn.ts",
+      "schema": "InsuranceRenewalIn",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/journeyHop.ts",
+      "schema": "JourneyHop",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/kidEntryOut.ts",
+      "schema": "KidEntryOut",
+      "properties": 11
+    },
+    {
+      "file": "frontend/src/api/generated/models/kidIn.ts",
+      "schema": "KidIn",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/kiddingCreateIn.ts",
+      "schema": "KiddingCreateIn",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/kiddingListOut.ts",
+      "schema": "KiddingListOut",
+      "properties": 12
+    },
+    {
+      "file": "frontend/src/api/generated/models/kiddingRecordOut.ts",
+      "schema": "KiddingRecordOut",
+      "properties": 12
+    },
+    {
+      "file": "frontend/src/api/generated/models/lifetimePnlOut.ts",
+      "schema": "LifetimePnlOut",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/loginIn.ts",
+      "schema": "LoginIn",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/loginOut.ts",
+      "schema": "LoginOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/membershipExport.ts",
+      "schema": "MembershipExport",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/membershipOut.ts",
+      "schema": "MembershipOut",
+      "properties": 10
+    },
+    {
+      "file": "frontend/src/api/generated/models/metaAssumptions.ts",
+      "schema": "MetaAssumptions",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/metricExplanation.ts",
+      "schema": "MetricExplanation",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/mixIn.ts",
+      "schema": "MixIn",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/monteCarloResult.ts",
+      "schema": "MonteCarloResult",
+      "properties": 27
+    },
+    {
+      "file": "frontend/src/api/generated/models/monthlyRow.ts",
+      "schema": "MonthlyRow",
+      "properties": 49
+    },
+    {
+      "file": "frontend/src/api/generated/models/mortalityAssumptions.ts",
+      "schema": "MortalityAssumptions",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/mortalityMemoOut.ts",
+      "schema": "MortalityMemoOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/mortalityOut.ts",
+      "schema": "MortalityOut",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/moveIn.ts",
+      "schema": "MoveIn",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/moveSuggestionOut.ts",
+      "schema": "MoveSuggestionOut",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/movementRestrictionActionOut.ts",
+      "schema": "MovementRestrictionActionOut",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/movementRestrictionClearIn.ts",
+      "schema": "MovementRestrictionClearIn",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/movementRestrictionHistoryOut.ts",
+      "schema": "MovementRestrictionHistoryOut",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/notificationPrefsIn.ts",
+      "schema": "NotificationPrefsIn",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/notificationPrefsOut.ts",
+      "schema": "NotificationPrefsOut",
+      "properties": 9
+    },
+    {
+      "file": "frontend/src/api/generated/models/occupancyRow.ts",
+      "schema": "OccupancyRow",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/optimizationAssumptions.ts",
+      "schema": "OptimizationAssumptions",
+      "properties": 13
+    },
+    {
+      "file": "frontend/src/api/generated/models/optimizationCandidate.ts",
+      "schema": "OptimizationCandidate",
+      "properties": 19
+    },
+    {
+      "file": "frontend/src/api/generated/models/optimizationResult.ts",
+      "schema": "OptimizationResult",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/ownedFarmExport.ts",
+      "schema": "OwnedFarmExport",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/ownerBenchmarksOut.ts",
+      "schema": "OwnerBenchmarksOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/ownerFarmBenchmarksOut.ts",
+      "schema": "OwnerFarmBenchmarksOut",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/ownerFarmOverviewOut.ts",
+      "schema": "OwnerFarmOverviewOut",
+      "properties": 13
+    },
+    {
+      "file": "frontend/src/api/generated/models/ownerOverviewOut.ts",
+      "schema": "OwnerOverviewOut",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/parityMultipliers.ts",
+      "schema": "ParityMultipliers",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/passwordResetIn.ts",
+      "schema": "PasswordResetIn",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/percentileBand.ts",
+      "schema": "PercentileBand",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/permissionGroupOut.ts",
+      "schema": "PermissionGroupOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/permissionsOut.ts",
+      "schema": "PermissionsOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/planEvaluation.ts",
+      "schema": "PlanEvaluation",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/planLineOut.ts",
+      "schema": "PlanLineOut",
+      "properties": 11
+    },
+    {
+      "file": "frontend/src/api/generated/models/planReport.ts",
+      "schema": "PlanReport",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/plannerAction.ts",
+      "schema": "PlannerAction",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/plannerMonthRow.ts",
+      "schema": "PlannerMonthRow",
+      "properties": 18
+    },
+    {
+      "file": "frontend/src/api/generated/models/plannerPlanCreateIn.ts",
+      "schema": "PlannerPlanCreateIn",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/plannerPlanListOut.ts",
+      "schema": "PlannerPlanListOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/plannerPlanOut.ts",
+      "schema": "PlannerPlanOut",
+      "properties": 12
+    },
+    {
+      "file": "frontend/src/api/generated/models/plannerPlanUpdateIn.ts",
+      "schema": "PlannerPlanUpdateIn",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/plannerTarget.ts",
+      "schema": "PlannerTarget",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/plannerTargetIn.ts",
+      "schema": "PlannerTargetIn",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/pnlRowOut.ts",
+      "schema": "PnlRowOut",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/pregnancyLossIn.ts",
+      "schema": "PregnancyLossIn",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/projectCostBreakdown.ts",
+      "schema": "ProjectCostBreakdown",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/purchaseBatchDetailOut.ts",
+      "schema": "PurchaseBatchDetailOut",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/purchaseBatchIn.ts",
+      "schema": "PurchaseBatchIn",
+      "properties": 13
+    },
+    {
+      "file": "frontend/src/api/generated/models/purchaseBatchListOut.ts",
+      "schema": "PurchaseBatchListOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/purchaseBatchOut.ts",
+      "schema": "PurchaseBatchOut",
+      "properties": 16
+    },
+    {
+      "file": "frontend/src/api/generated/models/purchaseQuarantineAnimalOut.ts",
+      "schema": "PurchaseQuarantineAnimalOut",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/quarantineScheduleTaskOut.ts",
+      "schema": "QuarantineScheduleTaskOut",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/recipeListOut.ts",
+      "schema": "RecipeListOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/registerIn.ts",
+      "schema": "RegisterIn",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/reportSection.ts",
+      "schema": "ReportSection",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/reportsOut.ts",
+      "schema": "ReportsOut",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/reproductionAssumptions.ts",
+      "schema": "ReproductionAssumptions",
+      "properties": 11
+    },
+    {
+      "file": "frontend/src/api/generated/models/requestValidationErrorOut.ts",
+      "schema": "RequestValidationErrorOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/requestValidationIssueOut.ts",
+      "schema": "RequestValidationIssueOut",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/requirementChain.ts",
+      "schema": "RequirementChain",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/requirementStep.ts",
+      "schema": "RequirementStep",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/restrictedAnimalOut.ts",
+      "schema": "RestrictedAnimalOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/riskAssumptions.ts",
+      "schema": "RiskAssumptions",
+      "properties": 27
+    },
+    {
+      "file": "frontend/src/api/generated/models/riskVariable.ts",
+      "schema": "RiskVariable",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/roleChangeIn.ts",
+      "schema": "RoleChangeIn",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/roleIn.ts",
+      "schema": "RoleIn",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/roleOut.ts",
+      "schema": "RoleOut",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/roleUpdateIn.ts",
+      "schema": "RoleUpdateIn",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/runIn.ts",
+      "schema": "RunIn",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/salesAssumptions.ts",
+      "schema": "SalesAssumptions",
+      "properties": 15
+    },
+    {
+      "file": "frontend/src/api/generated/models/scenarioCompareOut.ts",
+      "schema": "ScenarioCompareOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/scenarioCreateIn.ts",
+      "schema": "ScenarioCreateIn",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/scenarioListOut.ts",
+      "schema": "ScenarioListOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/scenarioOut.ts",
+      "schema": "ScenarioOut",
+      "properties": 10
+    },
+    {
+      "file": "frontend/src/api/generated/models/scenarioUpdateIn.ts",
+      "schema": "ScenarioUpdateIn",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/scheduleOut.ts",
+      "schema": "ScheduleOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/scheduleRowOut.ts",
+      "schema": "ScheduleRowOut",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/scheduleTemplateListOut.ts",
+      "schema": "ScheduleTemplateListOut",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/scheduleTemplateOut.ts",
+      "schema": "ScheduleTemplateOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningBatchBucketProgressOut.ts",
+      "schema": "ScreeningBatchBucketProgressOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningBatchListOut.ts",
+      "schema": "ScreeningBatchListOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningBatchOut.ts",
+      "schema": "ScreeningBatchOut",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningCropOut.ts",
+      "schema": "ScreeningCropOut",
+      "properties": 10
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningDatasetExportOut.ts",
+      "schema": "ScreeningDatasetExportOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningDatasetRecordOut.ts",
+      "schema": "ScreeningDatasetRecordOut",
+      "properties": 14
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningFindingOut.ts",
+      "schema": "ScreeningFindingOut",
+      "properties": 13
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningFindingReviewIn.ts",
+      "schema": "ScreeningFindingReviewIn",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningFindingReviewOut.ts",
+      "schema": "ScreeningFindingReviewOut",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningImageDetailOut.ts",
+      "schema": "ScreeningImageDetailOut",
+      "properties": 16
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningImageListOut.ts",
+      "schema": "ScreeningImageListOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningImageRowOut.ts",
+      "schema": "ScreeningImageRowOut",
+      "properties": 13
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningProviderStatsOut.ts",
+      "schema": "ScreeningProviderStatsOut",
+      "properties": 12
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningRunOut.ts",
+      "schema": "ScreeningRunOut",
+      "properties": 14
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningStatsOut.ts",
+      "schema": "ScreeningStatsOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningUploadIn.ts",
+      "schema": "ScreeningUploadIn",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/screeningUploadOut.ts",
+      "schema": "ScreeningUploadOut",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/sensitivityItem.ts",
+      "schema": "SensitivityItem",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/simBirth.ts",
+      "schema": "SimBirth",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/simExit.ts",
+      "schema": "SimExit",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/simKidBirth.ts",
+      "schema": "SimKidBirth",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/simMove.ts",
+      "schema": "SimMove",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/simTask.ts",
+      "schema": "SimTask",
+      "properties": 10
+    },
+    {
+      "file": "frontend/src/api/generated/models/simulationAssumptions.ts",
+      "schema": "SimulationAssumptions",
+      "properties": 13
+    },
+    {
+      "file": "frontend/src/api/generated/models/simulationResult.ts",
+      "schema": "SimulationResult",
+      "properties": 15
+    },
+    {
+      "file": "frontend/src/api/generated/models/statusChangeIn.ts",
+      "schema": "StatusChangeIn",
+      "properties": 17
+    },
+    {
+      "file": "frontend/src/api/generated/models/stockAddIn.ts",
+      "schema": "StockAddIn",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/targetFill.ts",
+      "schema": "TargetFill",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/targetRisk.ts",
+      "schema": "TargetRisk",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/taskCreateIn.ts",
+      "schema": "TaskCreateIn",
+      "properties": 7
+    },
+    {
+      "file": "frontend/src/api/generated/models/taskOut.ts",
+      "schema": "TaskOut",
+      "properties": 32
+    },
+    {
+      "file": "frontend/src/api/generated/models/taskRejectIn.ts",
+      "schema": "TaskRejectIn",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/taskSkipIn.ts",
+      "schema": "TaskSkipIn",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/taskTabsOut.ts",
+      "schema": "TaskTabsOut",
+      "properties": 17
+    },
+    {
+      "file": "frontend/src/api/generated/models/teamOut.ts",
+      "schema": "TeamOut",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/terminalValueBreakdown.ts",
+      "schema": "TerminalValueBreakdown",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/tokenOut.ts",
+      "schema": "TokenOut",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/totpChallengeIn.ts",
+      "schema": "TotpChallengeIn",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/totpCodeIn.ts",
+      "schema": "TotpCodeIn",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/totpDisableIn.ts",
+      "schema": "TotpDisableIn",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/totpEnrollIn.ts",
+      "schema": "TotpEnrollIn",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/totpEnrollOut.ts",
+      "schema": "TotpEnrollOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/totpRecoveryCodesOut.ts",
+      "schema": "TotpRecoveryCodesOut",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/totpRecoveryRegenerateIn.ts",
+      "schema": "TotpRecoveryRegenerateIn",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/transactionCorrectionIn.ts",
+      "schema": "TransactionCorrectionIn",
+      "properties": 8
+    },
+    {
+      "file": "frontend/src/api/generated/models/transactionIn.ts",
+      "schema": "TransactionIn",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/transactionOut.ts",
+      "schema": "TransactionOut",
+      "properties": 15
+    },
+    {
+      "file": "frontend/src/api/generated/models/transitionCount.ts",
+      "schema": "TransitionCount",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/ultrasoundIn.ts",
+      "schema": "UltrasoundIn",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/userOut.ts",
+      "schema": "UserOut",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/viabilityMetrics.ts",
+      "schema": "ViabilityMetrics",
+      "properties": 21
+    },
+    {
+      "file": "frontend/src/api/generated/models/weightIn.ts",
+      "schema": "WeightIn",
+      "properties": 4
+    },
+    {
+      "file": "frontend/src/api/generated/models/weightRecordOut.ts",
+      "schema": "WeightRecordOut",
+      "properties": 6
+    },
+    {
+      "file": "frontend/src/api/generated/models/workerCreateIn.ts",
+      "schema": "WorkerCreateIn",
+      "properties": 5
+    },
+    {
+      "file": "frontend/src/api/generated/models/workerLoginIn.ts",
+      "schema": "WorkerLoginIn",
+      "properties": 3
+    },
+    {
+      "file": "frontend/src/api/generated/models/workerPinResetIn.ts",
+      "schema": "WorkerPinResetIn",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/workerRosterEntryOut.ts",
+      "schema": "WorkerRosterEntryOut",
+      "properties": 2
+    },
+    {
+      "file": "frontend/src/api/generated/models/workerRosterOut.ts",
+      "schema": "WorkerRosterOut",
+      "properties": 1
+    },
+    {
+      "file": "frontend/src/api/generated/models/workerStatusIn.ts",
+      "schema": "WorkerStatusIn",
+      "properties": 1
+    }
+  ],
+  "findings": []
+}

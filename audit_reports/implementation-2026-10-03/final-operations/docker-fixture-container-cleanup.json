@@ -1,0 +1,11 @@
+{
+  "name": "docker-fixture-container-cleanup",
+  "command": "docker rm herdly-context-proof-effd93f5fff24aaca0c5553704bf53d0",
+  "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+  "started_at": "2026-10-03T18:44:26.308528+00:00",
+  "finished_at": "2026-10-03T18:44:26.327998+00:00",
+  "expected_exit": 0,
+  "exit_code": 0,
+  "stdout": "herdly-context-proof-effd93f5fff24aaca0c5553704bf53d0\n",
+  "stderr": ""
+}

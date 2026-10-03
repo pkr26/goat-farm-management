@@ -35,6 +35,7 @@ from app.utils import today, utcnow
 
 from .conftest import create_farm, owner_with_farm, register
 from .test_health_extended import iso, make_animal, make_batch, post_event, record_event
+from .type_helpers import Headers
 
 
 async def wait_for_lock_waiter(minimum: int = 1, timeout_seconds: float = 10.0) -> None:
@@ -57,7 +58,7 @@ async def wait_for_lock_waiter(minimum: int = 1, timeout_seconds: float = 10.0) 
 
 async def preview(
     client: httpx.AsyncClient,
-    headers: dict[str, str],
+    headers: Headers,
     **target: object,
 ) -> httpx.Response:
     return await client.post("/api/health/events/preview", json=target, headers=headers)
@@ -1075,14 +1076,16 @@ async def test_new_schedule_links_are_canonical_immutable_and_indexed(
     assert recorded[0]["schedule_template_name"] is None
 
     async with get_sessionmaker()() as db:
-        template_ids = dict(
+        template_ids: dict[str, int] = dict(
             (
                 await db.execute(
                     select(VaccineTemplate.name, VaccineTemplate.id).where(
                         VaccineTemplate.name.in_(["PPR", "FMD"])
                     )
                 )
-            ).all()
+            )
+            .tuples()
+            .all()
         )
         event_row = await db.get(HealthEvent, recorded[0]["id"])
         assert event_row is not None
@@ -1555,6 +1558,8 @@ async def test_herd_level_duty_closes_only_via_herd_scoped_evidence(
         assert stored is not None and stored.status == "PENDING"
 
     # Bucket-scoped evidence of the round being administered closes the duty.
+    started = await client.post(f"/api/health/rounds/{task_id}/start", headers=owner)
+    assert started.status_code == 200, started.text
     reviewed = await preview(client, owner, scope="bucket", bucket="FOUNDATION")
     assert reviewed.status_code == 200, reviewed.text
     closed = await client.post(
@@ -1879,7 +1884,7 @@ def test_combined_et_hs_round_maps_to_both_component_templates() -> None:
     assert canonical_target_for_task("CCPP round (2027)", "VACCINE") == "CCPP"
 
 
-async def _seed_herd_round_task(headers: dict, title: str) -> int:
+async def _seed_herd_round_task(headers: Headers, title: str, *, initialize: bool = True) -> int:
     async with get_sessionmaker()() as db:
         task = Task(
             farm_id=int(headers["X-Farm-Id"]),
@@ -1890,6 +1895,11 @@ async def _seed_herd_round_task(headers: dict, title: str) -> int:
             auto_generated=True,
         )
         db.add(task)
+        await db.flush()
+        if initialize:
+            from app.services.health_rounds import ensure_round_snapshot
+
+            await ensure_round_snapshot(db, task)
         await db.commit()
         return task.id
 
@@ -1925,7 +1935,7 @@ async def test_combined_round_rejects_foreign_templates_and_accepts_either_compo
         stored = await db.get(Task, wrong)
         assert stored is not None and stored.status == "PENDING"
 
-    # An explicitly recorded HS event binds the HS template and closes it.
+    # An explicitly recorded HS event binds the HS template as partial evidence.
     hs_round = await _seed_herd_round_task(owner, "ET + HS pre-monsoon round (2026) — all animals")
     closed_hs = await client.post(
         "/api/health/events",
@@ -1943,7 +1953,7 @@ async def test_combined_round_rejects_foreign_templates_and_accepts_either_compo
     assert closed_hs.status_code == 201, closed_hs.text
 
     # A blank target names no component: the primary (ET) template binds and
-    # the canonical combined target is recorded.
+    # only the primary component is recorded; the HS component remains due.
     et_round = await _seed_herd_round_task(owner, "ET + HS pre-monsoon round (2026) — all animals")
     closed_et = await client.post(
         "/api/health/events",
@@ -1957,9 +1967,7 @@ async def test_combined_round_rejects_foreign_templates_and_accepts_either_compo
         headers=owner,
     )
     assert closed_et.status_code == 201, closed_et.text
-    assert closed_et.json()[0]["disease_target"] == (
-        "Enterotoxaemia (ET) + Haemorrhagic Septicaemia (HS)"
-    )
+    assert closed_et.json()[0]["disease_target"] == "Enterotoxaemia (ET)"
 
 
 async def test_ccpp_round_binds_its_own_template(

@@ -9,11 +9,12 @@ from typing import Any
 import httpx
 
 from .conftest import login_and_rotate, owner_with_farm
+from .type_helpers import JsonObject
 
 WORKER_PW = "workerpass123"
 
 
-def _toy_herd() -> list[dict]:
+def _toy_herd() -> list[JsonObject]:
     does = [
         {"tag": f"D{i}", "sex": "F", "bucket": "BREEDING", "age_months": 18} for i in range(1, 3)
     ]
@@ -38,7 +39,7 @@ def _run_document(**extra: object) -> dict[str, Any]:
 def test_ops_sim_api_contract_exists() -> None:
     from app.api.ops_simulation import router
 
-    paths = {route.path for route in router.routes}
+    paths = {getattr(route, "path", "") for route in router.routes}
     assert "/api/ops-sim/run" in paths
 
 
@@ -127,7 +128,7 @@ async def test_run_requires_authentication(client: httpx.AsyncClient) -> None:
 
 
 async def _worker_with_role(
-    client: httpx.AsyncClient, owner: dict, email: str, permissions: list[str]
+    client: httpx.AsyncClient, owner: dict[str, str], email: str, permissions: list[str]
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/team/roles",

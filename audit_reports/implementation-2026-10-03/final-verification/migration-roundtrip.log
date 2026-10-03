@@ -1,0 +1,13 @@
+alembic upgrade f4a8c2e6d1b9: exit 0
+
+alembic upgrade head: exit 0
+
+alembic check: exit 0
+No new upgrade operations detected.
+alembic downgrade f4a8c2e6d1b9: exit 0
+
+alembic upgrade head: exit 0
+
+alembic check: exit 0
+No new upgrade operations detected.
+Clean upgrade, predecessor upgrade, safe blank downgrade/re-upgrade and model parity passed.

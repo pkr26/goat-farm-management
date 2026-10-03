@@ -268,7 +268,7 @@ describe("AnimalProfilePage mutation hardening", () => {
       await renderProfile(EMPTY_PROFILE as unknown as Record<string, unknown>);
 
       const cta = screen.getByRole("link", { name: "Add a health event" });
-      expect(cta).toHaveAttribute("href", "/health/new?returnTo=%2Fanimals%2F1");
+      expect(cta).toHaveAttribute("href", "/health/new?animal_id=1&returnTo=%2Fanimals%2F1");
       // Rendered as a small outline button, not the primary variant.
       expect(cta.className).toContain("border-border");
       expect(cta.className).toContain("text-[0.8rem]");

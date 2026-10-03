@@ -65,6 +65,11 @@ test.describe("purchases", () => {
     ).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(detail).toBeHidden();
+    // The dialog closes optimistically; its URL replacement must also commit
+    // before a hard navigation can interrupt the pending App Router request.
+    await expect(page).toHaveURL(
+      (url) => url.pathname === "/purchases" && !url.searchParams.has("batch"),
+    );
 
     // The herd list's quarantine bucket shows the stubbed animal. (The day-45
     // release is due 44 days out — not automatable without date travel.)

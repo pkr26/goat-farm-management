@@ -1,0 +1,17 @@
+{
+  "name": "ruff-format-check",
+  "command": ".venv/bin/ruff format --check .",
+  "argv": [
+    ".venv/bin/ruff",
+    "format",
+    "--check",
+    "."
+  ],
+  "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+  "started_at": "2026-10-03T19:01:46.054109+00:00",
+  "finished_at": "2026-10-03T19:01:46.069972+00:00",
+  "exit_code": 0,
+  "log": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/implementation-2026-10-03/final-static/ruff-format-check.log",
+  "stdout": "404 files already formatted\n",
+  "stderr": ""
+}

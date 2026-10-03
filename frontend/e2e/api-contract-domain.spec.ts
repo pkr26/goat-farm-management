@@ -384,6 +384,7 @@ test.describe.serial("frontend proxy domain API contracts", () => {
       bucket: null,
       purchase_batch_id: batchId,
       task_id: null,
+      round_component: null,
       target_animal_ids: [purchased.id],
       target_animals: [
         { id: purchased.id, tag_number: purchased.tag_number, name: purchased.name },

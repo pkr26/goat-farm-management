@@ -1,0 +1,8 @@
+{
+  "part": 2,
+  "exit_code": 0,
+  "expected_collected": 2564,
+  "database": "herdly_final_19d302d009bc_test",
+  "coverage_file": "/tmp/herdly-be-final-split/.coverage.part-2",
+  "junit": "/tmp/herdly-be-final-split/part-2.xml"
+}

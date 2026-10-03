@@ -890,12 +890,15 @@ function OpsSimulationPageContent() {
                 </div>
 
                 <div className="space-y-4">
+                  <p className="text-xs text-muted-foreground">{t("opsSim.feeding.shiftHelp")}</p>
                   <div className="overflow-x-auto rounded-lg border">
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead>{t("opsSim.col.feedingManifest")}</TableHead>
                           <TableHead className="text-right">{t("opsSim.col.heads")}</TableHead>
+                          {selectedRecord.feeding?.some((line) => line.morning_heads != null) &&
+                            <TableHead className="text-right">{t("opsSim.feeding.shiftHeads")}</TableHead>}
                           <TableHead className="text-right">{t("opsSim.col.kgPerHead")}</TableHead>
                           <TableHead className="text-right">{t("opsSim.col.am")}</TableHead>
                           <TableHead className="text-right">{t("opsSim.col.noon")}</TableHead>
@@ -909,6 +912,9 @@ function OpsSimulationPageContent() {
                               {buildingName(line.building, t)} — {line.recipe_display}
                             </TableCell>
                             <TableCell className="text-right tabular-nums">{line.heads}</TableCell>
+                            {selectedRecord.feeding?.some((feed) => feed.morning_heads != null) && <TableCell className="text-right tabular-nums">
+                              {line.morning_heads ?? "—"} / {line.afternoon_heads ?? "—"} / {line.night_heads ?? "—"}
+                            </TableCell>}
                             <TableCell className="text-right tabular-nums">
                               {line.kg_per_head}
                             </TableCell>
@@ -926,6 +932,20 @@ function OpsSimulationPageContent() {
                       </TableBody>
                     </Table>
                   </div>
+
+                  {[
+                    ["opsSim.feeding.prepared", selectedRecord.feed_prepared_kg_by_recipe],
+                    ["opsSim.feeding.unused", selectedRecord.feed_unused_kg_by_recipe],
+                  ].map(([label, quantities]) => quantities && Object.keys(quantities).length > 0 && (
+                    <div key={label as string} className="rounded-lg border p-3 text-sm">
+                      <p className="font-medium">{t(label as MessageKey)}</p>
+                      <dl className="mt-2 grid grid-cols-2 gap-2">
+                        {Object.entries(quantities).map(([recipe, kg]) => <div key={recipe} className="contents">
+                          <dt>{recipe}</dt><dd className="text-right tabular-nums">{formatKg(kg as number)}</dd>
+                        </div>)}
+                      </dl>
+                    </div>
+                  ))}
 
                   <div className="overflow-x-auto rounded-lg border">
                     <Table>

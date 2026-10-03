@@ -345,6 +345,18 @@ class RefreshSession(Base):
 
     __tablename__ = "refresh_sessions"
     __table_args__ = (
+        CheckConstraint(
+            "session_origin IS NULL OR "
+            "(session_origin = 'PASSWORD' AND farm_id IS NULL AND membership_id IS NULL) OR "
+            "(session_origin = 'PIN' AND farm_id IS NOT NULL AND membership_id IS NOT NULL)",
+            name="ck_refresh_sessions_origin_scope",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "membership_id"],
+            ["farm_memberships.farm_id", "farm_memberships.id"],
+            name="fk_refresh_sessions_farm_membership",
+            ondelete="CASCADE",
+        ),
         Index("ix_refresh_sessions_expires_id", "expires_at", "id"),
         Index("ix_refresh_sessions_family_created_id", "family_id", "created_at", "id"),
         Index("ix_refresh_sessions_user_created_id", "user_id", "created_at", "id"),
@@ -352,6 +364,10 @@ class RefreshSession(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # Existing rows stay NULL at cutover because their origin cannot be proved.
+    session_origin: Mapped[str | None] = mapped_column(String(8), default="PASSWORD")
+    farm_id: Mapped[int | None] = mapped_column(ForeignKey("farms.id", ondelete="CASCADE"))
+    membership_id: Mapped[int | None] = mapped_column()
     jti: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     family_id: Mapped[str] = mapped_column(String(64))
     expires_at: Mapped[datetime] = mapped_column()

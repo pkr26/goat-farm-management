@@ -129,11 +129,21 @@ import { formatFarmDateTime, formatMoney } from "@/lib/format";
 import { useLanguage, useT, type MessageKey, type TFn } from "@/lib/i18n";
 import { mapServerError } from "@/lib/server-error-phrases";
 import {
-  SIMULATION_SECTION_HELP,
+  simulationSectionHelp,
+  simulationSectionLabel,
   simulationFieldHelp,
 } from "@/lib/simulation-field-help";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import {
+  calibrationEvidenceText,
+  calibrationWarningText,
+  metricExplanationText,
+  narrativeSectionText,
+} from "@/lib/simulation-evidence-text";
+import { assessedIrr, assumptionsIdentity, irrStatusLabel, nlmStatusLabel } from "@/lib/simulation-result-basis";
+import { NlmFundingEditor, NLM_EVIDENCE_FIELDS, validNlmFunding } from "./components/nlm-funding-editor";
+import { FestivalDateEditor } from "./components/festival-date-editor";
 
 const DEFAULT_SYSTEM = BreedDefaultsApiSimulationDefaultsGetSystem.stall_fed;
 const MAX_COMPARE_SCENARIOS = 5;
@@ -536,7 +546,7 @@ function numericRule(section: string, key: string, t: TFn): NumericRule {
  * omit the key entirely — without this, a scenario run and the very same
  * scenario loaded in the editor never compared equal. */
 function assumptionsFingerprint(assumptions: SimulationAssumptions): string {
-  return JSON.stringify({ ...assumptions, events: assumptions.events ?? [] });
+  return assumptionsIdentity(assumptions);
 }
 
 /** Run options belong to a result's identity: toggling Monte Carlo or
@@ -748,7 +758,7 @@ function compareRows(t: TFn): {
 }[] {
   return [
     { key: "npv", label: t("simulation.metric.npv"), format: (m) => formatMoney(m.npv) },
-    { key: "irr", label: t("simulation.metric.irr"), format: (m) => formatPercent(m.irr) },
+    { key: "irr", label: t("simulation.metric.irr"), format: (m) => formatPercent(assessedIrr(m)) },
     { key: "mirr", label: t("simulation.metric.mirr"), format: (m) => formatPercent(m.mirr) },
     { key: "bcr", label: t("simulation.metric.bcr"), format: (m) => formatRatio(m.bcr) },
     {
@@ -996,6 +1006,8 @@ function localizedFieldLabel(key: string, t: TFn, language: "en" | "te"): string
   // historic humanizer. Telugu needs token-aware labels because direct title
   // casing of a snake-case backend key would otherwise leak English.
   if (language === "en") return humanize(key);
+  const sectionLabel = simulationSectionLabel(key, t);
+  if (sectionLabel !== null) return sectionLabel;
   return key
     .split(/[._\s]+/)
     .filter(Boolean)
@@ -1106,7 +1118,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
   const [recurrenceInvalid, setRecurrenceInvalid] = useState<Set<string>>(() => new Set());
   const [explanation, setExplanation] = useState<MetricExplanation | null>(null);
   /** The "?" dialog: one assumption term's explanation + unit/range/value. */
-  const [fieldExplain, setFieldExplain] = useState<FieldHelpState | null>(null);
+  const [fieldExplain, setFieldExplain] = useState<(FieldHelpState & { lookup: { section: string; key?: string; value?: unknown; rule?: NumericRule | NumberArrayRule; options?: Record<string, string>; subKey?: string } }) | null>(null);
   const [calibration, setCalibration] = useState<FarmCalibrationOut | null>(null);
   const [calibrationLookback, setCalibrationLookback] = useState(24);
   // Updated synchronously by every live calibration-parameter control. A
@@ -1383,9 +1395,15 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
   function updateField(section: string, key: string, value: unknown) {
     acceptDefaultsRef.current = false;
     editorContentEpochRef.current += 1;
+    if (section === "finance" && key === "nlm_subsidy" && value === false)
+      setInvalidFields((previous) => new Set([...previous].filter((field) =>
+        !field.startsWith("field:sim-finance-nlm_") && !field.startsWith("field:sim-nlm-receipt-"))));
     setAssumptions((prev) => {
       if (!prev) return prev;
       const current = (prev as Record<string, SectionValues>)[section] ?? {};
+      if (section === "finance" && key === "nlm_subsidy" && value === false)
+        return { ...prev, finance: { ...current, nlm_subsidy: false,
+          nlm_approved_subsidy_amount: null, nlm_subsidy_receipts: [] } };
       if (section === "growth" && key === "birth_weight_kg" && typeof value === "number") {
         const curve = Array.isArray(current.weight_by_age_months)
           ? [...(current.weight_by_age_months as number[])]
@@ -1545,6 +1563,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
   }
   if (events.length > 500)
     assumptionErrors.push(t("simulation.validation.maxEvents"));
+  if (assumptions?.finance && !validNlmFunding(assumptions.finance,
+      assumptions.herd?.does, assumptions.herd?.bucks))
+    assumptionErrors.push(t("simulation.nlm.invalid"));
   const hasEditorErrors =
     invalidFields.size > 0 || assumptionErrors.length > 0 || eventErrors.length > 0;
   const currentPayload = assumptions ? { ...assumptions, events } : null;
@@ -1773,7 +1794,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         if (res.status === 200 && farmScope())
           setResult({
             data: res.data,
-            fingerprint: assumptionsFingerprint(payload),
+            fingerprint: assumptionsFingerprint(res.data.executed_assumptions ?? payload),
             options: runOptionsFingerprint(monteCarlo, sensitivity, optimization),
             scenarioId: null,
             source: { kind: "editor" },
@@ -1801,7 +1822,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         if (res.status === 200 && farmScope())
           setResult({
             data: res.data,
-            fingerprint: assumptionsFingerprint(scenario.assumptions),
+            fingerprint: assumptionsFingerprint(res.data.executed_assumptions ?? scenario.assumptions),
             options: runOptionsFingerprint(monteCarlo, sensitivity, optimization),
             scenarioId: scenario.id,
             source: { kind: "scenario", name: scenario.name },
@@ -1995,7 +2016,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     subKey?: string,
   ): void {
     const path = subKey ? `${section}.${key}.${subKey}` : `${section}.${key}`;
-    const entry = simulationFieldHelp(path, simVocabulary);
+    const entry = simulationFieldHelp(path, simVocabulary, t);
     // The established English help entries use carefully written sentence
     // casing (for example, “Meat price”). Preserve that default wording;
     // Telugu instead uses the token-localized field name rather than leaking
@@ -2008,8 +2029,22 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       label,
       body: entry?.help.body ?? null,
       facts: fieldFacts(rule, value, t, language, options),
+      lookup: { section, key, value, rule, options, subKey },
     });
   }
+
+  // Recompute open help from its field identity, so changing the language
+  // updates the body, heading and facts without retaining an English draft.
+  const shownFieldExplain = fieldExplain ? (() => {
+    const { section, key, value, rule, options, subKey } = fieldExplain.lookup;
+    if (key === undefined) return { label: t("simulation.assumptions.sectionTitle", { section: localizedFieldLabel(section, t, language) }),
+      body: simulationSectionHelp(section, simVocabulary, t), facts: [] };
+    const path = subKey ? `${section}.${key}.${subKey}` : `${section}.${key}`;
+    const entry = simulationFieldHelp(path, simVocabulary, t);
+    return { label: language === "en" ? entry?.label ?? fieldLabelFor(subKey ?? key) : fieldLabelFor(subKey ?? key),
+      body: entry?.help.body ?? null,
+      facts: fieldFacts(rule, value, t, language, numericFieldOptions(t)[path] ?? stringFieldOptions(t)[path] ?? options) };
+  })() : null;
 
   /** One editor row; the input type follows the value type. */
   function renderField(section: string, key: string, value: unknown) {
@@ -2340,6 +2375,23 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       : null;
     return (
       <div className="space-y-6">
+        {m.irr_status && <p role="note" className="text-sm text-muted-foreground" title={m.irr_solver_domain}>
+          {t("simulation.irr.status", { status: irrStatusLabel(m.irr_status, t) })}
+        </p>}
+        {m.subsidy_policy_version && <Card>
+          <CardHeader><CardTitle>{t("simulation.nlm.title")}</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p>{t("simulation.nlm.status", { status: nlmStatusLabel(m.subsidy_status, t) })}</p>
+            <dl className="grid grid-cols-2 gap-2">
+              <dt>{t("simulation.nlm.estimate")}</dt>
+              <dd className="text-right tabular-nums">{m.subsidy_estimate_amount == null ? "—" : formatMoney(m.subsidy_estimate_amount)}</dd>
+              <dt>{t("simulation.nlm.receipts")}</dt><dd className="text-right tabular-nums">{formatMoney(m.subsidy_amount)}</dd>
+            </dl>
+            <p className="text-xs text-muted-foreground">{t("simulation.nlm.help")}</p>
+            <a className="underline" href="https://dahd.gov.in/sites/default/files/2026-04/NLMGuidelinesJan2025.pdf"
+              target="_blank" rel="noreferrer">{t("simulation.nlm.policy")} ({m.subsidy_policy_version})</a>
+          </CardContent>
+        </Card>}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <MetricCard
             value={formatMoney(m.npv)}
@@ -2349,7 +2401,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             onInfo={infoFor("npv")}
           />
           <MetricCard
-            value={formatPercent(m.irr)}
+            value={formatPercent(assessedIrr(m))}
             label={t("simulation.metric.irr")}
             icon={Percent}
             onInfo={infoFor("irr")}
@@ -2442,7 +2494,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           />
           <MetricCard
             value={formatMoney(m.subsidy_amount)}
-            label={t("simulation.metric.subsidy")}
+            label={m.subsidy_policy_version ? t("simulation.nlm.receipts") : t("simulation.metric.subsidy")}
             icon={HandCoins}
             tint="success"
             onInfo={infoFor("subsidy_amount")}
@@ -2527,6 +2579,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             </CardHeader>
             <CardContent className="space-y-5">
               {r.narrative_report.map((section) => {
+                const localizedSection = narrativeSectionText(section, t, language);
                 const verdict =
                   section.key === "viability_verdict" &&
                   typeof section.figures?.verdict === "string"
@@ -2537,7 +2590,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 return (
                   <section key={section.key} className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-medium">{section.title}</h3>
+                      <h3 className="font-medium">{localizedSection.title}</h3>
                       {verdictLabel && (
                         <Badge
                           variant={
@@ -2552,7 +2605,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                         </Badge>
                       )}
                     </div>
-                    {section.paragraphs.map((paragraph, i) => (
+                    {localizedSection.paragraphs.map((paragraph, i) => (
                       <p key={i} className="text-sm text-muted-foreground">
                         {paragraph}
                       </p>
@@ -2668,6 +2721,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   <TableHead className="text-right">{t("simulation.table.pat")}</TableHead>
                   <TableHead className="text-right">{t("simulation.table.debtService")}</TableHead>
                   <TableHead className="text-right">{t("simulation.table.terminalValue")}</TableHead>
+                  {m.subsidy_policy_version && <TableHead className="text-right">{t("simulation.nlm.receipts")}</TableHead>}
                   <TableHead className="text-right">{t("simulation.table.netCashFlow")}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -2689,6 +2743,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                       row.profit_after_tax,
                       row.debt_service,
                       row.terminal_value,
+                      ...(m.subsidy_policy_version ? [row.subsidy_receipt ?? 0] : []),
                     ].map((value, index) => (
                       <TableCell key={index} className="text-right tabular-nums">
                         {formatMoney(value)}
@@ -2731,6 +2786,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   <TableHead className="text-right">{t("simulation.table.tax")}</TableHead>
                   <TableHead className="text-right">{t("simulation.table.debtService")}</TableHead>
                   <TableHead className="text-right">{t("simulation.table.terminalValue")}</TableHead>
+                  {m.subsidy_policy_version && <TableHead className="text-right">{t("simulation.nlm.receipts")}</TableHead>}
                   <TableHead className="text-right">{t("simulation.table.netCashFlow")}</TableHead>
                   <TableHead className="text-right">{t("simulation.table.cashBalance")}</TableHead>
                   <TableHead className="text-right">{t("simulation.table.cumulativeCashFlow")}</TableHead>
@@ -2784,6 +2840,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                     <TableCell className="text-right tabular-nums">
                       {formatMoney(row.terminal_value)}
                     </TableCell>
+                    {m.subsidy_policy_version && <TableCell className="text-right tabular-nums">{formatMoney(row.subsidy_receipt ?? 0)}</TableCell>}
                     <TableCell
                       className={`text-right tabular-nums ${row.net_cash_flow < 0 ? "text-destructive" : ""}`}
                     >
@@ -2982,12 +3039,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         >
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle>{explanation?.title}</DialogTitle>
+              <DialogTitle>{explanation ? metricExplanationText(explanation, t, language).title : null}</DialogTitle>
             </DialogHeader>
             {explanation && (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  {explanation.explanation}
+                  {metricExplanationText(explanation, t, language).explanation}
                 </p>
                 {explanation.figures && (
                   <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
@@ -3146,7 +3203,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               </span>
               <span
                 aria-label={t("simulation.accessibility.lastRunIrr", {
-                  value: formatPercent(result.data.metrics.irr),
+                  value: formatPercent(assessedIrr(result.data.metrics)),
                   changed: resultIsStale ? t("simulation.accessibility.inputsChanged") : "",
                 })}
                 title={t("simulation.accessibility.lastRunIrrTitle", {
@@ -3154,7 +3211,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 })}
                 className={`hidden items-center rounded-md bg-muted px-2 py-1 text-xs md:inline-flex${resultIsStale ? " opacity-60" : ""}`}
               >
-                <span className="table-numeric font-medium">{formatPercent(result.data.metrics.irr)}</span>
+                <span className="table-numeric font-medium">{formatPercent(assessedIrr(result.data.metrics))}</span>
               </span>
             </>
           )}
@@ -3356,7 +3413,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
               <div className="space-y-1">
                 {calibration.warnings.map((warning) => (
-                  <p key={warning}>{warning}</p>
+                  <p key={warning}>{calibrationWarningText(warning, t, language)}</p>
                 ))}
               </div>
             </div>
@@ -3393,8 +3450,8 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                       <TableCell className="tabular-nums">{item.sample_size}</TableCell>
                       <TableCell>{localizedFieldLabel(item.confidence, t, language)}</TableCell>
                       <TableCell>
-                        <div>{item.source}</div>
-                        <p className="text-xs text-muted-foreground">{item.method}</p>
+                        <div>{calibrationEvidenceText(item, t, language).source}</div>
+                        <p className="text-xs text-muted-foreground">{calibrationEvidenceText(item, t, language).method}</p>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -3452,13 +3509,31 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           )}
           {assumptions &&
             sectionEntries(assumptions).map(([section, values]) => (
-              <details
+              <div
                 key={`${section}:${editorVersion}`}
-                open={section === "meta" || section === "herd"}
-                className="rounded-lg border"
+                className="relative rounded-lg border"
               >
-                <summary className="flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50">
-                  {localizedFieldLabel(section, t, language)}
+                <details open={section === "meta" || section === "herd"}>
+                  <summary className="flex cursor-pointer items-center gap-1.5 py-2.5 ps-4 pe-12 text-sm font-medium hover:bg-muted/50">
+                    {localizedFieldLabel(section, t, language)}
+                  </summary>
+                  <div className="grid gap-3 border-t px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {Object.entries(values)
+                      .filter(([key]) => !DAIRY_HIDDEN_FIELDS.has(`${section}.${key}`))
+                      .filter(([key]) => !(section === "finance" && NLM_EVIDENCE_FIELDS.has(key)))
+                      .filter(([key]) => !(section === "sales" && ["festival_date_overrides", "festival_date_source"].includes(key)))
+                      .map(([key, value]) => renderField(section, key, value))}
+                    {section === "finance" && assumptions.finance?.nlm_subsidy && <NlmFundingEditor
+                      value={assumptions.finance}
+                      onChange={(patch) => Object.entries(patch).forEach(([key, value]) => updateField("finance", key, value))}
+                      onValidityChange={(key, valid) => setFieldValidity(`field:${key}`, valid)} />}
+                    {section === "sales" && assumptions.sales && <FestivalDateEditor
+                      value={assumptions.sales}
+                      onChange={(patch) => Object.entries(patch).forEach(([key, value]) => updateField("sales", key, value))}
+                      onValidityChange={(valid) => setFieldValidity("field:festival-dates", valid)} />}
+                  </div>
+                </details>
+                <div className="absolute end-4 top-3">
                   <FieldHelpButton
                     label={localizedFieldLabel(section, t, language)}
                     onClick={() =>
@@ -3466,18 +3541,14 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                         label: t("simulation.assumptions.sectionTitle", {
                           section: localizedFieldLabel(section, t, language),
                         }),
-                        body: SIMULATION_SECTION_HELP[section]?.(simVocabulary) ?? null,
+                        body: simulationSectionHelp(section, simVocabulary, t),
+                        lookup: { section },
                         facts: [],
                       })
                     }
                   />
-                </summary>
-                <div className="grid gap-3 border-t px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {Object.entries(values)
-                    .filter(([key]) => !DAIRY_HIDDEN_FIELDS.has(`${section}.${key}`))
-                    .map(([key, value]) => renderField(section, key, value))}
                 </div>
-              </details>
+              </div>
             ))}
           {invalidFields.size > 0 && (
             <p role="alert" className="text-sm text-destructive">
@@ -3862,6 +3933,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               {result.data.assumptions_fingerprint.slice(0, 12)}
             </span>
           </p>
+          {result.data.executed_scenario_revision != null && <p className="text-xs text-muted-foreground">
+            {t("simulation.results.revision", { revision: result.data.executed_scenario_revision })}
+          </p>}
+          {!result.data.executed_assumptions && <p role="status" className="text-xs text-muted-foreground">
+            {t("simulation.results.unverifiedBasis")}
+          </p>}
           {resultIsStale && (
             <p
               role="status"
@@ -4202,20 +4279,20 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{fieldExplain?.label}</DialogTitle>
+            <DialogTitle>{shownFieldExplain?.label}</DialogTitle>
           </DialogHeader>
-          {fieldExplain && (
+          {shownFieldExplain && (
             <div className="space-y-4">
-              {fieldExplain.body ? (
-                <p className="text-sm text-muted-foreground">{fieldExplain.body}</p>
+              {shownFieldExplain.body ? (
+                <p className="text-sm text-muted-foreground">{shownFieldExplain.body}</p>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   {t("simulation.field.noExplanation")}
                 </p>
               )}
-              {fieldExplain.facts.length > 0 && (
+              {shownFieldExplain.facts.length > 0 && (
                 <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                  {fieldExplain.facts.map((fact) => (
+                  {shownFieldExplain.facts.map((fact) => (
                     <div key={fact.term} className="contents">
                       <dt className="text-muted-foreground">{fact.term}</dt>
                       <dd>{fact.value}</dd>

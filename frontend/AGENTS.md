@@ -45,9 +45,13 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   component instead of forking a per-page copy. The worker board's DutyCard
   keeps its own offline-aware completion wrapper by design.
 - Duty mutations go through the offline-aware wrapper in
-  `src/app/worker/page.tsx`: fresh `Idempotency-Key` per attempt, transport
-  failures enqueue via `src/lib/offline-queue.ts` (actor+farm scoped, FIFO,
-  409/4xx drop on replay, 5xx backs off). `End shift` wipes the queue.
+  `src/app/worker/page.tsx`: persist in `src/lib/worker-outbox.ts` before the
+  first request; one `Idempotency-Key` per logical action and all its retries.
+  IndexedDB transactions preserve actor/farm scoped writes across tabs and
+  handover. 409/other definitive 4xx become retained review receipts; expired
+  pending writes require review. `End shift` preserves pending work and clears
+  identity/query state. Never silently delete, evict or acknowledge an
+  uncommitted device write. `offline-queue.ts` is the legacy import format.
 - Test hooks are `data-testid` (`pin-key-*`, `complete-{id}`, `skip-{id}`,
   `worker-queue-depth`, `end-shift`) — the surface is Telugu-first, so
   aria-labels localize and testids stay stable.

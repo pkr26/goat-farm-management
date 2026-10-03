@@ -22,6 +22,7 @@ audit_reports/2026-09-13/01..17 + 18_REMEDIATION_LOG.md):
   overrides are domain-capped.
 """
 
+from collections.abc import Iterator
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import FastAPI
+from starlette.requests import Request
 
 from app.core.config import Settings, get_settings
 from app.main import (
@@ -40,10 +42,13 @@ from app.main import (
 from app.ratelimit import auth_limiter
 from tests.conftest import login_and_rotate, owner_with_farm, register
 
+from .settings_helpers import settings_from_input
+from .type_helpers import JsonObject, json_int, json_object
+
 
 async def _make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     *,
     sex: str = "F",
@@ -64,20 +69,24 @@ async def _make_animal(
         payload["weight_date"] = payload["date_of_birth"]
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def _custom_role(client: httpx.AsyncClient, owner: dict, name: str, perms: list[str]) -> int:
+async def _custom_role(
+    client: httpx.AsyncClient, owner: dict[str, str], name: str, perms: list[str]
+) -> int:
     resp = await client.post(
         "/api/team/roles",
         json={"name": name, "description": "red-team fixture", "permissions": perms},
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    return json_int(resp.json()["id"])
 
 
-async def _add_worker(client: httpx.AsyncClient, owner: dict, role_id: int, email: str) -> None:
+async def _add_worker(
+    client: httpx.AsyncClient, owner: dict[str, str], role_id: int, email: str
+) -> None:
     resp = await client.post(
         "/api/team/workers",
         json={"name": "Worker", "email": email, "password": "workerpass1234", "role_id": role_id},
@@ -117,7 +126,7 @@ async def test_required_idempotency_keys_on_money_routes(
     )
     item_id = items[0]["id"]
 
-    cases: list[tuple[str, dict]] = [
+    cases: list[tuple[str, JsonObject]] = [
         ("/api/feeding/mix", {"recipe_code": "FATTENING_50_50", "batch_kg": 5}),
         (f"/api/feeding/inventory/{item_id}/add", {"qty_kg": 5, "price_per_kg": 10}),
         (
@@ -240,7 +249,7 @@ async def test_purchase_batch_stub_creation_requires_animals_create(
 
 
 async def _bred_confirmed_doe(
-    client: httpx.AsyncClient, owner: dict, bred_days_ago: int
+    client: httpx.AsyncClient, owner: dict[str, str], bred_days_ago: int
 ) -> dict[str, Any]:
     doe = await _make_animal(client, owner, "XO-F-1", bucket="BREEDING", dob_days=600)
     buck = await _make_animal(
@@ -429,7 +438,7 @@ async def test_override_cannot_strand_open_pregnancy(client: httpx.AsyncClient) 
 
 
 @pytest.fixture()
-def rate_limit_one(monkeypatch: pytest.MonkeyPatch):
+def rate_limit_one(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_ENABLED", "true")
     monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_MAX_ATTEMPTS", "1")
     monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_WINDOW_SECONDS", "300")
@@ -500,7 +509,7 @@ async def test_x_farm_id_rejects_non_canonical_integers(client: httpx.AsyncClien
 def test_unknown_goatfarm_env_var_refuses_boot(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GOATFARM_TYPOD_KNOB", "1")
     with pytest.raises(ValueError, match="GOATFARM_TYPOD_KNOB"):
-        Settings(_env_file=None)
+        settings_from_input(Settings, env_file=None)
 
 
 def _production_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -521,17 +530,20 @@ def _production_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("WEB_CONCURRENCY", raising=False)
 
 
-def test_production_force_disables_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_production_keeps_collection_and_disables_public_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _production_env(monkeypatch)
-    settings = Settings(_env_file=None)
-    assert settings.metrics_enabled is False
+    settings = settings_from_input(Settings, env_file=None)
+    assert settings.metrics_enabled is True
+    assert settings.metrics_public_enabled is False
 
 
 def test_production_refuses_multi_worker(monkeypatch: pytest.MonkeyPatch) -> None:
     _production_env(monkeypatch)
     monkeypatch.setenv("UVICORN_WORKERS", "4")
     with pytest.raises(ValueError, match="one uvicorn worker"):
-        Settings(_env_file=None)
+        settings_from_input(Settings, env_file=None)
 
 
 # ---------------------------------------------------------------------------
@@ -638,11 +650,7 @@ def test_metrics_method_allowlists_standard_verbs() -> None:
     # RT-M-3: an attacker-chosen method token must collapse to one OTHER
     # label, never mint a new Prometheus series per spelling.
 
-    class _MethodRequest:
-        def __init__(self, method: str) -> None:
-            self.method = method
-
     for verb in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"):
-        assert _metrics_method(_MethodRequest(verb)) == verb
-    assert _metrics_method(_MethodRequest("FROB")) == "OTHER"
-    assert _metrics_method(_MethodRequest("get")) == "OTHER"
+        assert _metrics_method(Request({"type": "http", "method": verb})) == verb
+    assert _metrics_method(Request({"type": "http", "method": "FROB"})) == "OTHER"
+    assert _metrics_method(Request({"type": "http", "method": "get"})) == "OTHER"

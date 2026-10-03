@@ -137,6 +137,15 @@ legitimately runs far longer than any request may, and cancelling one aborts
 the release job. A fixed 10-second `lock_timeout` still applies, so DDL that
 cannot acquire its lock fails fast instead of queueing behind live traffic.
 
+Offline migration support boundary: `alembic --sql` rejects ranges crossing
+upgrades `c3d4e5f6a7b1` / `cad1e2f3a4b5` or downgrades
+`d4e5f6a7b8c9` / `f3d4e5f6a7b8` before emitting any SQL. Those immutable
+historical steps require live-data query preflights; a full `base:head` export
+is therefore online-only. Rehearse these ranges on a disposable restored
+PostgreSQL database and run them online in the maintenance window. Supported
+narrow ranges still emit their complete fail-closed SQL guards. No historical
+preflight is omitted or rewritten to make an offline export appear complete.
+
 The `f3d4e5f6a7b8` release migration validates the legacy personal-task role
 invariant and builds a transactional partial index on `tasks`. Its ordinary
 `CREATE INDEX` takes a PostgreSQL `SHARE` lock that blocks task writes while
@@ -275,7 +284,7 @@ cd backend
 ./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .
 ./.venv/bin/python -m mypy --strict app scripts  # strict-green: 0 errors; keep it that way
 ./.venv/bin/python -m mypy --strict mutation     # mutation harness: strict-green too
-./.venv/bin/python scripts/mypy_tests_ratchet.py # tests/ strict-error ratchet (1778; CI fails on growth)
+./.venv/bin/python scripts/mypy_tests_ratchet.py # tests/ permanent strict gate: zero errors
 ./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
 
 # Frontend
@@ -298,7 +307,7 @@ pytest against a Postgres service with line-and-branch coverage floor (`--cov=ap
 coverage regression fails the build; both coverage reports are uploaded as
 CI artifacts so the measured numbers stay auditable), `ruff format --check`,
 `ruff check`, `mypy --strict` (app+scripts, the mutation harness, and the
-tests/ counted ratchet), an OpenAPI-snapshot freshness check, an Alembic
+tests/ zero-error gate), an OpenAPI-snapshot freshness check, an Alembic
 upgrade/downgrade round-trip, and `pip-audit`; frontend `pnpm install
 --frozen-lockfile`, ESLint, TypeScript, an Orval freshness check, `pnpm
 test:coverage` (the 90/87/90/90 statements/branches/functions/lines thresholds
@@ -374,16 +383,18 @@ decoding again and the version is added to the safe set.
   (`goatfarm_http_requests_total` and `goatfarm_http_request_duration_seconds`
   labeled by route template/method/status; `goatfarm_auth_rate_limit_rejections_total`
   by limiter scope; `goatfarm_idempotency_replays_total`;
-  `goatfarm_simulation_admission_rejections_total` by `cpu_budget`/
-  `capacity_busy`; `goatfarm_refresh_session_purge_batches_total` and
-  `goatfarm_refresh_sessions_purged_total`). It is unauthenticated **by
-  design and only safe on the internal network**: the compose edge proxies
-  `/api/` to the backend and everything else to the frontend, so `/metrics`
-  (deliberately not under `/api`, and kept out of the OpenAPI contract) is
-  unreachable from the public internet — scrape it on the container network.
-  `GOATFARM_METRICS_ENABLED=false` (default true) removes the route (404) and
-  stops all collection; counters are per process, consistent with the
-  single-worker requirement below.
+  `goatfarm_simulation_admission_rejections_total`; refresh-session purge and
+  maintenance progress/failure counters). Collection defaults to enabled in
+  production, independently of endpoint exposure. Production `/metrics`
+  requires an independent random bearer token of at least 32 characters,
+  delivered as `GOATFARM_METRICS_BEARER_TOKEN` or its `_FILE` route. Without
+  that credential the endpoint returns 404; missing/wrong bearer authorization
+  returns 401. The Compose edge keeps it off the public route; scrape on the
+  app network with `Authorization: Bearer <token>`. In development public
+  scraping defaults to enabled and can be disabled with
+  `GOATFARM_METRICS_PUBLIC_ENABLED=false`.
+  `GOATFARM_METRICS_ENABLED=false` stops collection and exposition together;
+  counters are per process, consistent with the single-worker requirement below.
 - Build and run the backend image from the repo root on a private container
   network behind the edge/load balancer. Do not publish port 8000 directly:
 
@@ -448,6 +459,7 @@ decoding again and the version is added to the safe set.
   GOATFARM_JWT_SECRET_DIR=/secure/goatfarm-jwt
   GOATFARM_COMPOSE_ENV_FILE=/secure/goatfarm.production.env
   GOATFARM_DATABASE_URL=postgresql+asyncpg://api:...@db.example.com:5432/goatfarm
+  GOATFARM_WORKER_DATABASE_URL=postgresql+asyncpg://goatfarm_worker:CHANGE_ME@your-postgres-host:5432/goatfarm
   GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://migrator:...@db.example.com:5432/goatfarm
   GOATFARM_CORS_ORIGINS=["https://app.example.com"]
   GOATFARM_ALLOWED_HOSTS=["app.example.com"]
@@ -458,7 +470,10 @@ decoding again and the version is added to the safe set.
   # read-only /run/secrets/app mount and remove the plain line. The
   # config-guard preflight refuses an env file that delivers a required
   # secret by both routes or by neither.
-  # GOATFARM_APP_SECRET_DIR=/secure/goatfarm-secrets
+  # GOATFARM_API_SECRET_DIR=/secure/goatfarm/api
+  # GOATFARM_MIGRATION_SECRET_DIR=/secure/goatfarm/migration
+  # GOATFARM_WORKER_SECRET_DIR=/secure/goatfarm/worker
+  # GOATFARM_WORKER_DATABASE_URL_FILE=/run/secrets/app/worker_database_url
   # GOATFARM_DATABASE_URL_FILE=/run/secrets/app/database_url
   # GOATFARM_MIGRATION_DATABASE_URL_FILE=/run/secrets/app/migration_database_url
   # GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE=/run/secrets/app/idempotency_request_hmac_secret
@@ -481,23 +496,30 @@ decoding again and the version is added to the safe set.
   GOATFARM_SCREENING_ENABLED=false
   ```
 
-  Beyond the JWT PEMs and the database CA, the remaining environment-borne
-  secrets — both database URLs (whose passwords ride inline), the idempotency
-  HMAC secret, the TOTP encryption key, and the S3/screening-provider/MSG91
-  keys — can move out of the process environment entirely (2026-10-01 audit,
-  09-1). `docker-compose.production.yml` bind-mounts a secrets directory
-  read-only at `/run/secrets/app` (`GOATFARM_APP_SECRET_DIR`, default
-  `./secrets/app`, auto-created empty and unused while the plain variables
-  carry the values). Put each secret in its own mode-`0600` file readable by
-  UID 10001, then set the matching `GOATFARM_*_FILE` container path from the
-  commented block above and delete the plain line: a set file path takes
-  precedence over the plain variable, which keeps working so upgrades never
-  break, and the values stop appearing in `docker inspect` output and
-  `/proc/<pid>/environ`. The config-guard preflight refuses an env file that
-  delivers a required secret by both routes (a stale plain value that looks
-  live while the app silently prefers the file) or by neither, and the app
-  itself fails closed when a configured `*_FILE` path is missing, unreadable,
-  or blank. Host-side jobs that read the URL from their own environment are
+  File delivery uses three separate host directories mounted read-only at
+  `/run/secrets/app`: `GOATFARM_API_SECRET_DIR` (default `./secrets/api`),
+  `GOATFARM_MIGRATION_SECRET_DIR` (`./secrets/migration`), and
+  `GOATFARM_WORKER_SECRET_DIR` (`./secrets/worker`). Use mode-`0600` files
+  readable by UID 10001 outside the checkout. The migration directory contains
+  only the DDL-role URL; the API directory contains its runtime DB URL and
+  HMAC/TOTP/metrics/provider credentials; the worker directory contains its
+  separate `GOATFARM_WORKER_DATABASE_URL` credential and storage/provider keys.
+  The worker's database role needs only its image-processing DML grants and
+  no DDL, account/authentication or API signing access. Required provider files
+  may be duplicated in the two appropriate directories. `*_FILE` paths stay
+  relative to the same in-container mount; remove each plain secret line after
+  adopting its file route. Missing, unreadable or blank files fail closed.
+
+  Upgrading an older shared-secret deployment requires this preflight:
+  create the three directories, copy only the role-appropriate files into each,
+  create a separate worker DB role/URL with the required DML grants, set the
+  three directory variables and worker DB delivery route, and remove
+  `GOATFARM_APP_SECRET_DIR`. Run the documented `config-guard` command on every
+  rollout before migration. It rejects the retired shared-directory knob,
+  overlapping directory paths, ambiguous delivery, and missing worker DB
+  delivery. Plain-env deployments remain supported but must explicitly supply
+  the separate worker URL. Never point service directories at a shared parent.
+  Host-side jobs that read the URL from their own environment are
   unaffected: keep exporting `GOATFARM_DATABASE_URL` (from your secret
   store/file) in the shell that runs `backend/scripts/backup.sh`.
 
@@ -756,10 +778,12 @@ decoding again and the version is added to the safe set.
   the next database program inherits them deliberately):
   - Three CHECK swaps in older revisions (`b1c2d3e4f5a6`,
     `c1d2e3f4a5b6`, `bd201c1cdc1b`) take ACCESS EXCLUSIVE over a full-table
-    scan instead of the chain's own `NOT VALID` + `VALIDATE` short-lock
-    idiom. Their tables are small at every provisioned scale today; any new
-    CHECK on a hot table MUST use `postgresql_not_valid=True` plus
-    `ALTER TABLE … VALIDATE CONSTRAINT` (see `cad1e2f3a4b5` for the pattern).
+    scan. Adding `NOT VALID` then validating in the **same transaction**
+    also retains that earlier ACCESS EXCLUSIVE lock until commit; the historical
+    descriptions in `f1e2d3c4b5a6` and `f8a2c4e6b1d9` do not make those swaps
+    nonblocking. Rehearse and quiesce traffic for these applied revisions.
+    Future changes on hot tables must deliberately separate DDL and validation
+    transactions, measure both phases and document their actual lock windows.
   - `c4f6a8b0d2e5`'s jsonb preflight parses every row in Python before the
     DDL. Fine at current sizes; a future variant should bound the scan
     (keyset batches) or push the parse into SQL.
@@ -784,8 +808,14 @@ count, overdue-by-3+-days piles and feed items under reorder level. Providers
 seam: `console` (default, logs) and `msg91` (SMS; production refuses to boot
 enabled without its auth key). Every delivery passes day-dedupe (one attempt
 per farm/recipient/class/payload/local-day, recorded in the append-only
-`notification_log`), quiet hours (21:00–06:00 farm-local; a quiet skip holds
-the slot until the window opens) and a per-farm daily cap. Recipient phones
+`notification_log`), quiet hours (21:00–06:00 farm-local) and a per-farm daily
+cap. Clinical screening and movement alerts enter a durable outbox in the
+same transaction as their domain change. Quiet hours and caps defer these
+events; cross-day recipient dedupe prevents a deferred event becoming a new
+paid attempt. A crashed dispatcher has a five-minute lease before recovery.
+SENDING and FAILED attempts with possible provider acceptance remain settled
+for operator review; unknown SMS outcomes are not automatically sent again.
+External delivery is not guaranteed exactly once. Recipient phones
 and per-class opt-ins are managed by the FARM OWNER via
 `GET/PUT /api/team/workers/{id}/notifications` — notifications are never an
 account-recovery channel.
@@ -793,15 +823,20 @@ account-recovery channel.
 **Worker tablet app (ITEM 2, 2026-09-21 playbook):**
 `/worker` is the field workers' daily driver: a Telugu-first PWA (installable
 on the farm tablet's home screen) with tap-your-name + PIN sign-in, the
-day's duties as large cards, and an offline queue — completions recorded in a
-dead zone carry their `Idempotency-Key` in localStorage and replay exactly
-once when connectivity returns. PIN model:
+day's duties as large cards, and a transactional IndexedDB outbox. Each manual
+completion or skip is committed on the device before its first request and
+retains one `Idempotency-Key` across retries. The UI acknowledges saving only
+after storage commits. Storage/capacity failures refuse the new action while
+preserving existing work. Successful replies become receipts; conflicts and
+other definitive rejections remain visible for review. Operations older than
+72 hours require review and are never silently expired. PIN model:
 
 - One-time setup runs ON the tablet: `/worker/login` offers "Set up this
   tablet", where a manager/owner signs in (password + TOTP or recovery code)
   and picks the farm to pin (`herdly.tabletFarm`). Pinning ends the
-  manager's session immediately — the shared device then offers only the
-  worker PIN door.
+  temporary, cookie-free manager session immediately; exact-family revocation
+  leaves the manager's sessions on other devices intact. Cancelled and late
+  setup requests cannot install a manager identity on the tablet.
 - PINs are per-MEMBERSHIP Argon2 credentials, provisioned/reset by the farm
   owner only (`POST /api/team/workers` with `pin`,
   `POST /api/team/workers/{id}/reset-pin`); rotation revokes every session.
@@ -821,11 +856,19 @@ once when connectivity returns. PIN model:
   answer 404 before any roster row is read. The tablet sign-in flow depends
   on the roster (its tap-to-sign-in screen has no manual id entry), so only
   turn this off on sites where no tablet will ever use worker PIN login.
-- Shared-device discipline: "End shift" signs out AND wipes the offline
-  queue; queued writes are actor+farm scoped, so one worker's saved duties
-  can never be replayed under the next worker's session.
+- Shared-device discipline: "End shift" removes credentials, views and the
+  active cached shift while preserving unresolved actor/farm-scoped actions.
+  They are visible and replayable only after the original worker signs in to
+  the same farm. A fresh live session and farm epoch are checked before every
+  replay. Multiple tabs share transactional writes and a replay lease.
+- An online, authorized board may save a minimal, credential-free snapshot
+  for an ongoing 12-hour shift. `/worker/offline` can reopen it in the same
+  browser tab after a connectivity-loss reload; it grants no API authority.
+  Only cached manual duties can be recorded until real sign-in returns.
+  Linked forms need connectivity. Logout, a rejected refresh, expiry, or loss
+  of the per-tab shift marker closes this capability without deleting work.
 - v1 out of scope: worker-native simplified forms, Background Sync/push, QR
-  badges, tablet-only token scoping.
+  badges. PIN sessions are restricted to their issuing membership and farm.
 
 **TOTP recovery codes & the break-glass runbook (ITEM 7, 2026-09-21):**
 Activating two-factor mints ten single-use recovery codes (`XXXXX-XXXXX`),
@@ -1231,15 +1274,23 @@ list of currently held animals.
   schedules the next). Outstanding manual duties are capped per farm (5,000
   by default) so a compromised task creator cannot grow the queue without
   bound; completed/skipped history and generated workflow duties do not count.
-- **Cadence rounds**: loading the task board also materializes the farm's
-  recurring husbandry calendar — vaccination rounds by season (FMD Sep/Mar,
+- **Cadence rounds**: the background maintenance worker materializes the
+  farm's recurring husbandry calendar; task-board reads do not create duties.
+  The calendar includes vaccination rounds by season (FMD Sep/Mar,
   ET+HS pre-monsoon, Goat Pox Nov, CCPP Jan), deworming rounds (Jun/Jan),
   hoof trimming and ectoparasite spraying (6-monthly), shed disinfection
   (quarterly), the monthly weighing round, the daily morning water/bunk
   routine, feed-reorder alerts when stock drops under an ingredient's
   reorder level, and buck-rotation reminders at 36 months. Herd-level
-  VACCINE/DEWORMING rounds close through a bucket- or batch-scoped health
-  event, never a bare button.
+  VACCINE/DEWORMING rounds declare their target animals and required
+  components. Recording a health event starts a round; completion requires
+  coverage for every required animal/component or an attributed exclusion.
+  One bucket or one vaccine cannot close an incomplete multi-bucket round.
+- **Restart-safe maintenance**: cadence and hourly alert scans advance bounded
+  keyset pages using PostgreSQL checkpoints. A separate transaction excludes
+  concurrent schedulers while farm work commits independently. Only a finished
+  page advances the cursor; crashes repeat idempotent work. An hourly scan is
+  marked complete only after exhausting its farm rotation.
 - Workers see only duties assigned to their role or to them; completing a
   duty stamps `completed_by`/`completed_at` — who did what is recorded.
 - **Cleaning verification loop**: CLEANING duties marked done wait in the
@@ -1295,7 +1346,7 @@ backend/
                      request IDs, /healthz + /readyz, prod-safety validation)
     core/config.py   Pydantic settings (GOATFARM_* env vars)
     db.py            Async engine/session (autoflush=False, pre-ping), Base
-    models/          39 tables, domain enums, computed properties — split per
+    models/          48 tables, domain enums, computed properties — split per
                      domain (enums, constants, core, animals, breeding, …)
     services/        All domain flows + state guards — split per domain
                      (animals, breeding, kidding, health, tasks, feeding,
@@ -1316,7 +1367,7 @@ backend/
                      movement-clearance hardening)
   scripts/           export_openapi.py, healthcheck.py, backup.sh, restore.sh,
                      libpq_url.py (URL → credential-safe libpq inputs)
-  tests/             4,800+ tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
+  tests/             5,000+ tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
 ```
 
 ## Frontend layout
@@ -1345,7 +1396,8 @@ frontend/
 
 ## Notes
 
-- Instants are stored as naive UTC datetimes. Date-only business rules use the
+- Domain instants are stored as naive UTC datetimes; scheduler checkpoints use
+  timezone-aware PostgreSQL timestamps. Date-only business rules use the
   active farm's IANA timezone (default `Asia/Kolkata`), so dashboards, due
   dates, feeding plans, and daily records change day at the farm's midnight.
   Existing date validation retains one day of clock-skew headroom for clients;
@@ -1365,10 +1417,10 @@ frontend/
   single-use, 5-minute, version-bound and throttled to 5 attempts/5 minutes
   per account. Because there is no recovery channel (see below), losing the
   authenticator means an owner-provisioned reset is impossible for the
-  OWNER account itself — keep a second enrolled admin device or accept
-  database-side intervention.
-- **There is no account recovery channel — by design** (HUM-4): no
-  forgot-password, no email/SMS, no support tooling can restore access. The
+  OWNER account itself — keep the one-use recovery codes generated during
+  enrollment securely; an unused code can complete the login challenge.
+- **There is no external account recovery channel** (HUM-4): no
+  self-service email/SMS or support tooling can restore access. The
   only reset path is the farm owner resetting accounts that farm provisioned.
   Treat any future "email reset" feature as a security regression requiring
   MFA first — an impostor cannot talk anyone into restoring access today
@@ -1381,9 +1433,10 @@ frontend/
   `rbac.denied` (authenticated request missing a permission), and
   `planner.dpr.download`. A periodic `auth rate-limit 429 summary` line
   aggregates blocked attempts per scope every five minutes.
-- **Scaling multiplies per-process budgets** (GOV-2): the auth rate ledgers,
-  simulation semaphore/CPU budget, and background-loop cadence are
-  per-process. One process is pinned by the shipped Dockerfile
+- **Scaling multiplies per-process budgets** (GOV-2): the auth rate ledgers
+  and simulation semaphore/CPU budget are per-process. Durable maintenance
+  checkpoints coordinate their own jobs; they do not coordinate those other
+  admission limits. One process is pinned by the shipped Dockerfile
   (`--workers 1`), and production **refuses to boot** when a
   `UVICORN_WORKERS`/`WEB_CONCURRENCY` override requests more than one
   worker (any other launcher must enforce the single-process budget

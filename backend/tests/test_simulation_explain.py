@@ -33,6 +33,7 @@ from app.simulation.explain import (
     build_metric_explanations,
     build_narrative_report,
 )
+from app.simulation.results import MetricExplanation, ReportSection
 
 METRIC_KEYS = {
     "project_cost",
@@ -232,22 +233,22 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     )
 
     assert _explanation_digest(default) == (
-        "e0dc42d18bba87e317cab3e5627bea6388110067a78309369ae0eb122f4f72f9"
+        "d0c053aa3efc3816b64e7e018ab6dbf41682883d90109b7718b6bf9fe007d60a"
     )
     assert _explanation_digest(viable) == (
-        "f8670dca56f2c9f9f7c8c6aff6e431470fc4c4d35cefd38c8e63d96333f4ca6d"
+        "081a58625a39309b56d0f003f7751333ccf3a85b736be4291b5a01e979a89033"
     )
     assert _explanation_digest(no_debt) == (
-        "d0e102036e3c53cb1e120fbca2d8a9362de8d2646edff40c6aa181756546da7e"
+        "a425f54dfce9b02958869601fd4dfa52efc918294cd68f015694de6f8a4b311c"
     )
     assert _report_digest(default) == (
-        "da1f3a375d2fca717f261027e34aec3a6587d982721bb0223e8434ee6254509d"
+        "aa162bfebac906f870148b13b8141558e866c9515889bddef7c15a058b0b8c1c"
     )
     assert _report_digest(viable) == (
-        "6cf715af9ba6a5e48d662ba7c88bb236244c9fdb2427c752dd5c7b9c25701fcc"
+        "797390ec42df990383032229b4a1bd1b6ff7d46e8294d5cfc711f16de6da43a7"
     )
     assert _report_digest(no_debt) == (
-        "994d351749994f655689a078d731a450af763c97edda90b3165aafd050f4f3d2"
+        "e0a0227f1ce21f5513a4aff753e8d30f21f217751b3729857bac6357164dedab"
     )
     # Digests regenerated in the audit-remediation contract update: the
     # labour-rule, DSCR-window and growth-curve corrections changed the
@@ -268,24 +269,24 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     # explanation, parity-keyed litter expectations and the water-demand
     # paragraph changed the quoted figures and texts.
     assert _report_digest(risk) == (
-        "8b35ac5ee3099f1092b6f1bb004e25157545a76520149f90e1cca9c8358a4514"
+        "1eb22b40a92e2cb4ebd88e50080adf57a3429c793a8293c28dfb4ebffa9e0659"
     )
 
 
-def test_verdict_viable_when_all_checks_pass() -> None:
+def test_positive_economics_with_unproven_irr_requires_caution() -> None:
     a = _viable_assumptions()
     res = run_simulation(a, with_break_even=False)
     m = res.metrics
     # All hard and soft checks pass: npv > 0, bcr >= 1, irr >= discount rate,
     # a real debt year with min_dscr >= 1, payback present.
     assert m.npv > 0.0 and m.bcr is not None and m.bcr >= 1.0
-    assert m.irr is not None and m.irr >= a.finance.discount_rate_annual
+    assert m.irr is None and m.irr_status == "indeterminate"
     assert m.payback_month is not None
     assert m.min_dscr is not None and m.min_dscr >= 1.0
     assert m.additional_working_capital_required == 0.0
-    assert _verdict(res) == "VIABLE"
+    assert _verdict(res) == "VIABLE WITH CAUTION"
     section = next(s for s in res.narrative_report if s.key == "viability_verdict")
-    assert any("All standard checks pass" in p for p in section.paragraphs)
+    assert any("unique IRR is not established" in p for p in section.paragraphs)
 
 
 def test_verdict_rejects_a_projected_herd_above_funded_capacity() -> None:
@@ -332,7 +333,7 @@ def test_verdict_never_hides_a_negative_weakest_debt_year() -> None:
     m = res.metrics
     # Everything else passes; only year 1 cannot service the loan.
     assert m.npv > 0.0 and m.bcr is not None and m.bcr > 1.0
-    assert m.irr is not None and m.irr >= a.finance.discount_rate_annual
+    assert m.irr is None and m.irr_status == "indeterminate"
     assert m.payback_month is not None
     assert m.min_dscr is not None and m.min_dscr < 0.0
     assert m.dscr_per_year[0] < 0.0
@@ -345,13 +346,15 @@ def test_verdict_never_hides_a_negative_weakest_debt_year() -> None:
 def test_verdict_holds_exact_viability_boundaries() -> None:
     assumptions = _viable_assumptions()
     result = run_simulation(assumptions, with_break_even=False)
+    # Isolate narrative decision boundaries from solver-domain limits.
+    result.metrics = result.metrics.model_copy(update={"irr": 0.2, "irr_status": "unique"})
 
     def section(
         *,
         capacity_places: float | None = None,
         projected_peak_head: float | None = None,
         **metric_updates: float | int | None,
-    ):
+    ) -> ReportSection:
         breakdown = result.project_cost_breakdown
         if capacity_places is not None or projected_peak_head is not None:
             breakdown = breakdown.model_copy(
@@ -458,7 +461,7 @@ def test_metric_explanations_cover_undefined_and_dscr_boundary_branches() -> Non
     assumptions = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
     result = run_simulation(assumptions, with_break_even=False)
 
-    def entry(key: str, **metric_updates: float | None):
+    def entry(key: str, **metric_updates: float | None) -> MetricExplanation:
         changed = result.model_copy(
             update={"metrics": result.metrics.model_copy(update=metric_updates)}
         )
@@ -516,7 +519,7 @@ def test_metric_explanations_hold_exact_financial_decision_boundaries() -> None:
     assumptions = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
     result = run_simulation(assumptions, with_break_even=False)
 
-    def entry(key: str, **metric_updates: float | None):
+    def entry(key: str, **metric_updates: float | None) -> MetricExplanation:
         changed = result.model_copy(
             update={"metrics": result.metrics.model_copy(update=metric_updates)}
         )
@@ -546,7 +549,7 @@ def test_metric_explanations_hold_exact_financial_decision_boundaries() -> None:
     )
 
     tiny_subsidy = entry("subsidy_amount", subsidy_amount=0.5)
-    assert tiny_subsidy.explanation.startswith("Capital subsidy at")
+    assert tiny_subsidy.explanation.startswith("User-assumed up-front capital subsidy at")
     assert "No capital subsidy" not in tiny_subsidy.explanation
 
     annual_pl = [row.model_copy(update={"debt_service": 0.0}) for row in result.annual_pl]
@@ -853,9 +856,9 @@ def test_sensitivity_ties_deterministically_prefer_the_low_scenario() -> None:
         for section in build_narrative_report(assumptions, changed)
         if section.key == "risks"
     )
-    assert risks.paragraphs[-1] == (
+    assert (
         "The assumptions that move NPV the most: tied input (low case moves NPV by -₹100)."
-    )
+    ) in risks.paragraphs
 
 
 def test_revenue_and_cost_mix_totals_match_annual_pl() -> None:
@@ -1052,6 +1055,7 @@ def test_optimizer_report_exposes_the_complete_recommended_plan() -> None:
         "recommended_min_dscr": 1.35,
     }
 
+    assert result.optimization is not None
     no_debt_recommendation = result.model_copy(
         update={
             "optimization": result.optimization.model_copy(

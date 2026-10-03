@@ -37,6 +37,7 @@ import {
   type TaskOut,
 } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
+import { HealthRoundProgress } from "@/components/health-round-progress";
 import { EmptyState } from "@/components/empty-state";
 import {
   HealthAnimalPicker,
@@ -471,7 +472,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
   const searchParams = useSearchParams();
   const searchParamsKey = searchParams.toString();
   const returnTo = permittedAppPath(searchParams.get("returnTo"), can);
-  const hasDeepLink = ["task_id", "animal_id", "purchase_batch_id"].some((key) =>
+  const hasDeepLink = searchParams.get("create") === "1" || ["task_id", "animal_id", "purchase_batch_id"].some((key) =>
     searchParams.has(key),
   );
   // The event-log page lives in the URL (refresh and shared links keep the
@@ -626,6 +627,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
   const wPurchaseBatchId = useWatch({ control, name: "purchase_batch_id" });
   const wRoute = useWatch({ control, name: "route" });
   const wTaskId = useWatch({ control, name: "task_id" });
+  const wDiseaseTarget = useWatch({ control, name: "disease_target" });
   // Backend mirror (_linked_task_scope_mismatch + the batch preview's
   // linked-batch check): a herd-level round duty closes ONLY via a
   // bucket-scoped event. An animal event is 422'd outright and the batch
@@ -871,12 +873,13 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
     const taskId = positiveIdString(params.get("task_id"));
     const animalId = positiveIdString(params.get("animal_id"));
     const batchId = positiveIdString(params.get("purchase_batch_id"));
-    if (!taskId && !animalId && !batchId) {
+    const create = params.get("create") === "1";
+    if (!create && !taskId && !animalId && !batchId) {
       deepLinkHydratedRef.current = null;
       return;
     }
     // Stryker disable next-line StringLiteral: an internal dedupe signature only needs an injective separator; its exact text is never rendered or sent
-    const signature = `${taskId ?? ""}|${animalId ?? ""}|${batchId ?? ""}`;
+    const signature = `${create ? "create" : ""}|${taskId ?? ""}|${animalId ?? ""}|${batchId ?? ""}`;
     // Latch on the URL identity, not on `prefillTaskId`: that flag is cleared
     // both when resolution is consumed and when the dialog is reset. A
     // permission-query rerender must not reopen the same dismissed link, but
@@ -966,6 +969,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
         values.task_id && values.task_id !== NONE ? Number(values.task_id) : null;
       const previewMatchesSelection =
         bulkPreview?.scope === values.scope &&
+        (!herdRoundDutyLinked || bulkPreview.round_component === values.disease_target) &&
         // Stryker disable next-line ConditionalExpression: every retarget path (task select, scope radio, picker change) clears bulkPreview before the selection can differ from it, so a live preview never carries a different task than the selected one — the mismatch arm is unreachable defense
         bulkPreview.task_id === selectedTaskId &&
         (values.scope === "bucket"
@@ -978,6 +982,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 scope: "bucket",
                 bucket: values.bucket as HealthBulkTargetIn["bucket"],
                 ...(selectedTaskId !== null ? { task_id: selectedTaskId } : {}),
+                ...(herdRoundDutyLinked ? { round_component: values.disease_target } : {}),
               }
             : {
                 scope: "batch",
@@ -1012,6 +1017,8 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
             currentScope === target.scope &&
             currentTaskId === selectedTaskId &&
             response.data.task_id === selectedTaskId &&
+            (!herdRoundDutyLinked || (response.data.round_component === target.round_component &&
+              getValues("disease_target") === target.round_component)) &&
             (target.scope === "bucket"
               ? getValues("bucket") === target.bucket
               : Number(getValues("purchase_batch_id")) === target.purchase_batch_id);
@@ -1482,6 +1489,15 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 epoch/selection check. Freeze only the durable record write,
                 whose payload must match the values the operator still sees. */}
             <fieldset disabled={recordMutation.isPending} className="space-y-4">
+            {herdRoundDutyLinked && wTaskId && wTaskId !== NONE ? (
+              <HealthRoundProgress key={wTaskId} taskId={Number(wTaskId)} component={wDiseaseTarget || ""}
+                onComponentChange={(component) => {
+                  setBulkPreview(null);
+                  setValue("disease_target", component, { shouldValidate: true });
+                  setValue("schedule_template_name", component);
+                }}
+                onCohortChange={() => setBulkPreview(null)} />
+            ) : null}
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">{t("health.form.applyTo")}</legend>
               <Controller

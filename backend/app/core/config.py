@@ -105,6 +105,11 @@ NON_APP_ENV_VARS = frozenset(
         # Host-side directory bind-mounted (read-only) at /run/secrets/app for
         # the file-delivered application secrets (2026-10-01 audit, 09-1).
         "GOATFARM_APP_SECRET_DIR",
+        "GOATFARM_API_SECRET_DIR",
+        "GOATFARM_MIGRATION_SECRET_DIR",
+        "GOATFARM_WORKER_SECRET_DIR",
+        "GOATFARM_WORKER_DATABASE_URL",
+        "GOATFARM_WORKER_DATABASE_URL_FILE",
     }
 )
 
@@ -732,6 +737,10 @@ class Settings(BaseSettings):
     retention_screening_days: int = Field(default=180, ge=30)
     retention_terminal_task_days: int = Field(default=365, ge=30)
     retention_delete_batch_size: int = Field(default=500, ge=1, le=10_000)
+    retention_farm_batch_size: int = Field(default=100, ge=1, le=1000)
+    retention_max_batches_per_farm: int = Field(default=4, ge=1, le=20)
+    retention_lock_timeout_ms: int = Field(default=250, ge=1, le=5000)
+    retention_statement_timeout_ms: int = Field(default=5000, ge=100, le=60_000)
 
     # Reject oversized JSON/form bodies before Starlette buffers/parses them.
     # This is an application backstop; the edge proxy should enforce the same
@@ -852,11 +861,13 @@ class Settings(BaseSettings):
     # multiplying every limit per process (see README's single-worker section).
     rate_limit_backend: str = "memory"
 
-    # Prometheus /metrics endpoint and metric collection. The endpoint is
-    # unauthenticated by design: the compose edge routes only /api/ to the
-    # backend, so /metrics stays on the internal network (see README's
-    # observability section before exposing it anywhere else).
+    # Collection stays enabled in production independently of public exposure.
+    # Private scrapers use a dedicated bearer secret; JWT/account authority is
+    # deliberately unnecessary for this operational endpoint.
     metrics_enabled: bool = True
+    metrics_public_enabled: bool = True
+    metrics_bearer_token: SecretStr | None = None
+    metrics_bearer_token_file: Path | None = None
 
     # Comma-separated IPs/CIDRs of trusted reverse proxies (e.g.
     # "127.0.0.1,10.0.0.0/8"). When non-empty, X-Forwarded-For from those
@@ -1066,6 +1077,7 @@ class Settings(BaseSettings):
         "screening_anthropic_api_key_file",
         "screening_openai_api_key_file",
         "msg91_auth_key_file",
+        "metrics_bearer_token_file",
         mode="before",
     )
     @classmethod
@@ -1304,6 +1316,22 @@ class Settings(BaseSettings):
         # every environment, not only production. The URL normalizer's error
         # message names whichever route actually delivered the value
         # (2026-10-02 audit).
+        if (
+            value := _secret_file_value(
+                self.metrics_bearer_token_file, setting_name="GOATFARM_METRICS_BEARER_TOKEN_FILE"
+            )
+        ) is not None:
+            self.metrics_bearer_token = SecretStr(value)
+        if self.metrics_bearer_token is not None and not _has_nonblank_secret(
+            self.metrics_bearer_token
+        ):
+            self.metrics_bearer_token = None
+        if (
+            self.environment == "production"
+            and self.metrics_bearer_token is not None
+            and len(self.metrics_bearer_token.get_secret_value()) < 32
+        ):
+            raise ValueError("GOATFARM_METRICS_BEARER_TOKEN must be at least 32 characters")
         database_url_source = "GOATFARM_DATABASE_URL"
         if (
             value := _secret_file_value(
@@ -1403,7 +1431,10 @@ class Settings(BaseSettings):
         if (
             self.environment == "production"
             and self.notifications_enabled
-            and (self.notifications_provider != "msg91" or self.msg91_auth_key is None)
+            and (
+                self.notifications_provider != "msg91"
+                or not _has_nonblank_secret(self.msg91_auth_key)
+            )
         ):
             raise ValueError(
                 "GOATFARM_NOTIFICATIONS_ENABLED=true in production requires "
@@ -1607,14 +1638,9 @@ class Settings(BaseSettings):
                 )
         if problems:
             raise ValueError("Refusing to boot: " + "; ".join(problems))
-        # RT-M2-2: the unauthenticated /metrics endpoint is force-disabled in
-        # production, mirroring /docs and /openapi.json. The compose topology
-        # keeps it unreachable publicly, but any port/edge misdeployment the
-        # validator family exists to catch would otherwise expose route and
-        # throttle telemetry. (Set metrics_enabled=false in every production
-        # deployment; there is no opt-in until metrics gains authentication.)
-        if self.metrics_enabled:
-            self.metrics_enabled = False
+        # Public telemetry remains unavailable in production, while collection
+        # continues and an explicitly configured private bearer scraper works.
+        self.metrics_public_enabled = False
         return self
 
 

@@ -132,7 +132,8 @@ async def test_monetized_cull_constraint_and_downgrade_guard() -> None:
                 "SELECT sale_price::text, buyer_name FROM animals WHERE id = $1",
                 animal_id,
             )
-            assert row == ("7500.00", "Cull buyer")
+            assert row is not None
+            assert tuple(row) == ("7500.00", "Cull buyer")
             await connection.execute(
                 "UPDATE animals SET sale_price = NULL, buyer_name = NULL WHERE id = $1",
                 animal_id,

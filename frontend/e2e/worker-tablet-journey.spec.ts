@@ -163,15 +163,26 @@ test.describe("worker tablet", () => {
     const dutyCount = await page.getByTestId(/^worker-duty-\d+$/).count();
     expect(dutyCount).toBeGreaterThanOrEqual(1);
 
+    // Offline capability is ready only when shell assets and the authorized
+    // current-shift snapshot have committed. The next page was never visited.
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+    await expect.poll(() => page.evaluate(() => sessionStorage.getItem("herdly:offline-shift:v1") !== null)).toBe(true);
+
     // --- Complete OFFLINE: the write queues with its idempotency key. -----
     const context = page.context();
     await context.setOffline(true);
-    await page.getByTestId(`complete-${dutyId}`).click();
-    await expect(page.getByTestId("worker-queue-depth")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("worker-queue-depth")).toContainText(/1/);
+    await page.goto("/worker/offline");
+    await expect(page.getByTestId(`offline-complete-${dutyId}`)).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId(`offline-complete-${dutyId}`).click();
+    await expect(page.getByTestId(`offline-duty-${dutyId}`).getByRole("status")).toBeVisible();
+    await page.reload();
+    await expect(page.getByTestId(`offline-duty-${dutyId}`).getByRole("status")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId(`offline-complete-${dutyId}`)).toHaveCount(0);
 
     // --- Reconnect: the online event drains the queue. --------------------
     await context.setOffline(false);
+    await page.goto("/worker");
     await expect(page.getByTestId("worker-queue-depth")).toHaveCount(0, { timeout: 30_000 });
 
     // The duty is DONE and attributed to the worker (exactly once).
@@ -190,14 +201,10 @@ test.describe("worker tablet", () => {
       )
       .toBe(`DONE|${me.user_id}`);
 
-    // End shift wipes the queue and returns to the tablet login.
+    // End shift closes the cached shift and returns to the tablet login.
     await page.getByTestId("end-shift").click();
     await expect(page).toHaveURL(/\/worker\/login$/, { timeout: 20_000 });
-    expect(
-      await page.evaluate(
-        () => window.localStorage.getItem("goatfarm:offlineQueue:v1") ?? "[]",
-      ),
-    ).toBe("[]");
+    expect(await page.evaluate(() => sessionStorage.getItem("herdly:offline-shift:v1"))).toBeNull();
   });
 
   test("form-linked duty deep-links to its form and carries returnTo=/worker", async ({

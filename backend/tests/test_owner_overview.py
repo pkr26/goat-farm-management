@@ -23,7 +23,7 @@ from .conftest import create_farm, owner_with_farm
 from .test_finance_extended import custom_role_id, make_animal, worker_headers
 
 
-async def _seed_overview_rows(client: httpx.AsyncClient, headers: dict) -> None:
+async def _seed_overview_rows(client: httpx.AsyncClient, headers: dict[str, str]) -> None:
     """Two animals, one on the kidding watch pen, one restricted, one overdue
     duty, one due-today duty pair, and this month's ledger rows."""
     doe_a = await make_animal(client, headers, tag="OWN-A-1")
@@ -216,7 +216,7 @@ async def test_owner_benchmarks_rank_farms_over_the_window(client: httpx.AsyncCl
     assert row["animals_sold"] == 1
     assert row["profit_per_animal_sold"] == 3000.0
     # 10 kg over 10 measured days (11-day span) ≈ 0.909 kg/day.
-    assert row["avg_daily_gain_kg"] == pytest.approx(10.0 / 11.0, abs=0.01)
+    assert row["avg_daily_gain_kg"] == pytest.approx(10.0 / 10.0, abs=0.01)
 
     # days bounds are enforced.
     bad = await client.get("/api/owner/benchmarks", params={"days": 4000}, headers=owner)
@@ -255,8 +255,8 @@ async def test_owner_benchmarks_weight_gain_is_scoped_per_owned_farm(
     gain_a = await make_animal(client, owner, tag="GAIN-A")
     once_a = await make_animal(client, owner, tag="GAIN-A-ONCE")
     gain_b = await make_animal(client, farm_b_headers, tag="GAIN-B")
-    await _weigh_twice(farm_a, gain_a["id"], 20.0, 22.0)  # +2 kg over 11 days
-    await _weigh_twice(farm_b, gain_b["id"], 20.0, 30.0)  # +10 kg over 11 days
+    await _weigh_twice(farm_a, gain_a["id"], 20.0, 22.0)  # +2 kg over 10 days
+    await _weigh_twice(farm_b, gain_b["id"], 20.0, 30.0)  # +10 kg over 10 days
 
     # A single weighing has no interval to gain over: HAVING count >= 2 keeps
     # it out of the average entirely (its 100 kg must not move farm A's figure).
@@ -286,8 +286,8 @@ async def test_owner_benchmarks_weight_gain_is_scoped_per_owned_farm(
     farms = {row["farm_id"]: row for row in resp.json()["farms"]}
     # Exactly the owned farms: the unowned farm never appears as a benchmark row.
     assert set(farms) == {farm_a, farm_b}
-    assert farms[farm_a]["avg_daily_gain_kg"] == pytest.approx(2.0 / 11.0, abs=0.001)
-    assert farms[farm_b]["avg_daily_gain_kg"] == pytest.approx(10.0 / 11.0, abs=0.001)
+    assert farms[farm_a]["avg_daily_gain_kg"] == pytest.approx(2.0 / 10.0, abs=0.001)
+    assert farms[farm_b]["avg_daily_gain_kg"] == pytest.approx(10.0 / 10.0, abs=0.001)
 
 
 async def test_owner_benchmarks_profit_keeps_home_bred_sold_animals(

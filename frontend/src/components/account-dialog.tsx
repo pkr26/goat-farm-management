@@ -47,7 +47,11 @@ function buildPasswordSchema(t: TFn) {
 type PasswordValues = z.infer<ReturnType<typeof buildPasswordSchema>>;
 type AccountAction = "export" | "password" | "delete";
 
-export function AccountDialog({ name, email }: { name: string | null; email: string }) {
+export function AccountDialog({ name, email, passwordOnly = false }: {
+  name: string | null;
+  email: string;
+  passwordOnly?: boolean;
+}) {
   const { signOut, updateUser, user } = useAuth();
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -469,11 +473,14 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           <Button
             variant="ghost"
             size="sm"
-            className="gap-2 px-1.5 font-normal"
-            aria-label={t("account.triggerAria", { name: name || email })}
+            className={passwordOnly ? "h-11 gap-2" : "gap-2 px-1.5 font-normal"}
+            style={passwordOnly ? { minHeight: 44 } : undefined}
+            data-testid={passwordOnly ? "worker-change-password" : undefined}
+            aria-label={passwordOnly ? t("account.password.change") : t("account.triggerAria", { name: name || email })}
           />
         }
       >
+        {passwordOnly ? <span>{t("account.password.change")}</span> : <>
         <span
           aria-hidden="true"
           className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-[0.65rem] font-semibold text-primary"
@@ -481,6 +488,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           {(name || email).trim().slice(0, 2).toUpperCase()}
         </span>
         <span className="hidden max-w-32 truncate md:inline">{name || email}</span>
+        </>}
         <KeyRound aria-hidden className="size-3.5 text-muted-foreground" />
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
@@ -491,7 +499,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           <p className="font-medium">{name || email}</p>
           {name && <p className="text-muted-foreground">{email}</p>}
         </div>
-        <section className="space-y-2" aria-labelledby="account-data-heading">
+        {!passwordOnly && <section className="space-y-2" aria-labelledby="account-data-heading">
           <h3 id="account-data-heading" className="text-sm font-medium">
             {t("account.export.heading")}
           </h3>
@@ -512,7 +520,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             <Download aria-hidden />
             {activeAction === "export" ? t("account.export.preparing") : t("account.export.button")}
           </Button>
-        </section>
+        </section>}
         <form
           onSubmit={submitPassword}
           className="space-y-4"
@@ -532,6 +540,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             <Label htmlFor="account-current-password">{t("account.password.currentLabel")}</Label>
             <Input
               id="account-current-password"
+              className={passwordOnly ? "h-11" : undefined}
               type="password" maxLength={128}
               autoComplete="current-password"
               aria-invalid={Boolean(errors.current_password) || undefined}
@@ -548,6 +557,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             <Label htmlFor="account-new-password">{t("account.password.newLabel")}</Label>
             <Input
               id="account-new-password"
+              className={passwordOnly ? "h-11" : undefined}
               type="password" maxLength={128}
               autoComplete="new-password"
               aria-invalid={Boolean(errors.new_password) || undefined}
@@ -564,6 +574,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             <Label htmlFor="account-confirm-password">{t("account.password.confirmLabel")}</Label>
             <Input
               id="account-confirm-password"
+              className={passwordOnly ? "h-11" : undefined}
               type="password" maxLength={128}
               autoComplete="new-password"
               aria-invalid={Boolean(errors.confirm_password) || undefined}
@@ -580,7 +591,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             {t("account.password.hint")}
           </p>
           <DialogFooter>
-            <Button type="submit" disabled={activeAction !== null || isSubmitting}>
+            <Button type="submit" className={passwordOnly ? "h-11" : undefined} disabled={activeAction !== null || isSubmitting}>
               {/* react-hook-form's isSubmitting spans the entire password-action
                  window (beginAction runs inside the submit handler), so it
                  alone decides the label. */}
@@ -589,7 +600,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           </DialogFooter>
           </fieldset>
         </form>
-        <section className="space-y-3" aria-labelledby="totp-heading">
+        {!passwordOnly && <><section className="space-y-3" aria-labelledby="totp-heading">
           <h3 id="totp-heading" className="text-sm font-medium">
             {t("totp.title")}
           </h3>
@@ -935,6 +946,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             </div>
           )}
         </section>
+        </>}
       </DialogContent>
     </Dialog>
   );

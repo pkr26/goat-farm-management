@@ -1,0 +1,9 @@
+Command: docker rm herdly-context-proof-effd93f5fff24aaca0c5553704bf53d0
+Cwd: /Users/pradeepreddy/Desktop/goat-farm-management-main
+Exit code: 0
+Expected exit: 0
+
+STDOUT:
+herdly-context-proof-effd93f5fff24aaca0c5553704bf53d0
+
+STDERR:

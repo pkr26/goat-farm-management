@@ -1,0 +1,65 @@
+
+> frontend@0.1.0 build /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
+> next build
+
+▲ Next.js 16.3.3 (Turbopack)
+✓ Running next.config.ts took 110ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 1142ms
+  Running TypeScript ...
+  Finished TypeScript in 1589ms ...
+  Collecting page data using 17 workers ...
+  Generating static pages using 17 workers (0/4) ...
+  Generating static pages using 17 workers (1/4) 
+  Generating static pages using 17 workers (2/4) 
+  Generating static pages using 17 workers (3/4) 
+✓ Generating static pages using 17 workers (4/4) in 52ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ƒ /_not-found
+├ ƒ /animals
+├ ƒ /animals/[id]
+├ ƒ /animals/new
+├ ○ /apple-icon.png
+├ ƒ /breeding
+├ ƒ /breeding/[id]/ultrasound
+├ ƒ /buckets
+├ ƒ /dashboard
+├ ƒ /farm-select
+├ ƒ /feeding
+├ ƒ /feeding/inventory
+├ ƒ /feeding/recipes
+├ ƒ /finance
+├ ƒ /finance/insurance
+├ ƒ /health
+├ ƒ /health/new
+├ ƒ /health/schedule/[animalId]
+├ ƒ /healthz
+├ ○ /icon.svg
+├ ƒ /kidding
+├ ƒ /kidding/new
+├ ƒ /login
+├ ○ /manifest.webmanifest
+├ ƒ /no-access
+├ ƒ /ops-simulation
+├ ƒ /owner
+├ ƒ /planner
+├ ƒ /purchases
+├ ƒ /register
+├ ƒ /reports
+├ ƒ /screening
+├ ƒ /simulation
+├ ƒ /tasks
+├ ƒ /team
+├ ƒ /worker
+└ ƒ /worker/login
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

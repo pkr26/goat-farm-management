@@ -35,9 +35,10 @@ from .test_e2e_lifecycle_audit import (
     record_kidding,
     try_move,
 )
+from .type_helpers import json_object
 
 
-async def _mover_worker_headers(client: httpx.AsyncClient, owner: dict) -> dict[str, Any]:
+async def _mover_worker_headers(client: httpx.AsyncClient, owner: dict[str, str]) -> dict[str, Any]:
     role = await client.post(
         "/api/team/roles",
         json={"name": "Mover", "permissions": ["animals.move", "animals.view"]},
@@ -275,12 +276,14 @@ async def test_weaning_boundary_days_59_60_61(client: httpx.AsyncClient) -> None
     assert by_sex.get("F") == "FEMALE_KIDS", by_sex
 
 
-async def _animal_by_tag(client: httpx.AsyncClient, headers: dict, tag: str) -> dict[str, Any]:
+async def _animal_by_tag(
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str
+) -> dict[str, Any]:
     found = await client.get("/api/animals", params={"q": tag, "limit": 100}, headers=headers)
     items = found.json()["animals"]
     exact = [a for a in items if a["tag_number"] == tag]
     assert exact, f"animal {tag} not found among {[a['tag_number'] for a in items]}"
-    return exact[0]
+    return json_object(exact[0])
 
 
 async def test_batch_quarantine_animal_cannot_early_join_manually(

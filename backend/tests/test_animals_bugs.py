@@ -33,10 +33,11 @@ from .test_breeding_extended import (
     make_doe,
     place_health_hold,
 )
+from .type_helpers import json_object
 
 
 async def _animals_view_only_viewer(
-    client: httpx.AsyncClient, owner: dict, email: str, name: str
+    client: httpx.AsyncClient, owner: dict[str, str], email: str, name: str
 ) -> dict[str, Any]:
     """Headers for a worker on a role granting only `animals.view`."""
     role = await client.post(
@@ -61,7 +62,7 @@ async def _animals_view_only_viewer(
 
 
 async def _make_animal(
-    client: httpx.AsyncClient, headers: dict, tag: str = "A-001"
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "A-001"
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/animals",
@@ -75,7 +76,7 @@ async def _make_animal(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 # FIXED — regression test
@@ -306,7 +307,9 @@ def test_unique_constraint_name_reads_the_native_cause() -> None:
     assert _unique_constraint_name(exc) == "uq_stillborn_tag_farm_namespace"
 
 
-async def _complete_weaning_task(client: httpx.AsyncClient, headers: dict, dam_id: int) -> None:
+async def _complete_weaning_task(
+    client: httpx.AsyncClient, headers: dict[str, str], dam_id: int
+) -> None:
     weaning = next(
         t
         for t in await all_tasks(client, headers)

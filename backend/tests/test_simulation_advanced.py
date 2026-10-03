@@ -34,7 +34,7 @@ from app.simulation.assumptions import (
     ParityMultipliers,
     SalesAssumptions,
 )
-from app.simulation.engine import _run_core
+from app.simulation.engine import _CoreResult, _run_core
 from app.simulation.market import (
     cultivated_green_supply_kg_dm_for_month,
     feed_prices_for_month,
@@ -1109,7 +1109,7 @@ def _recorded_optimization(
     base_core = _run_core(assumptions)
     observed: list[SimulationAssumptions] = []
 
-    def fake_run_core(candidate: SimulationAssumptions):
+    def fake_run_core(candidate: SimulationAssumptions) -> _CoreResult:
         observed.append(candidate.model_copy(deep=True))
         if not rank_by_does:
             return base_core
@@ -1505,7 +1505,7 @@ def test_mirr_and_model_fingerprint_are_reproducible() -> None:
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
     first = run_simulation(a, with_break_even=False)
     second = run_simulation(a, with_break_even=False)
-    assert first.model_version == "3.3.0"
+    assert first.model_version == "3.4.0"
     assert first.assumptions_fingerprint == second.assumptions_fingerprint
     changed = a.model_copy(deep=True)
     changed.sales.meat_price_per_kg += 1.0

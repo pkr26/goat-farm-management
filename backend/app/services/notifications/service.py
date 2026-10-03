@@ -43,7 +43,7 @@ import asyncio
 import hashlib
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
@@ -51,6 +51,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from ...core.config import Settings
 from ...models import (
@@ -149,12 +150,7 @@ async def _wait_for_claim_to_settle(db: AsyncSession, log_id: int, settings: Set
 async def _send_with_retry(
     provider: NotificationProvider, phone: str, message: str, settings: Settings
 ) -> DeliveryResult:
-    """Transport failures get one bounded retry with backoff (ITEM 4).
-
-    A blip at the SMS gateway must not strand a same-day alert behind the
-    day-dedupe as FAILED. Terminal provider answers (``ok=False``) are NOT
-    retried — the provider saw the request and rejected it.
-    """
+    """Retry proven pre-send failures; preserve ambiguous paid attempts."""
     attempts = max(1, settings.notifications_send_retry_attempts)
     backoff = settings.notifications_send_retry_backoff_seconds
     last_exc: NotificationDeliveryError | None = None
@@ -162,6 +158,8 @@ async def _send_with_retry(
         try:
             return await provider.send_sms(phone, message)
         except NotificationDeliveryError as exc:
+            if not exc.safe_to_retry:
+                raise
             last_exc = exc
             if attempt + 1 < attempts:
                 logger.warning(
@@ -187,6 +185,7 @@ async def send_notification(
     message: str,
     payload: str,
     now_local: datetime | None = None,
+    outbox_id: int | None = None,
 ) -> SendOutcome:
     """One guarded delivery attempt. See SendOutcome for the return.
 
@@ -197,13 +196,21 @@ async def send_notification(
     now = now_local or datetime.now(ZoneInfo(farm.timezone))
     local_date = now.date()
     digest = payload_hash(f"{alert_class}:{payload}")
-    fact_filter = (
+    fact_filter: tuple[ColumnElement[bool], ...] = (
         NotificationLog.farm_id == farm.id,
         NotificationLog.recipient_id == recipient.id,
         NotificationLog.alert_class == alert_class,
         NotificationLog.payload_hash == digest,
         NotificationLog.local_date == local_date,
     )
+    if outbox_id is not None:
+        # A partially delivered one-shot event survives midnight without
+        # sending accepted/ambiguous recipient attempts again the next day.
+        fact_filter = (
+            NotificationLog.farm_id == farm.id,
+            NotificationLog.recipient_id == recipient.id,
+            NotificationLog.outbox_id == outbox_id,
+        )
 
     async def _claim() -> int | None:
         """INSERT ... ON CONFLICT DO NOTHING claim of the day-dedupe slot.
@@ -220,8 +227,9 @@ async def send_notification(
                     payload_hash=digest,
                     local_date=local_date,
                     status="SENDING",
+                    outbox_id=outbox_id,
                 )
-                .on_conflict_do_nothing(constraint="uq_notification_log_day_dedupe")
+                .on_conflict_do_nothing()
                 .returning(NotificationLog.id)
             )
         ).scalar_one_or_none()
@@ -273,7 +281,9 @@ async def send_notification(
         await db.execute(
             delete(NotificationLog).where(
                 *fact_filter,
-                NotificationLog.status == "SKIPPED_QUIET",
+                NotificationLog.status.in_(
+                    ["SKIPPED_QUIET", "SKIPPED_CAP"] if outbox_id is not None else ["SKIPPED_QUIET"]
+                ),
             )
         ),
     )
@@ -675,6 +685,16 @@ async def feed_reorder_daily(
     from ...models import FeedInventory
 
     reference = today(farm.timezone)
+    filters = (
+        FeedInventory.farm_id == farm.id,
+        FeedInventory.reorder_level.is_not(None),
+        FeedInventory.qty_on_hand < FeedInventory.reorder_level,
+    )
+    total = int(
+        (
+            await db.execute(select(func.count()).select_from(FeedInventory).where(*filters))
+        ).scalar_one()
+    )
     rows = list(
         (
             await db.execute(
@@ -683,13 +703,9 @@ async def feed_reorder_daily(
                     FeedInventory.qty_on_hand,
                     FeedInventory.reorder_level,
                 )
-                .where(
-                    FeedInventory.farm_id == farm.id,
-                    FeedInventory.reorder_level.is_not(None),
-                    FeedInventory.qty_on_hand < FeedInventory.reorder_level,
-                )
+                .where(*filters)
                 .order_by(FeedInventory.ingredient)
-                .limit(10)
+                .limit(5)
             )
         ).all()
     )
@@ -697,10 +713,10 @@ async def feed_reorder_daily(
         return 0
     names = ", ".join(str(row[0]) for row in rows[:5])
     message = (
-        f"Herdly: {len(rows)} feed items below reorder level ({names}"
-        f"{'…' if len(rows) > 5 else ''}). Order feed."
+        f"Herdly: {total} feed items below reorder level ({names}"
+        f"{'…' if total > 5 else ''}). Order feed."
     )
-    payload = f"feed-reorder:{reference.isoformat()}:{len(rows)}"
+    payload = f"feed-reorder:{reference.isoformat()}:{total}"
     return await notify_alert_class(
         db,
         settings,
@@ -727,26 +743,20 @@ async def overdue_critical_sweep(
     so a worsening board re-alerts the next day while the same shape does not.
     """
     reference = today(farm.timezone)
-    rows = list(
-        (
-            await db.execute(
-                select(Task.due_date)
-                .where(
-                    Task.farm_id == farm.id,
-                    Task.status == TaskStatus.PENDING.value,
-                    Task.due_date < reference,
-                )
-                .order_by(Task.due_date)
-                .limit(50)
+    count, oldest = (
+        await db.execute(
+            select(func.count(), func.min(Task.due_date)).where(
+                Task.farm_id == farm.id,
+                Task.status == TaskStatus.PENDING.value,
+                Task.due_date <= reference - timedelta(days=3),
             )
-        ).scalars()
-    )
-    critical = [due for due in rows if (reference - due).days >= 3]
-    if not critical:
+        )
+    ).one()
+    if not count:
         return 0
     message = (
-        f"Herdly: {len(critical)} duties are 3+ days overdue "
-        f"(oldest {critical[0].isoformat()}). Please clear them."
+        f"Herdly: {count} duties are 3+ days overdue "
+        f"(oldest {oldest.isoformat()}). Please clear them."
     )
     return await notify_alert_class(
         db,
@@ -755,6 +765,6 @@ async def overdue_critical_sweep(
         farm=farm,
         alert_class="OVERDUE_CRITICAL",
         message=message,
-        payload=f"overdue:{len(critical)}:{critical[0].isoformat()}",
+        payload=f"overdue:{count}:{oldest.isoformat()}",
         now_local=now_local,
     )

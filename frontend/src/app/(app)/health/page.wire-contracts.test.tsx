@@ -437,7 +437,7 @@ describe("HealthPage wire contracts and closed-control labels", () => {
     );
     const { dialog } = await openDialog();
 
-    await within(dialog).findByLabelText("Linked duty (completes it)");
+    await within(dialog).findByLabelText("Linked duty");
     expect(exactLookups).toEqual([]);
   });
 
@@ -451,7 +451,7 @@ describe("HealthPage wire contracts and closed-control labels", () => {
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("duties unavailable");
     expect(
-      within(dialog).queryByLabelText("Linked duty (completes it)"),
+      within(dialog).queryByLabelText("Linked duty"),
     ).not.toBeInTheDocument();
   });
 

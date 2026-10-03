@@ -12,9 +12,16 @@ export interface ViabilityMetrics {
   project_cost: number;
   loan_amount: number;
   subsidy_amount: number;
+  subsidy_estimate_amount?: number | null;
+  subsidy_status?: string;
+  subsidy_policy_version?: string | null;
+  subsidy_policy_source?: string | null;
+  subsidy_cap?: number | null;
   equity: number;
   npv: number;
   irr: number | null;
+  irr_status?: string;
+  irr_solver_domain?: string;
   mirr: number | null;
   bcr: number | null;
   dscr_per_year: number[];

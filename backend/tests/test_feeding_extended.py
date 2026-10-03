@@ -64,6 +64,7 @@ from app.services import (
 from app.utils import today
 
 from .conftest import owner_with_farm, provisioned_worker_login
+from .type_helpers import JsonObject, json_int, json_object, json_objects
 
 WORKER_PW = "workerpass123"
 GREEN = "Super Napier green fodder"
@@ -145,7 +146,7 @@ WORKFLOW_ONLY_BUCKETS = {
 
 async def _import_historical_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     *,
     sex: str = "F",
@@ -177,12 +178,12 @@ async def _import_historical_animal(
         payload["weight_date"] = (weight_date or today()).isoformat()
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def _make_reproductive_state_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     *,
     bucket: str,
@@ -294,12 +295,12 @@ async def _make_reproductive_state_animal(
     assert profile.status_code == 200, profile.text
     animal = profile.json()["animal"]
     assert animal["current_bucket"] == bucket
-    return animal
+    return json_object(animal)
 
 
 async def make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     *,
     sex: str = "F",
@@ -328,25 +329,27 @@ async def make_animal(
     )
 
 
-async def get_plan(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
+async def get_plan(client: httpx.AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
     resp = await client.get("/api/feeding/plan", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def get_inventory(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def get_inventory(client: httpx.AsyncClient, headers: dict[str, str]) -> list[JsonObject]:
     resp = await client.get("/api/feeding/inventory", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_objects(resp.json())
 
 
-async def inv_item(client: httpx.AsyncClient, headers: dict, ingredient: str) -> dict[str, Any]:
+async def inv_item(
+    client: httpx.AsyncClient, headers: dict[str, str], ingredient: str
+) -> dict[str, Any]:
     return next(i for i in await get_inventory(client, headers) if i["ingredient"] == ingredient)
 
 
 async def add_stock(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     item_id: int | str,
     qty: object,
     price: object = None,
@@ -357,20 +360,24 @@ async def add_stock(
     return await client.post(f"/api/feeding/inventory/{item_id}/add", json=payload, headers=headers)
 
 
-async def stock_all(client: httpx.AsyncClient, headers: dict, qty: float) -> None:
+async def stock_all(client: httpx.AsyncClient, headers: dict[str, str], qty: float) -> None:
     """Top up every seeded ingredient row to `qty` kg (no price → no expense)."""
     for item in await get_inventory(client, headers):
         resp = await add_stock(client, headers, item["id"], qty)
         assert resp.status_code == 200, resp.text
 
 
-async def stock_dry_roughage(client: httpx.AsyncClient, headers: dict, qty: float) -> None:
+async def stock_dry_roughage(
+    client: httpx.AsyncClient, headers: dict[str, str], qty: float
+) -> None:
     item = await inv_item(client, headers, STOVER)
     response = await add_stock(client, headers, item["id"], qty)
     assert response.status_code == 200, response.text
 
 
-async def dispense(client: httpx.AsyncClient, headers: dict, **overrides: object) -> httpx.Response:
+async def dispense(
+    client: httpx.AsyncClient, headers: dict[str, str], **overrides: object
+) -> httpx.Response:
     payload: dict[str, Any] = {
         "bucket": "BREEDING",
         "shift": "MORNING",
@@ -381,7 +388,7 @@ async def dispense(client: httpx.AsyncClient, headers: dict, **overrides: object
 
 
 async def mix_ready(
-    client: httpx.AsyncClient, headers: dict, recipe_code: str, batch_kg: float = 100.0
+    client: httpx.AsyncClient, headers: dict[str, str], recipe_code: str, batch_kg: float = 100.0
 ) -> None:
     """Stock ingredients and create ready-to-dispense recipe inventory."""
     await stock_all(client, headers, 1000.0)
@@ -393,20 +400,20 @@ async def mix_ready(
     assert resp.status_code == 200, resp.text
 
 
-async def finance_txns(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def finance_txns(client: httpx.AsyncClient, headers: dict[str, str]) -> list[JsonObject]:
     resp = await client.get("/api/finance", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["transactions"]
+    return json_objects(resp.json()["transactions"])
 
 
-async def role_id(client: httpx.AsyncClient, owner: dict, code: str) -> int:
+async def role_id(client: httpx.AsyncClient, owner: dict[str, str], code: str) -> int:
     resp = await client.get("/api/team", headers=owner)
     assert resp.status_code == 200, resp.text
-    return next(r["id"] for r in resp.json()["roles"] if r["code"] == code)
+    return json_int(next(r["id"] for r in resp.json()["roles"] if r["code"] == code))
 
 
 async def worker_headers(
-    client: httpx.AsyncClient, owner: dict, code: str, email: str
+    client: httpx.AsyncClient, owner: dict[str, str], code: str, email: str
 ) -> dict[str, Any]:
     """Owner adds a worker with preset role `code`; returns farm headers."""
     rid = await role_id(client, owner, code)
@@ -2843,7 +2850,7 @@ async def test_add_stock_unknown_extra_field_rejected(client: httpx.AsyncClient)
 # ---------------------------------------------------------------------------
 # Auth & tenancy on every feeding endpoint
 # ---------------------------------------------------------------------------
-ENDPOINTS: list[tuple[str, str, dict | None]] = [
+ENDPOINTS: list[tuple[str, str, JsonObject | None]] = [
     ("GET", "/api/feeding/plan", None),
     ("GET", "/api/feeding/recipes", None),
     ("GET", "/api/feeding/inventory", None),
@@ -2855,7 +2862,11 @@ ENDPOINTS: list[tuple[str, str, dict | None]] = [
 
 
 async def _hit(
-    client: httpx.AsyncClient, method: str, url: str, body: dict | None, headers: dict | None = None
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    body: JsonObject | None,
+    headers: JsonObject | None = None,
 ) -> httpx.Response:
     if method == "GET":
         return await client.get(url, headers=headers or {})
@@ -3072,7 +3083,7 @@ async def test_add_stock_zero_price_books_zero_expense(client: httpx.AsyncClient
         row = (
             await db.execute(select(FeedInventory).where(FeedInventory.id == item["id"]))
         ).scalar_one()
-        row.last_purchase_price_per_kg = 42.0  # a stale price the ₹0 must zero out
+        row.last_purchase_price_per_kg = Decimal("42.0")  # a stale price the ₹0 must zero out
         await add_feed_stock(db, farm, row, 10, 0)
         await db.commit()
     body = await inv_item(client, headers, MINERAL)

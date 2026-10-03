@@ -19,8 +19,7 @@ import httpx
 import pytest
 from fastapi import HTTPException, Response
 from pydantic import SecretStr
-from sqlalchemy import delete, func, select, update
-from sqlalchemy.dialects import postgresql
+from sqlalchemy import create_mock_engine, delete, func, select, update
 
 import app.api.animals as animals_api
 import app.api.auth as auth_api
@@ -32,7 +31,6 @@ import app.api.simulation as simulation_api
 import app.api.tasks as tasks_api
 import app.api.team as team_api
 import app.services.idempotency as idempotency_service
-from app.api.auth import CREATE_FARM_IDEMPOTENCY_OPERATION
 from app.core.config import get_settings
 from app.db import get_sessionmaker
 from app.main import create_app
@@ -55,6 +53,7 @@ from app.models import (
     User,
     WeightRecord,
 )
+from app.models.idempotency import CREATE_FARM_IDEMPOTENCY_OPERATION
 from app.schemas.finance import TransactionIn
 from app.schemas.team import MembershipOut, PasswordResetIn, WorkerCreateIn
 from app.services.idempotency import (
@@ -1331,7 +1330,11 @@ async def test_purge_candidate_query_orders_by_expiry_then_id_and_skips_locked_r
 
     assert removed == 0
     assert len(statements) == 1
-    rendered = str(statements[0].compile(dialect=postgresql.dialect()))
+    rendered = str(
+        statements[0].compile(
+            dialect=create_mock_engine("postgresql+asyncpg://", lambda *_args: None).dialect
+        )
+    )
     assert "ORDER BY idempotency_records.expires_at, idempotency_records.id" in rendered
     assert rendered.rstrip().endswith("FOR UPDATE SKIP LOCKED")
 

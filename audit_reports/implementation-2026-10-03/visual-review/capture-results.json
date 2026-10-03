@@ -1,0 +1,163 @@
+{
+  "status": "captured",
+  "browser": "Chromium direct private contexts",
+  "application": "existing production frontend localhost:3000 and synthetic E2E API localhost:8000",
+  "globalSetupInvoked": false,
+  "sharedE2EStateWritten": false,
+  "domainFormSubmissions": 0,
+  "mutationRequests": [
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    }
+  ],
+  "captures": [
+    {
+      "file": "01-simulation-en-expanded.png",
+      "language": "en",
+      "theme": "light",
+      "state": "Assumptions editor with Meta and Herd expanded; section help outside summary",
+      "summariesWithInteractiveDescendants": 0,
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "urlPath": "/simulation"
+    },
+    {
+      "file": "02-simulation-en-collapsed-help.png",
+      "language": "en",
+      "theme": "light",
+      "state": "Herd collapsed; sibling help opened with Enter; disclosure stays collapsed",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "urlPath": "/simulation"
+    },
+    {
+      "file": "03-simulation-te-expanded.png",
+      "language": "te",
+      "theme": "light",
+      "state": "Assumptions editor with Meta and Herd expanded; section help outside summary",
+      "summariesWithInteractiveDescendants": 0,
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "urlPath": "/simulation"
+    },
+    {
+      "file": "04-simulation-te-collapsed-help.png",
+      "language": "te",
+      "theme": "light",
+      "state": "Herd collapsed; sibling help opened with Enter; disclosure stays collapsed",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "urlPath": "/simulation"
+    },
+    {
+      "file": "05-team-pin-add-en.png",
+      "language": "en",
+      "theme": "light",
+      "state": "Add worker dialog with Tablet PIN selected; fields empty; no generation or submission",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "urlPath": "/team"
+    },
+    {
+      "file": "07-ownership-transfer-en.png",
+      "language": "en",
+      "theme": "light",
+      "state": "Ownership transfer dialog opened without selecting recipient, password, acknowledgement, or submit",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "urlPath": "/team"
+    },
+    {
+      "file": "06-team-pin-add-te.png",
+      "language": "te",
+      "theme": "light",
+      "state": "Add worker dialog with Tablet PIN selected; fields empty; no generation or submission",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "urlPath": "/team"
+    },
+    {
+      "file": "08-ownership-transfer-te.png",
+      "language": "te",
+      "theme": "light",
+      "state": "Ownership transfer dialog opened without selecting recipient, password, acknowledgement, or submit",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "urlPath": "/team"
+    },
+    {
+      "file": "09-mobile-login-en-dark.png",
+      "language": "en",
+      "theme": "dark",
+      "state": "Signed-out web login; empty fields; mobile viewport",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "urlPath": "/login"
+    },
+    {
+      "file": "10-mobile-worker-setup-te-dark.png",
+      "language": "te",
+      "theme": "dark",
+      "state": "Unconfigured tablet setup credentials; empty fields; no sign-in, pinning, or worker mutation",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "urlPath": "/worker/login"
+    }
+  ],
+  "phase": "before visual corrections",
+  "buildId": "3GeTyHSvkULabo_qc8Ny6",
+  "capturedAtUtc": "2026-10-03T19:16:57.940328+00:00"
+}

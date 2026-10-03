@@ -32,8 +32,9 @@ from pathlib import Path
 
 import httpx
 import pytest
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 from sqlalchemy import select
 
 import app.api.auth as auth_api
@@ -42,24 +43,30 @@ from app.core.config import Settings, get_settings
 from app.db import get_sessionmaker
 from app.models import FarmMembership, Role, User
 from app.ratelimit import SlidingWindowRateLimiter, auth_limiter
-from app.security import decode_access_claims, decode_access_claims_result, issue_access_token
+from app.security import (
+    AccessDecodeResult,
+    decode_access_claims,
+    decode_access_claims_result,
+    issue_access_token,
+)
 
 from .conftest import login, owner_with_farm, register
 from .test_auth_extended import forge_token, insert_user, make_pbkdf2_hash, set_refresh_cookie
+from .type_helpers import json_int
 
 PRODUCTION_IDEMPOTENCY_HMAC_SECRET = "production-idempotency-hmac-secret-0000000001"
 PRODUCTION_TOTP_ENCRYPTION_KEY = "VFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFQ"
 
 
-async def _role_id(client: httpx.AsyncClient, owner: dict, code: str) -> int:
+async def _role_id(client: httpx.AsyncClient, owner: dict[str, str], code: str) -> int:
     resp = await client.get("/api/team", headers=owner)
     assert resp.status_code == 200, resp.text
-    return next(r["id"] for r in resp.json()["roles"] if r["code"] == code)
+    return json_int(next(r["id"] for r in resp.json()["roles"] if r["code"] == code))
 
 
 async def _add_worker(
     client: httpx.AsyncClient,
-    owner: dict,
+    owner: dict[str, str],
     email: str,
     password: str | None = "workerpass123",
     role_code: str = "VET",
@@ -336,7 +343,7 @@ def test_rejected_login_pbkdf2_work_is_account_independent(
     """Finding #26: legacy verification consumes, rather than adds to, padding."""
     from app import security
 
-    budget = security.get_settings().rejected_login_pbkdf2_work_budget
+    budget = get_settings().rejected_login_pbkdf2_work_budget
     legacy_iterations = 30_000
     assert legacy_iterations < budget
     legacy = make_pbkdf2_hash("realpass123", iterations=legacy_iterations)
@@ -346,7 +353,7 @@ def test_rejected_login_pbkdf2_work_is_account_independent(
         calls.append(iterations)
         return b"\x00" * 32
 
-    monkeypatch.setattr(security.hashlib, "pbkdf2_hmac", fake_pbkdf2)
+    monkeypatch.setattr(hashlib, "pbkdf2_hmac", fake_pbkdf2)
     assert security._verify_legacy_pbkdf2("wrongpass1", legacy) is False
     security._pad_rejected_login_pbkdf2("wrongpass1", legacy)
     assert calls == [
@@ -387,8 +394,8 @@ def test_legacy_pbkdf2_ceiling_rejects_unbounded_or_malformed_work(
         calls.append(iterations)
         return b"\x00" * 32
 
-    monkeypatch.setattr(security.hashlib, "pbkdf2_hmac", fake_pbkdf2)
-    budget = security.get_settings().rejected_login_pbkdf2_work_budget
+    monkeypatch.setattr(hashlib, "pbkdf2_hmac", fake_pbkdf2)
+    budget = get_settings().rejected_login_pbkdf2_work_budget
 
     def encoded(iterations: str) -> str:
         return f"pbkdf2_sha256${iterations}$00${'00' * 32}"
@@ -409,7 +416,7 @@ def test_legacy_pbkdf2_ceiling_rejects_unbounded_or_malformed_work(
     # Raising the deployment budget (the documented import-audit contract)
     # restores higher iteration counts to "supported" — up to the published
     # hard ceiling, which nothing can raise.
-    monkeypatch.setattr(security.get_settings(), "rejected_login_pbkdf2_work_budget", 1_000_000)
+    monkeypatch.setattr(get_settings(), "rejected_login_pbkdf2_work_budget", 1_000_000)
     assert security._verify_legacy_pbkdf2(
         "password", encoded(str(security.LEGACY_PBKDF2_MAX_ITERATIONS))
     )
@@ -740,10 +747,10 @@ async def test_invalid_access_tokens_are_blocked_before_repeated_signature_work(
     RSA-work endpoint before authentication or database authorization runs."""
     from app import deps
 
-    real_decode = deps.decode_access_claims_result
+    real_decode = decode_access_claims_result
     calls = 0
 
-    def counted_decode(token: str):  # type: ignore[no-untyped-def]
+    def counted_decode(token: str) -> AccessDecodeResult:
         nonlocal calls
         calls += 1
         return real_decode(token)
@@ -788,10 +795,10 @@ async def test_verified_expired_access_token_stays_401_without_spending_invalid_
         ver=live_claims.token_version,
     )
 
-    real_decode = deps.decode_access_claims_result
+    real_decode = decode_access_claims_result
     calls = 0
 
-    def counted_decode(token: str):  # type: ignore[no-untyped-def]
+    def counted_decode(token: str) -> AccessDecodeResult:
         nonlocal calls
         calls += 1
         return real_decode(token)
@@ -833,10 +840,10 @@ async def test_invalid_jwt_ip_spray_cannot_block_unclassified_authentic_tokens(
         ver=live_claims.token_version,
     )
 
-    real_decode = deps.decode_access_claims_result
+    real_decode = decode_access_claims_result
     calls = 0
 
-    def counted_decode(token: str):  # type: ignore[no-untyped-def]
+    def counted_decode(token: str) -> AccessDecodeResult:
         nonlocal calls
         calls += 1
         return real_decode(token)
@@ -879,10 +886,10 @@ async def test_logout_invalid_tokens_are_blocked_before_repeated_signature_work(
     and refresh JWT decoders an unlimited public cryptographic-work oracle."""
     from app.api import auth as auth_api
 
-    real_decode = auth_api.decode_access_claims_result
+    real_decode = decode_access_claims_result
     calls = 0
 
-    def counted_decode(token: str):  # type: ignore[no-untyped-def]
+    def counted_decode(token: str) -> AccessDecodeResult:
         nonlocal calls
         calls += 1
         return real_decode(token)
@@ -1589,13 +1596,15 @@ def test_private_key_temp_is_private_before_atomic_replace(
 
     target = tmp_path / "jwt_private.pem"
     observed_modes: list[int] = []
-    real_replace = security.os.replace
+    real_replace = os.replace
 
-    def inspect_replace(source: object, destination: object) -> None:
+    def inspect_replace(
+        source: str | os.PathLike[str], destination: str | os.PathLike[str]
+    ) -> None:
         observed_modes.append(stat.S_IMODE(Path(source).stat().st_mode))
         real_replace(source, destination)
 
-    monkeypatch.setattr(security.os, "replace", inspect_replace)
+    monkeypatch.setattr(os, "replace", inspect_replace)
     previous_umask = os.umask(0o022)
     try:
         security._write_atomic(target, b"private-key-material", mode=0o600)
@@ -1659,8 +1668,8 @@ def test_app_managed_development_pair_recovers_after_torn_publish(
 
     security._ensure_keypair()
 
-    private_key = security.serialization.load_pem_private_key(priv.read_bytes(), password=None)
-    public_key = security.serialization.load_pem_public_key(pub.read_bytes())
+    private_key = serialization.load_pem_private_key(priv.read_bytes(), password=None)
+    public_key = serialization.load_pem_public_key(pub.read_bytes())
     assert isinstance(private_key, rsa.RSAPrivateKey)
     assert isinstance(public_key, rsa.RSAPublicKey)
     assert private_key.public_key().public_numbers() == public_key.public_numbers()
@@ -1721,8 +1730,8 @@ def test_unreadable_app_managed_development_pair_is_repaired(
         with security._key_lock:
             security._ensure_keypair()
 
-        private_key = security.serialization.load_pem_private_key(priv.read_bytes(), password=None)
-        public_key = security.serialization.load_pem_public_key(pub.read_bytes())
+        private_key = serialization.load_pem_private_key(priv.read_bytes(), password=None)
+        public_key = serialization.load_pem_public_key(pub.read_bytes())
         assert isinstance(private_key, rsa.RSAPrivateKey)
         assert isinstance(public_key, rsa.RSAPublicKey)
         assert private_key.public_key().public_numbers() == public_key.public_numbers()
@@ -1774,7 +1783,7 @@ def test_partial_keypair_reader_crosses_in_progress_generation_lock(
             errors.append(exc)
 
     monkeypatch.setattr(security, "_generate_keypair", staged_generation)
-    monkeypatch.setattr(security.fcntl, "flock", coordinated_flock)
+    monkeypatch.setattr(fcntl, "flock", coordinated_flock)
     first = threading.Thread(target=ensure)
     first.start()
     try:
@@ -1848,7 +1857,6 @@ def test_first_boot_rejects_lock_path_replaced_while_waiting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Two processes cannot silently flock different path inodes and generate."""
-    from app import security
 
     priv, pub = tmp_jwt_keys
     priv.parent.mkdir(parents=True)
@@ -1856,7 +1864,7 @@ def test_first_boot_rejects_lock_path_replaced_while_waiting(
     lock_path.touch(mode=0o600)
     displaced = priv.parent / ".jwt_keygen.displaced"
     holder_fd = os.open(lock_path, os.O_RDWR)
-    real_flock = security.fcntl.flock
+    real_flock = fcntl.flock
     real_flock(holder_fd, fcntl.LOCK_EX)
     entered_flock = threading.Event()
     errors: list[BaseException] = []
@@ -1872,7 +1880,7 @@ def test_first_boot_rejects_lock_path_replaced_while_waiting(
         except BaseException as exc:
             errors.append(exc)
 
-    monkeypatch.setattr(security.fcntl, "flock", tracking_flock)
+    monkeypatch.setattr(fcntl, "flock", tracking_flock)
     worker = threading.Thread(target=generate)
     worker.start()
     try:
@@ -1938,8 +1946,8 @@ def test_allowed_hosts_are_stored_the_way_trustedhost_compares_them(
         allowed_hosts=[configured],
         db_sslmode="verify-full",
         min_password_length=12,
-        idempotency_request_hmac_secret=PRODUCTION_IDEMPOTENCY_HMAC_SECRET,
-        totp_encryption_key=PRODUCTION_TOTP_ENCRYPTION_KEY,
+        idempotency_request_hmac_secret=SecretStr(PRODUCTION_IDEMPOTENCY_HMAC_SECRET),
+        totp_encryption_key=SecretStr(PRODUCTION_TOTP_ENCRYPTION_KEY),
     )
     assert settings.allowed_hosts == [expected]
 

@@ -1,0 +1,18 @@
+{
+  "command": "pnpm exec playwright test",
+  "cwd": "frontend",
+  "production_build_id": "CWwqRg-tXDDZQ8xWOAWpZ",
+  "exit_code": 0,
+  "passed": 74,
+  "failed": 0,
+  "skipped": 0,
+  "retries": 0,
+  "projects": [
+    "chromium",
+    "Mobile Chrome"
+  ],
+  "duration_minutes": 2.7,
+  "browser_manifest": "frontend-final-browser-manifest.json",
+  "database_scope": "local synthetic E2E database",
+  "receipt": "chromium.log"
+}

@@ -11,9 +11,10 @@ Two engines, both pure Python (no DB):
 
 * the monthly bio-economic engine (simulation/engine.py) carries the whole
   500-head, 60-month trajectory and the P&L — twice: without and with the
-  NLM 50% capital-subsidy toggle (the grower purchase events carry
-  ``age_months=6``, the scenario's real arrival age, and the NLM run's
-  eligible-head cap sees the event-purchased unit);
+  NLM policy-assessment toggle (the grower purchase events carry
+  ``age_months=6``, the scenario's real arrival age). The proposed 500F+30M
+  unit is not an exact published policy band; no eligible capital budget,
+  applicant approval or supported receipt dates are invented;
 * the daily-ops engine (simulation/daily_ops.py) carries the day-resolution
   bucket/task detail. That engine takes its herd on day 1 only (no mid-run
   arrivals) and caps a run at 500 head / 365 days, so the staggered build-out
@@ -55,13 +56,10 @@ from app.simulation.daily_ops import (  # noqa: E402
     build_daily_ledger,
     run_daily_ops,
 )
-from app.simulation.engine import (  # noqa: E402
-    NLM_CAPITAL_CEILING_PER_HEAD,
-    NLM_SUBSIDY_FRACTION,
-    run_simulation,
-)
+from app.simulation.engine import run_simulation  # noqa: E402
 from app.simulation.feed import DAYS_PER_MONTH  # noqa: E402
 from app.simulation.results import SimulationResult  # noqa: E402
+from app.simulation.subsidy import NLM_POLICY_SOURCE, NLM_POLICY_VERSION  # noqa: E402
 
 # --- scenario constants -------------------------------------------------------
 START_DATE = date(2026, 10, 1)
@@ -199,7 +197,13 @@ def build_monthly_assumptions(*, nlm_subsidy: bool) -> SimulationAssumptions:
             max_breeding_does=0,
             female_retention_fraction=1.0,
         ),
-        finance=FinanceAssumptions(nlm_subsidy=nlm_subsidy),
+        finance=FinanceAssumptions(
+            nlm_subsidy=nlm_subsidy,
+            # Planned unit explicitly declared; purchases do not demonstrate
+            # policy eligibility, approval or grant receipt.
+            nlm_unit_females=BATCH_COUNT * DOES_PER_BATCH if nlm_subsidy else None,
+            nlm_unit_males=BATCH_COUNT * BUCKS_PER_BATCH if nlm_subsidy else None,
+        ),
         events=events,
     )
 
@@ -726,14 +730,11 @@ def build_readme(
     add("```")
     add("")
     add(
-        "**Regenerated 2026-09-15** after the three engine fixes the first run of this "
-        "report surfaced (same commit): (1) herd events gained a per-event `age_months` "
-        "input, so the 10 grower batches now enter at their real 6-month age "
-        "(observation 1, RESOLVED); (2) the NLM subsidy's eligible-head cap now counts "
-        "breeding stock bought through scheduled events, so the toggle is live for "
-        "event-built herds (observation 9, RESOLVED, §7); (3) the daily-ops eligibility "
-        "note quotes the enforced `GOAT_PROFILE.min_breeding_age_months` constant "
-        "instead of a stale hardcoded age (observation 5, RESOLVED)."
+        "**Policy assessment updated 2026-10-03.** Grower events enter at their "
+        "real six-month age. NLM now requires a separately declared eligible capital "
+        "budget and an exact published breeding-unit band; scheduled purchases alone "
+        "do not prove either eligibility or approval. The daily-ops breeding-entry "
+        "rule remains the enforced species-profile constant."
     )
     add("")
     add(
@@ -1222,7 +1223,7 @@ def _readme_money_section(
     pc = base.project_cost_breakdown
     add("### Project cost and viability")
     add("")
-    add("| Item | Without subsidy | With NLM 50% subsidy |")
+    add("| Item | Without subsidy | With NLM policy assessment |")
     add("|---|---:|---:|")
     add(
         f"| Project cost (shed {inr_short(pc.shed_cost)} for {pc.capacity_places:,.0f} "
@@ -1234,7 +1235,10 @@ def _readme_money_section(
         f"| Bank loan (85%, 11% p.a., 12-month moratorium) | "
         f"{inr(metrics.loan_amount)} | {inr(nlm.metrics.loan_amount)} |"
     )
-    add(f"| Capital subsidy | {inr(metrics.subsidy_amount)} | {inr(nlm.metrics.subsidy_amount)} |")
+    add(
+        f"| Booked subsidy receipts | {inr(metrics.subsidy_amount)} | "
+        f"{inr(nlm.metrics.subsidy_amount)} |"
+    )
     add(
         f"| Promoter equity (month-0 outflow) | {inr(metrics.equity)} | {inr(nlm.metrics.equity)} |"
     )
@@ -1246,6 +1250,7 @@ def _readme_money_section(
         f"{f'{nlm_metrics.irr * 100:.1f}%' if nlm_metrics.irr is not None else '—'} / "
         f"{f'{nlm_metrics.mirr * 100:.1f}%' if nlm_metrics.mirr is not None else '—'} |"
     )
+    add(f"| IRR assessment | {metrics.irr_status} | {nlm_metrics.irr_status} |")
     payback = metrics.payback_month
     nlm_payback = nlm_metrics.payback_month
     payback_cell = (
@@ -1276,35 +1281,23 @@ def _readme_money_section(
         else "| Break-even meat price | — | — |"
     )
     add("")
-    unit_head = BATCH_COUNT * (DOES_PER_BATCH + BUCKS_PER_BATCH)
-    nlm_ceiling = NLM_CAPITAL_CEILING_PER_HEAD * unit_head
-    nlm_half_ceiling = NLM_SUBSIDY_FRACTION * nlm_ceiling
-    equity_floor = nlm_metrics.project_cost - nlm_metrics.loan_amount
-    binding_note = (
-        f"The per-head ceiling binds: the subsidy is the full {inr(nlm_half_ceiling)}."
-        if abs(nlm_metrics.subsidy_amount - nlm_half_ceiling) < 1.0
-        else (
-            "What binds instead is the funding stack — loan + subsidy may not exceed "
-            "the project cost, so with an 85% loan the subsidy lands at 15% of "
-            f"{inr_short(nlm_metrics.project_cost)} = {inr(equity_floor)}, below the "
-            f"{inr(nlm_half_ceiling)} half-ceiling."
-        )
-    )
-    payback_note = (
-        f"payback moves {payback_cell} → {nlm_payback_cell}"
-        if payback_cell != nlm_payback_cell
-        else f"payback is unchanged ({payback_cell})"
+    estimate_text = (
+        inr(nlm_metrics.subsidy_estimate_amount)
+        if nlm_metrics.subsidy_estimate_amount is not None
+        else "not established"
     )
     add(
-        f"**NLM comparison result: a real {inr(nlm_metrics.subsidy_amount)} subsidy.** "
-        "The eligible-head cap now sizes the unit being established — the 500 "
-        f"event-purchased female growers plus the 30 scheduled bucks, {unit_head} head "
-        f"× ₹10,000 = {inr_short(nlm_ceiling)} of eligible capital (squarely in the "
-        "scheme's 500F+25M ~₹50 lakh band). "
-        f"{binding_note} Against the no-subsidy run, promoter equity drops "
-        f"{inr(metrics.equity)} → {inr(nlm_metrics.equity)} and {payback_note}. "
-        "Operating economics — revenue, EBITDA, break-even price — are unchanged: the "
-        "subsidy is a month-0 capital event, not an operating one."
+        f"**NLM assessment: {nlm_metrics.subsidy_status}.** This scenario proposes "
+        f"{BATCH_COUNT * DOES_PER_BATCH} females + {BATCH_COUNT * BUCKS_PER_BATCH} males. "
+        "That is not one of the exact published 100F+5M through 500F+25M bands. "
+        "The eligible capital budget, applicant approval and receipt milestones are "
+        "unknown; no award or payment is assumed. "
+        f"Booked receipts are {inr(nlm_metrics.subsidy_amount)} and opening equity "
+        f"remains {inr(nlm_metrics.equity)}. Conditional estimate: "
+        f"{estimate_text}. "
+        "Grant receipts, when explicitly supported, are later financing cash flows "
+        "and never automatic month-zero funds or operating profit. "
+        f"Policy provenance: [{NLM_POLICY_VERSION}]({NLM_POLICY_SOURCE})."
     )
     add("")
     return lines
@@ -1386,13 +1379,11 @@ def _readme_observations_section(
         "a documented approximation in the engine docstring."
     )
     add(
-        "9. **RESOLVED — the NLM subsidy toggle is live for event-built herds.** The "
-        "eligible-head cap used to multiply ₹10,000 by the *starting* doe+buck counts "
-        "(zero here — all 530 animals arrive by scheduled events), so base and NLM runs "
-        "came out identical. The cap now also counts breeding stock bought through "
-        "scheduled events — adult does/bucks and female young stock raised into the doe "
-        f"pipeline — so this 500F+30M build-out earns {inr(nlm.metrics.subsidy_amount)} "
-        "of capital subsidy against the scheme's 500F+25M band (§7)."
+        "9. **NLM requires evidence beyond the herd build-out.** This proposed "
+        "500F+30M unit is not an exact published breeding band; an eligible capital "
+        "budget and approval are not supplied. The NLM toggle therefore books no "
+        "grant and does not reduce opening equity. The model does not infer an "
+        "award from scheduled young-stock purchases. See policy provenance in §7."
     )
     add(
         "10. **The negative P&L is the policy, not the model.** Keeping 100% of female "
@@ -1501,7 +1492,8 @@ def _readme_checklist_section(
             else "Payback (cumulative cash ≥ 0): not reached inside the 60-month horizon "
             "without subsidy — the build-out is still cash-negative at 2031-09 (see §7)."
         ),
-        f"NLM 50% subsidy: subsidy amount {inr(metrics.subsidy_amount)} without vs "
+        f"NLM policy assessment ({nlm.metrics.subsidy_status}): booked receipts "
+        f"{inr(metrics.subsidy_amount)} without vs "
         f"{inr(nlm.metrics.subsidy_amount)} with NLM; equity {inr(metrics.equity)} vs "
         f"{inr(nlm.metrics.equity)}.",
         f"Batch-1 daily run generated {b1.totals.tasks_by_category.get('VACCINE', 0)} "
@@ -1534,7 +1526,7 @@ def main() -> None:
     out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else default_out
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Monthly engine: base run + NLM 50% subsidy variant.
+    # Monthly engine: base run + conservative NLM policy-assessment variant.
     base_assumptions = build_monthly_assumptions(nlm_subsidy=False)
     base = run_simulation(base_assumptions)
     nlm = run_simulation(build_monthly_assumptions(nlm_subsidy=True))

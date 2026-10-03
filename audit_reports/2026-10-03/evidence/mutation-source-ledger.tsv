@@ -1,0 +1,17 @@
+path	lines	review_depth	reviewer	notes
+backend/mutation/mutate_final_pass.py	131	FULL_SEMANTIC	root	Source read only; no mutation execution
+backend/mutation/mutate_gen.py	425	FULL_SEMANTIC	root	Source read only; no mutation execution
+backend/mutation/mutate_report.py	112	FULL_SEMANTIC	root	Source read only; no mutation execution
+backend/mutation/mutate_rerun_survivors.py	70	FULL_SEMANTIC	root	Source read only; no mutation execution
+backend/mutation/mutate_reverify.py	125	FULL_SEMANTIC	root	Source read only; no mutation execution
+backend/mutation/mutate_run.py	362	FULL_SEMANTIC	root	Source read only; no mutation execution
+backend/mutation/mutate_triage.py	78	FULL_SEMANTIC	root	Source read only; no mutation execution
+backend/mutation/mutate_verify.py	82	FULL_SEMANTIC	root	Source read only; no mutation execution
+backend/mutation/mutate_verify_extremes.py	163	FULL_SEMANTIC	root	Source read only; no mutation execution
+frontend/mutation/mutate_cover.mjs	179	FULL_SEMANTIC	report_evidence	Source read only; no mutation execution
+frontend/mutation/mutate_gen.mjs	212	FULL_SEMANTIC	report_evidence	Source read only; no mutation execution
+frontend/mutation/mutate_report.mjs	165	FULL_SEMANTIC	report_evidence	Source read only; no mutation execution
+frontend/mutation/mutate_reverify.mjs	148	FULL_SEMANTIC	report_evidence	Source read only; no mutation execution
+frontend/mutation/mutate_run.mjs	410	FULL_SEMANTIC	report_evidence	Source read only; no mutation execution
+frontend/mutation/mutate_transform.mjs	49	FULL_SEMANTIC	report_evidence	Source read only; no mutation execution
+frontend/mutation/mutate_triage.mjs	45	FULL_SEMANTIC	report_evidence	Source read only; no mutation execution

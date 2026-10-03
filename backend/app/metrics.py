@@ -8,7 +8,7 @@ Every collector is module-level and therefore per-process, matching the
 single-replica deployment model: counters reset on restart and are not
 aggregated across workers. ``GOATFARM_METRICS_ENABLED=false`` turns off both
 collection (all ``record_*``/``observe_*`` helpers become no-ops after one
-cached settings read) and the ``/metrics`` route itself (see ``app.main``).
+cached settings read). Endpoint exposure has separate public/private controls.
 
 Label cardinality is deliberately bounded:
 - ``route`` is the route *template* (e.g. ``/api/animals/{animal_id}``), never
@@ -85,7 +85,7 @@ MAINTENANCE_ROWS = Counter(
 
 
 def enabled() -> bool:
-    """Collection (and the /metrics route) is off unless configured on."""
+    """Whether collection is enabled, independently of scrape authorization."""
     return get_settings().metrics_enabled
 
 
@@ -100,7 +100,7 @@ def record_auth_rate_limit_rejection(scope: str) -> None:
     """Count one decision to answer 429 from the auth limiter (not probes).
 
     Also feeds the always-on log-summary counter (DET-3/DET-4): the
-    Prometheus counter is development-only, but every 429 must stay visible
+    Prometheus counter is optional, but every 429 must stay visible
     in the log stream regardless of environment."""
     from .ratelimit import note_throttle_rejection
 

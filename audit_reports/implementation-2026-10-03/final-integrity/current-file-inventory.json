@@ -1,0 +1,10 @@
+{
+  "recorded_at": "2026-10-03T20:56:39.259674+00:00",
+  "base_commit": "b285645b2a93709aa7294fc4698ee0f25839b13e",
+  "files": 1482,
+  "scope": "All currently repository-visible existing tracked and nonignored untracked files, excluding the implementation evidence directory to avoid recursion. Ignored build/runtime/dependency/credential artifacts are excluded by Git. Mechanical identity inventory; not a second semantic review of every generated or historical evidence file. Final top-level status/plan documentation included.",
+  "inventory": "current-file-inventory.csv",
+  "inventory_sha256": "587f16a9cf7da441d30464876abc5c0e821beecbdd4a26418f8502aae20b0f05",
+  "task_generated_synthetic_e2e_credential_state_removed": true,
+  "publication_note": "Top-level documentation updated for the requested Git commit/push; application and test source unchanged."
+}

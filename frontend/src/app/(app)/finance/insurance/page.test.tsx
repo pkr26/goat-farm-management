@@ -4,7 +4,7 @@
  * forward-only horizon rule, and the finance/animals permission gates.
  */
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -115,6 +115,49 @@ describe("InsurancePage", () => {
     expect(row).not.toBeNull();
     return row as HTMLElement;
   }
+
+  it.each(["create", "renew", "claim"] as const)("keeps a reopened draft when an older %s finishes", async (kind) => {
+    const user = userEvent.setup();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let calls = 0;
+    const endpoint = kind === "create" ? "/api/finance/insurance" : `/api/finance/insurance/:policyId/${kind}`;
+    server.use(http.post(endpoint, async () => { calls += 1; await gate; return HttpResponse.json(makePolicy({ id: 99 }), { status: kind === "create" ? 201 : 200 }); }));
+    await renderLoaded();
+    async function open() {
+      await user.click(kind === "create" ? screen.getByRole("button", { name: /register policy/i }) : within(rowOf("POL-2026-001")).getByRole("button", { name: kind === "renew" ? "Renew" : "Claim" }));
+      return screen.findByRole("dialog");
+    }
+    const first = await open();
+    if (kind === "create") {
+      fireEvent.change(within(first).getByLabelText(/policy number/i), { target: { value: "FIRST" } });
+      fireEvent.change(within(first).getByLabelText(/insurer/i), { target: { value: "Insurer" } });
+      fireEvent.change(within(first).getByLabelText(/sum insured/i), { target: { value: "15000" } });
+      fireEvent.change(within(first).getByLabelText(/^premium/i), { target: { value: "600" } });
+      fireEvent.change(within(first).getByLabelText(/start date/i), { target: { value: "2026-01-01" } });
+      fireEvent.change(within(first).getByLabelText(/renewal date/i), { target: { value: "2027-01-01" } });
+    } else if (kind === "renew") fireEvent.change(within(first).getByLabelText(/new renewal date/i), { target: { value: addDays(makePolicy().renewal_date, 365) } });
+    await user.click(within(first).getByRole("button", { name: kind === "create" ? /register policy/i : kind === "renew" ? /renew policy/i : "Record claim" }));
+    await waitFor(() => expect(calls).toBe(1));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const reopened = await open();
+    if (kind === "create") {
+      expect(within(reopened).getByLabelText(/policy number/i)).toBeEnabled();
+      await user.type(within(reopened).getByLabelText(/policy number/i), "NEW DRAFT");
+    } else if (kind === "renew") {
+      expect(within(reopened).getByLabelText(/new renewal date/i)).toBeEnabled();
+      fireEvent.change(within(reopened).getByLabelText(/new renewal date/i), { target: { value: addDays(makePolicy().renewal_date, 730) } });
+    }
+    const submit = within(reopened).getByRole("button", { name: kind === "create" ? "Saving…" : kind === "renew" ? "Renewing…" : "Recording…" });
+    expect(submit).toBeDisabled();
+    await act(async () => { release(); });
+    await waitFor(() => expect(submit).toBeEnabled());
+    expect(reopened).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBe(reopened);
+    expect(calls).toBe(1);
+    if (kind === "create") expect(within(reopened).getByLabelText(/policy number/i)).toHaveValue("NEW DRAFT");
+  });
 
   it("drives the pager off the echoed limit, not the request constant (2026-10-01 audit, 06-7)", async () => {
     server.use(
@@ -244,6 +287,50 @@ describe("InsurancePage", () => {
       await user.click(screen.getByRole("button", { name: /register policy/i }));
       return screen.findByRole("dialog");
     }
+
+    it("selects and submits an animal beyond the first 50 records", async () => {
+      const user = userEvent.setup();
+      const requestedOffsets: number[] = [];
+      server.use(
+        http.get("/api/animals", ({ request }) => {
+          const params = new URL(request.url).searchParams;
+          const offset = Number(params.get("offset") ?? 0);
+          const limit = Number(params.get("limit") ?? 50);
+          requestedOffsets.push(offset);
+          const end = Math.min(offset + limit, 51);
+          return HttpResponse.json({
+            animals: Array.from({ length: end - offset }, (_, index) => ({
+              id: offset + index + 1,
+              tag_number: `INS-${String(offset + index + 1).padStart(3, "0")}`,
+              name: null,
+            })),
+            total: 51,
+            limit,
+            offset,
+          });
+        }),
+      );
+      await renderLoaded();
+      const dialog = await openCreate(user);
+      await user.click(within(dialog).getByLabelText(/animal \(optional\)/i));
+      const picker = await screen.findByRole("dialog", { name: "Choose an animal for this policy" });
+      await within(picker).findByRole("option", { name: "INS-050" });
+      expect(within(picker).queryByRole("option", { name: "INS-051" })).toBeNull();
+      await user.click(within(picker).getByRole("button", { name: "Load more" }));
+      await user.click(await within(picker).findByRole("option", { name: "INS-051" }));
+      expect(requestedOffsets).toEqual([0, 50]);
+      expect(within(dialog).getByLabelText(/animal \(optional\)/i)).toHaveTextContent("INS-051");
+
+      fireEvent.change(within(dialog).getByLabelText(/policy number/i), { target: { value: "SECOND-PAGE" } });
+      fireEvent.change(within(dialog).getByLabelText(/insurer/i), { target: { value: "Insurer" } });
+      fireEvent.change(within(dialog).getByLabelText(/sum insured/i), { target: { value: "15000" } });
+      fireEvent.change(within(dialog).getByLabelText(/^premium/i), { target: { value: "600" } });
+      fireEvent.change(within(dialog).getByLabelText(/start date/i), { target: { value: "2026-01-10" } });
+      fireEvent.change(within(dialog).getByLabelText(/renewal date/i), { target: { value: "2027-01-10" } });
+      await user.click(within(dialog).getByRole("button", { name: /register policy/i }));
+      await waitFor(() => expect(postBody).not.toBeNull());
+      expect(postBody).toMatchObject({ policy_number: "SECOND-PAGE", animal_id: 51 });
+    });
 
     it("registers a policy with the exact backend payload", async () => {
       const user = userEvent.setup();

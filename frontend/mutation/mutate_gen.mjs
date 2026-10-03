@@ -104,7 +104,7 @@ function generate() {
         col: character + 1,
         op,
         desc: description,
-        edits,
+        edits: edits.map((edit) => ({ ...edit, original: text.slice(edit.start, edit.end) })),
       });
     };
 

@@ -1,0 +1,46 @@
+{
+  "observed_at": "2026-10-03T19:45:20Z",
+  "scope": "Independent read-only corroboration of existing Docker/Colima container state and host TCP/HTTP reachability; no browser launch or Playwright runner was started by this reviewer.",
+  "container": "herdly-firefox-runtime-e80a4878c80f",
+  "container_state": {
+    "running": true,
+    "paused": false,
+    "restarting": false,
+    "oom_killed": false,
+    "dead": false,
+    "started_at": "2026-10-03T19:43:03.839937293Z"
+  },
+  "image": "mcr.microsoft.com/playwright:v1.62.1-noble",
+  "server_command": "/bin/sh -c 'npx -y playwright@1.62.1 run-server --port 3001 --host 0.0.0.0'",
+  "server_log": "Listening on ws://0.0.0.0:3001/",
+  "port_mapping": {
+    "container_port": "3001/tcp",
+    "host_ip": "127.0.0.1",
+    "host_port": 61880
+  },
+  "docker": {
+    "context": "colima",
+    "server_version": "29.5.2",
+    "server_architecture": "arm64",
+    "client_version": "29.8.1"
+  },
+  "colima": {
+    "running": true,
+    "architecture": "aarch64",
+    "runtime": "docker",
+    "vm_provider": "macOS Virtualization.Framework"
+  },
+  "tcp": {
+    "command": "nc -z -v -G 5 127.0.0.1 61880",
+    "result": "Connection succeeded"
+  },
+  "http": {
+    "command": "curl --noproxy '*' --max-time 5 -sS -D - -o /dev/null http://127.0.0.1:61880/",
+    "status": 200,
+    "content_length": 7
+  },
+  "version_resolution_limitation": "Direct top-level require('playwright/package.json') and require('playwright-core/package.json') failed under pnpm's isolated dependency layout; this was not evidence of a version mismatch. The clinical reviewer separately verified the actual client/server 1.62.1 connection and Firefox 153.0 launch.",
+  "clinical_review_reported_result": "Actual browser/data-URL and unchanged localhost login HTTP200 probes passed in 832 ms. The initial outer timeout came after browser/context close because the one-shot Node process retained network-bridge handles; the final explicit-exit probe exited zero in less than one second. This browser observation belongs to the clinical reviewer, not this transport-only corroboration.",
+  "container_or_server_changes": false,
+  "additional_probes_stopped_at_parent_request": true
+}

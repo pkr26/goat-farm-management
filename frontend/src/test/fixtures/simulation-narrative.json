@@ -1,0 +1,479 @@
+[
+  {
+    "name": "default",
+    "sections": [
+      {
+        "key": "overview",
+        "title": "Overview",
+        "paragraphs": [
+          "This projection runs 24 months (2 years) from 2026-08. You start with 50 does and 2 bucks — 61 head on the ground in month 1.",
+          "The project needs ₹20.07 lakh in total: ₹17.06 lakh from the bank and ₹3.01 lakh from your own pocket, with ₹0 assumed up-front subsidy."
+        ],
+        "figures": {
+          "horizon_months": 24.0,
+          "starting_does": 50.0,
+          "starting_bucks": 2.0,
+          "scheduled_events": 0.0,
+          "project_cost": 2007470.5508555518,
+          "loan_amount": 1706349.968227219,
+          "subsidy_amount": 0.0,
+          "equity": 301120.5826283328
+        }
+      },
+      {
+        "key": "herd_trajectory",
+        "title": "Herd trajectory",
+        "paragraphs": [
+          "The herd grows from 61 head in month 1 to a peak of 133 in month 21 (year 2), ending at 127 head (49 breeding does and 3 bucks).",
+          "Over the 2 years the farm produces 212 kids, loses 45 animals to mortality, sells 78 for meat and disposes of 15 as culls.",
+          "Expect multiples at kidding: this breed twins in about 35-40% of kiddings and triplets run 5-13%, so the average mature litter is ~1.60 kids. First-time does (parity 1) run lighter — about 1.36 on average, mostly singles — so a maiden crop of singles is normal, not a problem."
+        ],
+        "figures": {
+          "start_herd": 60.93947182088094,
+          "peak_herd": 133.24565196813768,
+          "peak_month": 21.0,
+          "end_herd": 127.30723873419169,
+          "total_births": 212.46104630755076,
+          "total_deaths": 45.309918126200735,
+          "total_sold": 78.15039882538493,
+          "total_culled": 15.000593573757797
+        }
+      },
+      {
+        "key": "revenue_mix",
+        "title": "Where the money comes from",
+        "paragraphs": [
+          "Total revenue over 2 years is ₹10.17 lakh, largest source first: meat sales ₹8.07 lakh (79.3%), cull sales ₹1.15 lakh (11.3%), manure ₹95,502 (9.4%) and surplus milk ₹0 (0.0%).",
+          "Bakrid pricing (+35% on the base rate) applies in months 10, 22, 33, 45, 57, 68, 80, 91, 103, 115; 15 head sell inside them."
+        ],
+        "figures": {
+          "total_revenue": 1017272.0331470761,
+          "meat_revenue": 806890.2310990071,
+          "cull_revenue": 114880.29661435762,
+          "milk_revenue": 0.0,
+          "manure_revenue": 95501.50543371144,
+          "festival_months": "10, 22, 33, 45, 57, 68, 80, 91, 103, 115",
+          "festival_uplift": 0.35
+        }
+      },
+      {
+        "key": "cost_mix",
+        "title": "Where the money goes",
+        "paragraphs": [
+          "Operating costs total ₹12.00 lakh over 2 years, largest first: feed ₹5.83 lakh (48.6%), labour ₹3.52 lakh (29.3%), vet ₹1.08 lakh (9.0%), insurance ₹68,771 (5.7%), overheads ₹50,318 (4.2%), selling ₹37,620 (3.1%) and stock purchases ₹0 (0.0%).",
+          "Buying breeding stock cost ₹19,784 in cash; it is capitalized and depreciated over 60 months rather than expensed, so EBITDA above excludes it.",
+          "Growing green fodder needs about 2.86 acre(s) on average; your cultivated area falls short in 14 month(s). This is a physical and financial shortfall: 5,052 kg as-fed is bought at the configured market price, while on-farm supply is costed separately.",
+          "Water demand runs about 707 litres/day on average, peaking near 819 litres/day — a lactating doe needs 10-15 L/day in the Deccan summer, so plan storage and supply for the peak, not the average."
+        ],
+        "figures": {
+          "total_opex": 1200172.783433569,
+          "feed_cost": 583186.2332034514,
+          "labour_cost": 352222.97509944194,
+          "stock_purchases": 0.0,
+          "selling_cost": 37620.33549501425,
+          "vet_cost": 108054.70543572976,
+          "insurance_cost": 68770.96632858261,
+          "misc_cost": 50317.56787134886,
+          "land_requirement_acres": 2.8648930773137904,
+          "annual_water_litres": 516281.01103278983,
+          "peak_water_litres_per_day": 819.3111088523291
+        }
+      },
+      {
+        "key": "viability_verdict",
+        "title": "Bottom line",
+        "paragraphs": [
+          "At these assumptions the project is NOT VIABLE. Over 2 years it earns ₹10.17 lakh against ₹12.00 lakh of operating costs — an operating surplus (EBITDA) of -₹1.83 lakh.",
+          "Watch out: the NPV is negative; the benefit-cost ratio is below 1.0; a unique IRR is not established (assessment: indeterminate); use NPV and MIRR; the weakest debt year has a DSCR below 1.0; the equity is never paid back inside the horizon; the funded working-capital reserve becomes negative and additional liquidity is needed."
+        ],
+        "figures": {
+          "verdict": "NOT VIABLE",
+          "npv": -378940.90494921274,
+          "irr": null,
+          "bcr": 0.876755614571606,
+          "avg_dscr": 0.41318038819911873,
+          "min_dscr": 0.41318038819911873,
+          "payback_month": null,
+          "ebitda_total": -182900.75028649275
+        }
+      },
+      {
+        "key": "risks",
+        "title": "Risks",
+        "paragraphs": [
+          "Run with Monte Carlo and sensitivity enabled to see how robust these results are to price swings, disease and poor breeding years.",
+          "Ordinary IRR uniqueness is unproven in this solver domain; use NPV and MIRR.",
+          "Embedded future festival dates are projections requiring local confirmation; moon sighting can change the sale month near a month boundary. 2039 has both January and December occurrences."
+        ],
+        "figures": {}
+      }
+    ]
+  },
+  {
+    "name": "family-young-events",
+    "sections": [
+      {
+        "key": "overview",
+        "title": "Overview",
+        "paragraphs": [
+          "This projection runs 24 months (2 years) from 2026-08. You start with 50 does and 2 bucks plus 2 kids, 3 weaners and 4 growers — 70 head on the ground in month 1. You have scheduled 2 herd event(s) along the way — buy 2 head and sell 1 head.",
+          "The project needs ₹20.23 lakh in total: ₹17.19 lakh from the bank and ₹3.03 lakh from your own pocket, with ₹0 assumed up-front subsidy."
+        ],
+        "figures": {
+          "horizon_months": 24.0,
+          "starting_does": 50.0,
+          "starting_bucks": 2.0,
+          "scheduled_events": 2.0,
+          "project_cost": 2022929.6560530742,
+          "loan_amount": 1719490.207645113,
+          "subsidy_amount": 0.0,
+          "equity": 303439.44840796106
+        }
+      },
+      {
+        "key": "herd_trajectory",
+        "title": "Herd trajectory",
+        "paragraphs": [
+          "The herd grows from 70 head in month 1 to a peak of 136 in month 14 (year 2), ending at 129 head (49 breeding does and 3 bucks).",
+          "Over the 2 years the farm produces 218 kids, loses 47 animals to mortality, sells 92 for meat and disposes of 16 as culls.",
+          "Expect multiples at kidding: this breed twins in about 35-40% of kiddings and triplets run 5-13%, so the average mature litter is ~1.60 kids. First-time does (parity 1) run lighter — about 1.36 on average, mostly singles — so a maiden crop of singles is normal, not a problem."
+        ],
+        "figures": {
+          "start_herd": 69.76956679993177,
+          "peak_herd": 136.0664379928198,
+          "peak_month": 14.0,
+          "end_herd": 128.95096683219356,
+          "total_births": 218.18147227249415,
+          "total_deaths": 46.837777045218736,
+          "total_sold": 91.58611901105483,
+          "total_culled": 16.113712336011353
+        }
+      },
+      {
+        "key": "revenue_mix",
+        "title": "Where the money comes from",
+        "paragraphs": [
+          "Total revenue over 2 years is ₹11.61 lakh, largest source first: meat sales ₹9.39 lakh (80.9%), cull sales ₹1.24 lakh (10.7%), manure ₹97,895 (8.4%) and surplus milk ₹0 (0.0%).",
+          "Bakrid pricing (+35% on the base rate) applies in months 10, 22, 33, 45, 57, 68, 80, 91, 103, 115; 15 head sell inside them."
+        ],
+        "figures": {
+          "total_revenue": 1160872.682122209,
+          "meat_revenue": 938729.9378291528,
+          "cull_revenue": 124247.64976271038,
+          "milk_revenue": 0.0,
+          "manure_revenue": 97895.09453034596,
+          "festival_months": "10, 22, 33, 45, 57, 68, 80, 91, 103, 115",
+          "festival_uplift": 0.35
+        }
+      },
+      {
+        "key": "cost_mix",
+        "title": "Where the money goes",
+        "paragraphs": [
+          "Operating costs total ₹10.88 lakh over 2 years, largest first: feed ₹8.10 lakh (74.5%), vet ₹1.13 lakh (10.3%), insurance ₹71,659 (6.6%), overheads ₹50,318 (4.6%), selling ₹43,367 (4.0%), labour ₹0 (0.0%) and stock purchases ₹0 (0.0%).",
+          "Buying breeding stock cost ₹54,156 in cash; it is capitalized and depreciated over 60 months rather than expensed, so EBITDA above excludes it.",
+          "No hired labour is charged: the plan assumes family labour. At the configured ₹14,000/month wage the same attendance would cost about ₹3.36 lakh over the projection — profit is earned on unpaid family work, not the market.",
+          "Growing green fodder needs about 2.98 acre(s) on average; your cultivated area falls short in 24 month(s). This is a physical and financial shortfall: 143,066 kg as-fed is bought at the configured market price, while on-farm supply is costed separately.",
+          "Water demand runs about 736 litres/day on average, peaking near 827 litres/day — a lactating doe needs 10-15 L/day in the Deccan summer, so plan storage and supply for the peak, not the average."
+        ],
+        "figures": {
+          "total_opex": 1088093.2446745073,
+          "feed_cost": 810158.0524584827,
+          "labour_cost": 0.0,
+          "stock_purchases": 0.0,
+          "selling_cost": 43366.7198736431,
+          "vet_cost": 112591.55655091332,
+          "insurance_cost": 71659.34792011938,
+          "misc_cost": 50317.56787134886,
+          "land_requirement_acres": 2.980546310238825,
+          "annual_water_litres": 537065.3500925282,
+          "peak_water_litres_per_day": 827.1058497438016
+        }
+      },
+      {
+        "key": "viability_verdict",
+        "title": "Bottom line",
+        "paragraphs": [
+          "At these assumptions the project is NOT VIABLE. Over 2 years it earns ₹11.61 lakh against ₹10.88 lakh of operating costs — an operating surplus (EBITDA) of ₹72,779.",
+          "Watch out: the NPV is negative; the benefit-cost ratio is below 1.0; a unique IRR is not established (assessment: indeterminate); use NPV and MIRR; the weakest debt year has a DSCR below 1.0; the equity is never paid back inside the horizon; the funded working-capital reserve becomes negative and additional liquidity is needed."
+        ],
+        "figures": {
+          "verdict": "NOT VIABLE",
+          "npv": -221263.49413363464,
+          "irr": null,
+          "bcr": 0.9267937577951658,
+          "avg_dscr": 0.665528982803631,
+          "min_dscr": 0.665528982803631,
+          "payback_month": null,
+          "ebitda_total": 72779.43744770181
+        }
+      },
+      {
+        "key": "risks",
+        "title": "Risks",
+        "paragraphs": [
+          "Run with Monte Carlo and sensitivity enabled to see how robust these results are to price swings, disease and poor breeding years.",
+          "Ordinary IRR uniqueness is unproven in this solver domain; use NPV and MIRR.",
+          "Embedded future festival dates are projections requiring local confirmation; moon sighting can change the sale month near a month boundary. 2039 has both January and December occurrences."
+        ],
+        "figures": {}
+      }
+    ]
+  },
+  {
+    "name": "risk-no-events",
+    "sections": [
+      {
+        "key": "overview",
+        "title": "Overview",
+        "paragraphs": [
+          "This projection runs 24 months (2 years) from 2026-08. You start with 50 does and 2 bucks — 61 head on the ground in month 1.",
+          "The project needs ₹20.07 lakh in total: ₹17.06 lakh from the bank and ₹3.01 lakh from your own pocket, with ₹0 assumed up-front subsidy."
+        ],
+        "figures": {
+          "horizon_months": 24.0,
+          "starting_does": 50.0,
+          "starting_bucks": 2.0,
+          "scheduled_events": 0.0,
+          "project_cost": 2007470.5508555518,
+          "loan_amount": 1706349.968227219,
+          "subsidy_amount": 0.0,
+          "equity": 301120.5826283328
+        }
+      },
+      {
+        "key": "herd_trajectory",
+        "title": "Herd trajectory",
+        "paragraphs": [
+          "The herd grows from 61 head in month 1 to a peak of 133 in month 21 (year 2), ending at 127 head (49 breeding does and 3 bucks).",
+          "Over the 2 years the farm produces 212 kids, loses 45 animals to mortality, sells 78 for meat and disposes of 15 as culls.",
+          "Expect multiples at kidding: this breed twins in about 35-40% of kiddings and triplets run 5-13%, so the average mature litter is ~1.60 kids. First-time does (parity 1) run lighter — about 1.36 on average, mostly singles — so a maiden crop of singles is normal, not a problem."
+        ],
+        "figures": {
+          "start_herd": 60.93947182088094,
+          "peak_herd": 133.24565196813768,
+          "peak_month": 21.0,
+          "end_herd": 127.30723873419169,
+          "total_births": 212.46104630755076,
+          "total_deaths": 45.309918126200735,
+          "total_sold": 78.15039882538493,
+          "total_culled": 15.000593573757797
+        }
+      },
+      {
+        "key": "revenue_mix",
+        "title": "Where the money comes from",
+        "paragraphs": [
+          "Total revenue over 2 years is ₹10.17 lakh, largest source first: meat sales ₹8.07 lakh (79.3%), cull sales ₹1.15 lakh (11.3%), manure ₹95,502 (9.4%) and surplus milk ₹0 (0.0%).",
+          "Bakrid pricing (+35% on the base rate) applies in months 10, 22, 33, 45, 57, 68, 80, 91, 103, 115; 15 head sell inside them."
+        ],
+        "figures": {
+          "total_revenue": 1017272.0331470761,
+          "meat_revenue": 806890.2310990071,
+          "cull_revenue": 114880.29661435762,
+          "milk_revenue": 0.0,
+          "manure_revenue": 95501.50543371144,
+          "festival_months": "10, 22, 33, 45, 57, 68, 80, 91, 103, 115",
+          "festival_uplift": 0.35
+        }
+      },
+      {
+        "key": "cost_mix",
+        "title": "Where the money goes",
+        "paragraphs": [
+          "Operating costs total ₹12.00 lakh over 2 years, largest first: feed ₹5.83 lakh (48.6%), labour ₹3.52 lakh (29.3%), vet ₹1.08 lakh (9.0%), insurance ₹68,771 (5.7%), overheads ₹50,318 (4.2%), selling ₹37,620 (3.1%) and stock purchases ₹0 (0.0%).",
+          "Buying breeding stock cost ₹19,784 in cash; it is capitalized and depreciated over 60 months rather than expensed, so EBITDA above excludes it.",
+          "Growing green fodder needs about 2.86 acre(s) on average; your cultivated area falls short in 14 month(s). This is a physical and financial shortfall: 5,052 kg as-fed is bought at the configured market price, while on-farm supply is costed separately.",
+          "Water demand runs about 707 litres/day on average, peaking near 819 litres/day — a lactating doe needs 10-15 L/day in the Deccan summer, so plan storage and supply for the peak, not the average."
+        ],
+        "figures": {
+          "total_opex": 1200172.783433569,
+          "feed_cost": 583186.2332034514,
+          "labour_cost": 352222.97509944194,
+          "stock_purchases": 0.0,
+          "selling_cost": 37620.33549501425,
+          "vet_cost": 108054.70543572976,
+          "insurance_cost": 68770.96632858261,
+          "misc_cost": 50317.56787134886,
+          "land_requirement_acres": 2.8648930773137904,
+          "annual_water_litres": 516281.01103278983,
+          "peak_water_litres_per_day": 819.3111088523291
+        }
+      },
+      {
+        "key": "viability_verdict",
+        "title": "Bottom line",
+        "paragraphs": [
+          "At these assumptions the project is NOT VIABLE. Over 2 years it earns ₹10.17 lakh against ₹12.00 lakh of operating costs — an operating surplus (EBITDA) of -₹1.83 lakh.",
+          "Watch out: the NPV is negative; the benefit-cost ratio is below 1.0; a unique IRR is not established (assessment: indeterminate); use NPV and MIRR; the weakest debt year has a DSCR below 1.0; the equity is never paid back inside the horizon; the funded working-capital reserve becomes negative and additional liquidity is needed."
+        ],
+        "figures": {
+          "verdict": "NOT VIABLE",
+          "npv": -378940.90494921274,
+          "irr": null,
+          "bcr": 0.876755614571606,
+          "avg_dscr": 0.41318038819911873,
+          "min_dscr": 0.41318038819911873,
+          "payback_month": null,
+          "ebitda_total": -182900.75028649275
+        }
+      },
+      {
+        "key": "risks",
+        "title": "Risks",
+        "paragraphs": [
+          "Across 10 correlated Monte Carlo runs (varying prices, feed, fodder yield, operating cost, mortality and reproduction), the NPV averages -₹4.66 lakh with a 90% range of -₹6.17 lakh to -₹3.28 lakh. The project loses money in 100.0% of runs and runs short of operating cash in 100.0%. No adverse-event draws are configured, so this spread reflects parameter uncertainty only.",
+          "These figures carry sampling noise at 10 runs: the 5th-percentile NPV is -₹6.17 lakh with a bootstrap 95% interval of -₹6.99 lakh to -₹4.78 lakh, and the loss probability of 100.0% has a standard error of 0.0%. More runs narrow both.",
+          "The assumptions that move NPV the most: meat price (+20.0% moves NPV by ₹1.92 lakh), litter size (-20.0% moves NPV by -₹1.35 lakh), feed prices (-20.0% moves NPV by ₹1.13 lakh).",
+          "Ordinary IRR uniqueness is unproven in this solver domain; use NPV and MIRR.",
+          "Embedded future festival dates are projections requiring local confirmation; moon sighting can change the sale month near a month boundary. 2039 has both January and December occurrences."
+        ],
+        "figures": {
+          "mc_runs": 10.0,
+          "npv_mean": -466097.2037154693,
+          "npv_p5": -616615.6310374215,
+          "npv_p95": -328282.0225960237,
+          "npv_p5_ci_low": -699233.168272192,
+          "npv_p5_ci_high": -478445.4053272115,
+          "npv_p50_ci_low": -499336.8550193174,
+          "npv_p50_ci_high": -398234.3991666623,
+          "npv_p95_ci_low": -454592.6326089562,
+          "npv_p95_ci_high": -317159.5418546507,
+          "prob_npv_negative": 1.0,
+          "prob_npv_negative_se": 0.0,
+          "prob_liquidity_shortfall": 1.0,
+          "prob_dscr_below_one": 1.0,
+          "top_sensitivities": "meat_price, litter_size, feed_prices"
+        }
+      }
+    ]
+  },
+  {
+    "name": "risk-with-events",
+    "sections": [
+      {
+        "key": "overview",
+        "title": "Overview",
+        "paragraphs": [
+          "This projection runs 24 months (2 years) from 2026-08. You start with 50 does and 2 bucks — 61 head on the ground in month 1.",
+          "The project needs ₹20.07 lakh in total: ₹17.06 lakh from the bank and ₹3.01 lakh from your own pocket, with ₹0 assumed up-front subsidy."
+        ],
+        "figures": {
+          "horizon_months": 24.0,
+          "starting_does": 50.0,
+          "starting_bucks": 2.0,
+          "scheduled_events": 0.0,
+          "project_cost": 2007470.5508555518,
+          "loan_amount": 1706349.968227219,
+          "subsidy_amount": 0.0,
+          "equity": 301120.5826283328
+        }
+      },
+      {
+        "key": "herd_trajectory",
+        "title": "Herd trajectory",
+        "paragraphs": [
+          "The herd grows from 61 head in month 1 to a peak of 133 in month 21 (year 2), ending at 127 head (49 breeding does and 3 bucks).",
+          "Over the 2 years the farm produces 212 kids, loses 45 animals to mortality, sells 78 for meat and disposes of 15 as culls.",
+          "Expect multiples at kidding: this breed twins in about 35-40% of kiddings and triplets run 5-13%, so the average mature litter is ~1.60 kids. First-time does (parity 1) run lighter — about 1.36 on average, mostly singles — so a maiden crop of singles is normal, not a problem."
+        ],
+        "figures": {
+          "start_herd": 60.93947182088094,
+          "peak_herd": 133.24565196813768,
+          "peak_month": 21.0,
+          "end_herd": 127.30723873419169,
+          "total_births": 212.46104630755076,
+          "total_deaths": 45.309918126200735,
+          "total_sold": 78.15039882538493,
+          "total_culled": 15.000593573757797
+        }
+      },
+      {
+        "key": "revenue_mix",
+        "title": "Where the money comes from",
+        "paragraphs": [
+          "Total revenue over 2 years is ₹10.17 lakh, largest source first: meat sales ₹8.07 lakh (79.3%), cull sales ₹1.15 lakh (11.3%), manure ₹95,502 (9.4%) and surplus milk ₹0 (0.0%).",
+          "Bakrid pricing (+35% on the base rate) applies in months 10, 22, 33, 45, 57, 68, 80, 91, 103, 115; 15 head sell inside them."
+        ],
+        "figures": {
+          "total_revenue": 1017272.0331470761,
+          "meat_revenue": 806890.2310990071,
+          "cull_revenue": 114880.29661435762,
+          "milk_revenue": 0.0,
+          "manure_revenue": 95501.50543371144,
+          "festival_months": "10, 22, 33, 45, 57, 68, 80, 91, 103, 115",
+          "festival_uplift": 0.35
+        }
+      },
+      {
+        "key": "cost_mix",
+        "title": "Where the money goes",
+        "paragraphs": [
+          "Operating costs total ₹12.00 lakh over 2 years, largest first: feed ₹5.83 lakh (48.6%), labour ₹3.52 lakh (29.3%), vet ₹1.08 lakh (9.0%), insurance ₹68,771 (5.7%), overheads ₹50,318 (4.2%), selling ₹37,620 (3.1%) and stock purchases ₹0 (0.0%).",
+          "Buying breeding stock cost ₹19,784 in cash; it is capitalized and depreciated over 60 months rather than expensed, so EBITDA above excludes it.",
+          "Growing green fodder needs about 2.86 acre(s) on average; your cultivated area falls short in 14 month(s). This is a physical and financial shortfall: 5,052 kg as-fed is bought at the configured market price, while on-farm supply is costed separately.",
+          "Water demand runs about 707 litres/day on average, peaking near 819 litres/day — a lactating doe needs 10-15 L/day in the Deccan summer, so plan storage and supply for the peak, not the average."
+        ],
+        "figures": {
+          "total_opex": 1200172.783433569,
+          "feed_cost": 583186.2332034514,
+          "labour_cost": 352222.97509944194,
+          "stock_purchases": 0.0,
+          "selling_cost": 37620.33549501425,
+          "vet_cost": 108054.70543572976,
+          "insurance_cost": 68770.96632858261,
+          "misc_cost": 50317.56787134886,
+          "land_requirement_acres": 2.8648930773137904,
+          "annual_water_litres": 516281.01103278983,
+          "peak_water_litres_per_day": 819.3111088523291
+        }
+      },
+      {
+        "key": "viability_verdict",
+        "title": "Bottom line",
+        "paragraphs": [
+          "At these assumptions the project is NOT VIABLE. Over 2 years it earns ₹10.17 lakh against ₹12.00 lakh of operating costs — an operating surplus (EBITDA) of -₹1.83 lakh.",
+          "Watch out: the NPV is negative; the benefit-cost ratio is below 1.0; a unique IRR is not established (assessment: indeterminate); use NPV and MIRR; the weakest debt year has a DSCR below 1.0; the equity is never paid back inside the horizon; the funded working-capital reserve becomes negative and additional liquidity is needed."
+        ],
+        "figures": {
+          "verdict": "NOT VIABLE",
+          "npv": -378940.90494921274,
+          "irr": null,
+          "bcr": 0.876755614571606,
+          "avg_dscr": 0.41318038819911873,
+          "min_dscr": 0.41318038819911873,
+          "payback_month": null,
+          "ebitda_total": -182900.75028649275
+        }
+      },
+      {
+        "key": "risks",
+        "title": "Risks",
+        "paragraphs": [
+          "Across 10 correlated Monte Carlo runs (varying prices, feed, fodder yield, operating cost, mortality and reproduction, plus monthly adverse events and year-to-year price swings within each run), the NPV averages -₹4.85 lakh with a 90% range of -₹5.77 lakh to -₹3.32 lakh. The project loses money in 100.0% of runs and runs short of operating cash in 100.0%. Every risk path also draws disease events/drought events/market-crash events events, so this distribution sits below the headline (no-disaster) figures — compare runs against each other, not against the deterministic base case.",
+          "These figures carry sampling noise at 10 runs: the 5th-percentile NPV is -₹5.77 lakh with a bootstrap 95% interval of -₹5.90 lakh to -₹5.29 lakh, and the loss probability of 100.0% has a standard error of 0.0%. More runs narrow both.",
+          "The assumptions that move NPV the most: meat price (+20.0% moves NPV by ₹1.92 lakh), litter size (-20.0% moves NPV by -₹1.35 lakh), feed prices (-20.0% moves NPV by ₹1.13 lakh).",
+          "Ordinary IRR uniqueness is unproven in this solver domain; use NPV and MIRR.",
+          "Embedded future festival dates are projections requiring local confirmation; moon sighting can change the sale month near a month boundary. 2039 has both January and December occurrences."
+        ],
+        "figures": {
+          "mc_runs": 10.0,
+          "npv_mean": -485138.69472494384,
+          "npv_p5": -576852.5204107331,
+          "npv_p95": -332297.8643704715,
+          "npv_p5_ci_low": -589814.5420613418,
+          "npv_p5_ci_high": -528742.0386219405,
+          "npv_p50_ci_low": -559926.0743623973,
+          "npv_p50_ci_high": -447721.4552824386,
+          "npv_p95_ci_low": -480825.5225319452,
+          "npv_p95_ci_high": -271681.5193074513,
+          "prob_npv_negative": 1.0,
+          "prob_npv_negative_se": 0.0,
+          "prob_liquidity_shortfall": 1.0,
+          "prob_dscr_below_one": 1.0,
+          "top_sensitivities": "meat_price, litter_size, feed_prices"
+        }
+      }
+    ]
+  }
+]

@@ -37,6 +37,11 @@ test.describe("tasks guards", () => {
     // form-linked: an "Open form" link, no raw Complete button.
     await page.goto("/tasks");
     await page.getByRole("tab", { name: /Overdue/ }).click();
+    // Rows update optimistically; confirm the shareable tab URL has committed
+    // before the next helper starts a hard navigation to another page.
+    await expect(page).toHaveURL(
+      (url) => url.pathname === "/tasks" && url.searchParams.get("tab") === "overdue",
+    );
     const ultrasoundRow = page.getByRole("row", {
       name: new RegExp(`Pregnancy check: ${doeTag}`),
     });

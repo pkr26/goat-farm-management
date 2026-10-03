@@ -27,6 +27,7 @@ import copy
 import hashlib
 import json
 import sys
+import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -313,7 +314,7 @@ def apply_site(node: ast.AST, site: Site, parents: dict[int, ast.AST]) -> bool:
 def splice(source: str, stmt: ast.stmt, new_text: str) -> str:
     lines = source.splitlines(keepends=True)
     s, e = stmt.lineno - 1, stmt.end_lineno  # exclusive
-    replacement = " " * stmt.col_offset + new_text + "\n"
+    replacement = textwrap.indent(new_text, " " * stmt.col_offset) + "\n"
     return "".join(lines[:s]) + replacement + "".join(lines[e:])
 
 
@@ -321,7 +322,7 @@ def generate() -> None:
     manifest: list[dict[str, Any]] = []
     for path in target_files():
         rel = path.relative_to(BACKEND).as_posix()
-        source = path.read_text()
+        source = path.read_bytes().decode("utf-8")
         tree = ast.parse(source)
         bad = excluded_node_ids(tree)
         parents = build_parent_map(tree)
@@ -354,13 +355,6 @@ def generate() -> None:
                     continue
                 try:
                     new_stmt_src = ast.unparse(stmt_copy)
-                except Exception:
-                    continue
-            if site.kind != "loopjump":
-                # `break`/`continue` don't compile standalone; the full-file
-                # compile below still validates them.
-                try:
-                    compile(new_stmt_src, "<mutant>", "exec")
                 except Exception:
                     continue
             # Every mutated site sits inside a positioned stmt/expr node —
@@ -397,6 +391,10 @@ def generate() -> None:
                     "stmt_line": stmt.lineno,
                     "stmt_end_line": stmt.end_lineno,
                     "stmt_col": stmt.col_offset,
+                    "source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "orig_span": "".join(
+                        source.splitlines(keepends=True)[stmt.lineno - 1 : stmt.end_lineno]
+                    ),
                     "orig_stmt": ast.unparse(stmt),
                     "mut_stmt": new_stmt_src,
                 }

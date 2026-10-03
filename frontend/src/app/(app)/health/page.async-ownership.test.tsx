@@ -307,6 +307,18 @@ describe("HealthPage async ownership guards", () => {
 
   // ---------- deep-link hydration ----------
 
+  it("opens a fresh form for create intent and consumes it on dismissal", async () => {
+    window.history.replaceState({}, "", "/health?create=1");
+    const user = userEvent.setup();
+    const view = renderWithProviders(<HealthPage />);
+    const dialog = await screen.findByRole("dialog", { name: "Add health event" });
+    expect(within(dialog).getByRole("button", { name: "Animal *" })).not.toHaveTextContent("G-003");
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(replaceMock).toHaveBeenCalledWith("/health");
+    view.rerender(<HealthPage />);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("leaves an open draft alone when a navigation repeats the same deep link", async () => {
     // Next reuses this page for query-only navigation. A URL that adds a
     // returnTo but points at the same animal is the link already hydrated,
@@ -344,7 +356,7 @@ describe("HealthPage async ownership guards", () => {
     renderWithProviders(<HealthPage />);
     const dialog = await screen.findByRole("dialog", { name: "Add health event" });
     await waitFor(() =>
-      expect(within(dialog).getByLabelText("Linked duty (completes it)")).toHaveTextContent(
+      expect(within(dialog).getByLabelText("Linked duty")).toHaveTextContent(
         "Herd PPR round",
       ),
     );
@@ -354,7 +366,7 @@ describe("HealthPage async ownership guards", () => {
     expect(within(dialog).getByRole("radio", { name: "Whole bucket" })).toBeChecked();
     expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeDisabled();
     expect(
-      within(dialog).getByText(/closes only with a whole-bucket event/i),
+      within(dialog).getByText(/completes when all targets are covered or explicitly excluded/i),
     ).toBeInTheDocument();
     // Saving still needs a bucket: submitting the un-targeted round surfaces
     // the bucket field's own error (bulk scopes label the submit button
@@ -421,7 +433,7 @@ describe("HealthPage async ownership guards", () => {
         "G-003 · Kaveri — LACTATING",
       ),
     );
-    expect(within(dialog).getByLabelText("Linked duty (completes it)")).toHaveTextContent(
+    expect(within(dialog).getByLabelText("Linked duty")).toHaveTextContent(
       "Ring vaccination",
     );
     expect(within(dialog).getByLabelText("Disease target")).toHaveValue("Ring vaccination");
@@ -462,7 +474,7 @@ describe("HealthPage async ownership guards", () => {
         "G-003 · Kaveri — LACTATING",
       ),
     );
-    expect(within(dialog).getByLabelText("Linked duty (completes it)")).toHaveTextContent(
+    expect(within(dialog).getByLabelText("Linked duty")).toHaveTextContent(
       "PPR booster round",
     );
     expect(within(dialog).queryByText(/Could not link duty/)).not.toBeInTheDocument();
@@ -497,7 +509,7 @@ describe("HealthPage async ownership guards", () => {
     // The resolved duty is the only linkable one, so the select appearing at
     // all is the moment the lookup reached the effect: the assertions below
     // are not racing it.
-    const dutyTrigger = await within(dialog).findByLabelText("Linked duty (completes it)");
+    const dutyTrigger = await within(dialog).findByLabelText("Linked duty");
     await settleAct();
 
     expect(dutyTrigger).toHaveTextContent("— none —");

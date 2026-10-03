@@ -1,0 +1,50 @@
+# Main domain pages — complete visible source reads
+# All gaps in earlier sampled pages filled on continuation; rg inventories do not count as full reads.
+frontend/src/app/(app)/animals/page.tsx | FULL 1–1730 (nontruncated overlapping chunks)
+frontend/src/app/(app)/animals/[id]/page.tsx | FULL 1–2419 (nontruncated overlapping chunks)
+frontend/src/app/(app)/breeding/page.tsx | FULL 1–1397 (nontruncated overlapping chunks)
+frontend/src/app/(app)/kidding/page.tsx | FULL 1–1558 (nontruncated overlapping chunks)
+frontend/src/app/(app)/feeding/page.tsx | FULL 1–1186 (nontruncated overlapping chunks)
+frontend/src/app/(app)/feeding/inventory/page.tsx | FULL 1–677 (nontruncated overlapping chunks)
+frontend/src/app/(app)/feeding/recipes/page.tsx | FULL 1–167 (nontruncated overlapping chunks)
+frontend/src/app/(app)/purchases/page.tsx | FULL 1–1140 (nontruncated overlapping chunks)
+frontend/src/app/(app)/finance/page.tsx | FULL 1–1500 (nontruncated overlapping chunks)
+frontend/src/app/(app)/finance/insurance/page.tsx | FULL 1–1086 (nontruncated overlapping chunks)
+frontend/src/app/(app)/health/page.tsx | FULL 1–2175 (nontruncated overlapping chunks)
+frontend/src/app/(app)/tasks/page.tsx | FULL 1–1328 (nontruncated overlapping chunks)
+frontend/src/app/(app)/dashboard/page.tsx | FULL 1–1020 (nontruncated overlapping chunks)
+
+# Supporting source reads
+frontend/AGENTS.md | FULL
+frontend/src/app/(app)/animals/new/page.tsx | FULL
+frontend/src/app/(app)/breeding/[id]/ultrasound/page.tsx | FULL 1–69
+frontend/src/app/(app)/health/schedule/[animalId]/page.tsx | FULL 1–296
+frontend/src/app/(app)/kidding/new/page.tsx | FULL 1–43
+frontend/src/app/(app)/health/new/page.tsx | FULL 1–39
+frontend/src/app/(app)/health/task-prefill.ts | FULL 1–27
+frontend/src/lib/permission-navigation.ts | FULL 1–179 (initial 1–160, final 161–179)
+frontend/src/lib/use-single-flight.ts | FULL
+frontend/src/lib/farm-scope-guard.ts | FULL
+frontend/src/lib/task-action-access.ts | FULL
+frontend/src/lib/idempotent-request.ts | SAMPLED 1–240
+frontend/src/api/custom-instance.ts | FULL
+frontend/src/api/generated/models/dashboardOut.ts | FULL
+frontend/src/components/ui/dialog.tsx | FULL
+frontend/src/test/render.tsx | FULL (probe harness)
+frontend/src/test/msw-server.ts | SAMPLED 1–160 (probe harness)
+frontend/src/app/(app)/finance/insurance/page.test.tsx | SAMPLED 1–270 (fixtures/harness only)
+frontend/src/app/(app)/finance/page.extended.test.tsx | SAMPLED 1–140 (fixtures/harness only)
+frontend/src/app/(app)/animals/[id]/page.phenotype.test.tsx | SAMPLED 1–245 (fixtures/harness only)
+frontend/vitest.config.ts | FULL
+frontend/package.json | FULL
+backend/app/services/animals.py | SYMBOLS ONLY (rg)
+backend/app/api/animals.py | SYMBOLS ONLY (rg)
+backend/app/api/dashboard.py | SAMPLED 90–180, 410–436, 489–505 plus rg occurrences
+backend/app/schemas/dashboard.py | SYMBOLS ONLY (rg)
+backend/app/permissions.py | SAMPLED 1–125 plus rg occurrences
+backend/app/api/team.py | SYMBOLS ONLY (rg)
+backend/app/schemas/team.py | SYMBOLS ONLY (rg)
+
+# Mechanical inventory commands
+rg --files frontend/src/app/(app) (filtered to assigned modules)
+wc -l on the 13 main assigned page.tsx files (17,383 total)

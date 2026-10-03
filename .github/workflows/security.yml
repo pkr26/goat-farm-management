@@ -52,7 +52,7 @@ jobs:
         working-directory: frontend
         run: |
           corepack enable
-          pnpm audit --audit-level=low
+          pnpm audit:verified
 
   codeql:
     name: CodeQL (${{ matrix.language }})

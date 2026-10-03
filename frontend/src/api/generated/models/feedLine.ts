@@ -6,9 +6,10 @@
  */
 
 /**
- * One (building, recipe) ration line for a day: the per-head rate, the
- * daily total and the 40/20/40 shift split (gram-exact: the daily total is
- * the sum of the three shifts).
+ * One pen/recipe/rate line with independently measured shift occupants.
+ *
+ * Each current head receives the 40/20/40 share at its actual pen. Total
+ * delivered feed is the gram-rounded sum; prepared/unused stock is separate.
  */
 export interface FeedLine {
   day: number;
@@ -21,4 +22,7 @@ export interface FeedLine {
   morning_kg: number;
   afternoon_kg: number;
   night_kg: number;
+  morning_heads?: number | null;
+  afternoon_heads?: number | null;
+  night_heads?: number | null;
 }

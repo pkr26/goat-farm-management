@@ -109,6 +109,50 @@ class HealthEventListOut(BaseModel):
     offset: int
 
 
+class HealthRoundTargetOut(BaseModel):
+    animal_id: int
+    animal_tag: str
+    animal_status: str
+    current_bucket: str
+    covered_components: list[str]
+    exclusion_reason: str | None
+    excluded_by_id: int | None
+    excluded_at: dt.datetime | None
+    inclusion_reason: str | None
+    added_at: dt.datetime
+
+
+class HealthRoundOut(BaseModel):
+    task_id: int
+    task_status: str
+    initialized: bool
+    snapshot_at: dt.datetime | None
+    required_components: list[str]
+    total_targets: int
+    excluded_targets: int
+    covered_targets: int
+    remaining_units: int
+    available_additions: int
+    targets: list[HealthRoundTargetOut]
+    limit: int
+    offset: int
+
+
+class HealthRoundTargetChangeIn(StrictInputModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    animal_ids: list[Annotated[StrictInt, Field(ge=1, le=MAX_INT32_ID)]] = Field(
+        min_length=1, max_length=MAX_BULK_BUCKET_TARGETS
+    )
+    reason: PostgresText = Field(min_length=1, max_length=MAX_FREE_TEXT_LENGTH)
+
+    @model_validator(mode="after")
+    def _unique_targets(self) -> "HealthRoundTargetChangeIn":
+        if len(set(self.animal_ids)) != len(self.animal_ids):
+            raise ValueError("animal_ids must be unique")
+        return self
+
+
 class HealthAnimalOptionOut(BaseModel):
     """Least-privilege animal identity exposed inside health workflows."""
 
@@ -148,6 +192,9 @@ class HealthBulkTargetIn(StrictInputModel):
     bucket: "BucketStr | None" = None
     purchase_batch_id: BoundedId | None = None
     task_id: BoundedId | None = None
+    # Herd-round preview selects one programme component at a time, so
+    # previously dosed/excluded animals never reappear in the reviewed set.
+    round_component: PostgresText | None = Field(default=None, max_length=120)
 
     @model_validator(mode="after")
     def _one_target(self) -> "HealthBulkTargetIn":
@@ -161,8 +208,8 @@ class HealthBulkTargetIn(StrictInputModel):
                 raise ValueError("purchase_batch_id is required for batch scope")
             if self.bucket is not None:
                 raise ValueError("bucket only applies to bucket scope")
-        if self.task_id is not None and self.scope != "batch":
-            raise ValueError("task_id only applies to batch scope")
+        if self.round_component is not None and self.task_id is None:
+            raise ValueError("round_component requires a linked herd duty")
         return self
 
 
@@ -171,6 +218,7 @@ class HealthBulkTargetPreviewOut(BaseModel):
     bucket: "BucketStr | None"
     purchase_batch_id: int | None
     task_id: int | None
+    round_component: str | None = None
     target_animal_ids: list[int]
     target_animals: list[AnimalIdentityOut]
     # Age (completed months on the farm's business date) per target animal,

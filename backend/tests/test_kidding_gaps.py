@@ -25,11 +25,17 @@ from app.utils import today
 
 from .conftest import owner_with_farm
 from .test_e2e_lifecycle_audit import breed, make_animal, record_kidding
+from .type_helpers import JsonObject
 
 
 async def _confirmed_pregnancy(
-    client: httpx.AsyncClient, owner: dict, *, tag: str, bred_days_ago: int, kid_count: int = 2
-) -> tuple[dict, dict]:
+    client: httpx.AsyncClient,
+    owner: dict[str, str],
+    *,
+    tag: str,
+    bred_days_ago: int,
+    kid_count: int = 2,
+) -> tuple[JsonObject, JsonObject]:
     doe = await make_animal(client, owner, f"{tag}-F")
     buck = await make_animal(client, owner, f"{tag}-M", sex="M", weight_kg=32.0)
     br = await breed(client, owner, doe["id"], buck["id"], today() - timedelta(days=bred_days_ago))

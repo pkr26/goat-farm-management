@@ -6,12 +6,14 @@
  * page.test.tsx; these tests pin the chrome around it.
  */
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
+import { currentRequestScope, setAccessToken, setCurrentFarmId } from "@/lib/api-client";
+import type { WorkerOperation } from "@/lib/worker-outbox";
 import { server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
@@ -33,6 +35,10 @@ const {
   queueDepthMock,
   startWorkersMock,
   drainQueueMock,
+  readOutboxMock,
+  clearAcceptedMock,
+  toastSuccessMock,
+  toastErrorMock,
   swRegistration,
   swRegisterMock,
 } = vi.hoisted(() => ({
@@ -41,7 +47,7 @@ const {
   signOutMock: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   authState: {
     user: { id: 7, email: "pin@farm.in", name: "Pin Worker" } as
-      | { id: number; email: string; name: string | null }
+      | { id: number; email: string; name: string | null; must_change_password?: boolean }
       | null,
     farmId: 3 as number | null,
     loading: false,
@@ -52,8 +58,12 @@ const {
   queueDepthMock: vi.fn<
     (scopes?: { actorScope: string; farmScope: string }) => number
   >(() => 0),
-  startWorkersMock: vi.fn(() => vi.fn()),
+  startWorkersMock: vi.fn(),
   drainQueueMock: vi.fn(),
+  readOutboxMock: vi.fn(),
+  clearAcceptedMock: vi.fn(),
+  toastSuccessMock: vi.fn(),
+  toastErrorMock: vi.fn(),
   swRegistration: { update: vi.fn<() => Promise<void>>(() => Promise.resolve()) },
   swRegisterMock: vi.fn(),
 }));
@@ -91,6 +101,23 @@ vi.mock("@/lib/offline-queue", async (importOriginal) => ({
   wipeOfflineQueue: wipeQueueMock,
   clearOfflineQueueDrainBackoff: clearBackoffMock,
 }));
+vi.mock("@/lib/worker-outbox", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  startWorkerOutbox: startWorkersMock,
+  readWorkerOutbox: readOutboxMock,
+  clearAcceptedWorkerReceipts: clearAcceptedMock,
+}));
+vi.mock("sonner", async (importOriginal) => {
+  const original = await importOriginal<typeof import("sonner")>();
+  return { ...original, toast: { ...original.toast, success: toastSuccessMock, error: toastErrorMock } };
+});
+
+function pendingRecords(count: number): WorkerOperation[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: String(index), path: `/api/tasks/${index + 1}/complete`, method: "POST", body: null,
+    idempotencyKey: `key-${index}`, queuedAt: Date.now(), state: "pending", actorScope: "7", farmScope: "3",
+  }));
+}
 
 beforeAll(() => {
   swRegisterMock.mockResolvedValue(swRegistration);
@@ -101,6 +128,11 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  setAccessToken("worker-test-token", 7); setCurrentFarmId("3");
+  server.use(
+    http.post("/api/auth/refresh", () => HttpResponse.json({ access_token: "worker-test-token", user: { id: 7, email: "pin@farm.in", name: "Pin Worker", must_change_password: false } })),
+    http.get("/api/auth/farms", () => HttpResponse.json([{ id: 3, name: "Tablet Farm", location: null, timezone: "Asia/Kolkata", role: null }])),
+  );
   pushMock.mockClear();
   replaceMock.mockClear();
   signOutMock.mockClear();
@@ -112,6 +144,14 @@ beforeEach(() => {
   clearBackoffMock.mockClear();
   queueDepthMock.mockReset().mockReturnValue(0);
   startWorkersMock.mockClear();
+  startWorkersMock.mockImplementation((getScopes: () => { actorScope: string; farmScope: string } | null, onChange: (records: WorkerOperation[]) => void) => {
+    const scope = getScopes();
+    if (scope) onChange(pendingRecords(queueDepthMock({ actorScope: scope.actorScope, farmScope: scope.farmScope })));
+    return vi.fn();
+  });
+  readOutboxMock.mockReset().mockImplementation(async () => pendingRecords(queueDepthMock()));
+  clearAcceptedMock.mockReset().mockResolvedValue(2);
+  toastSuccessMock.mockClear(); toastErrorMock.mockClear();
   drainQueueMock.mockClear();
   swRegistration.update.mockClear();
   swRegisterMock.mockClear();
@@ -122,7 +162,138 @@ function renderShell(children = <p>duty board</p>) {
   return renderWithProviders(<WorkerShell>{children}</WorkerShell>, createTestQueryClient());
 }
 
+function acceptedReceipts(): WorkerOperation[] {
+  return pendingRecords(2).map((record, index) => ({ ...record, id: `accepted-${index}`, state: "sent" }));
+}
+
+function showAcceptedReceipts(): WorkerOperation[] {
+  const records = [pendingRecords(1)[0], ...acceptedReceipts()];
+  startWorkersMock.mockImplementation((_getScope: unknown, onChange: (items: WorkerOperation[]) => void) => {
+    onChange(records); return vi.fn();
+  });
+  readOutboxMock.mockResolvedValue(records);
+  return records;
+}
+
+describe("WorkerShell accepted receipt cleanup", () => {
+  it("confirms the exact accepted count and clears once only after explicit consent", async () => {
+    const records = showAcceptedReceipts();
+    let complete!: (count: number) => void;
+    clearAcceptedMock.mockImplementation(() => new Promise<number>((resolve) => { complete = resolve; }));
+    const user = userEvent.setup(); renderShell();
+    await user.click(await screen.findByText("Saved duties and delivery receipts"));
+    await user.click(screen.getByTestId("worker-clear-accepted"));
+    const dialog = await screen.findByRole("alertdialog", { name: "Clear accepted receipts?" });
+    expect(within(dialog).getByText(/Remove 2 accepted receipts/)).toHaveTextContent("Pending duties and duties needing review will stay saved.");
+    expect(clearAcceptedMock).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByTestId("worker-clear-accepted-cancel"));
+    expect(clearAcceptedMock).not.toHaveBeenCalled();
+    await user.click(screen.getByTestId("worker-clear-accepted"));
+    const confirm = await screen.findByTestId("worker-clear-accepted-confirm");
+    fireEvent.click(confirm); fireEvent.click(confirm);
+    expect(clearAcceptedMock).toHaveBeenCalledTimes(1);
+    expect(clearAcceptedMock).toHaveBeenCalledWith(currentRequestScope(), ["accepted-0", "accepted-1"]);
+    expect(confirm).toBeDisabled();
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    complete(2);
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith("2 accepted receipts cleared."));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("worker-clear-accepted")).not.toBeInTheDocument();
+    expect(screen.getByTestId("worker-receipts")).toHaveTextContent("Waiting to send");
+    expect(records[0].state).toBe("pending");
+  });
+
+  it("keeps receipts and the confirmation when cleanup storage fails", async () => {
+    showAcceptedReceipts(); clearAcceptedMock.mockRejectedValue(new Error("transaction aborted"));
+    const user = userEvent.setup(); renderShell();
+    await user.click(await screen.findByText("Saved duties and delivery receipts"));
+    await user.click(screen.getByTestId("worker-clear-accepted"));
+    await user.click(await screen.findByTestId("worker-clear-accepted-confirm"));
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith("Receipts could not be cleared. Your saved duties are still on this tablet."));
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog", { name: "Clear accepted receipts?" })).toBeInTheDocument();
+    expect(screen.getByTestId("worker-receipts")).toHaveTextContent("Accepted by the server");
+    expect(screen.getByTestId("worker-receipts")).toHaveTextContent("Waiting to send");
+  });
+
+  it.each(["new identity", "same farm leave and return"])("an old confirmation cannot clear receipts after %s", async (change) => {
+    showAcceptedReceipts(); const user = userEvent.setup(); renderShell();
+    await user.click(await screen.findByText("Saved duties and delivery receipts"));
+    await user.click(screen.getByTestId("worker-clear-accepted"));
+    const confirm = await screen.findByTestId("worker-clear-accepted-confirm");
+    if (change === "new identity") setAccessToken("new-worker", 8);
+    else { setCurrentFarmId("4"); setCurrentFarmId("3"); }
+    fireEvent.click(confirm);
+    expect(clearAcceptedMock).not.toHaveBeenCalled();
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+  });
+
+  it("does not open an old worker's confirmation when its pending receipt read resolves after handover", async () => {
+    const records = showAcceptedReceipts();
+    let complete!: (items: WorkerOperation[]) => void;
+    readOutboxMock.mockImplementation(() => new Promise<WorkerOperation[]>((resolve) => { complete = resolve; }));
+    const user = userEvent.setup(); renderShell();
+    await user.click(await screen.findByText("Saved duties and delivery receipts"));
+    const button = screen.getByTestId("worker-clear-accepted");
+    fireEvent.click(button); fireEvent.click(button);
+    expect(readOutboxMock).toHaveBeenCalledTimes(1);
+    setAccessToken("replacement-worker", 8);
+    complete(records);
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(clearAcceptedMock).not.toHaveBeenCalled();
+  });
+
+  it("does not apply an old cleanup result or success toast to a newer identity", async () => {
+    showAcceptedReceipts();
+    let complete!: (count: number) => void;
+    clearAcceptedMock.mockImplementation(() => new Promise<number>((resolve) => { complete = resolve; }));
+    const user = userEvent.setup(); renderShell();
+    await user.click(await screen.findByText("Saved duties and delivery receipts"));
+    await user.click(screen.getByTestId("worker-clear-accepted"));
+    const confirm = await screen.findByTestId("worker-clear-accepted-confirm");
+    fireEvent.click(confirm);
+    setAccessToken("replacement-worker", 8); complete(2);
+    await waitFor(() => expect(confirm).not.toBeDisabled());
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("WorkerShell chrome", () => {
+  it("keeps account password actions unavailable for ordinary PIN workers", async () => {
+    renderShell();
+    expect(await screen.findByTestId("worker-identity")).toHaveTextContent("Pin Worker");
+    expect(screen.queryByTestId("worker-change-password")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Account/ })).not.toBeInTheDocument();
+  });
+
+  it("lets a password worker rotate a temporary password from a 44px header action", async () => {
+    authState.user = { id: 7, email: "worker@farm.in", name: "Password Worker", must_change_password: true };
+    const passwordChanges: unknown[] = [];
+    server.use(http.post("/api/auth/change-password", async ({ request }) => {
+      passwordChanges.push(await request.json());
+      return HttpResponse.json({ access_token: "rotated-worker-token" });
+    }));
+    const user = userEvent.setup();
+    renderShell();
+    const trigger = await screen.findByTestId("worker-change-password");
+    expect(trigger).toHaveAccessibleName("Change password");
+    expect(trigger).toHaveStyle({ minHeight: "44px" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Account & password" });
+    expect(within(dialog).queryByRole("button", { name: /export|delete account|enable two-factor/i })).not.toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText("Current password for password change"), "temporary-password");
+    await user.type(within(dialog).getByLabelText("New password"), "replacement-password");
+    await user.type(within(dialog).getByLabelText("Confirm new password"), "replacement-password");
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+    await waitFor(() => expect(passwordChanges).toEqual([{
+      current_password: "temporary-password", new_password: "replacement-password",
+    }]));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(signOutMock).not.toHaveBeenCalled();
+  });
+
   it("renders the farm, the worker's identity and the board", async () => {
     // Through the default export (the layout Next mounts), not WorkerShell
     // directly, so the wrapper itself is exercised too.
@@ -141,13 +312,10 @@ describe("WorkerShell chrome", () => {
     // The third argument is the live-session probe: a slow drain that
     // outlives its login stops instead of replaying under the next actor
     // (2026-10-02 audit) — so the shell must hand over its scopes reader.
-    expect(drainQueueMock).toHaveBeenCalledWith(
-      { actorScope: "7", farmScope: "3" },
-      undefined,
-      expect.any(Function),
-    );
-    const probe = drainQueueMock.mock.calls[0]?.[2] as () => unknown;
-    expect(probe()).toEqual({ actorScope: "7", farmScope: "3" });
+    const probe = startWorkersMock.mock.calls[0]?.[0] as () => unknown;
+    expect(probe()).toMatchObject({ actorScope: "7", farmScope: "3" });
+    setAccessToken("replacement-worker", 8);
+    expect(probe()).toBeNull();
   });
 
   it("shows the queue-depth badge only while records wait to send", async () => {
@@ -220,7 +388,28 @@ describe("WorkerShell chrome", () => {
 });
 
 describe("WorkerShell end shift", () => {
-  it("wipes the queued writes, signs out and returns to the PIN pad", async () => {
+  it("an old confirmation cannot end a new worker's session", async () => {
+    const user = userEvent.setup();
+    queueDepthMock.mockReturnValue(1);
+    renderShell();
+    await user.click(await screen.findByTestId("end-shift"));
+    const confirm = await screen.findByTestId("end-shift-confirm");
+    setAccessToken("new-worker-token", 8);
+    fireEvent.click(confirm);
+    expect(signOutMock).not.toHaveBeenCalled();
+  });
+  it("reads the current committed queue at click time even when the badge was empty", async () => {
+    const user = userEvent.setup();
+    renderShell();
+    await screen.findByTestId("end-shift");
+    expect(screen.queryByTestId("worker-queue-depth")).not.toBeInTheDocument();
+    queueDepthMock.mockReturnValue(1);
+    await user.click(screen.getByTestId("end-shift"));
+    expect(await screen.findByText("Unsent duties")).toBeInTheDocument();
+    expect(signOutMock).not.toHaveBeenCalled();
+    expect(wipeQueueMock).not.toHaveBeenCalled();
+  });
+  it("preserves queued writes, signs out and returns to the PIN pad", async () => {
     const user = userEvent.setup();
     renderShell();
 
@@ -230,10 +419,7 @@ describe("WorkerShell end shift", () => {
     // leak into the next session, and the tablet goes back to the PIN pad
     // (never the manager's /login form).
     await waitFor(() => expect(signOutMock).toHaveBeenCalled());
-    expect(wipeQueueMock).toHaveBeenCalled();
-    expect(wipeQueueMock.mock.invocationCallOrder[0]).toBeLessThan(
-      signOutMock.mock.invocationCallOrder[0],
-    );
+    expect(wipeQueueMock).not.toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith("/worker/login");
   });
 
@@ -244,10 +430,10 @@ describe("WorkerShell end shift", () => {
     await user.click(await screen.findByTestId("end-shift"));
 
     await waitFor(() => expect(signOutMock).toHaveBeenCalled());
-    expect(clearBackoffMock).toHaveBeenCalled();
+    expect(readOutboxMock).toHaveBeenCalledWith(currentRequestScope());
   });
 
-  it("asks before discarding queued writes the badge promised would send (M2)", async () => {
+  it("explains retained pending work before handover", async () => {
     const user = userEvent.setup();
     queueDepthMock.mockReturnValue(2);
     renderShell();
@@ -258,7 +444,7 @@ describe("WorkerShell end shift", () => {
     // out until the worker explicitly chooses to discard.
     expect(await screen.findByText("Unsent duties")).toBeInTheDocument();
     expect(
-      screen.getByText("2 saved duties have not been sent yet. Ending the shift now deletes them permanently."),
+      screen.getByText("2 saved duties have not been sent yet. They will stay on this tablet for you to send or review after signing in again."),
     ).toBeInTheDocument();
     expect(signOutMock).not.toHaveBeenCalled();
     expect(wipeQueueMock).not.toHaveBeenCalled();
@@ -266,8 +452,7 @@ describe("WorkerShell end shift", () => {
     await user.click(await screen.findByTestId("end-shift-confirm"));
 
     await waitFor(() => expect(signOutMock).toHaveBeenCalled());
-    expect(wipeQueueMock).toHaveBeenCalled();
-    expect(clearBackoffMock).toHaveBeenCalled();
+    expect(wipeQueueMock).not.toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith("/worker/login");
   });
 
@@ -280,7 +465,7 @@ describe("WorkerShell end shift", () => {
 
     // Singular copy for exactly one queued record (L7).
     expect(
-      await screen.findByText("1 saved duty has not been sent yet. Ending the shift now deletes it permanently."),
+      await screen.findByText("1 saved duty has not been sent yet. It will stay on this tablet for you to send or review after signing in again."),
     ).toBeInTheDocument();
     await user.click(await screen.findByTestId("end-shift-cancel"));
 
@@ -323,6 +508,21 @@ describe("WorkerShell language default", () => {
 });
 
 describe("WorkerShell session gate", () => {
+  it.each(["/worker/login", "/worker/offline"])("keeps %s children mounted across session transitions without worker chrome", async (pathname) => {
+    navState.pathname = pathname;
+    authState.user = null;
+    const children = <label>Setup continuity<input defaultValue="manager@farm.in" /></label>;
+    const view = renderShell(children);
+    const input = await screen.findByLabelText("Setup continuity");
+    authState.user = { id: 7, email: "manager@farm.in", name: "Manager" };
+    view.rerender(<WorkerShell>{children}</WorkerShell>);
+    expect(screen.getByLabelText("Setup continuity")).toBe(input);
+    expect(input).toHaveValue("manager@farm.in");
+    expect(screen.queryByTestId("worker-identity")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("end-shift")).not.toBeInTheDocument();
+    expect(signOutMock).not.toHaveBeenCalled();
+  });
+
   it("sends a signed-out session to the /worker/login PIN pad (W1)", async () => {
     authState.user = null;
     authState.farmId = null;

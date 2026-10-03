@@ -1,0 +1,8 @@
+Command: .venv/bin/python -m pytest -q tests/test_platform_ops_20261003.py::test_private_metrics_authentication_and_collection_are_independent
+Cwd: /Users/pradeepreddy/Desktop/goat-farm-management-main/backend
+GOATFARM_TEST_DB=herdly_platform_metrics_20261003_test
+Exit code: 0
+
+.                                                                        [100%]
+1 passed in 2.17s
+

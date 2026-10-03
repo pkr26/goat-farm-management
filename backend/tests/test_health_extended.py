@@ -28,6 +28,7 @@ from app.utils import add_months, today
 
 from .conftest import owner_with_farm, provisioned_worker_login
 from .test_tasks_extended import add_worker, make_custom_role, worker_headers
+from .type_helpers import Headers, JsonObject, json_object, json_objects
 
 WORKER_PW = "workerpass123"
 
@@ -41,7 +42,7 @@ def iso(d: date) -> str:
 
 async def make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: Headers,
     tag: str = "A-001",
     sex: str = "F",
     bucket: str = "FOUNDATION",
@@ -57,11 +58,11 @@ async def make_animal(
         payload.setdefault("historical_import_reason", "Existing-herd test fixture")
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def make_batch(
-    client: httpx.AsyncClient, headers: dict, **overrides: object
+    client: httpx.AsyncClient, headers: Headers, **overrides: object
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "date": iso(today()),
@@ -70,13 +71,15 @@ async def make_batch(
     } | overrides
     resp = await client.post("/api/purchases/new", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def post_event(client: httpx.AsyncClient, headers: dict, **payload: object) -> httpx.Response:
+async def post_event(
+    client: httpx.AsyncClient, headers: Headers, **payload: object
+) -> httpx.Response:
     scope = payload.get("scope", "animal")
     if scope in {"bucket", "batch"} and "expected_animal_ids" not in payload:
-        target = {"scope": scope}
+        target: dict[str, object] = {"scope": scope}
         if scope == "bucket" and "bucket" in payload:
             target["bucket"] = payload["bucket"]
         if scope == "batch" and "purchase_batch_id" in payload:
@@ -88,42 +91,46 @@ async def post_event(client: httpx.AsyncClient, headers: dict, **payload: object
     return await client.post("/api/health/events", json=payload, headers=headers)
 
 
-async def record_event(client: httpx.AsyncClient, headers: dict, **payload: object) -> list[dict]:
+async def record_event(
+    client: httpx.AsyncClient, headers: Headers, **payload: object
+) -> list[JsonObject]:
     resp = await post_event(client, headers, **payload)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_objects(resp.json())
 
 
-async def list_events(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def list_events(client: httpx.AsyncClient, headers: Headers) -> list[JsonObject]:
     resp = await client.get("/api/health/events", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["events"]
+    return json_objects(resp.json()["events"])
 
 
-async def get_schedule(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
+async def get_schedule(
+    client: httpx.AsyncClient, headers: Headers, animal_id: int
+) -> dict[str, Any]:
     resp = await client.get(f"/api/health/schedule/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-def row_by_name(schedule: dict, name: str) -> dict[str, Any]:
-    return next(r for r in schedule["rows"] if r["template_name"] == name)
+def row_by_name(schedule: JsonObject, name: str) -> dict[str, Any]:
+    return json_object(next(r for r in schedule["rows"] if r["template_name"] == name))
 
 
-async def list_batches(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def list_batches(client: httpx.AsyncClient, headers: Headers) -> list[JsonObject]:
     resp = await client.get("/api/purchases", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["batches"]
+    return json_objects(resp.json()["batches"])
 
 
-async def get_batch(client: httpx.AsyncClient, headers: dict, batch_id: int) -> dict[str, Any]:
+async def get_batch(client: httpx.AsyncClient, headers: Headers, batch_id: int) -> dict[str, Any]:
     resp = await client.get(f"/api/purchases/{batch_id}", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def complete_quarantine_prerequisites(
-    client: httpx.AsyncClient, headers: dict, detail: dict
+    client: httpx.AsyncClient, headers: Headers, detail: JsonObject
 ) -> None:
     """Complete every recorded prerequisite through its own audited workflow."""
     batch_id = detail["batch"]["id"]
@@ -154,19 +161,19 @@ async def renumber_task(old_id: int, new_id: int) -> None:
         await db.commit()
 
 
-async def transactions(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def transactions(client: httpx.AsyncClient, headers: Headers) -> list[JsonObject]:
     resp = await client.get("/api/finance", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["transactions"]
+    return json_objects(resp.json()["transactions"])
 
 
-async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
+async def get_animal(client: httpx.AsyncClient, headers: Headers, animal_id: int) -> dict[str, Any]:
     resp = await client.get(f"/api/animals/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["animal"]
+    return json_object(resp.json()["animal"])
 
 
-async def mark_dead(client: httpx.AsyncClient, headers: dict, animal_id: int) -> None:
+async def mark_dead(client: httpx.AsyncClient, headers: Headers, animal_id: int) -> None:
     resp = await client.post(
         f"/api/animals/{animal_id}/status", json={"new_status": "DEAD"}, headers=headers
     )
@@ -174,8 +181,8 @@ async def mark_dead(client: httpx.AsyncClient, headers: dict, animal_id: int) ->
 
 
 async def worker_with_role(
-    client: httpx.AsyncClient, owner: dict, code: str, email: str
-) -> dict[str, Any]:
+    client: httpx.AsyncClient, owner: Headers, code: str, email: str
+) -> Headers:
     """Owner adds a worker with preset role `code`; returns farm-scoped headers."""
     resp = await client.get("/api/team", headers=owner)
     assert resp.status_code == 200, resp.text
@@ -1118,7 +1125,7 @@ async def test_event_task_id_boundaries_422(client: httpx.AsyncClient) -> None:
 # Health form task linking (task_id completes VACCINE/DEWORMING duties)
 # ---------------------------------------------------------------------------
 async def _backdated_batch_with_tasks(
-    client: httpx.AsyncClient, headers: dict, days: int = 50, count: int = 2
+    client: httpx.AsyncClient, headers: Headers, days: int = 50, count: int = 2
 ) -> dict[str, Any]:
     """A batch old enough that every quarantine duty is already due."""
     batch = await make_batch(client, headers, count=count, date=iso(today() - timedelta(days=days)))
@@ -2427,7 +2434,7 @@ async def test_purchase_with_zero_price_books_zero_transaction(client: httpx.Asy
 # Purchases — validation (422) and boundaries
 # ---------------------------------------------------------------------------
 async def _post_batch(
-    client: httpx.AsyncClient, headers: dict, **payload: object
+    client: httpx.AsyncClient, headers: Headers, **payload: object
 ) -> httpx.Response:
     return await client.post("/api/purchases/new", json=payload, headers=headers)
 

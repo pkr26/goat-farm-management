@@ -20,15 +20,16 @@ from app.core.config import Settings
 from app.db import get_sessionmaker
 from app.models import FarmMembership
 from app.ratelimit import auth_limiter
-from app.utils import today
+from app.utils import today, utcnow
 
 from .conftest import OWNER_PW, owner_with_farm
+from .settings_helpers import settings_from_input
 
 OWNER_EMAIL = "pin-owner@farm.in"
 
 
 async def _make_pin_worker(
-    client: httpx.AsyncClient, owner: dict, *, pin: str = "4321", email: str
+    client: httpx.AsyncClient, owner: dict[str, str], *, pin: str = "4321", email: str
 ) -> tuple[int, int]:
     """Create a PIN-only worker (no password — exactly-one credential); returns
     (membership_id, farm_id)."""
@@ -526,7 +527,7 @@ async def test_tombstoned_inactive_and_totp_accounts_cannot_pin_login(
         # Real deletion scrubs the profile (ck_users_deleted_profile_scrubbed).
         user.name = None
         user.email = f"deleted-{user.id}@deleted.invalid"
-        user.deleted_at = today()
+        user.deleted_at = utcnow()
         await db.commit()
     assert (await _worker_login(client, farm_id, membership_b, "4321")).status_code == 401
     roster = await client.get("/api/auth/worker-roster", params={"farm_id": farm_id})
@@ -766,10 +767,10 @@ _PROD_OVERRIDES = {
 
 def test_production_settings_raise_the_pin_floor() -> None:
     # Default tightens automatically; an explicit short floor is refused.
-    auto = Settings(**_PROD_OVERRIDES)
+    auto = settings_from_input(Settings, _PROD_OVERRIDES)
     assert auto.worker_pin_min_length == 6
     with pytest.raises(ValueError, match="WORKER_PIN_MIN_LENGTH"):
-        Settings(**_PROD_OVERRIDES, worker_pin_min_length=4)
+        settings_from_input(Settings, _PROD_OVERRIDES, worker_pin_min_length=4)
 
 
 async def test_worker_login_requires_a_json_content_type(client: httpx.AsyncClient) -> None:

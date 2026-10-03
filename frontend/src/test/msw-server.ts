@@ -91,6 +91,13 @@ export const server = setupServer(
   http.get("/api/health/schedule-templates", () =>
     HttpResponse.json({ templates: SCHEDULE_TEMPLATES }),
   ),
+  // A freshly linked herd duty has no round snapshot until explicit start.
+  // Tests exercising coverage override this with their declared cohort.
+  http.get("/api/health/rounds/:taskId", ({ params }) => HttpResponse.json({
+    task_id: Number(params.taskId), task_status: "PENDING", initialized: false, snapshot_at: null,
+    required_components: ["PPR"], total_targets: 0, excluded_targets: 0, covered_targets: 0,
+    remaining_units: 0, available_additions: 0, targets: [], limit: 50, offset: 0,
+  })),
   // The animal profile's lifetime P&L card (finance.view-gated) — a zero-safe
   // default so profile renders never need a per-file handler.
   http.get("/api/finance/animals/:animalId/lifetime-pnl", () =>

@@ -51,6 +51,7 @@ export interface MonthlyRow {
   terminal_value: number;
   debt_service: number;
   net_cash_flow: number;
+  subsidy_receipt?: number;
   cumulative_cash_flow: number;
   cash_balance: number;
   fodder_surplus_kg: number;

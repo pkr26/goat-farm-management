@@ -1,0 +1,36 @@
+{
+  "recorded_at": "2026-10-03T19:34:50.029389+00:00",
+  "command": "pnpm test:coverage",
+  "exit_code": 0,
+  "production_build_id": "CWwqRg-tXDDZQ8xWOAWpZ",
+  "statements": {
+    "covered": 9063,
+    "total": 9610,
+    "percentage": 94.3
+  },
+  "branches": {
+    "covered": 9611,
+    "total": 10449,
+    "percentage": 91.98
+  },
+  "functions": {
+    "covered": 2433,
+    "total": 2579,
+    "percentage": 94.33
+  },
+  "lines": {
+    "covered": 8236,
+    "total": 8537,
+    "percentage": 96.47
+  },
+  "unchanged_global_and_scoped_floors_passed": true,
+  "frontend_manifest_files_verified": 964,
+  "source_fingerprint_mismatches": [],
+  "log": "frontend-coverage.log",
+  "coverage_json": "frontend-coverage-final.json",
+  "test_files": 326,
+  "passed": 5269,
+  "failed": 0,
+  "skipped": 0,
+  "duration_seconds": 349.89
+}

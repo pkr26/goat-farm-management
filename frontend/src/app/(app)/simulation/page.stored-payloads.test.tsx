@@ -286,10 +286,7 @@ function assumptionsCard() {
 
 function sectionTitles() {
   return Array.from(assumptionsCard().querySelectorAll("summary")).map(
-    // Each summary now also carries a "?" help button (its sr-only label and
-    // glyph land in textContent) — the section title is the leading run of
-    // text before it.
-    (summary) => summary.textContent?.replace(/Explain [A-Za-z ]+\??$/, "").trim(),
+    (summary) => summary.textContent?.trim(),
   );
 }
 

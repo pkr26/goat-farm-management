@@ -274,6 +274,8 @@ it("shows the busy label, locks the buttons, and closes on fresh success", async
   const busy = within(dialog).getByRole("button", { name: /saving|loading/i });
   expect(busy).toBeDisabled();
   expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled();
+  expect(within(dialog).getByLabelText("Coat colour")).toBeDisabled();
+  expect(within(dialog).getByLabelText("Horned")).toBeDisabled();
 
   release();
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

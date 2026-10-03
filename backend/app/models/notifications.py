@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -126,6 +127,13 @@ class NotificationLog(Base):
             "local_date",
             name="uq_notification_log_day_dedupe",
         ),
+        UniqueConstraint("outbox_id", "recipient_id", name="uq_notification_log_outbox_recipient"),
+        ForeignKeyConstraint(
+            ["farm_id", "outbox_id"],
+            ["notification_outbox.farm_id", "notification_outbox.id"],
+            ondelete="CASCADE",
+            name="fk_notification_log_farm_id_outbox_id",
+        ),
         # Tenant guard (2026-09-28 audit, N4): the recipient must belong to
         # THIS farm at the database level, not just by application care.
         ForeignKeyConstraint(
@@ -148,6 +156,7 @@ class NotificationLog(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id", ondelete="CASCADE"))
     recipient_id: Mapped[int]
+    outbox_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     alert_class: Mapped[str] = mapped_column(String(30))
     payload_hash: Mapped[str] = mapped_column(String(64))
     local_date: Mapped[date] = mapped_column(Date)
@@ -161,9 +170,51 @@ class NotificationLog(Base):
     )
 
 
+class NotificationOutbox(Base):
+    """One-shot domain alerts committed alongside the clinical mutation.
+
+    Delivery outcomes stay in NotificationLog; a completed event means its
+    eligible recipients have settled outcomes, including ambiguous failures.
+    """
+
+    __tablename__ = "notification_outbox"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm_id", "alert_class", "event_key", name="uq_notification_outbox_event"
+        ),
+        UniqueConstraint("farm_id", "id", name="uq_notification_outbox_farm_id_id"),
+        CheckConstraint(
+            "alert_class IN ('SCREENING_FLAG', 'MOVEMENT_RESTRICTION')",
+            name="ck_notification_outbox_alert_class",
+        ),
+        CheckConstraint(
+            "btrim(event_key) <> '' AND btrim(message) <> ''", name="ck_notification_outbox_content"
+        ),
+        Index(
+            "ix_notification_outbox_due",
+            "due_at",
+            "id",
+            postgresql_where=text("completed_at IS NULL"),
+        ),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id", ondelete="CASCADE"))
+    alert_class: Mapped[str] = mapped_column(String(30))
+    event_key: Mapped[str] = mapped_column(String(255))
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+    due_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+
 __all__ = [
     "ALERT_CLASSES",
     "NOTIFICATION_LOG_STATUSES",
     "NotificationLog",
+    "NotificationOutbox",
     "NotificationRecipient",
 ]

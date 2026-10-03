@@ -816,14 +816,16 @@ async def test_manual_role_task_share_lock_serializes_role_delete(
 
     entered_create = asyncio.Event()
     release_create = asyncio.Event()
-    original_create = tasks_api.create_manual_task
+    original_create = vars(tasks_api)["create_manual_task"]
 
     async def paused_create(*args: object, **kwargs: object) -> Task:
         # The route has validated and FOR SHARE-locked Role before entering
         # the service, but has not inserted the Task yet.
         entered_create.set()
         await release_create.wait()
-        return await original_create(*args, **kwargs)  # type: ignore[arg-type]
+        created = await original_create(*args, **kwargs)
+        assert isinstance(created, Task)
+        return created
 
     monkeypatch.setattr(tasks_api, "create_manual_task", paused_create)
     async with second_client() as create_client, second_client() as delete_client:
@@ -877,14 +879,16 @@ async def test_manual_animal_task_share_lock_serializes_status_removal(
 
     entered_create = asyncio.Event()
     release_create = asyncio.Event()
-    original_create = tasks_api.create_manual_task
+    original_create = vars(tasks_api)["create_manual_task"]
 
     async def paused_create(*args: object, **kwargs: object) -> Task:
         # The route has locked and re-checked ACTIVE Animal, but has not
         # inserted its task. Status removal must wait for this transaction.
         entered_create.set()
         await release_create.wait()
-        return await original_create(*args, **kwargs)  # type: ignore[arg-type]
+        created = await original_create(*args, **kwargs)
+        assert isinstance(created, Task)
+        return created
 
     monkeypatch.setattr(tasks_api, "create_manual_task", paused_create)
     async with second_client() as create_client, second_client() as status_client:

@@ -1,0 +1,16 @@
+{
+  "command": "E2E_BROWSER=webkit pnpm exec playwright test",
+  "cwd": "frontend",
+  "production_build_id": "CWwqRg-tXDDZQ8xWOAWpZ",
+  "exit_code": 0,
+  "passed": 71,
+  "failed": 0,
+  "skipped": 0,
+  "retries": 0,
+  "projects": [
+    "webkit"
+  ],
+  "duration_minutes": 2.1,
+  "database_scope": "local synthetic E2E database",
+  "receipt": "webkit.log"
+}

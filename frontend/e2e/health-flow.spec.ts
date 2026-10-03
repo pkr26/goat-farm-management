@@ -37,7 +37,7 @@ test.describe("health flow", () => {
     // Type defaults to VACCINE.
     await dialog.getByLabel("Product name").fill(product);
     await dialog.getByLabel("Dose").fill("1 ml");
-    await pickSelectOption(dialog, "Route", "SC");
+    await pickSelectOption(dialog, "Route", "SC (subcutaneous)");
     await dialog.getByLabel(/Total cost/).fill("120");
     await dialog.getByRole("button", { name: "Save event" }).click();
     await expect(page.getByText("Health event recorded.")).toBeVisible();
@@ -48,7 +48,7 @@ test.describe("health flow", () => {
     await expect(logRow).toBeVisible();
     await expect(logRow.getByText("Vaccination")).toBeVisible();
     await expect(logRow.getByText(product)).toBeVisible();
-    await expect(logRow.getByRole("cell", { name: "SC", exact: true })).toBeVisible();
+    await expect(logRow.getByRole("cell", { name: "SC (subcutaneous)", exact: true })).toBeVisible();
 
     // And on the animal's profile health card.
     await openAnimalProfile(page, tag);
@@ -64,7 +64,7 @@ test.describe("health flow", () => {
       new RegExp(tag),
       tag,
     );
-    await page.getByRole("button", { name: "View" }).click();
+    await page.getByRole("button", { name: "View", exact: true }).click();
     await expect(page).toHaveURL(/\/health\/schedule\/\d+\?returnTo=/, {
       timeout: 15_000,
     });

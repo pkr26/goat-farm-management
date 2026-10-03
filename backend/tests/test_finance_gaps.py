@@ -22,7 +22,7 @@ from .test_rbac_exhaustive import _app_routes
 
 
 async def _batch_prices(
-    client: httpx.AsyncClient, owner: dict, count: int, total: float
+    client: httpx.AsyncClient, owner: dict[str, str], count: int, total: float
 ) -> list[Decimal]:
     resp = await client.post(
         "/api/purchases/new",

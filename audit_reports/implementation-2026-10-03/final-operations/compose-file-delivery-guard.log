@@ -1,0 +1,8 @@
+Command: /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/compose_env_guard.py /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/deployment.env
+Cwd: /Users/pradeepreddy/Desktop/goat-farm-management-main
+Exit code: 0
+Expected exit: 0
+
+STDOUT:
+
+STDERR:

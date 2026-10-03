@@ -1,0 +1,9 @@
+
+Running 2 tests using 1 worker
+
+(node:26316) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [firefox] › e2e/purchases.spec.ts:6:3 › purchases › a new batch stubs animals into QUARANTINE with the 45-day task schedule (3.2s)
+  ✓  2 [firefox] › e2e/tasks-guards.spec.ts:15:3 › tasks guards › auto duties are form-linked; a completed duty lands in awaiting verification (7.1s)
+
+  2 passed (12.1s)

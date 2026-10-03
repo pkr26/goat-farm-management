@@ -8,8 +8,10 @@ correctly.
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal, localcontext
+from fractions import Fraction
 from itertools import pairwise
 from math import expm1 as _expm1
+from math import lcm
 from math import log1p as _log1p
 from math import pow as _fpow  # mypy 2.x infers float ** float as Any; math.pow stays float
 
@@ -384,27 +386,17 @@ def _crossing_decimal_power_roots(
 # The recursive Decimal isolation below costs roughly O(n^2) bisections of 96
 # digits each, which is affordable for the <=21-term annual appraisal series it
 # was written for and ruinous beyond that: a 241-term monthly series (a
-# 240-month horizon) does not finish in any useful time. Longer series use a
-# sampled float scan instead — it can only miss a root pair closer together
-# than the grid, and the caller's response to several roots is to report no IRR
-# at all, so the failure mode is "reports one rate where the truth is
-# ambiguous", not a wrong rate.
+# 240-month horizon) does not finish in any useful time. Compact series use
+# bounded exact isolation. Outside that domain the result is indeterminate:
+# a finite grid cannot establish uniqueness when a close root pair can hide
+# between samples. A guessed unique return is not a safe finance contract.
 _DECIMAL_ISOLATION_MAX_TERMS = 24
 _SCAN_SAMPLES = 256
 
-# Term count alone does not separate the affordable case from the ruinous one.
-# What actually decides the cost is whether the exponents are whole years:
-# ``Decimal.__pow__`` uses exact integer exponentiation for an integral
-# exponent (~6-27us a term) but correctly-rounded exp/ln for a fractional one
-# (~1.9ms a term at 96 digits — a ~70x penalty). A monthly series carries
-# ``month / 12`` exponents, so the *shortest* legal horizons (12-23 months,
-# i.e. 13-24 terms) slipped under the term cap and took the expensive branch
-# while every horizon >= 24 took the cheap one: horizon 23 ran 2.5s against
-# horizon 24's 0.06s, inverting the CPU budget ``app/api/simulation.py`` prices
-# requests against. Gating on integral exponents restores the intent — annual
-# appraisal series keep exact isolation, sub-annual series scan like the long
-# ones. Verified equivalent: over 400 randomly generated multi-sign monthly
-# series the two paths returned identical root sets (the scan 3205x faster).
+# Rational periods are transformed to integer powers before Decimal isolation.
+# This avoids expensive fractional exponentiation while preserving all roots
+# in the supported bracket. The historical sampled helper below is retained
+# only for diagnostic compatibility; it is not used to certify product IRR.
 
 
 def _has_integral_exponents(terms: Sequence[tuple[float, float]]) -> bool:
@@ -477,9 +469,52 @@ def _positive_power_roots(
     # point can erase its sign.  Isolate every derivative root (including
     # tangencies) in Decimal, then keep only top-level roots whose two sides
     # really have opposite signs.
-    if len(normalised) > _DECIMAL_ISOLATION_MAX_TERMS or not _has_integral_exponents(normalised):
-        return _scanned_power_roots(normalised, lo, hi)
+    if len(normalised) > _DECIMAL_ISOLATION_MAX_TERMS:
+        raise IRRIsolationUnsupported("Nonconventional series exceeds exact isolation term budget")
+    if not _has_integral_exponents(normalised):
+        # Monthly/quarterly/half-year times are rational exponents. Substitute
+        # z=x**(1/periods_per_year) to get an ordinary integer-power series;
+        # root isolation then retains close crossings without expensive
+        # Decimal fractional powers. Arbitrary floating times stay unknown.
+        rational = [Fraction(exponent).limit_denominator(120) for exponent, _ in normalised]
+        if any(
+            abs(float(value) - exponent) > 1e-12
+            for value, (exponent, _) in zip(rational, normalised, strict=True)
+        ):
+            raise IRRIsolationUnsupported("Times do not fit the supported rational-period domain")
+        periods = lcm(*(value.denominator for value in rational))
+        if periods > 120:
+            raise IRRIsolationUnsupported("Rational period denominator exceeds isolation budget")
+        scaled = [
+            (float(value * periods), coefficient)
+            for value, (_, coefficient) in zip(rational, normalised, strict=True)
+        ]
+        roots = _crossing_decimal_power_roots(
+            scaled, _fpow(lo, 1.0 / periods), _fpow(hi, 1.0 / periods)
+        )
+        return [_fpow(root, periods) for root in roots]
     return _crossing_decimal_power_roots(normalised, lo, hi)
+
+
+class IRRIsolationUnsupported(ValueError):
+    """Uniqueness could not be established within the declared solver domain."""
+
+
+@dataclass(frozen=True)
+class IRRAssessment:
+    status: str  # unique | multiple_roots | no_root | indeterminate
+    roots: tuple[float, ...]
+
+
+def assess_irr(flows: Sequence[float], times_years: Sequence[float]) -> IRRAssessment:
+    """Return the numerical disposition rather than conflating every None."""
+    try:
+        roots = tuple(irr_roots(flows, times_years))
+    except IRRIsolationUnsupported:
+        return IRRAssessment("indeterminate", ())
+    return IRRAssessment(
+        "unique" if len(roots) == 1 else "multiple_roots" if roots else "no_root", roots
+    )
 
 
 def irr_roots(flows: Sequence[float], times_years: Sequence[float]) -> list[float]:
@@ -489,10 +524,14 @@ def irr_roots(flows: Sequence[float], times_years: Sequence[float]) -> list[floa
     and each crossing is a mathematically valid IRR. Transforming to
     ``x = 1 / (1 + rate)`` and recursively isolating derivative roots finds
     every monotone interval, including two crossings closer together than a
-    practical fixed sampling grid.
+    practical fixed sampling grid. Nonconventional series with >24 nonzero
+    terms or unsupported rational periods raise IRRIsolationUnsupported;
+    a sampled root must never be mistaken for a proven complete root set.
     """
     lo_bound, hi_bound = IRR_BRACKET
     terms = [(time, flow) for flow, time in zip(flows, times_years, strict=True)]
+    if terms and not _normalise_power_terms(terms):
+        raise IRRIsolationUnsupported("NPV is identically zero; no unique return exists")
     # ``rate`` increases as x decreases, so sort after transforming back.
     roots = [
         1.0 / x_root - 1.0
@@ -510,17 +549,18 @@ def irr(flows: Sequence[float], times_years: Sequence[float]) -> float | None:
     """Internal rate of return: the rate where NPV is zero.
 
     ``None`` when the series has no such rate inside ``IRR_BRACKET`` (an
-    all-positive, all-negative or all-zero series never crosses), and equally
+    all-positive or all-negative series never crosses), and equally
     ``None`` when it has *several* — a series with more than one sign reversal
     can cross zero repeatedly and no single number is then the return. For
     ``[-954244, -390293, -528292, 1930642, 1572511, -238266, -51854, -865625,
     94536]`` the roots are -89.2%, -26.4% and +16.4% while NPV at 10% is
     +₹201,590; bisecting the whole bracket used to report -89.16% for that
     viable project. Multiple sign reversals alone are not disqualifying —
-    only genuinely multiple roots are.
+    only genuinely multiple roots are. An identically zero NPV curve has no
+    unique return and is reported indeterminate, as are unsupported domains.
     """
-    roots = irr_roots(flows, times_years)
-    return roots[0] if len(roots) == 1 else None
+    assessment = assess_irr(flows, times_years)
+    return assessment.roots[0] if assessment.status == "unique" else None
 
 
 def bcr(

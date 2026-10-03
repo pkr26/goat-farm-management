@@ -1,0 +1,1224 @@
+Only invented fixture data is used below. No application service is booted.
+
+$ git check-ignore -- secrets/pl07-sentinel-3ed8e719a4304d7d
+secrets/pl07-sentinel-3ed8e719a4304d7d
+
+# exit=0; expected=0
+
+$ docker build --no-cache --file - --tag herdly-isolation-probe-3ed8e719a4304d7d:excluded .
+# Exact stdin:
+FROM scratch
+COPY secrets/pl07-sentinel-3ed8e719a4304d7d/ /probe/
+
+Sending build context to Docker daemon  213.9MB
+
+Step 1/2 : FROM scratch
+ ---> 
+Step 2/2 : COPY secrets/pl07-sentinel-3ed8e719a4304d7d/ /probe/
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+COPY failed: file not found in build context or excluded by .dockerignore: stat secrets/pl07-sentinel-3ed8e719a4304d7d/: file does not exist
+
+# exit=1; expected=1
+
+$ docker build --no-cache --file - --tag herdly-isolation-probe-3ed8e719a4304d7d:positive /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/positive-context
+# Exact stdin:
+FROM scratch
+COPY positive.txt /positive.txt
+
+Sending build context to Docker daemon  2.607kB
+
+Step 1/2 : FROM scratch
+ ---> 
+Step 2/2 : COPY positive.txt /positive.txt
+ ---> 0579a06d316b
+Successfully built 0579a06d316b
+Successfully tagged herdly-isolation-probe-3ed8e719a4304d7d:positive
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+
+# exit=0; expected=0
+
+$ docker compose --project-name herdly-isolation-probe-3ed8e719a4304d7d --env-file /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/development.env -f docker-compose.yml config --format json
+{
+  "configs": {
+    "edge_entrypoint": {
+      "name": "herdly-isolation-probe-3ed8e719a4304d7d_edge_entrypoint",
+      "file": "/Users/pradeepreddy/Desktop/goat-farm-management-main/docker/edge-entrypoint.sh"
+    },
+    "edge_proxy": {
+      "name": "herdly-isolation-probe-3ed8e719a4304d7d_edge_proxy",
+      "file": "/Users/pradeepreddy/Desktop/goat-farm-management-main/docker/edge-proxy.dev.conf.template"
+    }
+  },
+  "name": "herdly-isolation-probe-3ed8e719a4304d7d",
+  "networks": {
+    "goatfarm_app": {
+      "name": "herdly-isolation-probe-3ed8e719a4304d7d_goatfarm_app",
+      "ipam": {
+        "config": [
+          {
+            "subnet": "198.18.243.0/24"
+          }
+        ]
+      }
+    },
+    "goatfarm_data": {
+      "name": "herdly-isolation-probe-3ed8e719a4304d7d_goatfarm_data",
+      "ipam": {
+        "config": [
+          {
+            "subnet": "198.18.244.0/24"
+          }
+        ]
+      }
+    }
+  },
+  "services": {
+    "backend": {
+      "build": {
+        "context": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+        "dockerfile": "Dockerfile"
+      },
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 2,
+      "command": null,
+      "depends_on": {
+        "db": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "migrate": {
+          "condition": "service_completed_successfully",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_ALLOWED_HOSTS": "[\"localhost\",\"127.0.0.1\",\"test\",\"testserver\",\"backend\"]",
+        "GOATFARM_COOKIE_SECURE": "false",
+        "GOATFARM_CORS_ORIGINS": "[\"http://localhost:3000\",\"http://127.0.0.1:3000\"]",
+        "GOATFARM_DATABASE_URL": "postgresql+asyncpg://fake_api:FAKE_PASSWORD@db.invalid/probe",
+        "GOATFARM_DB_SSLMODE": "disable",
+        "GOATFARM_ENVIRONMENT": "development",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS": "[]",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET": "FAKE-PROBE-ONLY-NOT-A-DEPLOYMENT-SECRET-3ed8e719a4304d7d",
+        "GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS": "[]",
+        "GOATFARM_JWT_PRIVATE_KEY_PATH": "/app/keys/jwt_private.pem",
+        "GOATFARM_JWT_PUBLIC_KEY_PATH": "/app/keys/jwt_public.pem",
+        "GOATFARM_MAX_FARMS_PER_USER": "10",
+        "GOATFARM_MAX_REQUEST_BODY_BYTES": "1048576",
+        "GOATFARM_MAX_REQUEST_TARGET_BYTES": "8192",
+        "GOATFARM_MIN_PASSWORD_LENGTH": "8",
+        "GOATFARM_MSG91_AUTH_KEY": "",
+        "GOATFARM_MSG91_SENDER_ID": "HERDLY",
+        "GOATFARM_MSG91_TEMPLATE_ID": "",
+        "GOATFARM_NOTIFICATIONS_DIGEST_HOUR": "6",
+        "GOATFARM_NOTIFICATIONS_DIGEST_MINUTE": "30",
+        "GOATFARM_NOTIFICATIONS_ENABLED": "false",
+        "GOATFARM_NOTIFICATIONS_FARM_DAILY_CAP": "50",
+        "GOATFARM_NOTIFICATIONS_LOOP_BATCH_SIZE": "100",
+        "GOATFARM_NOTIFICATIONS_PROVIDER": "console",
+        "GOATFARM_NOTIFICATIONS_QUIET_END_HOUR": "6",
+        "GOATFARM_NOTIFICATIONS_QUIET_START_HOUR": "21",
+        "GOATFARM_NOTIFICATIONS_SEND_RETRY_ATTEMPTS": "2",
+        "GOATFARM_NOTIFICATIONS_SEND_RETRY_BACKOFF_SECONDS": "2.0",
+        "GOATFARM_S3_ACCESS_KEY_ID": "",
+        "GOATFARM_S3_BUCKET": "",
+        "GOATFARM_S3_ENDPOINT_URL": "",
+        "GOATFARM_S3_REGION": "us-east-1",
+        "GOATFARM_S3_SECRET_ACCESS_KEY": "",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY": "",
+        "GOATFARM_SCREENING_ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+        "GOATFARM_SCREENING_ANTHROPIC_MODEL": "claude-sonnet-4-5",
+        "GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM": "400",
+        "GOATFARM_SCREENING_ENABLED": "false",
+        "GOATFARM_SCREENING_OPENAI_API_KEY": "",
+        "GOATFARM_SCREENING_OPENAI_BASE_URL": "https://api.openai.com/v1",
+        "GOATFARM_SCREENING_OPENAI_MODEL": "gpt-5",
+        "GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS": "900",
+        "GOATFARM_SCREENING_PROVIDER": "anthropic",
+        "GOATFARM_SCREENING_PROVIDER_ROTATION": "[]",
+        "GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS": "120",
+        "GOATFARM_SCREENING_S3_PREFIX": "raw",
+        "GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS": "1800",
+        "GOATFARM_TOTP_ENCRYPTION_KEY": "",
+        "GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS": "[]",
+        "GOATFARM_TRUSTED_PROXY_HOSTS": "198.18.243.10",
+        "GOATFARM_WORKER_PIN_MIN_LENGTH": "4",
+        "GOATFARM_WORKER_PIN_RATE_LIMIT_MAX_ATTEMPTS": "10",
+        "GOATFARM_WORKER_PIN_RATE_LIMIT_WINDOW_SECONDS": "300",
+        "GOATFARM_WORKER_ROSTER_ENABLED": "true"
+      },
+      "expose": [
+        "8000"
+      ],
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "2147483648",
+      "networks": {
+        "goatfarm_app": null,
+        "goatfarm_data": null
+      },
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stop_grace_period": "40s",
+      "tmpfs": [
+        "/tmp:size=64m"
+      ],
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "jwtkeys",
+          "target": "/app/keys",
+          "volume": {}
+        }
+      ]
+    },
+    "config-guard": {
+      "build": {
+        "context": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+        "dockerfile": "Dockerfile"
+      },
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 0.25,
+      "command": [
+        "python",
+        "scripts/compose_env_guard.py",
+        "/run/config/compose.env"
+      ],
+      "entrypoint": null,
+      "healthcheck": {
+        "disable": true
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "134217728",
+      "network_mode": "none",
+      "read_only": true,
+      "restart": "no",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/development.env",
+          "target": "/run/config/compose.env",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ]
+    },
+    "db": {
+      "cap_add": [
+        "CHOWN",
+        "DAC_OVERRIDE",
+        "FSETID",
+        "SETGID",
+        "SETUID"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 2,
+      "command": null,
+      "entrypoint": null,
+      "environment": {
+        "POSTGRES_DB": "goatfarm",
+        "POSTGRES_PASSWORD": "FAKE-LOCAL-PROBE-password",
+        "POSTGRES_USER": "goatfarm"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""
+        ],
+        "timeout": "3s",
+        "interval": "5s",
+        "retries": 20
+      },
+      "image": "postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "1073741824",
+      "networks": {
+        "goatfarm_data": null
+      },
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "pgdata",
+          "target": "/var/lib/postgresql/data",
+          "volume": {}
+        }
+      ]
+    },
+    "edge": {
+      "cap_add": [
+        "CHOWN",
+        "SETGID",
+        "SETUID"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 0.5,
+      "command": [
+        "/bin/sh",
+        "/edge-entrypoint.sh"
+      ],
+      "configs": [
+        {
+          "source": "edge_proxy",
+          "target": "/edge-proxy.template"
+        },
+        {
+          "source": "edge_entrypoint",
+          "target": "/edge-entrypoint.sh",
+          "mode": "0555"
+        }
+      ],
+      "depends_on": {
+        "backend": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "frontend": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_CSP_CONNECT_ORIGINS": "",
+        "GOATFARM_CSP_IMG_ORIGINS": "",
+        "GOATFARM_EDGE_AUTH_BURST": "20",
+        "GOATFARM_EDGE_AUTH_RATE": "5r/s",
+        "GOATFARM_EDGE_BIND_HOST": "127.0.0.1",
+        "GOATFARM_EDGE_MAX_BODY_SIZE": "1m",
+        "GOATFARM_EDGE_PUBLIC_SCHEME": "http",
+        "GOATFARM_ENVIRONMENT": "development",
+        "GOATFARM_SCREENING_ENABLED": "false"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "wget",
+          "-q",
+          "--spider",
+          "http://127.0.0.1:3000/edge-healthz"
+        ],
+        "timeout": "5s",
+        "interval": "30s",
+        "retries": 3,
+        "start_period": "10s"
+      },
+      "image": "nginx:1.30-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "268435456",
+      "networks": {
+        "goatfarm_app": {
+          "ipv4_address": "198.18.243.10"
+        }
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "host_ip": "127.0.0.1",
+          "target": 3000,
+          "published": "3000",
+          "protocol": "tcp"
+        }
+      ],
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/var/cache/nginx:size=64m",
+        "/var/run:size=1m",
+        "/etc/nginx/conf.d:size=1m"
+      ]
+    },
+    "frontend": {
+      "build": {
+        "context": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend",
+        "dockerfile": "Dockerfile",
+        "args": {
+          "BACKEND_URL": "http://backend:8000"
+        }
+      },
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 1,
+      "command": null,
+      "depends_on": {
+        "backend": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_CSP_CONNECT_ORIGINS": "",
+        "GOATFARM_CSP_IMG_ORIGINS": ""
+      },
+      "expose": [
+        "3000"
+      ],
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "1073741824",
+      "networks": {
+        "goatfarm_app": null
+      },
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp:size=64m",
+        "/app/.next/cache:size=128m"
+      ]
+    },
+    "migrate": {
+      "build": {
+        "context": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+        "dockerfile": "Dockerfile"
+      },
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 1,
+      "command": [
+        "/bin/sh",
+        "-ec",
+        "if [ \"$$GOATFARM_ENVIRONMENT\" = \"production\" ]; then\n  echo \"The bundled docker-compose PostgreSQL service is development-only and has no authenticated TLS topology. Use the documented external verify-full PostgreSQL production deployment.\" \u003e\u00262\n  exit 2\nfi\nexec alembic upgrade head\n"
+      ],
+      "depends_on": {
+        "config-guard": {
+          "condition": "service_completed_successfully",
+          "required": true
+        },
+        "db": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_DB_SSLMODE": "disable",
+        "GOATFARM_ENVIRONMENT": "development",
+        "GOATFARM_MIGRATION_DATABASE_URL": "postgresql+asyncpg://fake_migration:FAKE_PASSWORD@db.invalid/probe"
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "1073741824",
+      "networks": {
+        "goatfarm_data": null
+      },
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp:size=16m"
+      ]
+    },
+    "screening-worker": {
+      "build": {
+        "context": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+        "dockerfile": "Dockerfile"
+      },
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 1,
+      "command": [
+        "python",
+        "-m",
+        "app.worker"
+      ],
+      "depends_on": {
+        "db": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "migrate": {
+          "condition": "service_completed_successfully",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_DATABASE_URL": "postgresql+asyncpg://fake_api:FAKE_PASSWORD@db.invalid/probe",
+        "GOATFARM_DB_SSLMODE": "disable",
+        "GOATFARM_ENVIRONMENT": "development",
+        "GOATFARM_S3_ACCESS_KEY_ID": "",
+        "GOATFARM_S3_BUCKET": "",
+        "GOATFARM_S3_ENDPOINT_URL": "",
+        "GOATFARM_S3_REGION": "us-east-1",
+        "GOATFARM_S3_SECRET_ACCESS_KEY": "",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY": "",
+        "GOATFARM_SCREENING_ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+        "GOATFARM_SCREENING_ANTHROPIC_MODEL": "claude-sonnet-4-5",
+        "GOATFARM_SCREENING_CROP_DETECTION_ENABLED": "true",
+        "GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM": "400",
+        "GOATFARM_SCREENING_ENABLED": "false",
+        "GOATFARM_SCREENING_IMAGE_MAX_EDGE_PX": "1568",
+        "GOATFARM_SCREENING_MAX_CROPS_PER_IMAGE": "8",
+        "GOATFARM_SCREENING_MAX_IMAGES_PER_CYCLE": "50",
+        "GOATFARM_SCREENING_OPENAI_API_KEY": "",
+        "GOATFARM_SCREENING_OPENAI_BASE_URL": "https://api.openai.com/v1",
+        "GOATFARM_SCREENING_OPENAI_MODEL": "gpt-5",
+        "GOATFARM_SCREENING_POLL_INTERVAL_SECONDS": "300",
+        "GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS": "900",
+        "GOATFARM_SCREENING_PROVIDER": "anthropic",
+        "GOATFARM_SCREENING_PROVIDER_ROTATION": "[]",
+        "GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS": "120",
+        "GOATFARM_SCREENING_S3_PREFIX": "raw",
+        "GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS": "1800",
+        "GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS": "900",
+        "GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH": "/tmp/goatfarm-screening-worker.json",
+        "GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES": "3"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "screening_worker_healthcheck.py"
+        ],
+        "timeout": "5s",
+        "interval": "30s",
+        "retries": 3,
+        "start_period": "30s"
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "1073741824",
+      "networks": {
+        "goatfarm_data": null
+      },
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stop_grace_period": "40s",
+      "tmpfs": [
+        "/tmp:size=16m"
+      ]
+    }
+  },
+  "volumes": {
+    "jwtkeys": {
+      "name": "herdly-isolation-probe-3ed8e719a4304d7d_jwtkeys"
+    },
+    "pgdata": {
+      "name": "herdly-isolation-probe-3ed8e719a4304d7d_pgdata"
+    }
+  },
+  "x-default-logging": {
+    "driver": "json-file",
+    "options": {
+      "max-file": "3",
+      "max-size": "10m"
+    }
+  }
+}
+# exit=0; expected=0
+
+$ docker compose --project-name herdly-isolation-probe-3ed8e719a4304d7d --env-file /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/production.env -f docker-compose.production.yml config --format json
+{
+  "configs": {
+    "edge_entrypoint": {
+      "name": "herdly-isolation-probe-3ed8e719a4304d7d_edge_entrypoint",
+      "file": "/Users/pradeepreddy/Desktop/goat-farm-management-main/docker/edge-entrypoint.sh"
+    },
+    "edge_proxy": {
+      "name": "herdly-isolation-probe-3ed8e719a4304d7d_edge_proxy",
+      "file": "/Users/pradeepreddy/Desktop/goat-farm-management-main/docker/edge-proxy.production.conf.template"
+    }
+  },
+  "name": "herdly-isolation-probe-3ed8e719a4304d7d",
+  "networks": {
+    "goatfarm_app": {
+      "name": "herdly-isolation-probe-3ed8e719a4304d7d_goatfarm_app",
+      "ipam": {
+        "config": [
+          {
+            "subnet": "192.168.233.0/24"
+          }
+        ]
+      }
+    }
+  },
+  "services": {
+    "backend": {
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 2,
+      "command": null,
+      "depends_on": {
+        "config-guard": {
+          "condition": "service_completed_successfully",
+          "required": true
+        },
+        "migrate": {
+          "condition": "service_completed_successfully",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_ALLOWED_HOSTS": "[\"probe.invalid\",\"backend\"]",
+        "GOATFARM_COOKIE_SECURE": "true",
+        "GOATFARM_CORS_ORIGINS": "[\"https://probe.invalid\"]",
+        "GOATFARM_DATABASE_URL": "",
+        "GOATFARM_DATABASE_URL_FILE": "/run/secrets/app/database_url",
+        "GOATFARM_DB_SSLMODE": "verify-full",
+        "GOATFARM_DB_SSLROOTCERT_PATH": "/run/secrets/goatfarm-postgres-ca.pem",
+        "GOATFARM_ENVIRONMENT": "production",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS": "[]",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET": "",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE": "/run/secrets/app/idempotency_request_hmac_secret",
+        "GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS": "[]",
+        "GOATFARM_JWT_PRIVATE_KEY_PATH": "/run/secrets/jwt/jwt_private.pem",
+        "GOATFARM_JWT_PUBLIC_KEY_PATH": "/run/secrets/jwt/jwt_public.pem",
+        "GOATFARM_MAX_FARMS_PER_USER": "25",
+        "GOATFARM_MAX_REQUEST_BODY_BYTES": "1048576",
+        "GOATFARM_MAX_REQUEST_TARGET_BYTES": "8192",
+        "GOATFARM_METRICS_BEARER_TOKEN": "",
+        "GOATFARM_METRICS_BEARER_TOKEN_FILE": "/run/secrets/app/metrics_bearer_token",
+        "GOATFARM_METRICS_ENABLED": "true",
+        "GOATFARM_METRICS_PUBLIC_ENABLED": "false",
+        "GOATFARM_MIN_PASSWORD_LENGTH": "12",
+        "GOATFARM_MSG91_AUTH_KEY": "",
+        "GOATFARM_MSG91_AUTH_KEY_FILE": "/run/secrets/app/msg91_auth_key",
+        "GOATFARM_MSG91_SENDER_ID": "HERDLY",
+        "GOATFARM_MSG91_TEMPLATE_ID": "",
+        "GOATFARM_NOTIFICATIONS_DIGEST_HOUR": "6",
+        "GOATFARM_NOTIFICATIONS_DIGEST_MINUTE": "30",
+        "GOATFARM_NOTIFICATIONS_ENABLED": "false",
+        "GOATFARM_NOTIFICATIONS_FARM_DAILY_CAP": "50",
+        "GOATFARM_NOTIFICATIONS_LOOP_BATCH_SIZE": "100",
+        "GOATFARM_NOTIFICATIONS_PROVIDER": "console",
+        "GOATFARM_NOTIFICATIONS_QUIET_END_HOUR": "6",
+        "GOATFARM_NOTIFICATIONS_QUIET_START_HOUR": "21",
+        "GOATFARM_NOTIFICATIONS_SEND_RETRY_ATTEMPTS": "2",
+        "GOATFARM_NOTIFICATIONS_SEND_RETRY_BACKOFF_SECONDS": "2.0",
+        "GOATFARM_RETENTION_DELETE_BATCH_SIZE": "500",
+        "GOATFARM_RETENTION_FARM_BATCH_SIZE": "100",
+        "GOATFARM_RETENTION_LOCK_TIMEOUT_MS": "250",
+        "GOATFARM_RETENTION_MAX_BATCHES_PER_FARM": "4",
+        "GOATFARM_RETENTION_SCREENING_DAYS": "180",
+        "GOATFARM_RETENTION_STATEMENT_TIMEOUT_MS": "5000",
+        "GOATFARM_RETENTION_SWEEP_ENABLED": "false",
+        "GOATFARM_RETENTION_SWEEP_INTERVAL_SECONDS": "86400",
+        "GOATFARM_RETENTION_TERMINAL_TASK_DAYS": "365",
+        "GOATFARM_S3_ACCESS_KEY_ID": "",
+        "GOATFARM_S3_ACCESS_KEY_ID_FILE": "/run/secrets/app/s3_access_key_id",
+        "GOATFARM_S3_BUCKET": "",
+        "GOATFARM_S3_ENDPOINT_URL": "",
+        "GOATFARM_S3_REGION": "us-east-1",
+        "GOATFARM_S3_SECRET_ACCESS_KEY": "",
+        "GOATFARM_S3_SECRET_ACCESS_KEY_FILE": "/run/secrets/app/s3_secret_access_key",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY": "",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY_FILE": "/run/secrets/app/screening_anthropic_api_key",
+        "GOATFARM_SCREENING_ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+        "GOATFARM_SCREENING_ANTHROPIC_MODEL": "claude-sonnet-4-5",
+        "GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM": "400",
+        "GOATFARM_SCREENING_ENABLED": "false",
+        "GOATFARM_SCREENING_OPENAI_API_KEY": "",
+        "GOATFARM_SCREENING_OPENAI_API_KEY_FILE": "",
+        "GOATFARM_SCREENING_OPENAI_BASE_URL": "https://api.openai.com/v1",
+        "GOATFARM_SCREENING_OPENAI_MODEL": "gpt-5",
+        "GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS": "900",
+        "GOATFARM_SCREENING_PROVIDER": "anthropic",
+        "GOATFARM_SCREENING_PROVIDER_ROTATION": "[]",
+        "GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS": "120",
+        "GOATFARM_SCREENING_S3_PREFIX": "raw",
+        "GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS": "1800",
+        "GOATFARM_TOTP_ENCRYPTION_KEY": "",
+        "GOATFARM_TOTP_ENCRYPTION_KEY_FILE": "/run/secrets/app/totp_encryption_key",
+        "GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS": "[]",
+        "GOATFARM_TRUSTED_PROXY_HOSTS": "192.168.233.10",
+        "GOATFARM_WORKER_PIN_MIN_LENGTH": "6",
+        "GOATFARM_WORKER_PIN_RATE_LIMIT_MAX_ATTEMPTS": "10",
+        "GOATFARM_WORKER_PIN_RATE_LIMIT_WINDOW_SECONDS": "300",
+        "GOATFARM_WORKER_ROSTER_ENABLED": "true"
+      },
+      "expose": [
+        "8000"
+      ],
+      "image": "probe.invalid/herdly/backend@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "2147483648",
+      "networks": {
+        "goatfarm_app": null
+      },
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stop_grace_period": "40s",
+      "tmpfs": [
+        "/tmp:size=64m"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/FAKE-postgres-ca.pem",
+          "target": "/run/secrets/goatfarm-postgres-ca.pem",
+          "read_only": true
+        },
+        {
+          "type": "bind",
+          "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/api",
+          "target": "/run/secrets/app",
+          "read_only": true
+        },
+        {
+          "type": "bind",
+          "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/jwt",
+          "target": "/run/secrets/jwt",
+          "read_only": true
+        }
+      ]
+    },
+    "config-guard": {
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 0.25,
+      "command": [
+        "python",
+        "scripts/compose_env_guard.py",
+        "/run/config/compose.env"
+      ],
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_API_SECRET_DIR": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/api",
+        "GOATFARM_APP_SECRET_DIR": "",
+        "GOATFARM_DATABASE_URL": "",
+        "GOATFARM_DATABASE_URL_FILE": "/run/secrets/app/database_url",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET": "",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE": "/run/secrets/app/idempotency_request_hmac_secret",
+        "GOATFARM_MIGRATION_DATABASE_URL": "",
+        "GOATFARM_MIGRATION_DATABASE_URL_FILE": "/run/secrets/app/migration_database_url",
+        "GOATFARM_MIGRATION_SECRET_DIR": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/migration",
+        "GOATFARM_TOTP_ENCRYPTION_KEY": "",
+        "GOATFARM_TOTP_ENCRYPTION_KEY_FILE": "/run/secrets/app/totp_encryption_key",
+        "GOATFARM_WORKER_DATABASE_URL": "",
+        "GOATFARM_WORKER_DATABASE_URL_FILE": "/run/secrets/app/worker_database_url",
+        "GOATFARM_WORKER_SECRET_DIR": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/worker"
+      },
+      "healthcheck": {
+        "disable": true
+      },
+      "image": "probe.invalid/herdly/backend@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "134217728",
+      "network_mode": "none",
+      "read_only": true,
+      "restart": "no",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/production.env",
+          "target": "/run/config/compose.env",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ]
+    },
+    "edge": {
+      "cap_add": [
+        "CHOWN",
+        "SETGID",
+        "SETUID"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 0.5,
+      "command": [
+        "/bin/sh",
+        "/edge-entrypoint.sh"
+      ],
+      "configs": [
+        {
+          "source": "edge_proxy",
+          "target": "/edge-proxy.template"
+        },
+        {
+          "source": "edge_entrypoint",
+          "target": "/edge-entrypoint.sh",
+          "mode": "0555"
+        }
+      ],
+      "depends_on": {
+        "backend": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "frontend": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_CSP_CONNECT_ORIGINS": "",
+        "GOATFARM_CSP_IMG_ORIGINS": "",
+        "GOATFARM_EDGE_AUTH_BURST": "20",
+        "GOATFARM_EDGE_AUTH_RATE": "5r/s",
+        "GOATFARM_EDGE_BIND_HOST": "127.0.0.1",
+        "GOATFARM_EDGE_MAX_BODY_SIZE": "1m",
+        "GOATFARM_EDGE_PUBLIC_SCHEME": "https",
+        "GOATFARM_ENVIRONMENT": "production",
+        "GOATFARM_SCREENING_ENABLED": "false"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "wget",
+          "-q",
+          "--spider",
+          "http://127.0.0.1:3000/edge-healthz"
+        ],
+        "timeout": "5s",
+        "interval": "30s",
+        "retries": 3,
+        "start_period": "10s"
+      },
+      "image": "nginx:1.30-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "268435456",
+      "networks": {
+        "goatfarm_app": {
+          "ipv4_address": "192.168.233.10"
+        }
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "host_ip": "127.0.0.1",
+          "target": 3000,
+          "published": "3000",
+          "protocol": "tcp"
+        }
+      ],
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/var/cache/nginx:size=64m",
+        "/var/run:size=1m",
+        "/etc/nginx/conf.d:size=1m"
+      ]
+    },
+    "frontend": {
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 1,
+      "command": null,
+      "depends_on": {
+        "backend": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_CSP_CONNECT_ORIGINS": "",
+        "GOATFARM_CSP_IMG_ORIGINS": ""
+      },
+      "expose": [
+        "3000"
+      ],
+      "image": "probe.invalid/herdly/frontend@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "1073741824",
+      "networks": {
+        "goatfarm_app": null
+      },
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp:size=64m",
+        "/app/.next/cache:size=128m"
+      ]
+    },
+    "migrate": {
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 1,
+      "command": [
+        "alembic",
+        "upgrade",
+        "head"
+      ],
+      "depends_on": {
+        "config-guard": {
+          "condition": "service_completed_successfully",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_DB_SSLMODE": "verify-full",
+        "GOATFARM_DB_SSLROOTCERT_PATH": "/run/secrets/goatfarm-postgres-ca.pem",
+        "GOATFARM_ENVIRONMENT": "production",
+        "GOATFARM_MIGRATION_DATABASE_URL": "",
+        "GOATFARM_MIGRATION_DATABASE_URL_FILE": "/run/secrets/app/migration_database_url",
+        "GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS": "0"
+      },
+      "image": "probe.invalid/herdly/backend@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "1073741824",
+      "networks": {
+        "goatfarm_app": null
+      },
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp:size=16m"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/FAKE-postgres-ca.pem",
+          "target": "/run/secrets/goatfarm-postgres-ca.pem",
+          "read_only": true
+        },
+        {
+          "type": "bind",
+          "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/migration",
+          "target": "/run/secrets/app",
+          "read_only": true
+        }
+      ]
+    },
+    "screening-worker": {
+      "cap_drop": [
+        "ALL"
+      ],
+      "cpus": 1,
+      "command": [
+        "python",
+        "-m",
+        "app.worker"
+      ],
+      "depends_on": {
+        "migrate": {
+          "condition": "service_completed_successfully",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GOATFARM_DATABASE_URL": "",
+        "GOATFARM_DATABASE_URL_FILE": "/run/secrets/app/worker_database_url",
+        "GOATFARM_DB_SSLMODE": "verify-full",
+        "GOATFARM_DB_SSLROOTCERT_PATH": "/run/secrets/goatfarm-postgres-ca.pem",
+        "GOATFARM_ENVIRONMENT": "production",
+        "GOATFARM_S3_ACCESS_KEY_ID": "",
+        "GOATFARM_S3_ACCESS_KEY_ID_FILE": "/run/secrets/app/s3_access_key_id",
+        "GOATFARM_S3_BUCKET": "",
+        "GOATFARM_S3_ENDPOINT_URL": "",
+        "GOATFARM_S3_REGION": "us-east-1",
+        "GOATFARM_S3_SECRET_ACCESS_KEY": "",
+        "GOATFARM_S3_SECRET_ACCESS_KEY_FILE": "/run/secrets/app/s3_secret_access_key",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY": "",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY_FILE": "/run/secrets/app/screening_anthropic_api_key",
+        "GOATFARM_SCREENING_ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+        "GOATFARM_SCREENING_ANTHROPIC_MODEL": "claude-sonnet-4-5",
+        "GOATFARM_SCREENING_CROP_DETECTION_ENABLED": "true",
+        "GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM": "400",
+        "GOATFARM_SCREENING_ENABLED": "false",
+        "GOATFARM_SCREENING_IMAGE_MAX_EDGE_PX": "1568",
+        "GOATFARM_SCREENING_MAX_CROPS_PER_IMAGE": "8",
+        "GOATFARM_SCREENING_MAX_IMAGES_PER_CYCLE": "50",
+        "GOATFARM_SCREENING_OPENAI_API_KEY": "",
+        "GOATFARM_SCREENING_OPENAI_API_KEY_FILE": "",
+        "GOATFARM_SCREENING_OPENAI_BASE_URL": "https://api.openai.com/v1",
+        "GOATFARM_SCREENING_OPENAI_MODEL": "gpt-5",
+        "GOATFARM_SCREENING_POLL_INTERVAL_SECONDS": "300",
+        "GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS": "900",
+        "GOATFARM_SCREENING_PROVIDER": "anthropic",
+        "GOATFARM_SCREENING_PROVIDER_ROTATION": "[]",
+        "GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS": "120",
+        "GOATFARM_SCREENING_S3_PREFIX": "raw",
+        "GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS": "1800",
+        "GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS": "900",
+        "GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH": "/tmp/goatfarm-screening-worker.json",
+        "GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES": "3"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "screening_worker_healthcheck.py"
+        ],
+        "timeout": "5s",
+        "interval": "30s",
+        "retries": 3,
+        "start_period": "30s"
+      },
+      "image": "probe.invalid/herdly/backend@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "mem_limit": "1073741824",
+      "networks": {
+        "goatfarm_app": null
+      },
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stop_grace_period": "40s",
+      "tmpfs": [
+        "/tmp:size=16m"
+      ],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/FAKE-postgres-ca.pem",
+          "target": "/run/secrets/goatfarm-postgres-ca.pem",
+          "read_only": true
+        },
+        {
+          "type": "bind",
+          "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/worker",
+          "target": "/run/secrets/app",
+          "read_only": true
+        }
+      ]
+    }
+  },
+  "x-api-secrets": {
+    "read_only": true,
+    "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/api",
+    "target": "/run/secrets/app",
+    "type": "bind"
+  },
+  "x-db-ca": {
+    "read_only": true,
+    "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/FAKE-postgres-ca.pem",
+    "target": "/run/secrets/goatfarm-postgres-ca.pem",
+    "type": "bind"
+  },
+  "x-default-logging": {
+    "driver": "json-file",
+    "options": {
+      "max-file": "3",
+      "max-size": "10m"
+    }
+  },
+  "x-migration-secrets": {
+    "read_only": true,
+    "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/migration",
+    "target": "/run/secrets/app",
+    "type": "bind"
+  },
+  "x-service-hardening": {
+    "cap_drop": [
+      "ALL"
+    ],
+    "logging": {
+      "driver": "json-file",
+      "options": {
+        "max-file": "3",
+        "max-size": "10m"
+      }
+    },
+    "security_opt": [
+      "no-new-privileges:true"
+    ]
+  },
+  "x-worker-secrets": {
+    "read_only": true,
+    "source": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/worker",
+    "target": "/run/secrets/app",
+    "type": "bind"
+  }
+}
+# exit=0; expected=0
+
+$ /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/compose_env_guard.py /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/production.env
+
+# exit=0; expected=0
+
+$ /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/compose_env_guard.py /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/missing-GOATFARM_DATABASE_URL.env
+usage: compose_env_guard.py [-h] dotenv
+compose_env_guard.py: error: neither GOATFARM_DATABASE_URL nor GOATFARM_DATABASE_URL_FILE is set; deliver exactly one
+
+# exit=2; expected=2
+
+$ /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/compose_env_guard.py /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/missing-GOATFARM_MIGRATION_DATABASE_URL.env
+usage: compose_env_guard.py [-h] dotenv
+compose_env_guard.py: error: neither GOATFARM_MIGRATION_DATABASE_URL nor GOATFARM_MIGRATION_DATABASE_URL_FILE is set; deliver exactly one
+
+# exit=2; expected=2
+
+$ /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/compose_env_guard.py /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/missing-GOATFARM_WORKER_DATABASE_URL.env
+usage: compose_env_guard.py [-h] dotenv
+compose_env_guard.py: error: neither GOATFARM_WORKER_DATABASE_URL nor GOATFARM_WORKER_DATABASE_URL_FILE is set; deliver exactly one
+
+# exit=2; expected=2
+
+$ /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/compose_env_guard.py /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/missing-GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET.env
+usage: compose_env_guard.py [-h] dotenv
+compose_env_guard.py: error: neither GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET nor GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE is set; deliver exactly one
+
+# exit=2; expected=2
+
+$ /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/compose_env_guard.py /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/overlapping-directories.env
+usage: compose_env_guard.py [-h] dotenv
+compose_env_guard.py: error: service secret directories must be distinct and must not contain each other
+
+# exit=2; expected=2
+
+$ docker image inspect postgres:16 --format '{{.Id}}'
+sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+
+# exit=0; expected=0
+
+$ docker run --pull=never --rm --name herdly-isolation-probe-3ed8e719a4304d7d-api --network=none --read-only --cap-drop=ALL --security-opt=no-new-privileges:true --user=10001:10001 --entrypoint=/bin/sh --mount type=bind,src=/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/FAKE-postgres-ca.pem,dst=/run/secrets/goatfarm-postgres-ca.pem,readonly --mount type=bind,src=/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/api,dst=/run/secrets/app,readonly --mount type=bind,src=/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/jwt,dst=/run/secrets/jwt,readonly sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54 -ec 'test -r /run/secrets/app/database_url
+test -r /run/secrets/app/idempotency_request_hmac_secret
+test -r /run/secrets/app/metrics_bearer_token
+test -r /run/secrets/app/msg91_auth_key
+test -r /run/secrets/app/s3_access_key_id
+test -r /run/secrets/app/s3_secret_access_key
+test -r /run/secrets/app/screening_anthropic_api_key
+test -r /run/secrets/app/totp_encryption_key
+test ! -e /run/secrets/app/jwt_private.pem
+test ! -e /run/secrets/app/jwt_public.pem
+test ! -e /run/secrets/app/migration_database_url
+test ! -e /run/secrets/app/worker_database_url
+test -r /run/secrets/goatfarm-postgres-ca.pem
+test -r /run/secrets/jwt/jwt_private.pem
+test -r /run/secrets/jwt/jwt_public.pem
+find /run/secrets -type f -print | sort
+printf '"'"'UID=%s; allowed fake files readable; forbidden files absent\n'"'"' "$(id -u)"'
+docker: Error response from daemon: invalid mount config for type "bind": bind source path does not exist: /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-3ed8e719a4304d7d-17d4sm51/FAKE-postgres-ca.pem
+
+Run 'docker run --help' for more information
+
+# exit=125; expected=0
+
+$ docker image rm herdly-isolation-probe-3ed8e719a4304d7d:positive
+Untagged: herdly-isolation-probe-3ed8e719a4304d7d:positive
+Deleted: sha256:0579a06d316bc8a9491210684b0570b97aedc7efcbcd70ac1a7f74c5c2db2a09
+
+# exit=0; expected=0

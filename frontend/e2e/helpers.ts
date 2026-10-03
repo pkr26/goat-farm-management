@@ -103,6 +103,8 @@ const UI_LABELS: Record<string, string> = {
   MORNING: "Morning",
   AFTERNOON: "Afternoon",
   NIGHT: "Night",
+  SC: "SC (subcutaneous)",
+  VERIFIED: "Verified",
 };
 
 /** Translate an enum code to the label the UI shows (identity if unknown). */
@@ -145,7 +147,7 @@ export async function pickSelectOption(
 }
 
 /**
- * Open a server-backed RemotePicker by its accessible combobox label, search
+ * Open a server-backed RemotePicker by its accessible dialog-trigger label, search
  * the bounded result set when requested, and choose an option from the linked
  * picker dialog. Unlike the static Select helper above, this follows the
  * trigger's aria-controls relationship and exercises the user-visible search.
@@ -157,7 +159,7 @@ export async function pickRemoteOption(
   query?: string,
 ): Promise<void> {
   const page = scope.page();
-  const trigger = scope.getByRole("combobox", { name: label, exact: true });
+  const trigger = scope.getByRole("button", { name: label, exact: true });
   await expect(trigger).toBeVisible();
   const dialogId = await trigger.getAttribute("aria-controls");
   if (!dialogId) throw new Error(`Remote picker "${label}" has no aria-controls target.`);
@@ -288,8 +290,8 @@ export async function createBreeding(
   await page.goto("/breeding");
   await page.getByRole("button", { name: "Add breeding" }).first().click();
   let dialog = page.getByRole("dialog", { name: "Add breeding" });
-  const noEligibleBuck = dialog.getByText(/No eligible bucks are available/);
-  let buckPicker = dialog.getByRole("combobox", { name: "Buck *", exact: true });
+  const noEligibleBuck = dialog.getByText(/No eligible .+ are available/);
+  let buckPicker = dialog.getByRole("button", { name: "Buck *", exact: true });
   // Buck eligibility is checked against the canonical scoped endpoint. Wait
   // until it either enables the picker or reports a truthful empty state.
   await expect
@@ -315,7 +317,7 @@ export async function createBreeding(
     await page.goto("/breeding");
     await page.getByRole("button", { name: "Add breeding" }).first().click();
     dialog = page.getByRole("dialog", { name: "Add breeding" });
-    buckPicker = dialog.getByRole("combobox", { name: "Buck *", exact: true });
+    buckPicker = dialog.getByRole("button", { name: "Buck *", exact: true });
     await expect(buckPicker).toBeEnabled({ timeout: 20_000 });
   }
 

@@ -1,18 +1,9 @@
-"""Mutation-test runner: coverage-guided test selection, parallel workers.
+"""Isolated mutation runner with clean-selection baselines and attempt receipts.
 
-Usage:
-    .venv/bin/python mutation/mutate_run.py [--workers N] [--max-seconds S]
-        [--tiers 1,2] [--limit N] [--status-filter all|pending]
-
-Safety model:
-  * mutants are applied IN PLACE to app/ sources, then byte-exact restored
-    (sha256-verified) in a finally block;
-  * a per-file checkout lock guarantees no two workers mutate the same file
-    concurrently;
-  * every worker runs pytest as a subprocess with its own throwaway Postgres
-    database (GOATFARM_TEST_DB=goatfarm_mut<i>_test) and a hard timeout —
-    timeouts count as killed (hang mutants);
-  * results append to mutation/results.jsonl — re-runs resume (id dedupe).
+Every worker mutates a private immutable checkout snapshot and uses a unique
+throwaway database. Only structured assertion failures against a passing exact
+selection baseline count as kills. Timeouts and infrastructure failures remain
+inconclusive; incompatible historical receipts cannot be resumed or scored.
 """
 
 from __future__ import annotations
@@ -20,15 +11,20 @@ from __future__ import annotations
 import argparse
 import collections
 import contextlib
-import hashlib
 import json
 import os
+import shutil
 import signal
 import subprocess
+import tempfile
+import textwrap
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
+
+from mutate_identity import digest_json, input_identity, latest_compatible, read_results, sha_file
 
 BACKEND = Path(__file__).resolve().parent.parent
 MUTDIR = BACKEND / "mutation"
@@ -45,9 +41,11 @@ def load_coverage_contexts() -> dict[str, dict[int, set[str]]]:
     cov = coverage.Coverage(data_file=str(BACKEND / ".coverage-mut"))
     cov.load()
     data = cov.get_data()
+    provenance = json.loads((BACKEND / ".coverage-mut.provenance.json").read_text())
+    source_root = Path(provenance.get("source_root", str(BACKEND)))
     by_file: dict[str, dict[int, set[str]]] = {}
     for f in data.measured_files():
-        rel = str(Path(f).relative_to(BACKEND))
+        rel = Path(f).relative_to(source_root).as_posix()
         by_file[rel] = {
             line: {c.rsplit("|", 1)[0] for c in ctxs if c}
             for line, ctxs in (data.contexts_by_lineno(f) or {}).items()
@@ -98,39 +96,127 @@ def sample_tests(tests: list[str], cap: int) -> list[str]:
     return picked
 
 
+def classify_pytest(exit_code: int, receipt: dict[str, Any] | None) -> str:
+    if receipt is None or receipt.get("exit_code") != exit_code:
+        return "infra"
+    if receipt.get("collection_errors") or receipt.get("collected", 0) == 0:
+        return "infra"
+    reports = receipt.get("reports", [])
+    failures = [r for r in reports if r["outcome"] == "failed"]
+    if (
+        exit_code == 0
+        and not failures
+        and any(r["when"] == "call" and r["outcome"] == "passed" for r in reports)
+    ):
+        return "pass"
+    if (
+        exit_code == 1
+        and failures
+        and all(r["when"] == "call" and r.get("assertion") for r in failures)
+    ):
+        return "kill"
+    return "infra"
+
+
+def snapshot_ignore(directory: str, names: list[str]) -> set[str]:
+    excluded = {
+        ".git",
+        ".venv",
+        "node_modules",
+        ".next",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        "secrets",
+        "keys",
+        "audit_reports",
+    }
+    return {
+        name
+        for name in names
+        if name in excluded
+        or name.startswith(".coverage")
+        or (name.startswith(".env") and not name.endswith(".example"))
+        or name.endswith((".pyc", ".dump", ".dump.gpg"))
+    }
+
+
 class Runner:
-    def __init__(self, workers: int, max_seconds: float | None):
+    def __init__(self, workers: int, max_seconds: float | None, *, phase_timeout: float = 300):
+        if workers < 1:
+            raise ValueError("workers must be positive")
         self.workers = workers
+        self.phase_timeout = phase_timeout
         self.deadline = time.monotonic() + max_seconds if max_seconds else None
+        self.run_id = uuid.uuid4().hex
+        self.inputs = input_identity(BACKEND)
+        self.identity = {
+            "schema": 2,
+            **self.inputs,
+            "manifest_sha256": sha_file(MUTDIR / "manifest.json"),
+            "coverage_sha256": sha_file(BACKEND / ".coverage-mut"),
+            "config": {
+                "workers": workers,
+                "phase_timeout": phase_timeout,
+                "full": bool(os.environ.get("MUTATE_FULL_PHASE")),
+                "sample_cap": SAMPLE_CAP,
+            },
+        }
+        provenance_path = BACKEND / ".coverage-mut.provenance.json"
+        try:
+            coverage_provenance = json.loads(provenance_path.read_text())
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                "coverage has no clean-baseline provenance; run mutation/mutate_cover.py"
+            ) from exc
+        if (
+            coverage_provenance.get("inputs") != self.inputs
+            or coverage_provenance.get("coverage_sha256") != self.identity["coverage_sha256"]
+            or coverage_provenance.get("baseline_exit_code") != 0
+        ):
+            raise ValueError("coverage source/tests/locks are stale; run mutation/mutate_cover.py")
+        self.identity["coverage_provenance_sha256"] = sha_file(provenance_path)
+        self.campaign_id = digest_json(self.identity)
         self.ctx = load_coverage_contexts()
         self.pop = file_popularity(self.ctx)
         self.tpf = tests_per_file(self.ctx)
-        self.file_locks: dict[str, threading.Lock] = {}
-        self.locks_guard = threading.Lock()
         self.stop = threading.Event()
         self.counter: collections.Counter[str] = collections.Counter()
         self.print_lock = threading.Lock()
         self.results_path = MUTDIR / "results.jsonl"
-        self.done_ids: set[str] = set()
-        if self.results_path.exists():
-            for line in self.results_path.read_text().splitlines():
-                with contextlib.suppress(Exception):
-                    self.done_ids.add(json.loads(line)["id"])
+        manifest = {m["id"]: m for m in json.loads((MUTDIR / "manifest.json").read_text())}
+        self.done_ids = {
+            mid
+            for mid, rec in latest_compatible(
+                read_results(self.results_path), self.campaign_id, manifest
+            ).items()
+            if rec.get("status") in {"KILLED", "SURVIVED", "INVALID"}
+        }
+        self._snapshot_tmp = tempfile.TemporaryDirectory(prefix="herdly-mutation-snapshot-")
+        self.snapshot = Path(self._snapshot_tmp.name) / "repo"
+        try:
+            shutil.copytree(BACKEND.parent, self.snapshot, ignore=snapshot_ignore)
+            # Reject a mixed snapshot taken while editors changed source/tests.
+            if input_identity(self.snapshot / BACKEND.name) != self.inputs:
+                raise RuntimeError(
+                    "source/tests changed while snapshotting; retry a stable checkout"
+                )
+        except BaseException:
+            self._snapshot_tmp.cleanup()
+            raise
+        self.local = threading.local()
+        self.baselines: dict[str, tuple[str, str, float]] = {}
+        self.baseline_lock = threading.Lock()
 
-    def lock_for(self, rel: str) -> threading.Lock:
-        with self.locks_guard:
-            return self.file_locks.setdefault(rel, threading.Lock())
+    def close(self) -> None:
+        self._snapshot_tmp.cleanup()
 
     def select_tests(self, m: dict[str, Any]) -> tuple[list[str], bool]:
-        """Return (selection, module_level)."""
         lines = self.ctx.get(m["file"], {})
         tests = sorted(lines.get(m["line"], set()))
         if tests:
             return tests, False
-        # No test covers the mutated line directly. For import-time statements
-        # (module/class scope — constants, frozensets) run small focused test
-        # files: rank by module-lines-covered per test (a 300-test file that
-        # covers the module is a poor pick next to a 12-test one that does).
         if m.get("scope") == "module" and lines:
             eff = [
                 (f, cov / max(1, self.tpf.get(f, 1)))
@@ -142,16 +228,13 @@ class Runner:
 
     def run_pytest(self, node_ids: list[str], worker: int) -> tuple[str, str, float]:
         env = os.environ.copy()
-        env["GOATFARM_TEST_DB"] = f"goatfarm_mut{worker}_test"
+        env["GOATFARM_TEST_DB"] = f"herdly_mut_{self.run_id[:10]}_{uuid.uuid4().hex[:8]}_test"
         env.pop("COVERAGE_FILE", None)
-        # Never persist bytecode during a campaign: a byte-exact restore that
-        # lands in the same mtime second as a SAME-SIZED mutant leaves the
-        # mutant's .pyc looking fresh, and later clean runs silently execute
-        # the mutant (observed 2026-09-30: the swapped-branches mutant of
-        # record_screening_provider_call survived the restore this way and
-        # failed test_metrics until __pycache__ was purged).
         env["PYTHONDONTWRITEBYTECODE"] = "1"
-        cmd = [
+        env["PYTHONPATH"] = str(self.local.workspace)
+        receipt_path = self.local.workspace / f"receipt-{uuid.uuid4().hex}.json"
+        env["MUTATION_RECEIPT_PATH"] = str(receipt_path)
+        command = [
             str(VENV_PY),
             "-m",
             "pytest",
@@ -161,201 +244,237 @@ class Runner:
             "-x",
             "-p",
             "no:cacheprovider",
+            "-p",
+            "mutation.pytest_receipt",
             "--color=no",
             *node_ids,
         ]
         t0 = time.monotonic()
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(BACKEND),
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            start_new_session=True,
-        )
         try:
-            out, _ = proc.communicate(timeout=300)
-            status = "fail" if proc.returncode != 0 else "pass"
+            proc = subprocess.Popen(
+                command,
+                cwd=self.local.workspace,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            return "infra", repr(exc), time.monotonic() - t0
+        try:
+            out, _ = proc.communicate(timeout=self.phase_timeout)
+            try:
+                receipt = json.loads(receipt_path.read_text())
+            except (OSError, ValueError):
+                receipt = None
+            self.local.pytest_receipt = receipt
+            status = classify_pytest(proc.returncode, receipt)
         except subprocess.TimeoutExpired:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(proc.pid, signal.SIGKILL)
-            proc.wait()
             out, _ = proc.communicate()
             status = "timeout"
+            self.local.pytest_receipt = None
         return status, out or "", time.monotonic() - t0
 
-    def first_failure(self, out: str) -> str:
-        for line in out.splitlines():
-            line = line.strip()
-            if line.startswith("FAILED") or line.startswith("ERROR"):
-                return line[:220]
-        for line in out.splitlines():
-            if "::_" not in line and ("/tests/" in line or line.startswith("E ")):
-                return line[:220]
-        return out.strip().splitlines()[-1][:220] if out.strip() else ""
-
     def apply_mutant(self, m: dict[str, Any]) -> str:
-        """Splice the mutated statement into the file; returns mutated text."""
-        path = BACKEND / m["file"]
-        source = path.read_text()
+        path = self.local.workspace / m["file"]
+        original = path.read_bytes()
+        if not m.get("source_sha256") or sha_file(path) != m["source_sha256"]:
+            raise ValueError("stale/missing source fingerprint; regenerate the manifest")
+        source = original.decode("utf-8")
         lines = source.splitlines(keepends=True)
-        s, e = m["stmt_line"] - 1, m["stmt_end_line"]  # half-open span
-        replacement = " " * int(m["stmt_col"]) + str(m["mut_stmt"]) + "\n"
-        return "".join(lines[:s]) + replacement + "".join(lines[e:])
+        s, e = m["stmt_line"] - 1, m["stmt_end_line"]
+        if not m.get("orig_span") or "".join(lines[s:e]) != m["orig_span"]:
+            raise ValueError("original statement bytes do not match manifest")
+        replacement = textwrap.indent(str(m["mut_stmt"]), " " * int(m["stmt_col"])) + "\n"
+        mutated = "".join(lines[:s]) + replacement + "".join(lines[e:])
+        compile(mutated, str(path), "exec")
+        return mutated
+
+    def first_failure(self, out: str) -> str:
+        return next(
+            (
+                line.strip()[:220]
+                for line in out.splitlines()
+                if line.strip().startswith(("FAILED", "ERROR"))
+            ),
+            out[-220:],
+        )
 
     def execute(self, m: dict[str, Any], worker: int) -> dict[str, Any]:
-        path = BACKEND / m["file"]
-        original = path.read_bytes()
-        digest = hashlib.sha256(original).hexdigest()
-        rec: dict[str, Any] = {
-            "id": m["id"],
-            "file": m["file"],
-            "line": m["line"],
-            "kind": m["kind"],
-            "detail": m["detail"],
-            "tier": m["tier"],
-            "stmt_line": m["stmt_line"],
-        }
-        try:
-            path.write_text(self.apply_mutant(m))
+        rec = {key: m[key] for key in ("id", "file", "line", "kind", "detail", "tier")}
+        rec.update(
+            campaign_id=self.campaign_id,
+            run_id=self.run_id,
+            attempt_id=uuid.uuid4().hex,
+            mutant_digest=digest_json(m),
+            provenance=self.identity,
+            status_policy="assertions-only-timeouts-inconclusive",
+        )
+        with tempfile.TemporaryDirectory(prefix="herdly-mutant-") as temporary:
+            workspace = Path(temporary) / "repo"
+            shutil.copytree(self.snapshot, workspace)
+            self.local.workspace = workspace / BACKEND.name
+            path = self.local.workspace / m["file"]
+            if not path.resolve().is_relative_to((self.local.workspace / "app").resolve()):
+                return {
+                    **rec,
+                    "status": "INVALID",
+                    "error": "mutation target must stay inside app/",
+                }
+            original = path.read_bytes()
+            try:
+                mutated = self.apply_mutant(m)
+            except (ValueError, SyntaxError, UnicodeError) as exc:
+                return {**rec, "status": "INVALID", "error": str(exc)}
             selection, module_level = self.select_tests(m)
-            rec["module_level"] = module_level
+            rec.update(n_tests=len(selection), module_level=module_level)
             if not selection:
-                rec["status"] = "NOT_COVERED"
-                rec["n_tests"] = 0
-                return rec
-            rec["n_tests"] = len(selection)
-            # escalating nested phases: a kill usually falls in the first few
-            # tests; survivors pay for the capped spread (60 tests across all
-            # covering files) — enough spread that a 4th full phase adds cost
-            # without changing verdicts.
-            phases = [FULL_CAP] if os.environ.get("MUTATE_FULL_PHASE") else [15, SAMPLE_CAP]
-            total_dur = 0.0
-            for pi, cap in enumerate(phases, start=1):
+                return {**rec, "status": "NOT_COVERED", "selection_mode": "uncovered"}
+            phases = [len(selection)] if os.environ.get("MUTATE_FULL_PHASE") else [15, SAMPLE_CAP]
+            total_duration = 0.0
+            for phase, cap in enumerate(phases, 1):
                 subset = sample_tests(selection, cap)
-                status, out, dur = self.run_pytest(subset, worker)
-                total_dur += dur
-                if status == "fail":
-                    rec.update(
-                        status="KILLED",
-                        phase=pi,
-                        dur=round(total_dur, 1),
-                        fail=self.first_failure(out),
-                    )
-                    return rec
-                if status == "timeout":
-                    rec.update(status="TIMEOUT", phase=pi, dur=round(total_dur, 1))
-                    return rec
+                rec.update(
+                    selection=subset,
+                    selection_sha256=digest_json(subset),
+                    selection_mode="module-fallback"
+                    if module_level
+                    else ("complete" if len(subset) == len(selection) else "sampled"),
+                )
+                baseline_key = digest_json([self.campaign_id, subset])
+                # The baseline always runs against clean snapshot bytes, with
+                # exactly the mutant's selection and process/resource limits.
+                path.write_bytes(original)
+                with self.baseline_lock:
+                    baseline = self.baselines.get(baseline_key)
+                    if baseline is None:
+                        baseline = self.run_pytest(subset, worker)
+                        if baseline[0] == "pass":
+                            self.baselines[baseline_key] = baseline
+                rec["baseline"] = {
+                    "status": baseline[0],
+                    "duration": baseline[2],
+                    "selection_sha256": digest_json(subset),
+                }
+                if baseline[0] != "pass":
+                    return {
+                        **rec,
+                        "status": "INCONCLUSIVE_TIMEOUT"
+                        if baseline[0] == "timeout"
+                        else "INFRA_ERROR",
+                        "error": "clean baseline did not pass",
+                        "fail": self.first_failure(baseline[1]),
+                    }
+                path.write_text(mutated)
+                status, out, duration = self.run_pytest(subset, worker)
+                total_duration += duration
+                rec.update(
+                    phase=phase,
+                    dur=round(total_duration, 2),
+                    pytest_receipt=getattr(self.local, "pytest_receipt", None),
+                )
+                if status != "pass":
+                    return {
+                        **rec,
+                        "status": {
+                            "kill": "KILLED",
+                            "timeout": "INCONCLUSIVE_TIMEOUT",
+                            "infra": "INFRA_ERROR",
+                        }[status],
+                        "fail": self.first_failure(out),
+                    }
                 if len(selection) <= cap:
-                    rec.update(status="SURVIVED", phase=pi, dur=round(total_dur, 1))
-                    return rec
-            rec.update(status="SURVIVED", phase=len(phases), dur=round(total_dur, 1))
-            return rec
-        finally:
-            path.write_bytes(original)
-            if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
-                raise RuntimeError(f"RESTORE FAILED for {m['file']}")
+                    break
+            return {**rec, "status": "SURVIVED"}
 
     def worker_loop(
-        self, worker: int, queue: collections.deque[dict[str, Any]], qlock: threading.Lock
+        self, worker: int, queue: collections.deque[dict[str, Any]], queue_lock: threading.Lock
     ) -> None:
         while not self.stop.is_set():
             if self.deadline and time.monotonic() > self.deadline:
                 return
-            m = None
-            held: str | None = None
-            with qlock:
-                for cand in queue:
-                    if cand is None:
-                        continue
-                    lock = self.lock_for(cand["file"])
-                    if not lock.acquire(blocking=False):
-                        continue
-                    held = cand["file"]
-                    m = cand
-                    break
-                if m is not None:
-                    queue.remove(m)
-            if m is None:
-                return
+            with queue_lock:
+                if not queue:
+                    return
+                mutant = queue.popleft()
             try:
-                try:
-                    rec = self.execute(m, worker)
-                except Exception as exc:  # runner-level error: record, keep going
-                    rec = {
-                        "id": m["id"],
-                        "file": m["file"],
-                        "line": m["line"],
-                        "kind": m["kind"],
-                        "detail": m["detail"],
-                        "tier": m["tier"],
-                        "status": "RUN_ERROR",
-                        "error": repr(exc)[:300],
-                    }
-                with self.print_lock:
-                    self.counter[rec["status"]] += 1
-                    self.counter["total"] += 1
-                    print(
-                        f"[w{worker}] {rec['status']:11s} {m['file']}:{m['line']} "
-                        f"{m['kind']}/{m['detail']} ({self.counter['total']})",
-                        flush=True,
-                    )
-                    with self.results_path.open("a") as fh:
-                        fh.write(json.dumps(rec) + "\n")
-            finally:
-                if held is not None:
-                    self.lock_for(held).release()
+                record = self.execute(mutant, worker)
+            except Exception as exc:
+                record = {
+                    "id": mutant["id"],
+                    "campaign_id": self.campaign_id,
+                    "mutant_digest": digest_json(mutant),
+                    "run_id": self.run_id,
+                    "status": "INFRA_ERROR",
+                    "error": repr(exc)[:300],
+                }
+            with self.print_lock:
+                self.counter[record["status"]] += 1
+                print(
+                    f"[w{worker}] {record['status']} {mutant['file']}:{mutant['line']}", flush=True
+                )
+                with self.results_path.open("a") as handle:
+                    handle.write(json.dumps(record) + "\n")
 
     def run(self, mutants: list[dict[str, Any]]) -> None:
         queue = collections.deque(mutants)
-        qlock = threading.Lock()
+        lock = threading.Lock()
         threads = [
-            threading.Thread(target=self.worker_loop, args=(i, queue, qlock), daemon=True)
+            threading.Thread(target=self.worker_loop, args=(i, queue, lock))
             for i in range(self.workers)
         ]
-        t0 = time.monotonic()
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        dt = time.monotonic() - t0
-        print(f"\n== done in {dt / 60:.1f} min: {dict(self.counter)}")
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        print(f"completed attempt statuses: {dict(self.counter)}")
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--workers", type=int, default=6)
-    ap.add_argument("--max-seconds", type=float, default=None)
-    ap.add_argument("--tiers", type=str, default="1,2,3")
-    ap.add_argument("--limit", type=int, default=None)
-    ap.add_argument("--files", type=str, default=None, help="comma-separated file filter")
-    ap.add_argument("--kinds", type=str, default=None)
-    args = ap.parse_args()
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument("--max-seconds", type=float)
+    parser.add_argument("--tiers", default="1,2,3")
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("--files")
+    parser.add_argument("--kinds")
+    parser.add_argument("--full", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
     manifest = json.loads((MUTDIR / "manifest.json").read_text())
-    tiers = {int(t) for t in args.tiers.split(",")}
-    todo = [m for m in manifest if m["tier"] in tiers]
-    if args.files:
-        pats = args.files.split(",")
-        todo = [m for m in todo if any(p in m["file"] for p in pats)]
-    if args.kinds:
-        kinds = set(args.kinds.split(","))
-        todo = [m for m in todo if m["kind"] in kinds]
-    runner = Runner(args.workers, args.max_seconds)
-    todo = [m for m in todo if m["id"] not in runner.done_ids]
-
-    # cheapest-first inside each tier: fewest covering tests = fastest kills
-    def cost(m: dict[str, Any]) -> tuple[int, int]:
-        lines = runner.ctx.get(m["file"], {})
-        return (m["tier"], len(lines.get(m["line"], ())) or 10_000)
-
-    todo.sort(key=cost)
+    tiers = {int(tier) for tier in args.tiers.split(",")}
+    todo = [
+        m
+        for m in manifest
+        if m["tier"] in tiers
+        and (not args.files or any(name in m["file"] for name in args.files.split(",")))
+        and (not args.kinds or m["kind"] in args.kinds.split(","))
+    ]
     if args.limit:
         todo = todo[: args.limit]
-    print(f"mutants to run: {len(todo)} (skipping {len(runner.done_ids)} already done)")
-    if todo:
-        runner.run(todo)
+    if args.dry_run:
+        print(
+            json.dumps(
+                {
+                    "mutants": [m["id"] for m in todo],
+                    "workers": args.workers,
+                    "full": args.full,
+                    "source_writes": False,
+                },
+                indent=2,
+            )
+        )
+        return
+    if args.full:
+        os.environ["MUTATE_FULL_PHASE"] = "1"
+    runner = Runner(args.workers, args.max_seconds)
+    try:
+        runner.run([m for m in todo if m["id"] not in runner.done_ids])
+    finally:
+        runner.close()
 
 
 if __name__ == "__main__":

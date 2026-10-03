@@ -69,27 +69,35 @@ def test_horizon_past_festival_coverage_surfaces_a_warning() -> None:
         meta=MetaAssumptions(start_year_month="2045-01", horizon_months=120),
     )
     res = run_simulation(a, with_break_even=False)
-    assert res.warnings == [
+    assert (
         "Festival calendar covers through 2050; months beyond that carry no Bakrid uplift."
-    ]
+        in res.warnings
+    )
+    assert any("local confirmation" in warning for warning in res.warnings)
     # The caveat also reaches the human narrative, next to the risk section.
     risks = next(section for section in res.narrative_report if section.key == "risks")
     assert any("Festival calendar covers through 2050" in p for p in risks.paragraphs)
 
 
-def test_horizon_inside_festival_coverage_warns_nothing() -> None:
+def test_horizon_inside_festival_coverage_still_discloses_projection_provenance() -> None:
     a = SimulationAssumptions(
         meta=MetaAssumptions(start_year_month="2040-01", horizon_months=120),
     )
     res = run_simulation(a, with_break_even=False)
-    # The run ends in 2049, inside the 2050 table: no caveat.
-    assert res.warnings == []
+    # No missing-calendar warning, but published future dates are projections.
+    assert not any("calendar covers through" in warning for warning in res.warnings)
+    assert any("local confirmation" in warning for warning in res.warnings)
     # A run with the uplift explicitly disabled has nothing to warn about
     # either.
     no_festival = a.model_copy(deep=True)
     no_festival.sales.festival_sale_months = []
     no_festival_res = run_simulation(no_festival, with_break_even=False)
-    assert no_festival_res.warnings == []
+    assert not any(
+        "festival" in warning.lower() or "bakrid" in warning.lower()
+        for warning in no_festival_res.warnings
+    )
+    # IRR assurance is independent of calendar coverage and remains explicit.
+    assert no_festival_res.metrics.irr_status == "indeterminate"
 
 
 def test_festival_hold_degrades_gracefully_past_coverage() -> None:
@@ -489,7 +497,9 @@ def test_optimizer_explores_festival_hold_and_service_cull_axes(
         optimization=policy,
     )
     observed: list[SimulationAssumptions] = []
-    original_run_core = optimization_module._run_core
+    from app.simulation.engine import _run_core
+
+    original_run_core = _run_core
 
     def record(assumptions: SimulationAssumptions, *_args: object) -> object:
         observed.append(assumptions)

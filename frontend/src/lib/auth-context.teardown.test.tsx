@@ -58,6 +58,21 @@ function Probe() {
   );
 }
 
+it("offline startup releases the loading gate without attempting server authentication", async () => {
+  const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+  let refreshes = 0;
+  server.use(http.post("/api/auth/refresh", () => {
+    refreshes++;
+    return HttpResponse.json({ detail: "Unavailable" }, { status: 503 });
+  }));
+  try {
+    renderWithProviders(<Probe />);
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    expect(screen.getByTestId("user")).toHaveTextContent("none");
+    expect(refreshes).toBe(0);
+  } finally { online.mockRestore(); }
+});
+
 /** A page-style consumer: URL-only cache key, farm scope carried only by the
  *  X-Farm-Id header the api client stamps on, and re-rendered by the farm
  *  selection like every real page. Every value it has ever rendered is
@@ -342,7 +357,7 @@ describe("AuthProvider teardown — offline queue survives session death, dies w
     expect(replay.mock.calls[0]?.[0]).toBe("/api/tasks/9/complete");
   });
 
-  it("an explicit sign-out still wipes the queue for the next tablet user", async () => {
+  it("an explicit sign-out preserves unresolved duties for their original actor", async () => {
     acceptLogout();
     const user = userEvent.setup();
     renderWithProviders(<Probe />);
@@ -360,9 +375,9 @@ describe("AuthProvider teardown — offline queue survives session death, dies w
     await waitFor(() =>
       expect(screen.getByTestId("user")).toHaveTextContent("none"),
     );
-    // Shared-tablet hygiene: the departing worker's queued writes leave with
-    // them — only session DEATH preserves records now.
-    expect(offlineQueueDepth()).toBe(0);
+    // Identity and views are cleared; the departing worker's field work
+    // remains recoverable and actor-scoped after signing in again.
+    expect(offlineQueueDepth()).toBe(1);
   });
 
   it("records preserved by a forced logout are never replayed under the next actor", async () => {

@@ -32,6 +32,7 @@ from datetime import date
 import httpx
 import pytest
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api._shared import visible_to
 from app.db import get_sessionmaker
@@ -63,7 +64,7 @@ def _task_extras(status: str) -> dict[str, object]:
     return {}
 
 
-async def _make_user(db: object, *, deleted: bool = False) -> User:
+async def _make_user(db: AsyncSession, *, deleted: bool = False) -> User:
     user = User(
         email=(
             f"deleted-{next(_email_counter)}@deleted.invalid"
@@ -79,7 +80,7 @@ async def _make_user(db: object, *, deleted: bool = False) -> User:
     return user
 
 
-async def _make_role(db: object, farm_id: int, name: str) -> Role:
+async def _make_role(db: AsyncSession, farm_id: int, name: str) -> Role:
     role = Role(farm_id=farm_id, name=name, permissions="[]")
     db.add(role)
     await db.flush()
@@ -87,7 +88,7 @@ async def _make_role(db: object, farm_id: int, name: str) -> Role:
 
 
 async def _make_membership(
-    db: object, farm_id: int, user_id: int, role_id: int, *, active: bool = True
+    db: AsyncSession, farm_id: int, user_id: int, role_id: int, *, active: bool = True
 ) -> FarmMembership:
     membership = FarmMembership(
         farm_id=farm_id,
@@ -101,7 +102,7 @@ async def _make_membership(
 
 
 async def _make_task(
-    db: object,
+    db: AsyncSession,
     farm_id: int,
     *,
     assigned_role_id: int | None,
@@ -117,14 +118,14 @@ async def _make_task(
         auto_generated=False,
         assigned_role_id=assigned_role_id,
         assigned_user_id=assigned_user_id,
-        **_task_extras(status),  # type: ignore[arg-type]
+        **_task_extras(status),
     )
     db.add(task)
     await db.flush()
     return task
 
 
-async def _viewer_membership(db: object, farm_id: int, user_id: int) -> FarmMembership | None:
+async def _viewer_membership(db: AsyncSession, farm_id: int, user_id: int) -> FarmMembership | None:
     """Resolve the viewer's membership exactly as task_scope does (active
     only) so both engines judge the same input."""
     return (
@@ -143,7 +144,7 @@ async def _viewer_membership(db: object, farm_id: int, user_id: int) -> FarmMemb
 
 
 async def _assert_engines_agree(
-    db: object,
+    db: AsyncSession,
     *,
     task: Task,
     farm: Farm,

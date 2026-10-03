@@ -13,7 +13,9 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "orval": "orval --config orval.config.ts",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "verify:dependencies": "node scripts/verify-dependency-mitigations.mjs",
+    "audit:verified": "node scripts/audit-dependencies.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -22,7 +24,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.28.0",
-    "next": "16.3.3",
+    "next": "16.3.8",
     "next-themes": "^0.4.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -46,7 +48,8 @@
     "@vitejs/plugin-react": "^6.0.5",
     "@vitest/coverage-v8": "4.1.11",
     "eslint": "^9.39.5",
-    "eslint-config-next": "16.3.0",
+    "eslint-config-next": "16.3.8",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.0.1",
     "msw": "^2.15.0",
     "orval": "8.23.0",
@@ -58,10 +61,19 @@
   "packageManager": "pnpm@9.15.9+sha512-aARhQYk8ZvrQHAeSMRKOmvuJ74fiaR1p5NQO7iKJiClf1GghgbrlW1hBjDolO95lpQXsfF+UA+zlzDzTfc8lMQ==",
   "pnpm": {
     "overrides": {
-      "fast-uri": ">=3.1.6",
+      "fast-uri": ">=4.1.5 <5",
+      "undici@>=7 <8": ">=7.29.1 <8",
+      "undici@>=8 <9": ">=8.10.2 <9",
+      "ip-address": ">=10.7.1 <11",
+      "markdown-it": ">=14.3.1 <15",
+      "brace-expansion@>=1 <2": ">=1.1.21 <2",
+      "brace-expansion@>=4 <6": ">=5.0.12 <6",
       "js-yaml": ">=4.3.1 <5",
       "nanoid": ">=3.3.18",
       "qs": ">=6.15.2"
+    },
+    "patchedDependencies": {
+      "braces@3.0.3": "patches/braces@3.0.3.patch"
     }
   },
   "engines": {

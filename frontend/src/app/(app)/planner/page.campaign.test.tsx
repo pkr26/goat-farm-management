@@ -128,6 +128,24 @@ describe("PlannerPage — campaign kills", () => {
     toastMocks.success.mockClear();
   });
 
+  it("retrieves saved plans beyond the first fifty through pagination", async () => {
+    installHandlers();
+    const offsets: number[] = [];
+    server.use(http.get("/api/planner/plans", ({ request }) => {
+      const offset = Number(new URL(request.url).searchParams.get("offset") ?? 0);
+      offsets.push(offset);
+      return HttpResponse.json({ items: [{ ...SAVED_PLAN, id: offset + 1, name: offset ? "Older saved plan" : "Newest saved plan" }], total: 51, limit: 50, offset });
+    }));
+    const user = userEvent.setup();
+    renderWithProviders(<PlannerPage />);
+    expect((await screen.findAllByText("Newest saved plan")).length).toBeGreaterThan(0);
+    const pager = screen.getByRole("navigation", { name: "records pagination" });
+    await user.click(within(pager).getByRole("button", { name: "Next" }));
+    expect((await screen.findAllByText("Older saved plan")).length).toBeGreaterThan(0);
+    expect(offsets).toContain(50);
+    await waitFor(() => expect(within(screen.getByRole("navigation", { name: "records pagination" })).getByRole("button", { name: "Previous" })).toBeEnabled());
+  });
+
   it("keeps the reference queries off without simulation.view", async () => {
     let defaultsRequests = 0;
     server.use(

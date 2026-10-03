@@ -1,0 +1,88 @@
+{
+  "recorded_at": "2026-10-03T20:04:28.031446+00:00",
+  "original_findings": 71,
+  "additional_findings": 12,
+  "tracked_findings": 83,
+  "backend_passed": 5124,
+  "backend_skipped": 4,
+  "frontend_passed": 5269,
+  "frontend_test_files": 326,
+  "browser_passed": 216,
+  "browser_failed": 0,
+  "browser_retries": 0,
+  "browser_skipped": 0,
+  "browsers": {
+    "chromium": {
+      "command": "pnpm exec playwright test",
+      "cwd": "frontend",
+      "production_build_id": "CWwqRg-tXDDZQ8xWOAWpZ",
+      "exit_code": 0,
+      "passed": 74,
+      "failed": 0,
+      "skipped": 0,
+      "retries": 0,
+      "projects": [
+        "chromium",
+        "Mobile Chrome"
+      ],
+      "duration_minutes": 2.7,
+      "browser_manifest": "frontend-final-browser-manifest.json",
+      "database_scope": "local synthetic E2E database",
+      "receipt": "chromium.log"
+    },
+    "firefox": {
+      "command": "E2E_BROWSER=firefox PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:61880/ PW_TEST_CONNECT_EXPOSE_NETWORK='<loopback>' pnpm exec playwright test",
+      "cwd": "frontend",
+      "production_build_id": "CWwqRg-tXDDZQ8xWOAWpZ",
+      "exit_code": 0,
+      "passed": 71,
+      "failed": 0,
+      "skipped": 0,
+      "retries": 0,
+      "projects": [
+        "firefox"
+      ],
+      "duration_minutes": 3.1,
+      "browser_runtime": "official Playwright1.62.1 LinuxARM64 Firefox153.0",
+      "native_macos_launcher_passed": false,
+      "browser_manifest": "frontend-final-browser-manifest.json",
+      "database_scope": "local synthetic E2E database",
+      "receipt": "firefox.log"
+    },
+    "webkit": {
+      "command": "E2E_BROWSER=webkit pnpm exec playwright test",
+      "cwd": "frontend",
+      "production_build_id": "CWwqRg-tXDDZQ8xWOAWpZ",
+      "exit_code": 0,
+      "passed": 71,
+      "failed": 0,
+      "skipped": 0,
+      "retries": 0,
+      "projects": [
+        "webkit"
+      ],
+      "duration_minutes": 2.0,
+      "browser_manifest": "frontend-final-browser-manifest.json",
+      "database_scope": "local synthetic E2E database",
+      "receipt": "webkit.log"
+    }
+  },
+  "frontend_final_manifest_files_verified": 964,
+  "frontend_final_manifest_mismatches": [],
+  "production_build_id": "CWwqRg-tXDDZQ8xWOAWpZ",
+  "native_macos_firefox_launch_passed": false,
+  "firefox_linux_runtime_passed": true,
+  "owned_firefox_runtime_container_removed": true,
+  "production_deployment_performed": false,
+  "new_quality_score_assigned": false,
+  "baseline_quality_score": 70,
+  "further_validation": [
+    "fresh full mutation campaigns",
+    "supported-load/profiling/soak",
+    "manual accessibility and fluent Telugu/field usability",
+    "real-photo clinical and independent husbandry/finance review",
+    "provider sandbox receipts",
+    "full staging boot/alert/database-object-configuration-key recovery",
+    "fresh independent ten-area assessment"
+  ]
+}

@@ -28,13 +28,14 @@ from .test_e2e_lifecycle_audit import (
     record_kidding,
     set_weight,
 )
+from .type_helpers import JsonObject
 
 PW = OWNER_PW
 
 
 async def _kidding_of_two(
-    client: httpx.AsyncClient, headers: dict, bred_days_ago: int
-) -> tuple[dict, dict]:
+    client: httpx.AsyncClient, headers: dict[str, str], bred_days_ago: int
+) -> tuple[JsonObject, JsonObject]:
     """Confirmed pregnancy delivered today-ish with one live kid; returns
     (kidding_response, breeding_detail)."""
     doe = await make_animal(client, headers, f"GF-F-{bred_days_ago}")
@@ -53,11 +54,11 @@ async def _kidding_of_two(
 
 async def _grown_litter(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     dam_tag: str,
     sire_id: int,
-    kids: list[dict],
-) -> list[dict]:
+    kids: list[JsonObject],
+) -> list[JsonObject]:
     """Kidd a litter 400 days ago, wean it, weight the kids: farm-born adults
     whose dam/sire lineage is real. Returns the grown kid animals."""
     dam = await make_animal(client, headers, dam_tag, dob_days=1200)
@@ -118,8 +119,8 @@ async def test_inbreeding_fence_end_to_end(client: httpx.AsyncClient) -> None:
         )
         assert promoted.status_code == 200, promoted.text
 
-    def _breed(doe_id: int, buck_id: int) -> httpx.Response:
-        return client.post(
+    async def _breed(doe_id: int, buck_id: int) -> httpx.Response:
+        return await client.post(
             "/api/breeding",
             json={"doe_id": doe_id, "buck_id": buck_id, "breeding_date": today().isoformat()},
             headers=headers,

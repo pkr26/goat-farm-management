@@ -14,4 +14,5 @@ export interface ScreeningBatchBucketProgressOut {
   uploaded: number;
   screened: number;
   flagged: number;
+  unassessable?: number;
 }

@@ -27,9 +27,11 @@ from app.models.lifecycle import LEGAL_BUCKET_TRANSITIONS
 from app.models.species import GOAT_PROFILE
 from app.simulation.daily_ops import (
     DAILY_OPS_MODEL_VERSION,
+    AnimalJourney,
     AnimalStartSpec,
     DailyOpsInput,
     DailyOpsParams,
+    DailyOpsResult,
     build_daily_ledger,
     run_daily_ops,
 )
@@ -61,12 +63,12 @@ def _buck(tag: str = "B1") -> AnimalStartSpec:
     return AnimalStartSpec(tag=tag, sex="M", bucket="BREEDING", age_months=24)
 
 
-def _moves_of(result, tag: str) -> list[tuple[int, str, str, str]]:
+def _moves_of(result: DailyOpsResult, tag: str) -> list[tuple[int, str, str, str]]:
     return [
-        (m.day, m.from_bucket, m.to_bucket, m.context)
-        for m in result.days
-        for m in m.moves
-        if m.tag == tag
+        (move.day, move.from_bucket or "", move.to_bucket, move.context)
+        for day in result.days
+        for move in day.moves
+        if move.tag == tag
     ][:] or [
         (h.day, h.from_bucket or "", h.to_bucket, h.context)
         for j in result.journeys
@@ -75,11 +77,11 @@ def _moves_of(result, tag: str) -> list[tuple[int, str, str, str]]:
     ]
 
 
-def _journey(result, tag: str):
+def _journey(result: DailyOpsResult, tag: str) -> AnimalJourney:
     return next(j for j in result.journeys if j.tag == tag)
 
 
-def _tasks_on(result, day: int) -> list[tuple[str, str, str]]:
+def _tasks_on(result: DailyOpsResult, day: int) -> list[tuple[str, str, str]]:
     record = result.days[day - 1]
     return [(t.time, t.category, t.headline) for t in record.tasks]
 
@@ -187,10 +189,8 @@ def test_feeding_math_matches_seeded_rates_and_shift_split() -> None:
     breeding = day1[("BREEDING", "MAINTENANCE_75_25")]
     assert breeding.heads == 2
     assert breeding.daily_kg == pytest.approx(2.4)
-    assert (breeding.morning_kg, breeding.afternoon_kg, breeding.night_kg) == (
-        pytest.approx(0.96),
-        pytest.approx(0.48),
-        pytest.approx(0.96),
+    assert (breeding.morning_kg, breeding.afternoon_kg, breeding.night_kg) == pytest.approx(
+        (0.96, 0.48, 0.96)
     )
     # The day AFTER kidding (feed is planned at the morning round, before the
     # 09:00 lifecycle events): the doe's lactating line only — a day-old kid
@@ -510,6 +510,7 @@ def test_engine_emits_every_simulatable_transition_context() -> None:
     for payload in payloads:
         for record in run_daily_ops(payload).days:
             for move in record.moves:
+                assert move.from_bucket is not None
                 allowed = LEGAL_BUCKET_TRANSITIONS[(move.from_bucket, move.to_bucket)]
                 assert move.context in allowed, move
                 seen.add(move.context)
@@ -552,6 +553,7 @@ def test_head_conservation_day_over_day() -> None:
             journey = journeys[exit_.tag]
             hops = [h for h in journey.hops if h.day <= exit_.day]
             bucket = hops[-1].to_bucket if hops else journey.start_bucket
+            assert bucket is not None
             expected[bucket] = expected.get(bucket, 0) - 1
         # A building only transited on this day (release + same-day re-move)
         # nets zero on both sides; compare the non-zero flows.
@@ -561,23 +563,25 @@ def test_head_conservation_day_over_day() -> None:
         previous = current
 
 
-def test_feeding_follows_morning_occupancy() -> None:
-    """Feed lines are planned at the 06:30 round, before the 09:00 lifecycle
-    events: a building is fed exactly when it stood occupied the previous
-    evening (day 1: the starting buckets)."""
+def test_feeding_follows_each_shift_occupancy() -> None:
+    """The morning uses yesterday's pens; later rounds use post-event pens."""
     payload = _toy_herd(seed=7)
     result = run_daily_ops(payload)
-    previous = {spec.bucket for spec in payload.animals}
+    previous: set[str] = {spec.bucket for spec in payload.animals}
     for record in result.days:
-        fed = {line.building for line in record.feeding}
-        assert fed == previous, record.day
+        morning_fed = {line.building for line in record.feeding if line.morning_kg > 0}
+        assert morning_fed == previous, record.day
+        current: set[str] = {row.building for row in record.occupancy}
+        for shift in ("afternoon", "night"):
+            fed = {line.building for line in record.feeding if getattr(line, f"{shift}_kg") > 0}
+            assert fed == current, (record.day, shift)
         for line in record.feeding:
             total = line.morning_kg + line.afternoon_kg + line.night_kg
             assert line.daily_kg == pytest.approx(total, abs=1e-9)
             if line.recipe == "CREEP":
                 assert line.building == "RECOVERY"
                 assert line.kg_per_head in (0.1, 0.2, 0.3)
-        previous = {row.building for row in record.occupancy}
+        previous = set[str](row.building for row in record.occupancy)
 
 
 def test_cleaning_covers_morning_and_night_occupancy() -> None:
@@ -586,9 +590,9 @@ def test_cleaning_covers_morning_and_night_occupancy() -> None:
     carries a cleaner-manager verification duty."""
     payload = _toy_herd(seed=7)
     result = run_daily_ops(payload)
-    previous = {spec.bucket for spec in payload.animals}
+    previous: set[str] = {spec.bucket for spec in payload.animals}
     for record in result.days:
-        current = {row.building for row in record.occupancy}
+        current: set[str] = {row.building for row in record.occupancy}
         morning_cleans: dict[str, int] = {}
         night_cleans: dict[str, int] = {}
         verifies = 0
@@ -1451,9 +1455,9 @@ def test_recovery_starter_male_kid_weans_by_age() -> None:
     assert set(day1) == {("RECOVERY", "CREEP")}
     assert day1[("RECOVERY", "CREEP")].heads == 1
     day32 = [line for line in result.days[31].feeding if line.building == "MALE_KIDS"]
-    assert [(line.recipe, line.heads, line.kg_per_head) for line in day32] == [
-        ("LACTATING_60_40", 1, pytest.approx(1.0))
-    ]
+    assert len(day32) == 1
+    assert (day32[0].recipe, day32[0].heads) == ("LACTATING_60_40", 1)
+    assert day32[0].kg_per_head == pytest.approx(1.0)
 
     # Weaning ends the pre-weaning hazard the same day it fires (phase 4
     # weaning runs before phase 5 mortality): a 3-month starter kid (91 days
@@ -1476,11 +1480,15 @@ def test_recovery_starter_male_kid_weans_by_age() -> None:
     assert _moves_of(hazard, "MK1") == [(1, "RECOVERY", "MALE_KIDS", "weaning")]
     assert (kid.final_status, kid.final_bucket) == ("ACTIVE", "MALE_KIDS")
     assert hazard.totals.deaths == 0
-    # At 91 days he is past the creep ramp, so day 1 plans no ration for him
-    # (the stranding symptom); from day 2 he is 92 days old and eats the
-    # day-91+ FATTENING line of the MALE_KIDS pen.
-    assert list(hazard.days[0].feeding) == []
+    # At 91 days he is past creep, so there is no morning ration; immediately
+    # after weaning the afternoon/night rounds feed his actual destination.
+    day1_feed = hazard.days[0].feeding
+    assert len(day1_feed) == 1
+    assert day1_feed[0].building == "MALE_KIDS"
+    assert day1_feed[0].morning_kg == 0
+    assert day1_feed[0].afternoon_kg == pytest.approx(0.2)
+    assert day1_feed[0].night_kg == pytest.approx(0.4)
     day2 = [line for line in hazard.days[1].feeding if line.building == "MALE_KIDS"]
-    assert [(line.recipe, line.heads, line.kg_per_head) for line in day2] == [
-        ("FATTENING_50_50", 1, pytest.approx(1.0))
-    ]
+    assert len(day2) == 1
+    assert (day2[0].recipe, day2[0].heads) == ("FATTENING_50_50", 1)
+    assert day2[0].kg_per_head == pytest.approx(1.0)

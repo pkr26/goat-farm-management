@@ -58,7 +58,9 @@ async def _table_counts(farm_id: int) -> dict[str, int]:
         return {
             name: (
                 await db.execute(
-                    select(func.count()).select_from(model).where(model.farm_id == farm_id)
+                    select(func.count())
+                    .select_from(model)
+                    .where(model.__table__.c["farm_id"] == farm_id)
                 )
             ).scalar_one()
             for name, model in _MODELS_BY_NAME.items()
@@ -333,7 +335,7 @@ async def test_terminal_task_cutoff_respects_status_and_terminal_timestamp(
     assert remaining == survivors
 
 
-async def test_batch_size_bound_is_respected_and_still_drains_fully(
+async def test_single_delete_batch_is_bounded_and_sweeps_make_eventual_progress(
     client: httpx.AsyncClient,
 ) -> None:
     owner = await owner_with_farm(client, email="retention-batch@farm.in")
@@ -351,25 +353,22 @@ async def test_batch_size_bound_is_respected_and_still_drains_fully(
             )
         await db.commit()
 
-    # One helper call DRAINS the cohort: batch_size bounds each DELETE
-    # statement's lock scope (candidate SELECT ... LIMIT batch_size), not the
-    # call — the sweep relies on the drain, so a single pass clears every
-    # eligible row (5 candidates, statements of 2+2+1).
     async with get_sessionmaker()() as db:
-        candidates = select(Task.id).where(
-            Task.farm_id == farm_id,
-            Task.status == TaskStatus.DONE.value,
-        )
-        first = await retention._delete_in_batches(
+        candidates = select(Task.id).where(Task.farm_id == farm_id)
+        first = await retention._delete_batch(
             db, table=Task, id_column=Task.id, candidates=candidates, batch_size=2
         )
-        assert first == 5
+        assert first == 2
         await db.commit()
-
-    # The cohort is fully drained — a follow-up sweep has nothing to do.
+    assert (await _table_counts(farm_id))["tasks"] == 3
+    settings = _settings(retention_delete_batch_size=2, retention_max_batches_per_farm=1)
     async with get_sessionmaker()() as db:
-        summary = await run_retention_sweep(db, _settings(retention_delete_batch_size=2))
-    assert summary.terminal_tasks == 0
+        first_pass = await run_retention_sweep(db, settings)
+    assert first_pass.terminal_tasks == 2
+    assert (await _table_counts(farm_id))["tasks"] == 1
+    async with get_sessionmaker()() as db:
+        second_pass = await run_retention_sweep(db, settings)
+    assert second_pass.terminal_tasks == 1
     assert (await _table_counts(farm_id))["tasks"] == 0
 
 
@@ -486,12 +485,14 @@ async def test_retention_loop_idles_when_disabled(monkeypatch: pytest.MonkeyPatc
 async def test_retention_loop_sweeps_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = _settings()
     settings.retention_sweep_enabled = True
-    settings.retention_sweep_interval_seconds = 0.01  # assignment bypasses validation
+    settings.retention_sweep_interval_seconds = 1  # assignment bypasses validation
     monkeypatch.setattr(main_module, "get_settings", lambda: settings)
     swept = asyncio.Event()
     calls: list[int] = []
 
-    async def fake_sweep(_db, _settings) -> RetentionSummary:
+    async def fake_sweep(
+        _db: AsyncSession, _settings: Settings, *, after_farm_id: int = 0
+    ) -> RetentionSummary:
         calls.append(1)
         swept.set()
         return RetentionSummary()

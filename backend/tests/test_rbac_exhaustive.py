@@ -45,17 +45,25 @@ UNGUARDED_BY_DESIGN: dict[tuple[str, str], str] = {
     ("GET", "/healthz"): "liveness probe — unauthenticated by design",
     ("GET", "/readyz"): "readiness probe — unauthenticated by design",
     ("GET", "/metrics"): (
-        "Prometheus exposition for internal scrapers — unauthenticated by design; "
-        "the compose edge routes only /api/ to the backend, so it is never public "
-        "(see README observability section; GOATFARM_METRICS_ENABLED=false removes it)"
+        "operational scraper endpoint outside farm RBAC; production requires its own "
+        "metrics bearer credential or disables exposure, independently of collection"
     ),
     ("POST", "/api/auth/register"): "creates the account permissions are evaluated against",
     ("POST", "/api/auth/login"): "issues the token permissions are evaluated against",
     ("POST", "/api/auth/refresh"): "rotates the caller's own session, authorized by the token",
     ("POST", "/api/auth/logout"): "revokes the caller's own session",
+    ("POST", "/api/auth/logout-session"): (
+        "authenticated self-service revocation of the bearer session family only; "
+        "checks the locked actor and authenticated token generation"
+    ),
     ("GET", "/api/auth/me"): "the caller's own identity",
     ("GET", "/api/auth/farms"): "the caller's own farm list — the picker that fills X-Farm-Id",
     ("POST", "/api/auth/farms"): "creating a farm makes the caller its owner",
+    ("POST", "/api/auth/farms/{farm_id}/transfer-ownership"): (
+        "ownership authority is checked against Farm.owner_id, with current-password "
+        "confirmation and locked actor/token-generation revalidation; successor must "
+        "be an active farm member with an established password"
+    ),
     ("GET", "/api/auth/permissions"): "the caller's own effective permission set",
     ("POST", "/api/auth/change-password"): "self-service, gated on the current password",
     ("DELETE", "/api/auth/account"): "self-service account deletion",
@@ -131,7 +139,9 @@ def _required_perms(dependant: Dependant) -> list[str]:
     the closure rather than from the (aliased) annotation in the signature."""
     codes: list[str] = []
     for sub in dependant.dependencies:
-        if getattr(sub.call, "__qualname__", "").startswith("require_perm."):
+        if sub.call is not None and getattr(sub.call, "__qualname__", "").startswith(
+            "require_perm."
+        ):
             codes.append(str(inspect.getclosurevars(sub.call).nonlocals["code"]))
         codes.extend(_required_perms(sub))
     return codes
@@ -152,7 +162,7 @@ def _app_routes() -> tuple[tuple[str, str, str, bool], ...]:
     for route in _api_routes(create_app().router):
         perms = sorted(set(_required_perms(route.dependant)))
         farm_scoped = _uses_farm_context(route.dependant)
-        for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
+        for method in sorted((route.methods or set()) - {"HEAD", "OPTIONS"}):
             routes.extend((method, route.path, perm, farm_scoped) for perm in perms or [""])
     return tuple(routes)
 
@@ -168,7 +178,9 @@ def _placeholders(path: str, farm_id: str) -> str:
     return _PATH_PARAM.sub(lambda match: farm_id if match.group() == "{farm_id}" else "99999", path)
 
 
-async def _make_zero_perm_worker(client: httpx.AsyncClient, farm_headers: dict) -> dict[str, Any]:
+async def _make_zero_perm_worker(
+    client: httpx.AsyncClient, farm_headers: dict[str, str]
+) -> dict[str, Any]:
     """A worker with a role that holds NONE of the declared permissions —
     every require_perm route must return 403 for this user."""
     role_resp = await client.post(
@@ -224,10 +236,8 @@ async def test_every_require_perm_route_403s_for_a_zero_permission_worker(
         url = _placeholders(path, farm_id)
         request_method = client.request
         # GET/DELETE/others need no body; POST/PUT/PATCH send empty {}.
-        kwargs = {"headers": worker_headers}
-        if method in {"POST", "PUT", "PATCH"}:
-            kwargs["json"] = {}
-        resp = await request_method(method, url, **kwargs)
+        payload: dict[str, object] | None = {} if method in {"POST", "PUT", "PATCH"} else None
+        resp = await request_method(method, url, headers=worker_headers, json=payload)
         # 403 is the correct answer, and it must be the PERMISSION check's
         # 403 — the denial detail names a missing code the route actually
         # declares. Any other 403 (e.g. the must-change-password fence)

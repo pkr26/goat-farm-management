@@ -1,0 +1,20 @@
+{
+  "started_utc": "2026-10-03T18:51:03.446756+00:00",
+  "probe_id": "herdly-isolation-probe-914091258b9f4575",
+  "failure": "AssertionError: unexpected exit 125: docker build --no-cache --progress=plain --file - --tag herdly-isolation-probe-914091258b9f4575:excluded .",
+  "cleanup": [
+    {
+      "image": "herdly-isolation-probe-914091258b9f4575:excluded",
+      "absent": true
+    },
+    {
+      "owned_path": "/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-isolation-probe-914091258b9f4575-f2dzxb0g",
+      "absent": true
+    },
+    {
+      "owned_path": "/Users/pradeepreddy/Desktop/goat-farm-management-main/secrets/pl07-sentinel-914091258b9f4575",
+      "absent": true
+    }
+  ],
+  "finished_utc": "2026-10-03T18:51:03.498632+00:00"
+}

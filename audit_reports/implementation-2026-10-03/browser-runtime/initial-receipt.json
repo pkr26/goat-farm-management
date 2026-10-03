@@ -1,0 +1,13 @@
+{
+  "command": "E2E_BROWSER=firefox pnpm exec playwright test",
+  "exit_code": 130,
+  "launch_timeout_ms": 180000,
+  "application_checks_passed": 0,
+  "reported_failed_before_test_body": 1,
+  "interrupted": 1,
+  "not_run": 69,
+  "reason": "macOS Firefox1538 launcher stalled; first app test body never ran; whole runner was interrupted to diagnose infrastructure",
+  "product_source_changed": false,
+  "evidence": "firefox-initial-launch.log",
+  "raw_auth_traces_retained_in_repository": false
+}

@@ -415,7 +415,7 @@ describe("HealthPage dialog state ownership", () => {
 
     await pickOption(
       user,
-      within(dialog).getByLabelText("Linked duty (completes it)"),
+      within(dialog).getByLabelText("Linked duty"),
       /Deworm the herd/,
     );
 
@@ -438,7 +438,7 @@ describe("HealthPage dialog state ownership", () => {
       makeTask({ id: 9, title: "Vaccinate PPR", category: "VACCINE", animal_id: 3 }),
     ];
     const { user, dialog } = await openDialog();
-    const dutySelect = within(dialog).getByLabelText("Linked duty (completes it)");
+    const dutySelect = within(dialog).getByLabelText("Linked duty");
 
     await pickOption(user, dutySelect, /Deworm Kaveri/);
     await waitFor(() =>
@@ -464,12 +464,12 @@ describe("HealthPage dialog state ownership", () => {
     renderWithProviders(<HealthPage />);
     const dialog = await screen.findByRole("dialog", { name: "Add health event" });
     await waitFor(() =>
-      expect(within(dialog).getByLabelText("Linked duty (completes it)")).toHaveTextContent(
+      expect(within(dialog).getByLabelText("Linked duty")).toHaveTextContent(
         /Deworm Kaveri/,
       ),
     );
 
-    await user.click(within(dialog).getByLabelText("Linked duty (completes it)"));
+    await user.click(within(dialog).getByLabelText("Linked duty"));
 
     const options = await screen.findAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual([
@@ -522,7 +522,7 @@ describe("HealthPage dialog state ownership", () => {
     expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent(
       "Treatment",
     );
-    expect(within(dialog).getByLabelText("Linked duty (completes it)")).toHaveTextContent(
+    expect(within(dialog).getByLabelText("Linked duty")).toHaveTextContent(
       /Deworm Kaveri/,
     );
   });
@@ -563,7 +563,7 @@ describe("HealthPage dialog state ownership", () => {
     exact.release();
     // The duty picker appears only once the exact lookup has landed, so this
     // is the commit in which the resolution was decided.
-    const dutySelect = await within(dialog).findByLabelText("Linked duty (completes it)");
+    const dutySelect = await within(dialog).findByLabelText("Linked duty");
     await settleAct();
 
     // The operator chose the bucket scope over the duty's animal.
@@ -597,7 +597,7 @@ describe("HealthPage dialog state ownership", () => {
     const { user, dialog } = await openDialog();
     await pickOption(
       user,
-      within(dialog).getByLabelText("Linked duty (completes it)"),
+      within(dialog).getByLabelText("Linked duty"),
       /Duty with an exponent id/,
     );
 
@@ -606,7 +606,7 @@ describe("HealthPage dialog state ownership", () => {
     await settleAct();
 
     expect(postBody).toBeNull();
-    expect(within(dialog).getByLabelText("Linked duty (completes it)")).toHaveTextContent(
+    expect(within(dialog).getByLabelText("Linked duty")).toHaveTextContent(
       /Duty with an exponent id/,
     );
   });
@@ -673,7 +673,7 @@ describe("HealthPage dialog state ownership", () => {
 
     await pickOption(
       user,
-      within(dialog).getByLabelText("Linked duty (completes it)"),
+      within(dialog).getByLabelText("Linked duty"),
       /Quarterly herd deworming/,
     );
 

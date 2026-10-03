@@ -36,14 +36,19 @@ async def test_tenant_date_pagination_composites_exist_with_ordered_columns() ->
 
 def test_models_declare_the_same_ordered_composites() -> None:
     """Mirror the database indexes in metadata so `alembic check` stays honest."""
-    from sqlalchemy.dialects import postgresql
+    from sqlalchemy import create_mock_engine
     from sqlalchemy.schema import CreateIndex
 
     declared = {
-        index.name: index for table in Base.metadata.tables.values() for index in table.indexes
+        str(index.name): index for table in Base.metadata.tables.values() for index in table.indexes
     }
     for index_name, (table_name, expected_columns) in EXPECTED_ORDERED_INDEXES.items():
         index = declared[index_name]
+        assert index.table is not None
         assert index.table.name == table_name
-        rendered = str(CreateIndex(index).compile(dialect=postgresql.dialect()))
+        rendered = str(
+            CreateIndex(index).compile(
+                dialect=create_mock_engine("postgresql+asyncpg://", lambda *_args: None).dialect
+            )
+        )
         assert f"ON {table_name} {expected_columns}" in rendered

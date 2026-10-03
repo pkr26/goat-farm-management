@@ -134,6 +134,7 @@ function previewFor(
     bucket: (target.bucket ?? null) as HealthBulkTargetPreviewOut["bucket"],
     purchase_batch_id: (target.purchase_batch_id ?? null) as number | null,
     task_id: (target.task_id ?? null) as number | null,
+    round_component: (target.round_component ?? null) as string | null,
     target_animal_ids: [3, 4],
     target_animals: [
       { id: 3, tag_number: "G-003", name: "Kaveri" },
@@ -504,17 +505,23 @@ describe("HealthPage copy and error wiring", () => {
 
   it("carries a herd-wide duty into the bucket preview and the recorded event", async () => {
     tasks = [makeTask({ id: 12, title: "Herd PPR round", category: "VACCINE" })];
+    server.use(http.get("/api/health/rounds/12", () => HttpResponse.json({ task_id: 12,
+      task_status: "PENDING", initialized: true, snapshot_at: "2026-10-03T12:00:00Z",
+      required_components: ["PPR"], total_targets: 2, excluded_targets: 0, covered_targets: 0,
+      remaining_units: 2, available_additions: 0, targets: [], limit: 50, offset: 0 })));
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
     await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "Breeding");
     await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /Herd PPR round/);
+    fireEvent.change(await within(dialog).findByRole("combobox", { name: "Component being recorded" }),
+      { target: { value: "PPR" } });
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
     await user.click(
       await within(dialog).findByRole("button", { name: "Confirm for 2 animals" }),
     );
 
     await waitFor(() => expect(postBody).not.toBeNull());
-    expect(previewBodies).toEqual([{ scope: "bucket", bucket: "BREEDING", task_id: 12 }]);
+    expect(previewBodies).toEqual([{ scope: "bucket", bucket: "BREEDING", task_id: 12, round_component: "PPR" }]);
     expect(postBody).toMatchObject({ scope: "bucket", bucket: "BREEDING", task_id: 12 });
   });
 

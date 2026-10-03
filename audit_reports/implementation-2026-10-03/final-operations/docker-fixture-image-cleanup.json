@@ -1,0 +1,11 @@
+{
+  "name": "docker-fixture-image-cleanup",
+  "command": "docker image rm herdly-context-proof-20261003:43efa0d835c74c0595202406a898d2be",
+  "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+  "started_at": "2026-10-03T18:44:26.328348+00:00",
+  "finished_at": "2026-10-03T18:44:26.355205+00:00",
+  "expected_exit": 0,
+  "exit_code": 0,
+  "stdout": "Untagged: herdly-context-proof-20261003:43efa0d835c74c0595202406a898d2be\nDeleted: sha256:649798ea2f6bd2a18d27c010e4ae7b9fb4998222173d863f9b73e2e7f36e9c02\n",
+  "stderr": ""
+}

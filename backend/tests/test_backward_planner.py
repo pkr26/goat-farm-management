@@ -132,7 +132,10 @@ def test_actions_and_chains_cover_the_full_backward_story() -> None:
     labels = [step.label for step in chain.steps]
     # Default repeat-breeder cap is 2 services now (parity with the
     # operational GOAT_PROFILE flag), so the qualifier names the cap.
-    assert "breedable doe(s) bred (up to 2 services)" in labels[0]
+    assert (
+        "breedable doe(s) bred (one timely service; up to 2 services includes later births)"
+        in labels[0]
+    )
     assert chain.steps[-1].year_month == "2028-01"
     assert chain.steps[-1].quantity == 120
     # The biology only ever adds head as you walk backward within a link:
@@ -158,16 +161,14 @@ def test_requirement_chain_math_is_consistent_with_biology() -> None:
         [PlannerTarget(year_month="2028-01", animal_class="male_grower", count=120.0)],
     )
     chain = report.chains[0]
-    r = report.plan.before.targets[0]  # type: ignore[attr-defined]
+    r = report.plan.before.targets[0]
     assert r.requested == 120.0
     bred, kidded, born, sold = (step.quantity for step in chain.steps)
     # kids_per_doe = litter × (1 − stillbirth) = 1.6 × 0.98
     assert kidded == -(-born // 1.568)  # ceil division against the per-doe yield
-    # The default 2-service repeat-breeder cap (parity with the operational
-    # GOAT_PROFILE flag) means a bred doe conceives within her two services
-    # with probability 1 − (1 − 0.85)^2 = 0.9775: bred covers kidded against
-    # that within-cap conception rate, not 1:1.
-    assert bred == -(-kidded // 0.9775)
+    # The single dated service month can credit only that month's 85%
+    # conception; retries are later births in the forward stage plan.
+    assert bred == -(-kidded // 0.85)
     assert sold == 120
     # Born head ≥ sold head (mortality and the other sex's share add animals).
     assert born >= 120

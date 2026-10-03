@@ -14,12 +14,14 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -34,6 +36,7 @@ class HealthEvent(Base):
     __tablename__ = "health_events"
     __table_args__ = (
         UniqueConstraint("farm_id", "id", name="uq_health_events_farm_id_id"),
+        UniqueConstraint("farm_id", "id", "animal_id", name="uq_health_events_farm_id_animal"),
         ForeignKeyConstraint(
             ["farm_id", "animal_id"],
             ["animals.farm_id", "animals.id"],
@@ -301,3 +304,128 @@ class VaccineTemplate(Base):
     booster_weeks: Mapped[float | None] = mapped_column(Numeric(8, 2, asdecimal=False))
     repeat_months: Mapped[float | None] = mapped_column(Numeric(8, 2, asdecimal=False))
     timing_note: Mapped[str | None] = mapped_column(String(255))
+
+
+class HealthRound(Base):
+    """A declared cohort and component contract, never retrospective evidence."""
+
+    __tablename__ = "health_rounds"
+    __table_args__ = (
+        UniqueConstraint("farm_id", "task_id", name="uq_health_rounds_farm_task"),
+        ForeignKeyConstraint(
+            ["farm_id", "task_id"],
+            ["tasks.farm_id", "tasks.id"],
+            name="fk_health_rounds_farm_task",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(required_components) = 'array' "
+            "AND jsonb_array_length(required_components) > 0",
+            name="ck_health_rounds_components",
+        ),
+    )
+
+    task_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
+    snapshot_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+    required_components: Mapped[list[str]] = mapped_column(JSONB)
+
+
+class HealthRoundTarget(Base):
+    """Initial targets and explicitly justified later additions."""
+
+    __tablename__ = "health_round_targets"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm_id", "task_id", "animal_id", name="uq_health_round_targets_farm_task_animal"
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "task_id"],
+            ["health_rounds.farm_id", "health_rounds.task_id"],
+            name="fk_health_round_targets_round",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "animal_id"],
+            ["animals.farm_id", "animals.id"],
+            name="fk_health_round_targets_animal",
+        ),
+        CheckConstraint(
+            "(added_by_id IS NULL AND inclusion_reason IS NULL) OR "
+            "(added_by_id IS NOT NULL AND inclusion_reason IS NOT NULL "
+            "AND btrim(inclusion_reason) <> '')",
+            name="ck_health_round_targets_addition",
+        ),
+    )
+
+    task_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    animal_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm_id: Mapped[int] = mapped_column(Integer)
+    added_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+    added_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    inclusion_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class HealthRoundCoverage(Base):
+    """One actual per-animal event satisfying one declared round component."""
+
+    __tablename__ = "health_round_coverage"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["farm_id", "task_id", "animal_id"],
+            [
+                "health_round_targets.farm_id",
+                "health_round_targets.task_id",
+                "health_round_targets.animal_id",
+            ],
+            name="fk_health_round_coverage_target",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "health_event_id", "animal_id"],
+            ["health_events.farm_id", "health_events.id", "health_events.animal_id"],
+            name="fk_health_round_coverage_event",
+        ),
+        CheckConstraint("btrim(component) <> ''", name="ck_health_round_coverage_component"),
+    )
+
+    task_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    animal_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    component: Mapped[str] = mapped_column(String(120), primary_key=True)
+    farm_id: Mapped[int] = mapped_column(Integer)
+    health_event_id: Mapped[int] = mapped_column(Integer)
+    recorded_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+
+
+class HealthRoundExclusion(Base):
+    """Explicit exception to coverage, with a reason and accountable author."""
+
+    __tablename__ = "health_round_exclusions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["farm_id", "task_id", "animal_id"],
+            [
+                "health_round_targets.farm_id",
+                "health_round_targets.task_id",
+                "health_round_targets.animal_id",
+            ],
+            name="fk_health_round_exclusions_target",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("btrim(reason) <> ''", name="ck_health_round_exclusions_reason"),
+    )
+
+    task_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    animal_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm_id: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(Text)
+    recorded_by_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    recorded_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )

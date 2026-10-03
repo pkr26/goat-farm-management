@@ -49,6 +49,7 @@ from .test_breeding_extended import (
     tasks_by_category,
     ultrasound,
 )
+from .type_helpers import JsonObject
 
 
 async def test_positive_ultrasound_after_maximum_gestation_is_rejected(
@@ -495,8 +496,8 @@ async def test_history_override_round_trip_does_not_fake_weaning(
 
 
 async def _doe_with_two_retained_recovery_litters(
-    client: httpx.AsyncClient, headers: dict
-) -> tuple[dict, dict, dict, dict, dict]:
+    client: httpx.AsyncClient, headers: dict[str, str]
+) -> tuple[JsonObject, JsonObject, JsonObject, JsonObject, JsonObject]:
     """Create the supported historical-correction shape that exposed litter bleed.
 
     The first weaning duty is retained and overdue; its kid remains in RECOVERY.

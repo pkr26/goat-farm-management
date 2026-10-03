@@ -457,7 +457,7 @@ describe("HealthPage dialog branches", () => {
     expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeDisabled();
     expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeDisabled();
     expect(
-      within(dialog).getByText(/closes only with a whole-bucket event/i),
+      within(dialog).getByText(/completes when all targets are covered or explicitly excluded/i),
     ).toBeInTheDocument();
   });
 

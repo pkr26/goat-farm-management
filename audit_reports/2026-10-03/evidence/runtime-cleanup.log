@@ -1,0 +1,5 @@
+Stopped audit process 51076.
+Stopped audit process 51087.
+Stopped audit process 51075.
+Removed isolated audit E2E database; confirmed absent.
+Colima/PostgreSQL service left running; no other database removed.

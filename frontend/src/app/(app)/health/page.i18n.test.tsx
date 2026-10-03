@@ -285,7 +285,7 @@ describe("HealthPage log and dialog fragments — Telugu", () => {
     const dialog = await screen.findByRole("dialog", { name: "ఆరోగ్య నమోదు చేర్చు" });
     await user.click(
       within(dialog).getByRole("combobox", {
-        name: "లింక్ చేసిన పని (దాన్ని పూర్తి చేస్తుంది)",
+        name: "సంబంధిత విధి",
       }),
     );
     // The option carries the catalog's Telugu due suffix, not "(due …)".

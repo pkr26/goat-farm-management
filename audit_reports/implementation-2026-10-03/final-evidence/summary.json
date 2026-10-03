@@ -1,0 +1,38 @@
+{
+  "recorded_at": "2026-10-03T18:57:06.806714+00:00",
+  "pytest": {
+    "command": "GOATFARM_TEST_DB=herdly_final_evidence_20261003_test .venv/bin/python -m pytest tests/test_final_evidence_20261003.py -q",
+    "exit_code": 0,
+    "passed": 29,
+    "seconds": 11.96,
+    "log": "pytest.log"
+  },
+  "strict_typing": {
+    "command": ".venv/bin/python -m mypy --strict tests/test_final_evidence_20261003.py",
+    "exit_code": 0,
+    "errors": 0,
+    "log": "mypy.log"
+  },
+  "checks": [
+    {
+      "command": ".venv/bin/ruff check tests/test_final_evidence_20261003.py",
+      "exit_code": 0,
+      "log": "ruff-check.log"
+    },
+    {
+      "command": ".venv/bin/ruff format --check tests/test_final_evidence_20261003.py",
+      "exit_code": 0,
+      "log": "ruff-format-check.log"
+    }
+  ],
+  "case_counts": {
+    "PL-09_actual_API_cases": 3,
+    "PL-13_exact_CI_Git_cases": 26
+  },
+  "source_hashes": {
+    "backend/tests/test_final_evidence_20261003.py": "0a165fb575a7874a88774359a4b00ae6a2c1f92813cb1f46a66897b44a10b2b5",
+    ".github/workflows/ci.yml": "eaad7e3a47d476edf702e93cc4a0c0f58cce26a4b0407adc2cc2bf8edb84487d",
+    "backend/app/api/team.py": "ffc63031f5334341718dee97e3016fccdb0083a28721e1d0e66b6cc923bb8862"
+  },
+  "scope": "Synthetic API/database and temporary Git repositories; no app code edits, real providers, hosted CI or deployed services."
+}

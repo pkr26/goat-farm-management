@@ -4,10 +4,9 @@ import { backendRewrites } from "./src/lib/backend-rewrites";
 import { assertImageDecodeSafetyForBuild } from "./src/lib/image-deps-guard";
 
 // Deploy-time sharp/libheif gate (libheif/AVIF decode trap): evaluated at
-// config-load so CI's `pnpm build` and the Docker builder stage both refuse
+// configuration phase so CI's `pnpm build` and the Docker builder stage both refuse
 // an unsafe next+sharp combination before it can become an artifact. Dev and
 // test contexts only warn. Contract details: src/lib/image-deps-guard.ts.
-assertImageDecodeSafetyForBuild();
 
 /** Baseline hardening headers on every response. HSTS is production-only.
  *
@@ -76,4 +75,9 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default function configureNext(phase: string) {
+  // NEXT_PHASE is populated after Next first loads this configuration. Use
+  // the documented phase argument so the initial build gate fails closed.
+  assertImageDecodeSafetyForBuild(phase);
+  return nextConfig;
+}

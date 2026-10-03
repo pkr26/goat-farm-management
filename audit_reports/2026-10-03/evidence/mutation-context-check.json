@@ -1,0 +1,19 @@
+{
+  "manifest_mutants": 6565,
+  "original_statements_starting_with_return": 0,
+  "standalone_compilation": [
+    {
+      "statement": "return amount + 1",
+      "result": "'return' outside function"
+    },
+    {
+      "statement": "await send(flag=True)",
+      "result": "'await' outside function"
+    },
+    {
+      "statement": "yield item + 1",
+      "result": "'yield' outside function"
+    }
+  ],
+  "mutator_executed": false
+}

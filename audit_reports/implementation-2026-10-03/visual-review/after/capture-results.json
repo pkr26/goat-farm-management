@@ -1,0 +1,100 @@
+{
+  "status": "captured",
+  "capturedAtUtc": "2026-10-03T19:29:34.339Z",
+  "browser": "Chromium direct private contexts",
+  "application": "existing production frontend localhost:3000 and synthetic E2E API localhost:8000",
+  "globalSetupInvoked": false,
+  "sharedE2EStateWritten": false,
+  "domainFormSubmissions": 0,
+  "phase": "after approved visual corrections",
+  "buildId": "CWwqRg-tXDDZQ8xWOAWpZ",
+  "mutationRequests": [
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    }
+  ],
+  "captures": [
+    {
+      "file": "03-simulation-te-expanded.png",
+      "language": "te",
+      "theme": "light",
+      "state": "Assumptions editor with Meta and Herd expanded; section help outside summary",
+      "summariesWithInteractiveDescendants": 0,
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "urlPath": "/simulation"
+    },
+    {
+      "file": "04-simulation-te-collapsed-help.png",
+      "language": "te",
+      "theme": "light",
+      "state": "Herd collapsed; sibling help opened with Enter; disclosure stays collapsed",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "urlPath": "/simulation"
+    },
+    {
+      "file": "07-ownership-transfer-en.png",
+      "language": "en",
+      "theme": "light",
+      "state": "Ownership transfer dialog opened without selecting recipient, password, acknowledgement, or submit",
+      "recipientTriggerWidth": 458.349609375,
+      "visibleRecipientPrompt": "Choose a new farm owner",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "urlPath": "/team"
+    },
+    {
+      "file": "08-ownership-transfer-te.png",
+      "language": "te",
+      "theme": "light",
+      "state": "Ownership transfer dialog opened without selecting recipient, password, acknowledgement, or submit",
+      "recipientTriggerWidth": 457.819091796875,
+      "visibleRecipientPrompt": "కొత్త ఫారం యజమానిని ఎంచుకోండి",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "urlPath": "/team"
+    }
+  ]
+}

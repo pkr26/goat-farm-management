@@ -645,14 +645,16 @@ async def test_kid_death_fails_fast_while_dam_retirement_owns_the_dam(
 
     dam_locked = asyncio.Event()
     release_dam = asyncio.Event()
-    real_replan = animals_api.replan_dam_after_last_kid_death
+    real_replan = vars(animals_api)["replan_dam_after_last_kid_death"]
 
     async def parking_replan(*args: object, **kwargs: object) -> bool:
         animal = args[2]
         if isinstance(animal, Animal) and animal.id == doe["id"]:
             dam_locked.set()
             await release_dam.wait()
-        return await real_replan(*args, **kwargs)  # type: ignore[arg-type]
+        replanned = await real_replan(*args, **kwargs)
+        assert isinstance(replanned, bool)
+        return replanned
 
     monkeypatch.setattr(animals_api, "replan_dam_after_last_kid_death", parking_replan)
     async with (
@@ -885,7 +887,7 @@ async def test_animal_source_correction_preserves_link_and_syncs_date(
 
 async def _source_transaction(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     source_type: str,
     *,
     related_animal_id: int | None = None,
@@ -1057,8 +1059,9 @@ async def test_purchase_correction_moves_only_its_own_initial_bucket_move(
     )
     assert corrected.status_code == 201, corrected.text
     async with get_sessionmaker()() as db:
-        placements = dict(
-            (
+        placements = {
+            row[0]: row[1]
+            for row in (
                 await db.execute(
                     select(BucketMove.animal_id, BucketMove.effective_date).where(
                         BucketMove.from_bucket.is_(None),
@@ -1066,7 +1069,7 @@ async def test_purchase_correction_moves_only_its_own_initial_bucket_move(
                     )
                 )
             ).all()
-        )
+        }
     assert placements[second["id"]] == corrected_date
     assert placements[first["id"]] == bought_on
 
@@ -1155,7 +1158,7 @@ async def test_sale_correction_respects_medicine_withdrawal(client: httpx.AsyncC
 
 async def _treat(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     animal_id: int,
     event_date: date,
     withdrawal_until: date,
@@ -1175,7 +1178,9 @@ async def _treat(
     assert resp.status_code == 201, resp.text
 
 
-async def _sell(client: httpx.AsyncClient, headers: dict, animal_id: int, sale_date: date) -> None:
+async def _sell(
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int, sale_date: date
+) -> None:
     resp = await client.post(
         f"/api/animals/{animal_id}/status",
         json={"new_status": "SOLD", "date": sale_date.isoformat(), "sale_price": 5000},

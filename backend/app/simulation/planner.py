@@ -39,8 +39,6 @@ from .assumptions import (
     SimulationAssumptions,
 )
 from .engine import (
-    NLM_CAPITAL_CEILING_PER_HEAD,
-    NLM_SUBSIDY_FRACTION,
     _run_core,
     monthly_mortality_rate,
 )
@@ -51,6 +49,7 @@ from .montecarlo import (
     _event_shock_path,
 )
 from .results import EventFill, SimulationResult
+from .subsidy import NLM_POLICY_SOURCE, NLM_POLICY_VERSION
 from .vocabulary import GOAT_NOUNS, SpeciesNouns
 
 # Same vocabulary as HerdEventAssumptions.animal_class.
@@ -782,19 +781,27 @@ def build_dpr_markdown(
         "| Source | Amount |",
         "| --- | ---: |",
         f"| Bank loan | {_cr(m.loan_amount)} |",
-        f"| Capital subsidy | {_cr(m.subsidy_amount)} |",
+        "| Up-front capital subsidy | "
+        f"{_cr(0.0 if assumptions.finance.nlm_subsidy else m.subsidy_amount)} |",
         f"| Promoter equity | {_cr(m.equity)} |",
         "",
     ]
     if assumptions.finance.nlm_subsidy:
+        estimate = (
+            _cr(m.subsidy_estimate_amount) if m.subsidy_estimate_amount is not None else "Unknown"
+        )
         lines += [
-            "The subsidy line follows the National Livestock Mission (NLM) "
-            f"goat-unit structure: a {NLM_SUBSIDY_FRACTION:.0%} back-ended "
-            "capital subsidy on eligible capital (shed, animals, fodder, "
-            "equipment and insurance are all eligible), capped per unit size "
-            f"at about {_cr(NLM_CAPITAL_CEILING_PER_HEAD)} per breeding head — "
-            "the scheme's published bands run from a 100F+5M unit's ~₹10 "
-            "lakh up to a 500F+25M unit's ~₹50 lakh of eligible capital.",
+            "National Livestock Mission (NLM) is a 50% back-ended capital subsidy on "
+            "explicit eligible costs. The maximum SUBSIDY is ₹10 lakh for 100F+5M, "
+            "rising through the published units to ₹50 lakh for 500F+25M. No subsidy "
+            "is assumed for working capital, personal vehicles or land purchase/rent/lease.",
+            f"Policy: [{NLM_POLICY_VERSION}]({NLM_POLICY_SOURCE}). Status: {m.subsidy_status}. "
+            f"Conditional estimate: {estimate}; declared approved installments scheduled "
+            f"within this horizon: {_cr(m.subsidy_amount)}. An estimate is not an approval.",
+            "NLM receipts are excluded from opening finance: arrange the cash/bridge loan "
+            "before receipt. The scheme has two equal installments following financing/"
+            "verified expenditure and verified completion; schedule dates only from an "
+            "approved plan, never from this estimate.",
             "",
         ]
     lines += [
@@ -804,6 +811,7 @@ def build_dpr_markdown(
         "| --- | ---: |",
         f"| NPV @ {assumptions.finance.discount_rate_annual:.0%} | {_cr(m.npv)} |",
         f"| IRR / MIRR | {_opt_pct(m.irr)} / {_opt_pct(m.mirr)} |",
+        f"| IRR solver status | {m.irr_status} |",
         f"| Benefit-cost ratio | {'n/a' if m.bcr is None else f'{m.bcr:.2f}'} |",
         f"| Average / weakest DSCR (repaying years) | "
         f"{_opt_dscr(m.avg_dscr)} / {_opt_dscr(m.min_dscr)} |",

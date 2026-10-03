@@ -1,0 +1,110 @@
+{
+  "recorded_at": "2026-10-03T19:40:59.495944+00:00",
+  "command": "backend/.venv/bin/python audit_reports/implementation-2026-10-03/final-integrity/verify.py",
+  "verifier_sha256": "3da2dc7c4c9af288e637aa49e0669e348c37708663ecc022fb5fa371098b5818",
+  "read_only": true,
+  "suite_reruns": false,
+  "checks": {
+    "migration_history": {
+      "base_revision": "b285645",
+      "historical_modules": 97,
+      "missing_historical": [],
+      "modified_historical": [],
+      "forward_modules": [
+        "f5b9d3e7a2c0_scope_pin_refresh_sessions.py",
+        "f6c0e4f8b3d1_clinical_evidence_and_budget.py",
+        "f7d1e5f9b4c2_transactional_notification_outbox.py",
+        "f8e2f6a0c5d3_durable_maintenance_progress.py"
+      ],
+      "heads": [
+        "f8e2f6a0c5d3"
+      ],
+      "alembic_heads_exit_code": 0,
+      "passed": true
+    },
+    "baseline_bundle": {
+      "manifest": "audit_reports/2026-10-03/evidence/manifest.json",
+      "source_commit": "b285645b2a93709aa7294fc4698ee0f25839b13e",
+      "entries": 63,
+      "exact_matches": 63,
+      "failures": [],
+      "limitation": "Comparison uses the preserved manifest; it excludes itself and is not an independently signed archive.",
+      "passed": true
+    },
+    "final_backend": {
+      "source_hashes": 410,
+      "missing_sources": [],
+      "mismatched_sources": [],
+      "collection_count": 5128,
+      "unique_nodeids": 5128,
+      "collected_test_files": 137,
+      "partition_files_disjoint": true,
+      "partitions_cover_collection": true,
+      "partition_nodeid_counts": [
+        2564,
+        2564
+      ],
+      "junit_parts": [
+        {
+          "part": 1,
+          "exit_code": 0,
+          "tests": 2564,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 4
+        },
+        {
+          "part": 2,
+          "exit_code": 0,
+          "tests": 2564,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      ],
+      "junit_total": {
+        "tests": 5128,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 4
+      },
+      "passed_cases": 5124,
+      "combined_coverage_percent": 92.718882718066,
+      "line_coverage_percent": 94.54366109438273,
+      "branch_coverage_percent": 85.9931113662457,
+      "existing_combined_floor": 92,
+      "actual_owned_partition_databases_remaining": 0,
+      "passed": true
+    },
+    "included_artifact_hygiene": {
+      "initial_independent_audit_included_files": 1671,
+      "current_included_files_scanned": 1683,
+      "scope": "Git tracked and nonignored untracked files; verifier/README/summary in this receipt directory are excluded to keep reruns noncircular. New receipts added since the initial audit increase current scope.",
+      "credential_pattern_candidates": [
+        {
+          "file": "backend/tests/test_security_hardening.py",
+          "kind": "private_key_headers",
+          "count": 1
+        }
+      ],
+      "invalid_key_fixture_literals": [
+        {
+          "line": 1721,
+          "literal_bytes": 64,
+          "parseable_private_key": false
+        }
+      ],
+      "included_raw_auth_trace_filename_candidates": [],
+      "artifact_json_files_scanned": 65,
+      "nonempty_credential_or_browser_auth_fields": [],
+      "limitation": "Known key/token/credential URL and browser-auth patterns are heuristic checks, not proof that every possible secret is absent. Ignored files and temporary traces outside the repository inclusion set are not inspected or certified.",
+      "passed": true
+    },
+    "changed_source_markers_and_diff": {
+      "changed_authored_source_markers": [],
+      "git_diff_check_exit_code": 0,
+      "passed": true
+    }
+  },
+  "all_passed": true
+}

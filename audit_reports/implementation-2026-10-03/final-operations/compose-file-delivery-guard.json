@@ -1,0 +1,11 @@
+{
+  "name": "compose-file-delivery-guard",
+  "command": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/compose_env_guard.py /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-local-ops-proof-34lbvil7/deployment.env",
+  "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main",
+  "started_at": "2026-10-03T18:44:26.093344+00:00",
+  "finished_at": "2026-10-03T18:44:26.185055+00:00",
+  "expected_exit": 0,
+  "exit_code": 0,
+  "stdout": "",
+  "stderr": ""
+}

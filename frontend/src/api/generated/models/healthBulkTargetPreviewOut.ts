@@ -13,6 +13,7 @@ export interface HealthBulkTargetPreviewOut {
   bucket: HealthBulkTargetPreviewOutBucket;
   purchase_batch_id: number | null;
   task_id: number | null;
+  round_component?: string | null;
   target_animal_ids: number[];
   target_animals: AnimalIdentityOut[];
   target_animal_ages_months?: (number | null)[];

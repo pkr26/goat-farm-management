@@ -1,0 +1,66 @@
+{
+  "collected": 5128,
+  "passed": 5124,
+  "skipped": 4,
+  "failures": 0,
+  "errors": 0,
+  "parts": [
+    {
+      "part": 1,
+      "counts": {
+        "tests": 2564,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 4
+      },
+      "receipt": {
+        "part": 1,
+        "exit_code": 0,
+        "expected_collected": 2564,
+        "database": "herdly_final_3ddc15959503_test",
+        "coverage_file": "/tmp/herdly-be-final-split/.coverage.part-1",
+        "junit": "/tmp/herdly-be-final-split/part-1.xml"
+      }
+    },
+    {
+      "part": 2,
+      "counts": {
+        "tests": 2564,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "receipt": {
+        "part": 2,
+        "exit_code": 0,
+        "expected_collected": 2564,
+        "database": "herdly_final_19d302d009bc_test",
+        "coverage_file": "/tmp/herdly-be-final-split/.coverage.part-2",
+        "junit": "/tmp/herdly-be-final-split/part-2.xml"
+      }
+    }
+  ],
+  "coverage": {
+    "covered_lines": 18211,
+    "num_statements": 19262,
+    "percent_covered": 92.718882718066,
+    "percent_covered_display": "93",
+    "missing_lines": 1051,
+    "excluded_lines": 77,
+    "percent_statements_covered": 94.54366109438273,
+    "percent_statements_covered_display": "95",
+    "num_branches": 5226,
+    "num_partial_branches": 636,
+    "covered_branches": 4494,
+    "missing_branches": 732,
+    "percent_branches_covered": 85.9931113662457,
+    "percent_branches_covered_display": "86"
+  },
+  "required_aggregate_coverage": 92,
+  "line_percent": 94.54366109438273,
+  "branch_percent": 85.9931113662457,
+  "source_fingerprint_files_verified": 410,
+  "source_fingerprint_mismatches": [],
+  "disjoint_complete_collection": true,
+  "owned_databases_remaining": 0
+}

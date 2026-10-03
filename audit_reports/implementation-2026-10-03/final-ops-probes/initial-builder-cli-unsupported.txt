@@ -1,0 +1,23 @@
+Only invented fixture data is used below. No application service is booted.
+
+$ git check-ignore -- secrets/pl07-sentinel-914091258b9f4575
+secrets/pl07-sentinel-914091258b9f4575
+
+# exit=0; expected=0
+
+$ docker build --no-cache --progress=plain --file - --tag herdly-isolation-probe-914091258b9f4575:excluded .
+# Exact stdin:
+FROM scratch
+COPY secrets/pl07-sentinel-914091258b9f4575/ /probe/
+
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+unknown flag: --progress
+
+Usage:  docker build [OPTIONS] PATH | URL | -
+
+Run 'docker build --help' for more information
+
+# exit=125; expected=1

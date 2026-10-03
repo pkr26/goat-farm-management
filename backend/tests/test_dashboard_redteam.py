@@ -76,10 +76,9 @@ async def test_dashboard_herd_summary_withheld_without_animals_view(
     assert cleaner_dash["buckets"] is None
     assert cleaner_dash["total_active"] is None
     assert cleaner_dash["sex_counts"] is None
-    # Status totals are outside the withheld block (their own health.view
-    # DEAD/CULLED strip is pinned in test_dashboard_permissions.py), so the
-    # page still renders rather than 403ing.
-    assert cleaner_dash["status_totals"].get("ACTIVE") == 2
+    # The status breakdown carries the same inventory count and must follow
+    # the same permission; the cleaner can still view its authorized duties.
+    assert "ACTIVE" not in cleaner_dash["status_totals"]
 
     # The gate is animals.view specifically — a MOVER holds it and keeps the
     # herd summary in full.
@@ -120,10 +119,9 @@ async def test_reports_herd_summary_withheld_without_animals_view(
     assert analyst_rep["bucket_rows"] is None
     assert analyst_rep["total_active"] is None
     assert analyst_rep["sex_counts"] is None
-    # The reports page still renders: status counts stay visible (the
-    # clinical outcome statuses are stripped separately), while the breeding
-    # aggregates — counts included (B4) — are withheld from this caller.
-    assert analyst_rep["status_counts"] == owner_rep["status_counts"]
+    # The status breakdown carries inventory facts too and follows the same
+    # gate; the page remains available with its unauthorized sections withheld.
+    assert analyst_rep["status_counts"] == {}
     assert analyst_rep["breeding"]["total_records"] is None
 
     # ACCOUNTANT holds animals.view alongside reports.view — nothing changes

@@ -55,6 +55,8 @@ export interface SalesAssumptions {
      */
   eid_price_uplift?: number;
   festival_sale_months?: number[] | null;
+  festival_date_overrides?: string[] | null;
+  festival_date_source?: string | null;
   /**
      * @minimum 0
      * @maximum 12

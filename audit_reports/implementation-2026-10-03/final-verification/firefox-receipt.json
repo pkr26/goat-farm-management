@@ -1,0 +1,19 @@
+{
+  "command": "E2E_BROWSER=firefox PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:61880/ PW_TEST_CONNECT_EXPOSE_NETWORK='<loopback>' pnpm exec playwright test",
+  "cwd": "frontend",
+  "production_build_id": "CWwqRg-tXDDZQ8xWOAWpZ",
+  "exit_code": 0,
+  "passed": 71,
+  "failed": 0,
+  "skipped": 0,
+  "retries": 0,
+  "projects": [
+    "firefox"
+  ],
+  "duration_minutes": 3.1,
+  "browser_runtime": "official Playwright1.62.1 LinuxARM64 Firefox153.0",
+  "native_macos_launcher_passed": false,
+  "browser_manifest": "frontend-final-browser-manifest.json",
+  "database_scope": "local synthetic E2E database",
+  "receipt": "firefox.log"
+}

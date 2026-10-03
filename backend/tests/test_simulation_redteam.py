@@ -22,10 +22,14 @@ from typing import Any
 import httpx
 import pytest
 
-from app.simulation.assumptions import MAX_HEAD, HerdEventAssumptions, SimulationAssumptions
+from app.simulation.assumptions import (
+    MAX_HEAD,
+    MAX_PLAN_EVENTS,
+    HerdEventAssumptions,
+    SimulationAssumptions,
+)
 from app.simulation.backward_planner import PlannerTarget, build_backward_plan
 from app.simulation.planner import (
-    MAX_PLAN_EVENTS,
     SaleTarget,
     _purchases_from,
     build_plan_report,
@@ -208,7 +212,7 @@ async def test_planner_api_maps_the_zero_denominators_to_422(
         assert resp.status_code == 422, (mutation, resp.text)
 
 
-def _deep_merged(base: dict, override: dict) -> dict[str, Any]:
+def _deep_merged(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base)
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):

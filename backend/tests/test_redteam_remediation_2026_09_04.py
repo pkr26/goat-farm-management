@@ -19,6 +19,7 @@ from app.core.config import get_settings
 
 from . import conftest
 from .conftest import owner_with_farm
+from .type_helpers import JsonObject, json_object, json_objects
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 GOAT_GESTATION = 150
@@ -38,7 +39,13 @@ def today() -> date:
 
 
 async def _make_animal(
-    client: httpx.AsyncClient, headers: dict, tag: str, *, sex: str, bucket: str, **overrides
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    tag: str,
+    *,
+    sex: str,
+    bucket: str,
+    **overrides: object,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "tag_number": tag,
@@ -49,12 +56,12 @@ async def _make_animal(
     } | overrides
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def _adult(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     *,
     sex: str,
@@ -77,7 +84,7 @@ async def _adult(
 
 async def _breed(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     doe_id: int,
     breeding_date: date,
     *,
@@ -102,7 +109,10 @@ async def _breed(
 
 
 async def _confirm_pregnant(
-    client: httpx.AsyncClient, headers: dict, breeding_record: dict, scan_offset_days: int
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    breeding_record: JsonObject,
+    scan_offset_days: int,
 ) -> dict[str, Any]:
     scan_date = date.fromisoformat(breeding_record["breeding_date"]) + timedelta(
         days=scan_offset_days
@@ -113,15 +123,15 @@ async def _confirm_pregnant(
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def _kidding(
     client: httpx.AsyncClient,
-    headers: dict,
-    breeding_record: dict,
+    headers: dict[str, str],
+    breeding_record: JsonObject,
     kidding_date: date,
-    kids: list[dict],
+    kids: list[JsonObject],
     *,
     idempotency_key: str | None = None,
 ) -> httpx.Response:
@@ -141,8 +151,8 @@ async def _kidding(
 
 
 async def _goat_doe_buck_and_kids(
-    client: httpx.AsyncClient, headers: dict, *, tag_stem: str
-) -> tuple[dict, dict, dict, dict]:
+    client: httpx.AsyncClient, headers: dict[str, str], *, tag_stem: str
+) -> tuple[JsonObject, JsonObject, JsonObject, JsonObject]:
     """Doe × buck kidded ~410 days ago; dam then DEAD so both kids early-wean
     into sex buckets. Returns (father_buck, daughter, son, kidding_record).
 
@@ -220,10 +230,10 @@ async def _goat_doe_buck_and_kids(
     return buck, daughter, son, kidded.json()
 
 
-async def _finance_rows(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def _finance_rows(client: httpx.AsyncClient, headers: dict[str, str]) -> list[JsonObject]:
     resp = await client.get("/api/finance?limit=200", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["transactions"]
+    return json_objects(resp.json()["transactions"])
 
 
 # ---------------------------------------------------------------------------
@@ -476,8 +486,8 @@ async def test_red_m4_kidding_replay_returns_committed_record(
 
 
 async def _confirmed_goat_pregnancy(
-    client: httpx.AsyncClient, headers: dict, tag_stem: str
-) -> tuple[dict, dict]:
+    client: httpx.AsyncClient, headers: dict[str, str], tag_stem: str
+) -> tuple[JsonObject, date]:
     doe = await _adult(
         client, headers, f"{tag_stem}-DOE", sex="F", bucket="FOUNDATION", weight_kg=28.0
     )

@@ -270,17 +270,16 @@ async def test_f4_purges_only_sensitive_rows_and_is_irreversible_roundtrip(
         await _alembic("upgrade", "head")
         connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
         try:
-            counts = dict(
-                await connection.fetch(
-                    """
+            fetched_counts = await connection.fetch(
+                """
                     SELECT operation, count(*)
                     FROM idempotency_records
                     WHERE actor_id = $1 AND operation <> 'auth.farms.create'
                     GROUP BY operation
                     """,
-                    actor_id,
-                )
+                actor_id,
             )
+            counts = {str(row[0]): int(row[1]) for row in fetched_counts}
         finally:
             await connection.close()
         assert counts == {"finance.transactions.create": 1}

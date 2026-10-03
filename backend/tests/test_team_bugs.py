@@ -30,6 +30,7 @@ from .test_team_extended import (
     team_manager_headers,
     worker_headers,
 )
+from .type_helpers import JsonObject
 
 # An id that passes BoundedId (ge=1, le=2**62) and every path-int parse, but
 # exceeds PostgreSQL's int4 primary-key columns.
@@ -489,7 +490,7 @@ async def test_worker_status_rejects_coerced_booleans(client: httpx.AsyncClient)
 
 def _key_share_probe_while_membership_locked(
     farm_id: int, probe_role_id: int, worker_user_id: int
-) -> tuple[dict, object]:
+) -> tuple[JsonObject, object]:
     """Wrap `_get_membership` so that, while the route still holds its
     membership row lock, a second session inserts a Task assigned to the same
     worker — the composite FK to farm_memberships(farm_id, user_id) takes

@@ -101,6 +101,25 @@ describe("FinancePage — campaign kills", () => {
     );
   });
 
+  it("resets the page when same-route URL navigation changes ledger filters", async () => {
+    const calls: URLSearchParams[] = [];
+    server.use(http.get("/api/finance", ({ request }) => {
+      const params = new URL(request.url).searchParams;
+      calls.push(params);
+      return HttpResponse.json({ ...PAYLOAD(), transactions_total: 150, offset: Number(params.get("offset") ?? 0) });
+    }));
+    const user = userEvent.setup();
+    const view = renderWithProviders(<FinancePage />);
+    const pager = await screen.findByRole("navigation", { name: "transactions pagination" });
+    await user.click(within(pager).getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(calls.at(-1)?.get("offset")).toBe("50"));
+    urlParams = new URLSearchParams("month=2026-03&type=EXPENSE");
+    view.rerender(<FinancePage />);
+    await waitFor(() => expect(calls.at(-1)?.get("month")).toBe("2026-03"));
+    expect(calls.at(-1)?.get("offset")).toBe("0");
+    expect(calls.at(-1)?.get("type")).toBe("EXPENSE");
+  });
+
   it("never forwards a malformed month param to the API", async () => {
     urlParams = new URLSearchParams("month=garbage");
     renderWithProviders(<FinancePage />);

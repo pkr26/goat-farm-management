@@ -5,6 +5,7 @@
 # the full context to a local or remote builder.
 .env
 .env.*
+secrets/
 backups/
 *.dump
 *.dump.gpg

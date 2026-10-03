@@ -33,7 +33,6 @@ from app.simulation.assumptions import (
     STALL_FED_WEIGHT_CURVE,
     HerdEventAssumptions,
 )
-from app.simulation.engine import NLM_CAPITAL_CEILING_PER_HEAD, NLM_SUBSIDY_FRACTION
 from app.simulation.feed import DAYS_PER_MONTH
 from app.simulation.planner import build_dpr_markdown
 
@@ -186,116 +185,38 @@ def test_weaning_days_rejects_unsupported_values() -> None:
 # --- NLM subsidy + DPR export --------------------------------------------------
 
 
-def test_nlm_subsidy_is_half_the_capped_eligible_capital() -> None:
+def test_nlm_toggle_only_does_not_promise_a_grant_for_the_default_ineligible_unit() -> None:
     a = SimulationAssumptions()
     a.finance.nlm_subsidy = True
     result = run_simulation(a, with_break_even=False)
-    m = result.metrics
-    # 50+2 unit: the per-head ceiling (52 × ₹10,000 = ₹520,000 of eligible
-    # capital) binds below the ~₹20 lakh project cost, so the subsidy is half
-    # the ceiling — matching the scheme's ~₹10 lakh band for a 100F+5M unit.
-    ceiling = NLM_CAPITAL_CEILING_PER_HEAD * 52
-    assert m.project_cost > ceiling
-    assert m.subsidy_amount == pytest.approx(NLM_SUBSIDY_FRACTION * ceiling)
-    assert m.equity == pytest.approx(m.project_cost - m.loan_amount - m.subsidy_amount)
-
-
-def test_nlm_subsidy_small_unit_takes_half_the_project_cost() -> None:
-    a = SimulationAssumptions(
-        herd=HerdAssumptions(does=1, bucks=1, auto_purchase_bucks=False),
-    )
-    a.finance.nlm_subsidy = True
-    a.finance.loan_fraction_of_project_cost = 0.0
-    a.finance.initial_stock_cost = 10_000.0
-    a.finance.working_capital_months = 0
-    a.costs.capacity_basis = "planned"
-    a.costs.planned_capacity_head = 2
-    a.costs.shed_cost_per_animal_place = 0.0
-    a.costs.equipment_cost_per_animal = 0.0
-    result = run_simulation(a, with_break_even=False)
-    # Project cost (₹10,000) is below the 2-head ceiling (₹20,000): the 50%
-    # of the project cost binds instead.
-    assert result.metrics.project_cost == pytest.approx(10_000.0)
-    assert result.metrics.subsidy_amount == pytest.approx(5_000.0)
-
-
-def test_nlm_subsidy_never_makes_equity_negative() -> None:
-    a = SimulationAssumptions()
-    a.finance.nlm_subsidy = True
-    a.finance.loan_fraction_of_project_cost = 1.0
-    result = run_simulation(a, with_break_even=False)
-    assert result.metrics.equity >= 0.0
-    assert result.metrics.loan_amount + result.metrics.subsidy_amount <= (
-        result.metrics.project_cost + 1e-6
+    assert result.metrics.subsidy_amount == 0.0
+    assert result.metrics.subsidy_estimate_amount == 0.0
+    assert result.metrics.subsidy_status == "ineligible"
+    assert result.metrics.equity == pytest.approx(
+        result.metrics.project_cost - result.metrics.loan_amount
     )
 
 
-def test_nlm_subsidy_event_built_herd_counts_event_purchased_stock() -> None:
-    """The scheme sizes the unit being ESTABLISHED: a 50+2 unit bought
-    entirely through scheduled events earns the same subsidy as the same unit
-    stocked at month 0 (starting counts alone made the toggle inert)."""
-    starting = SimulationAssumptions()
-    starting.finance.nlm_subsidy = True
-    # A 50% loan keeps the equity floor (project cost - loan) above the
-    # capped subsidy, so the per-head ceiling is the binding constraint.
-    starting.finance.loan_fraction_of_project_cost = 0.5
-    starting_result = run_simulation(starting, with_break_even=False)
-
-    built = SimulationAssumptions(
-        herd=HerdAssumptions(does=0, bucks=0, auto_purchase_bucks=False),
-        events=[
-            HerdEventAssumptions(month=1, kind="purchase", animal_class="doe", count=50),
-            HerdEventAssumptions(month=1, kind="purchase", animal_class="buck", count=2),
-        ],
-    )
-    built.finance.nlm_subsidy = True
-    built.finance.loan_fraction_of_project_cost = 0.5
-    built_result = run_simulation(built, with_break_even=False)
-
-    ceiling = NLM_CAPITAL_CEILING_PER_HEAD * 52
-    assert built_result.metrics.project_cost > ceiling
-    assert built_result.metrics.subsidy_amount == pytest.approx(NLM_SUBSIDY_FRACTION * ceiling)
-    assert built_result.metrics.subsidy_amount == pytest.approx(
-        starting_result.metrics.subsidy_amount
-    )
-
-
-def test_nlm_subsidy_counts_event_female_young_stock_as_unit() -> None:
-    """Goat units are actually established by buying young females: event-
-    purchased female growers/weaners/kids are raised into the doe pipeline
-    and count toward the unit; meat-bound male young stock does not."""
+def test_nlm_scheduled_young_purchases_do_not_invent_a_qualifying_breeder_unit() -> None:
     a = SimulationAssumptions(
         herd=HerdAssumptions(does=0, bucks=0, auto_purchase_bucks=False),
         events=[
             HerdEventAssumptions(month=1, kind="purchase", animal_class="female_grower", count=100),
             HerdEventAssumptions(month=1, kind="purchase", animal_class="buck", count=5),
-            HerdEventAssumptions(month=1, kind="purchase", animal_class="male_grower", count=50),
         ],
     )
     a.finance.nlm_subsidy = True
-    a.finance.loan_fraction_of_project_cost = 0.5
     result = run_simulation(a, with_break_even=False)
-    ceiling = NLM_CAPITAL_CEILING_PER_HEAD * 105
-    assert result.metrics.project_cost > ceiling
-    assert result.metrics.subsidy_amount == pytest.approx(NLM_SUBSIDY_FRACTION * ceiling)
-
-
-def test_nlm_subsidy_mixed_starting_and_event_stock() -> None:
-    """Starting stock and event purchases add: 11 head at month 0 plus 41 by
-    event is the same 52-head unit as the default 50+2 herd."""
-    a = SimulationAssumptions(
-        herd=HerdAssumptions(does=10, bucks=1, auto_purchase_bucks=False),
-        events=[
-            HerdEventAssumptions(month=1, kind="purchase", animal_class="doe", count=40),
-            HerdEventAssumptions(month=1, kind="purchase", animal_class="buck", count=1),
-        ],
-    )
-    a.finance.nlm_subsidy = True
-    a.finance.loan_fraction_of_project_cost = 0.5
-    result = run_simulation(a, with_break_even=False)
-    ceiling = NLM_CAPITAL_CEILING_PER_HEAD * 52
-    assert result.metrics.project_cost > ceiling
-    assert result.metrics.subsidy_amount == pytest.approx(NLM_SUBSIDY_FRACTION * ceiling)
+    assert result.metrics.subsidy_status == "ineligible"
+    assert result.metrics.subsidy_amount == 0.0
+    # A declared proposed unit and eligible-item budget can produce a
+    # conditional estimate; neither automatically creates approved funding.
+    a.finance.nlm_unit_females = 100
+    a.finance.nlm_unit_males = 5
+    a.finance.nlm_eligible_capital_cost = 3_000_000.0
+    declared = run_simulation(a, with_break_even=False)
+    assert declared.metrics.subsidy_estimate_amount == 1_000_000.0
+    assert declared.metrics.subsidy_amount == 0.0
 
 
 def test_dpr_markdown_states_the_scheme_basis_and_figures() -> None:

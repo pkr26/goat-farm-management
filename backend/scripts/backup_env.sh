@@ -34,7 +34,13 @@ load_app_safety_settings() {
         DB_SSLMODE="${GOATFARM_DB_SSLMODE}"
         ENVIRONMENT="${GOATFARM_ENVIRONMENT}"
         DB_SSLROOTCERT_PATH="${GOATFARM_DB_SSLROOTCERT_PATH:-}"
-        return 0
+        # Both classifications may be exported while the private CA is still
+        # configured in dotenv. Read that unresolved optional value from the
+        # same pinned snapshot below; an intentionally absent dotenv remains
+        # supported when both classifications were explicitly supplied.
+        if [[ -n "${DB_SSLROOTCERT_PATH}" || ! -f "${env_file}" ]]; then
+            return 0
+        fi
     fi
 
     # An absent backend/.env must not silently classify the run as

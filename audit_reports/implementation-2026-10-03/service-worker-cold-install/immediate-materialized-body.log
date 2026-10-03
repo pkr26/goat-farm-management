@@ -1,0 +1,40 @@
+ATTACHED service_worker
+ATTACHED service_worker
+ATTACHED service_worker
+WORKER ["DIAGNOSTIC BEFORE SCRIPT"]
+WORKER ["DIAGNOSTIC BEFORE SCRIPT"]
+WORKER ["DIAGNOSTIC BEFORE SCRIPT"]
+ATTACHED service_worker
+WORKER ["DIAGNOSTIC BEFORE SCRIPT"]
+WORKER ["fetch:start","/worker"]
+WORKER ["fetch:start","/worker/login"]
+WORKER ["fetch:start","/worker/offline"]
+WORKER ["fetch:start","/manifest.webmanifest"]
+WORKER ["fetch:headers","/worker",200]
+WORKER ["fetch:headers","/worker/login",200]
+WORKER ["fetch:headers","/worker/offline",200]
+WORKER ["fetch:body","/worker",20957]
+WORKER ["fetch:body","/worker/login",21460]
+WORKER ["fetch:body","/worker/offline",21464]
+WORKER ["fetch:headers","/manifest.webmanifest",200]
+WORKER ["fetch:body","/manifest.webmanifest",465]
+WORKER ["text:start",""]
+WORKER ["text:done","",20947]
+WORKER ["text:start",""]
+WORKER ["text:done","",21450]
+WORKER ["text:start",""]
+WORKER ["text:done","",21454]
+WORKER ["assets:start","[\"http://localhost:3000/_next/static/chunks/2hqjnrgzfqc-h.css\",\"http://localhost:3000/_next/static/chunks/0rbxo282vc8xt.css\",\"http://localhost:3000/_next/static/chunks/3d2_m1a4g3g2r.js\",\"http://localhost:3000/_next/static/chunks/1ha8zswp4rbxq.js\",\"http://localhost:3000/_next/static/chunks/2e0zyt9q2z1o1.js\",\"http://localhost:3000/_next/static/chunks/3p8jjvtlw90xd.js\",\"http://localhost:3000/_next/static/chunks/turbopack-0fwxo76ybwaky.js\",\"http://localhost:3000/_next/static/chunks/0lfu_d55l3o4n.js\",\"http://localhost:3000/_next/static/chunks/2tcyoq_iitazj.js\",\"http://localhost:3000/_next/static/chunks/08r3neofu7gu0.js\",\"http://localhost:3000/_next/static/chunks/0z4a9y-9g-cdk.js\",\"http://localhost:3000/_next/static/chunks/3m6upqio75izz.js\",\"http://localhost:3000/_next/static/chunks/2c54o48_e_vyc.js\",\"http://localhost:3000/_next/static/chunks/01po5q1qpjwl8.js\",\"http://localhost:3000/_next/static/chunks/11l8tjrhwm8gy.js\",\"http://localhost:3000/_next/static/chunks/29a-rzo8fwsmj.js\",\"http://localhost:3000/_next/static/chunks/10bog36sdpaj7.js\",\"http://localhost:3000/_next/static/chunks/1cv4yb25eof-c.js\",\"http://localhost:3000/_next/static/chunks/3sjb63r7zlx7a.js\",\"http://localhost:3000/_next/static/chunks/0tg1m_7hd-zr1.js\",\"http://localhost:3000/_next/static/chunks/30r_7tb4fy2es.js\",\"http://localhost:3000/_next/static/chunks/1mhie-5cq1mv9.js\",\"http://localhost:3000/_next/static/chunks/2_gz7110u_1qs.js\",\"http://localhost:3000/_next/static/chunks/19ezf4s8hs6hx.js\",\"http://localhost:3000/_next/static/chunks/1t1lzdh-m2j95.js\",\"http://localhost:3000/_next/static/chunks/0cz1d0mv5g_q7.js\",\"http://localhost:3000/_next/static/chunks/0f-yb0_cbdh7w.js\",\"http://localhost:3000/_next/static/chunks/34sq-1p_82-9y.js\"]"]
+WORKER ["assets:done"]
+WORKER ["put:start","/worker"]
+WORKER ["put:start","/worker/login"]
+WORKER ["put:start","/worker/offline"]
+WORKER ["put:start","/manifest.webmanifest"]
+WORKER ["put:done","/worker"]
+WORKER ["put:done","/worker/login"]
+WORKER ["put:done","/worker/offline"]
+WORKER ["put:done","/manifest.webmanifest"]
+final {
+  registrations: [ { installing: undefined, active: 'activated' } ],
+  cacheKeys: [ { name: 'herdly-worker-v3', urls: [Array] } ]
+}

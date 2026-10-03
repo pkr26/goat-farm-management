@@ -51,7 +51,7 @@ test.describe("tasks verification", () => {
     await page.getByRole("tab", { name: "Completed" }).click();
     const doneRow = page.getByRole("row", { name: new RegExp(title) });
     await expect(doneRow).toBeVisible({ timeout: 15_000 });
-    await expect(doneRow.getByText("VERIFIED", { exact: true })).toBeVisible();
+    await expect(doneRow.getByText("Verified", { exact: true })).toBeVisible();
     await expect(doneRow.getByText("awaiting")).toHaveCount(0);
   });
 

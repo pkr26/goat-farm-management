@@ -20,6 +20,7 @@ import {
   useDeleteRoleApiTeamRolesRoleIdDelete,
   useGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet,
   useResetPasswordApiTeamWorkersMembershipIdResetPasswordPost,
+  useResetPinApiTeamWorkersMembershipIdResetPinPost,
   useSetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut,
   useSetWorkerStatusApiTeamWorkersMembershipIdStatusPut,
   useTeamPageApiTeamGet,
@@ -31,6 +32,7 @@ import type {
   RoleOut,
   TeamOut,
 } from "@/api/generated/models";
+import { AccountDialog } from "@/components/account-dialog";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
@@ -75,9 +77,30 @@ import { translate, useT, type TFn } from "@/lib/i18n";
 import { mapServerError } from "@/lib/server-error-phrases";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { OwnershipTransferDialog } from "./components/ownership-transfer-dialog";
 
 /** Sentinel for "no role" (empty string is not a valid item value). */
 const NONE = "none";
+type CredentialMode = "password" | "pin";
+
+/** A twelve-digit draft meets every deployment's supported minimum. */
+export function generateWorkerPin(): string {
+  let pin = "";
+  while (pin.length < 12) {
+    const random = crypto.getRandomValues(new Uint8Array(16));
+    for (const byte of random) {
+      // Reject the biased tail rather than reducing every byte modulo ten.
+      if (byte < 250 && pin.length < 12) pin += String(byte % 10);
+    }
+  }
+  return pin;
+}
+
+function useTeamMutationError() {
+  const fallback = useMutationError();
+  return (error: unknown) => error instanceof ApiError && error.status === 409
+    ? error.detail : fallback(error);
+}
 
 type TeamAuthority = {
   blocked: boolean;
@@ -103,7 +126,7 @@ function useInvalidateTeam() {
  * built by a factory taking the caller's `t`; the mounted dialogs rebuild
  * their resolver whenever the active language changes (health page pattern).
  * The exported English instances serve direct schema-level tests. */
-export function buildWorkerSchema(t: TFn) {
+export function buildWorkerSchema(t: TFn, mode: CredentialMode = "password") {
   return z.object({
     name: z.string().trim().max(120).optional(),
     email: z
@@ -112,18 +135,19 @@ export function buildWorkerSchema(t: TFn) {
       .email(t("team.validation.emailInvalid"))
       .max(254, t("team.validation.emailMax")),
     role_id: z.string().min(1, t("team.validation.pickRole")),
-    password: z
-      .string()
-      .min(12, t("team.validation.passwordMin"))
-      .max(128, t("team.validation.passwordMax")),
+    password: mode === "pin"
+      ? z.string().regex(/^\d{4,12}$/, t("team.pin.validation"))
+      : z.string().min(12, t("team.validation.passwordMin")).max(128, t("team.validation.passwordMax")),
   });
 }
 export const workerSchema = buildWorkerSchema((key, vars) => translate("en", key, vars));
 type WorkerValues = z.infer<typeof workerSchema>;
 
-export function buildResetSchema(t: TFn) {
+export function buildResetSchema(t: TFn, mode: CredentialMode = "password") {
   return z.object({
-    password: z.string().min(12, t("team.validation.passwordMin")).max(128),
+    password: mode === "pin"
+      ? z.string().regex(/^\d{4,12}$/, t("team.pin.validation"))
+      : z.string().min(12, t("team.validation.passwordMin")).max(128),
   });
 }
 export const resetSchema = buildResetSchema((key, vars) => translate("en", key, vars));
@@ -208,7 +232,7 @@ interface WorkerControlsProps {
   isSelf: boolean;
   protectedTarget: boolean;
   isOwner: boolean;
-  onReset: (m: MembershipOut, release: () => void) => void;
+  onReset: (m: MembershipOut, release: () => void, mode: CredentialMode) => void;
   /** Opens the per-worker notification preferences dialog (ITEM 4.6). */
   onNotifications: (m: MembershipOut) => void;
   authority: TeamAuthority;
@@ -217,7 +241,7 @@ interface WorkerControlsProps {
 }
 
 function useWorkerControls({ m, roles, can, isOwner, onReset, authority }: WorkerControlsProps) {
-  const mutationErrorMessage = useMutationError();
+  const mutationErrorMessage = useTeamMutationError();
   const t = useT();
   const invalidate = useInvalidateTeam();
   const roleMutation = useChangeRoleApiTeamWorkersMembershipIdRolePost();
@@ -308,8 +332,8 @@ function useWorkerControls({ m, roles, can, isOwner, onReset, authority }: Worke
     }
   }
 
-  function startReset() {
-    if (!m.can_reset_password || !authority.canStart() || actionLock.current !== null)
+  function startReset(mode: CredentialMode = "password") {
+    if ((mode === "password" ? !m.can_reset_password : !m.is_active || m.role_id === null) || !authority.canStart() || actionLock.current !== null)
       return;
     actionLock.current = "reset";
     setResetOwned(true);
@@ -317,7 +341,7 @@ function useWorkerControls({ m, roles, can, isOwner, onReset, authority }: Worke
       if (actionLock.current !== "reset") return;
       actionLock.current = null;
       setResetOwned(false);
-    });
+    }, mode);
   }
 
   return {
@@ -477,7 +501,7 @@ function WorkerActions({
               aria-describedby={
                 !m.can_reset_password ? `${idPrefix}-reset-password-reason-${m.id}` : undefined
               }
-              onClick={startReset}
+              onClick={() => startReset("password")}
             >
               {t("team.actions.resetPassword")}
             </Button>
@@ -490,6 +514,13 @@ function WorkerActions({
               </p>
             )}
           </div>
+        )}
+        {isOwner && !isSelf && !protectedTarget && (
+          <Button size="sm" variant="outline" className={actionClass}
+            disabled={rowBusy || !m.is_active || m.role_id === null}
+            onClick={() => startReset("pin")}>
+            {t(m.pin_set ? "team.pin.reset" : "team.pin.set")}
+          </Button>
         )}
         {/* Notification prefs are readable by every team.manage holder —
          * only the SAVE is owner-only (the dialog marks that itself). */}
@@ -643,16 +674,18 @@ function AddWorkerDialog({
   roles: RoleOut[];
   authority: TeamAuthority;
 }) {
-  const mutationErrorMessage = useMutationError();
+  const mutationErrorMessage = useTeamMutationError();
   const t = useT();
   const invalidate = useInvalidateTeam();
   const createMutation = useCreateWorkerApiTeamWorkersPost();
   const createFlight = useSingleFlight();
+  const [credentialMode, setCredentialMode] = useState<CredentialMode>("password");
+  const [showPin, setShowPin] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   // Rebuilt when the language changes so client-side validation messages
   // render in the active language; react-hook-form re-reads the resolver
   // option every render (health page pattern).
-  const localizedSchema = useMemo(() => buildWorkerSchema(t), [t]);
+  const localizedSchema = useMemo(() => buildWorkerSchema(t, credentialMode), [t, credentialMode]);
   const {
     register,
     handleSubmit,
@@ -682,7 +715,7 @@ function AddWorkerDialog({
             email: values.email.trim(),
             name: values.name?.trim() || null,
             role_id: Number(values.role_id),
-            password: values.password,
+            ...(credentialMode === "pin" ? { pin: values.password } : { password: values.password }),
           },
         });
         if (!farmScope()) return;
@@ -690,6 +723,7 @@ function AddWorkerDialog({
         await invalidate();
         onOpenChange(false);
         reset();
+        setCredentialMode("password");
       } catch (err) {
         if (!farmScope()) return;
         const message = mutationErrorMessage(err);
@@ -707,6 +741,8 @@ function AddWorkerDialog({
     if (isSubmitting || createFlight.pending) return;
     setFormError(null);
     reset();
+    setCredentialMode("password");
+    setShowPin(false);
     onOpenChange(false);
   };
 
@@ -777,12 +813,26 @@ function AddWorkerDialog({
               </p>
             )}
           </div>
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">{t("team.pin.credentialLabel")}</legend>
+            <div className="flex flex-wrap gap-4">
+              {(["password", "pin"] as const).map((mode) => (
+                <label key={mode} className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
+                  <input type="radio" name="worker-credential-mode" value={mode}
+                    checked={credentialMode === mode}
+                    onChange={() => { setCredentialMode(mode); setShowPin(false); setValue("password", ""); }} />
+                  {t(mode === "pin" ? "team.pin.pinMode" : "team.pin.passwordMode")}
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <div className="space-y-1.5">
-            <Label htmlFor="worker-password">{t("team.workerForm.passwordLabel")}</Label>
+            <Label htmlFor="worker-password">{t(credentialMode === "pin" ? "team.pin.label" : "team.workerForm.passwordLabel")}</Label>
             <Input
               id="worker-password"
-              type="password"
-              maxLength={128}
+              type={credentialMode === "pin" && showPin ? "text" : "password"}
+              maxLength={credentialMode === "pin" ? 12 : 128}
+              inputMode={credentialMode === "pin" ? "numeric" : undefined}
               autoComplete="new-password"
               aria-invalid={Boolean(errors.password) || undefined}
               aria-describedby={errors.password ? "worker-password-error" : undefined}
@@ -794,6 +844,11 @@ function AddWorkerDialog({
               </p>
             )}
           </div>
+          {credentialMode === "pin" && <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">{t("team.pin.help")}</p>
+            <Button type="button" variant="outline" onClick={() => { setValue("password", generateWorkerPin(), { shouldValidate: true }); setShowPin(true); }}>{t("team.pin.generate")}</Button>
+            <Button type="button" variant="outline" onClick={() => setShowPin((shown) => !shown)}>{t(showPin ? "team.pin.hide" : "team.pin.show")}</Button>
+          </div>}
           <div className="space-y-1.5">
             <Label htmlFor="worker-role">{t("team.workerForm.roleLabel")}</Label>
             <Select value={wRoleId} onValueChange={(v) => setValue("role_id", v, { shouldValidate: true })} items={roleItems}>
@@ -858,21 +913,27 @@ function ResetPasswordDialog({
   membership,
   onClose,
   authority,
+  credentialMode,
 }: {
+  credentialMode: CredentialMode;
   membership: MembershipOut;
   onClose: () => void;
   authority: TeamAuthority;
 }) {
-  const mutationErrorMessage = useMutationError();
+  const mutationErrorMessage = useTeamMutationError();
   const t = useT();
+  const invalidate = useInvalidateTeam();
   const resetMutation = useResetPasswordApiTeamWorkersMembershipIdResetPasswordPost();
+  const pinMutation = useResetPinApiTeamWorkersMembershipIdResetPinPost();
   const resetFlight = useSingleFlight();
+  const [showPin, setShowPin] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   // Rebuilt when the language changes so the validation message localises.
-  const localizedSchema = useMemo(() => buildResetSchema(t), [t]);
+  const localizedSchema = useMemo(() => buildResetSchema(t, credentialMode), [t, credentialMode]);
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<ResetValues>({
     resolver: zodResolver(localizedSchema),
@@ -885,12 +946,14 @@ function ResetPasswordDialog({
       const farmScope = captureFarmScope();
       setFormError(null);
       try {
-        await resetMutation.mutateAsync({
-          membershipId: membership.id,
-          data: { password: values.password },
-        });
+        if (credentialMode === "pin") {
+          await pinMutation.mutateAsync({ membershipId: membership.id, data: { pin: values.password } });
+        } else {
+          await resetMutation.mutateAsync({ membershipId: membership.id, data: { password: values.password } });
+        }
         if (!farmScope()) return;
-        toast.success(t("team.toast.passwordReset"));
+        toast.success(t(credentialMode === "pin" ? "team.pin.saved" : "team.toast.passwordReset"));
+        void invalidate();
         onClose();
       } catch (err) {
         if (!farmScope()) return;
@@ -908,8 +971,9 @@ function ResetPasswordDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t("team.resetForm.title", { name: membership.name ?? membership.email })}</DialogTitle>
+          <DialogTitle>{t(credentialMode === "pin" ? "team.pin.title" : "team.resetForm.title", { name: membership.name ?? membership.email })}</DialogTitle>
         </DialogHeader>
+        <p className="text-sm text-muted-foreground">{t(credentialMode === "pin" ? "team.pin.resetHelp" : "team.pin.passwordResetHelp")}</p>
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <fieldset
             disabled={authority.blocked || isSubmitting || resetFlight.pending}
@@ -921,11 +985,12 @@ function ResetPasswordDialog({
             </p>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="reset-password">{t("team.resetForm.passwordLabel")}</Label>
+            <Label htmlFor="reset-password">{t(credentialMode === "pin" ? "team.pin.label" : "team.resetForm.passwordLabel")}</Label>
             <Input
               id="reset-password"
-              type="password"
-              maxLength={128}
+              type={credentialMode === "pin" && showPin ? "text" : "password"}
+              maxLength={credentialMode === "pin" ? 12 : 128}
+              inputMode={credentialMode === "pin" ? "numeric" : undefined}
               autoComplete="new-password"
               autoFocus
               aria-invalid={Boolean(errors.password) || undefined}
@@ -938,6 +1003,10 @@ function ResetPasswordDialog({
               </p>
             )}
           </div>
+          {credentialMode === "pin" && <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => { setValue("password", generateWorkerPin(), { shouldValidate: true }); setShowPin(true); }}>{t("team.pin.generate")}</Button>
+            <Button type="button" variant="outline" onClick={() => setShowPin((shown) => !shown)}>{t(showPin ? "team.pin.hide" : "team.pin.show")}</Button>
+          </div>}
           <DialogFooter>
             <Button
               type="button"
@@ -955,7 +1024,7 @@ function ResetPasswordDialog({
                 ? t("team.resetForm.resetting")
                 : formError
                   ? t("team.resetForm.retry")
-                  : t("team.actions.resetPassword")}
+                  : t(credentialMode === "pin" ? "team.pin.save" : "team.actions.resetPassword")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -980,7 +1049,7 @@ function NotificationPrefsDialog({
   authority: TeamAuthority;
   onClose: () => void;
 }) {
-  const mutationErrorMessage = useMutationError();
+  const mutationErrorMessage = useTeamMutationError();
   const t = useT();
   const prefsQuery = useGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet(
     membership.id,
@@ -1047,7 +1116,7 @@ function NotificationPrefsForm({
   authority: TeamAuthority;
   onClose: () => void;
 }) {
-  const mutationErrorMessage = useMutationError();
+  const mutationErrorMessage = useTeamMutationError();
   const t = useT();
   const queryClient = useQueryClient();
   const saveMutation = useSetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut();
@@ -1269,7 +1338,7 @@ function RoleDialog({
   onClose: () => void;
   authority: TeamAuthority;
 }) {
-  const mutationErrorMessage = useMutationError();
+  const mutationErrorMessage = useTeamMutationError();
   const t = useT();
   const invalidate = useInvalidateTeam();
   const createMutation = useCreateRoleApiTeamRolesPost();
@@ -1531,7 +1600,7 @@ function RoleCard({
   onEdit: (role: RoleOut) => void;
   authority: TeamAuthority;
 }) {
-  const mutationErrorMessage = useMutationError();
+  const mutationErrorMessage = useTeamMutationError();
   const t = useT();
   const invalidate = useInvalidateTeam();
   const deleteMutation = useDeleteRoleApiTeamRolesRoleIdDelete();
@@ -1711,6 +1780,7 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
   type ResetTarget = {
     membership: MembershipOut;
     release: () => void;
+    mode: CredentialMode;
   };
   const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null);
   const resetTargetRef = useRef<ResetTarget | null>(null);
@@ -1783,6 +1853,10 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
       <PageHeader
         title={t("team.title")}
         description={t("team.headerDescription")}
+        actions={isOwner && user ? <>
+          <AccountDialog name={user.name} email={user.email} passwordOnly />
+          <OwnershipTransferDialog memberships={payload.memberships} isOwner={isOwner} blocked={authority.blocked} canStart={authority.canStart} />
+        </> : undefined}
       />
 
       {/* Deliberately NOT the shared StaleDataNotice: stale team data is not
@@ -1871,9 +1945,9 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
                 protectedTarget={isProtectedTarget(m)}
                 authority={authority}
                 idPrefix="card"
-                onReset={(membership, release) => {
+                onReset={(membership, release, mode) => {
                   resetTargetRef.current?.release();
-                  const target = { membership, release };
+                  const target = { membership, release, mode };
                   resetTargetRef.current = target;
                   setResetTarget(target);
                 }}
@@ -1904,9 +1978,9 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
                   protectedTarget={isProtectedTarget(m)}
                   authority={authority}
                   idPrefix="row"
-                  onReset={(membership, release) => {
+                  onReset={(membership, release, mode) => {
                     resetTargetRef.current?.release();
-                    const target = { membership, release };
+                    const target = { membership, release, mode };
                     resetTargetRef.current = target;
                     setResetTarget(target);
                   }}
@@ -1978,7 +2052,8 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
       )}
       {resetTarget && (
         <ResetPasswordDialog
-          key={resetTarget.membership.id}
+          key={`${resetTarget.membership.id}-${resetTarget.mode}`}
+          credentialMode={resetTarget.mode}
           membership={resetTarget.membership}
           authority={authority}
           onClose={() => {

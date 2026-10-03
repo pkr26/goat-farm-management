@@ -14,6 +14,7 @@ export interface ScreeningProviderStatsOut {
   model: string;
   gate_runs: number;
   gate_flagged: number;
+  gate_unassessable?: number;
   gate_errors: number;
   avg_gate_latency_ms: number | null;
   avg_gate_confidence: string | null;

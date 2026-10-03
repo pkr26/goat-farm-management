@@ -95,8 +95,9 @@ def template_names_for_task(title: str, category: str) -> tuple[str, ...]:
     note but cannot silently complete a different programme item — which is
     also why only the protocol phrase of the title is scanned. Most duties map
     to exactly one item; the cadence engine's combined "ET + HS pre-monsoon"
-    round administers two vaccines in one sweep, so either component closes
-    the round but nothing outside the pair does.
+    round requires both component vaccines for every included animal. Either
+    component can be recorded as partial evidence; the coverage ledger decides
+    when the round is complete.
     """
     words = _words(protocol_phrase_of(title))
     if category == HealthEventType.DEWORMING.value:

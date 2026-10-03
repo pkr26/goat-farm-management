@@ -42,12 +42,14 @@ def _is_bakrid_month(observed: date) -> bool:
     """Whether a sale date's (year, month) contains Bakrid per the embedded
     lunar calendar — used to deflate festival-premium observations back to the
     plain market level the engine's uplift will re-apply."""
-    festival_month = BAKRID_DATES_BY_YEAR.get(observed.year)
-    return festival_month is not None and festival_month[0] == observed.month
+    return any(
+        month == observed.month for month, _day in BAKRID_DATES_BY_YEAR.get(observed.year, ())
+    )
 
 
 type CalibrationValue = int | float | list[float]
 _MAX_HISTORY_ROWS = 20_000
+_SALE_WEIGHT_FALLBACK_MAX_DAYS = 30
 
 
 def _age_months(dob: date | None, reference: date) -> int | None:
@@ -97,8 +99,10 @@ def _class_boundary(dob: date, age_months: int) -> date:
     return dob + timedelta(days=round(age_months * DAYS_PER_MONTH))
 
 
-def _annual_fraction_from_exposure(deaths: int, animal_months: float) -> float:
-    """Annual mortality fraction from deaths per animal-month at risk.
+def _annual_fraction_from_exposure(
+    deaths: int, animal_months: float, *, period_months: float = 12.0
+) -> float:
+    """Mortality fraction over the requested phase from animal-month exposure.
 
     Dividing a multi-year death count by a point-in-time headcount is only
     valid when the population is stationary and every member was observed for
@@ -107,11 +111,12 @@ def _annual_fraction_from_exposure(deaths: int, animal_months: float) -> float:
     end up counted in a later class while their deaths stay in this one. Rates
     of several hundred percent came out of that mismatch. Exposure time is the
     standard fix: ``deaths / animal-years`` is an incidence rate, and
-    ``1 - exp(-rate)`` converts it to the annual fraction the engine wants.
+    ``1 - exp(-rate)`` converts it to the requested fraction: three months
+    for post-weaning, twelve months for adult/grower assumptions.
     """
     if deaths <= 0 or animal_months <= 0.0:
         return 0.0
-    rate = deaths / (animal_months / 12.0)
+    rate = deaths / (animal_months / period_months)
     return 1.0 - exp(-rate)
 
 
@@ -314,6 +319,7 @@ async def calibrate_farm_assumptions(
                 Animal.purchase_date,
                 Animal.purchase_price,
                 Animal.sale_price,
+                Animal.sale_weight_kg,
             )
             .where(
                 Animal.farm_id == farm.id,
@@ -770,7 +776,11 @@ async def calibrate_farm_assumptions(
             mortality_previous = float(getattr(assumptions.mortality, field_name))
             mortality_calibrated = min(
                 0.9,
-                _annual_fraction_from_exposure(mortality_deaths[group], exposure_months),
+                _annual_fraction_from_exposure(
+                    mortality_deaths[group],
+                    exposure_months,
+                    period_months=3.0 if group == "kid_post_weaning" else 12.0,
+                ),
             )
             setattr(assumptions.mortality, field_name, mortality_calibrated)
             record(
@@ -778,7 +788,12 @@ async def calibrate_farm_assumptions(
                 mortality_previous,
                 mortality_calibrated,
                 mortality_animals[group],
-                "Deaths per animal-month at risk in the class, converted to an annual rate",
+                (
+                    "Deaths per animal-month at risk, converted to the whole three-month "
+                    "post-weaning phase probability"
+                    if group == "kid_post_weaning"
+                    else "Deaths per animal-month at risk in the class, converted to an annual rate"
+                ),
                 "animals",
             )
 
@@ -787,6 +802,8 @@ async def calibrate_farm_assumptions(
     sale_prices_per_kg: list[tuple[date, float]] = []
     cull_doe_prices_per_kg: list[float] = []
     cull_buck_prices_per_kg: list[float] = []
+    fallback_sale_weights = 0
+    excluded_sale_weights = 0
     for pricing_row in animal_rows:
         if (
             pricing_row.purchase_price is not None
@@ -814,15 +831,26 @@ async def calibrate_farm_assumptions(
             or not period_start <= pricing_row.status_date <= reference_date
         ):
             continue
-        measured = next(
-            (
-                weight
-                for measured_on, weight in weight_history.get(pricing_row.id, [])
-                if measured_on <= pricing_row.status_date
-            ),
-            None,
+        measured = (
+            _as_float(pricing_row.sale_weight_kg)
+            if pricing_row.sale_weight_kg is not None
+            else None
         )
+        if measured is None:
+            measured = next(
+                (
+                    weight
+                    for measured_on, weight in weight_history.get(pricing_row.id, [])
+                    if 0
+                    <= (pricing_row.status_date - measured_on).days
+                    <= _SALE_WEIGHT_FALLBACK_MAX_DAYS
+                ),
+                None,
+            )
+            if measured is not None:
+                fallback_sale_weights += 1
         if measured is None or measured <= 0.0:
+            excluded_sale_weights += 1
             continue
         unit_price = _as_float(pricing_row.sale_price) / measured
         # cull_candidate is a live worklist flag and is cleared at every
@@ -833,6 +861,17 @@ async def calibrate_farm_assumptions(
             cull_buck_prices_per_kg.append(unit_price)
         else:
             sale_prices_per_kg.append((pricing_row.status_date, unit_price))
+
+    if fallback_sale_weights:
+        warnings.append(
+            f"{fallback_sale_weights} sale-price observations used an estimated exit weight "
+            f"from a routine weighing within {_SALE_WEIGHT_FALLBACK_MAX_DAYS} days before sale."
+        )
+    if excluded_sale_weights:
+        warnings.append(
+            f"{excluded_sale_weights} sale-price observations were excluded: no recorded "
+            f"sale weight or routine weighing within {_SALE_WEIGHT_FALLBACK_MAX_DAYS} days."
+        )
 
     for values, field_name in (
         (female_purchase_prices, "doe_purchase_price"),

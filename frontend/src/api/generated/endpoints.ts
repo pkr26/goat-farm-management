@@ -58,6 +58,7 @@ import type {
   FarmCalibrationOut,
   FarmCreateIn,
   FarmOut,
+  FarmOwnershipTransferIn,
   FeedInventoryOut,
   FeedRecipeOut,
   FeedSettingIn,
@@ -66,6 +67,7 @@ import type {
   FeedingPlanOut,
   FeedingRecordOut,
   FinanceOut,
+  FindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetParams,
   FinishedFeedStockOut,
   HealthAnimalOptionListOut,
   HealthAnimalOptionsApiHealthAnimalsGetParams,
@@ -76,6 +78,9 @@ import type {
   HealthEventMutationOut,
   HealthPurchaseBatchOptionListOut,
   HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams,
+  HealthRoundOut,
+  HealthRoundProgressApiHealthRoundsTaskIdGetParams,
+  HealthRoundTargetChangeIn,
   HealthStatusOut,
   HerdSnapshotApiSimulationHerdSnapshotGetParams,
   HerdSnapshotOut,
@@ -148,6 +153,7 @@ import type {
   ScreeningBatchListOut,
   ScreeningBatchOut,
   ScreeningDatasetExportOut,
+  ScreeningFindingReviewHistoryListOut,
   ScreeningFindingReviewIn,
   ScreeningFindingReviewOut,
   ScreeningImageDetailOut,
@@ -1224,6 +1230,152 @@ export const useRefreshApiAuthRefreshPost = <TError = ErrorType<ErrorOut | Reque
         TContext
       > => {
       return useMutation(getRefreshApiAuthRefreshPostMutationOptions(options), queryClient);
+    }
+
+export type logoutSessionApiAuthLogoutSessionPostResponse204 = {
+  data: void
+  status: 204
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type logoutSessionApiAuthLogoutSessionPostResponseSuccess = (logoutSessionApiAuthLogoutSessionPostResponse204) & {
+  headers: Headers;
+};
+export type logoutSessionApiAuthLogoutSessionPostResponseError = (logoutSessionApiAuthLogoutSessionPostResponse400 | logoutSessionApiAuthLogoutSessionPostResponse401 | logoutSessionApiAuthLogoutSessionPostResponse403 | logoutSessionApiAuthLogoutSessionPostResponse404 | logoutSessionApiAuthLogoutSessionPostResponse409 | logoutSessionApiAuthLogoutSessionPostResponse413 | logoutSessionApiAuthLogoutSessionPostResponse414 | logoutSessionApiAuthLogoutSessionPostResponse415 | logoutSessionApiAuthLogoutSessionPostResponse422 | logoutSessionApiAuthLogoutSessionPostResponse429 | logoutSessionApiAuthLogoutSessionPostResponse500 | logoutSessionApiAuthLogoutSessionPostResponse503) & {
+  headers: Headers;
+};
+
+export type logoutSessionApiAuthLogoutSessionPostResponse = (logoutSessionApiAuthLogoutSessionPostResponseSuccess | logoutSessionApiAuthLogoutSessionPostResponseError)
+
+export const getLogoutSessionApiAuthLogoutSessionPostUrl = () => {
+
+
+
+
+  return `/api/auth/logout-session`
+}
+
+/**
+ * Cancel exactly the bearer session; a newer browser cookie is untouched.
+ * @summary Logout Session
+ */
+export const logoutSessionApiAuthLogoutSessionPost = async ( options?: Parameters<typeof customInstance>[1]): Promise<logoutSessionApiAuthLogoutSessionPostResponse> => {
+
+  return customInstance<logoutSessionApiAuthLogoutSessionPostResponse>(getLogoutSessionApiAuthLogoutSessionPostUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getLogoutSessionApiAuthLogoutSessionPostMutationOptions = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof logoutSessionApiAuthLogoutSessionPost>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof logoutSessionApiAuthLogoutSessionPost>>, TError,void, TContext> => {
+
+const mutationKey = ['logoutSessionApiAuthLogoutSessionPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof logoutSessionApiAuthLogoutSessionPost>>, void> = () => {
+
+
+          return  logoutSessionApiAuthLogoutSessionPost(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LogoutSessionApiAuthLogoutSessionPostMutationResult = NonNullable<Awaited<ReturnType<typeof logoutSessionApiAuthLogoutSessionPost>>>
+
+    export type LogoutSessionApiAuthLogoutSessionPostMutationError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+    /**
+ * @summary Logout Session
+ */
+export const useLogoutSessionApiAuthLogoutSessionPost = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof logoutSessionApiAuthLogoutSessionPost>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof logoutSessionApiAuthLogoutSessionPost>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getLogoutSessionApiAuthLogoutSessionPostMutationOptions(options), queryClient);
     }
 
 export type logoutApiAuthLogoutPostResponse204 = {
@@ -2518,6 +2670,156 @@ export const useCreateFarmApiAuthFarmsPost = <TError = ErrorType<ErrorOut | Requ
         TContext
       > => {
       return useMutation(getCreateFarmApiAuthFarmsPostMutationOptions(options), queryClient);
+    }
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse200 = {
+  data: FarmOut
+  status: 200
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponseSuccess = (transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse200) & {
+  headers: Headers;
+};
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponseError = (transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse400 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse401 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse403 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse404 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse409 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse413 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse414 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse415 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse422 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse429 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse500 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse503) & {
+  headers: Headers;
+};
+
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse = (transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponseSuccess | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponseError)
+
+export const getTransferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostUrl = (farmId: number,) => {
+
+
+
+
+  return `/api/auth/farms/${farmId}/transfer-ownership`
+}
+
+/**
+ * Transfer the farm to an active member before deleting the former owner's account.
+ *
+ * The successor must already have taken sole possession of a password.
+ * Operational records retain their farm and actor IDs throughout transfer.
+ * @summary Transfer Farm Ownership
+ */
+export const transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPost = async (farmId: number,
+    farmOwnershipTransferIn: FarmOwnershipTransferIn, options?: Parameters<typeof customInstance>[1]): Promise<transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse> => {
+
+  return customInstance<transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse>(getTransferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostUrl(farmId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(farmOwnershipTransferIn)
+  }
+);}
+
+
+
+
+
+export const getTransferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostMutationOptions = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPost>>, TError,{farmId: number;data: FarmOwnershipTransferIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPost>>, TError,{farmId: number;data: FarmOwnershipTransferIn}, TContext> => {
+
+const mutationKey = ['transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPost>>, {farmId: number;data: FarmOwnershipTransferIn}> = (props) => {
+          const {farmId,data} = props ?? {};
+
+          return  transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPost(farmId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TransferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostMutationResult = NonNullable<Awaited<ReturnType<typeof transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPost>>>
+    export type TransferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostMutationBody = FarmOwnershipTransferIn
+    export type TransferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostMutationError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+    /**
+ * @summary Transfer Farm Ownership
+ */
+export const useTransferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPost = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPost>>, TError,{farmId: number;data: FarmOwnershipTransferIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPost>>,
+        TError,
+        {farmId: number;data: FarmOwnershipTransferIn},
+        TContext
+      > => {
+      return useMutation(getTransferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostMutationOptions(options), queryClient);
     }
 
 export type totpEnrollApiAuthTotpEnrollPostResponse200 = {
@@ -6050,6 +6352,634 @@ export function useKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet<TDat
 
 
 
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse200 = {
+  data: HealthRoundOut
+  status: 200
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponseSuccess = (healthRoundProgressApiHealthRoundsTaskIdGetResponse200) & {
+  headers: Headers;
+};
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponseError = (healthRoundProgressApiHealthRoundsTaskIdGetResponse400 | healthRoundProgressApiHealthRoundsTaskIdGetResponse401 | healthRoundProgressApiHealthRoundsTaskIdGetResponse403 | healthRoundProgressApiHealthRoundsTaskIdGetResponse404 | healthRoundProgressApiHealthRoundsTaskIdGetResponse409 | healthRoundProgressApiHealthRoundsTaskIdGetResponse413 | healthRoundProgressApiHealthRoundsTaskIdGetResponse414 | healthRoundProgressApiHealthRoundsTaskIdGetResponse415 | healthRoundProgressApiHealthRoundsTaskIdGetResponse422 | healthRoundProgressApiHealthRoundsTaskIdGetResponse429 | healthRoundProgressApiHealthRoundsTaskIdGetResponse500 | healthRoundProgressApiHealthRoundsTaskIdGetResponse503) & {
+  headers: Headers;
+};
+
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponse = (healthRoundProgressApiHealthRoundsTaskIdGetResponseSuccess | healthRoundProgressApiHealthRoundsTaskIdGetResponseError)
+
+export const getHealthRoundProgressApiHealthRoundsTaskIdGetUrl = (taskId: number,
+    params?: HealthRoundProgressApiHealthRoundsTaskIdGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/health/rounds/${taskId}?${stringifiedParams}` : `/api/health/rounds/${taskId}`
+}
+
+/**
+ * Read-only progress; legacy completed duties have no invented cohort.
+ * @summary Health Round Progress
+ */
+export const healthRoundProgressApiHealthRoundsTaskIdGet = async (taskId: number,
+    params?: HealthRoundProgressApiHealthRoundsTaskIdGetParams, options?: Parameters<typeof customInstance>[1]): Promise<healthRoundProgressApiHealthRoundsTaskIdGetResponse> => {
+
+  return customInstance<healthRoundProgressApiHealthRoundsTaskIdGetResponse>(getHealthRoundProgressApiHealthRoundsTaskIdGetUrl(taskId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getHealthRoundProgressApiHealthRoundsTaskIdGetQueryKey = (taskId: number,
+    params?: HealthRoundProgressApiHealthRoundsTaskIdGetParams,) => {
+    return [
+    `/api/health/rounds/${taskId}`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getHealthRoundProgressApiHealthRoundsTaskIdGetQueryOptions = <TData = Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(taskId: number,
+    params?: HealthRoundProgressApiHealthRoundsTaskIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getHealthRoundProgressApiHealthRoundsTaskIdGetQueryKey(taskId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>> = ({ signal }) => healthRoundProgressApiHealthRoundsTaskIdGet(taskId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: taskId !== null && taskId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type HealthRoundProgressApiHealthRoundsTaskIdGetQueryResult = NonNullable<Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>>
+export type HealthRoundProgressApiHealthRoundsTaskIdGetQueryError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+
+export function useHealthRoundProgressApiHealthRoundsTaskIdGet<TData = Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ taskId: number,
+    params: undefined |  HealthRoundProgressApiHealthRoundsTaskIdGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useHealthRoundProgressApiHealthRoundsTaskIdGet<TData = Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ taskId: number,
+    params?: HealthRoundProgressApiHealthRoundsTaskIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useHealthRoundProgressApiHealthRoundsTaskIdGet<TData = Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ taskId: number,
+    params?: HealthRoundProgressApiHealthRoundsTaskIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Health Round Progress
+ */
+
+export function useHealthRoundProgressApiHealthRoundsTaskIdGet<TData = Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ taskId: number,
+    params?: HealthRoundProgressApiHealthRoundsTaskIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthRoundProgressApiHealthRoundsTaskIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getHealthRoundProgressApiHealthRoundsTaskIdGetQueryOptions(taskId,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse200 = {
+  data: HealthRoundOut
+  status: 200
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponseSuccess = (startHealthRoundApiHealthRoundsTaskIdStartPostResponse200) & {
+  headers: Headers;
+};
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponseError = (startHealthRoundApiHealthRoundsTaskIdStartPostResponse400 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse401 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse403 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse404 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse409 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse413 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse414 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse415 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse422 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse429 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse500 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse503) & {
+  headers: Headers;
+};
+
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse = (startHealthRoundApiHealthRoundsTaskIdStartPostResponseSuccess | startHealthRoundApiHealthRoundsTaskIdStartPostResponseError)
+
+export const getStartHealthRoundApiHealthRoundsTaskIdStartPostUrl = (taskId: number,) => {
+
+
+
+
+  return `/api/health/rounds/${taskId}/start`
+}
+
+/**
+ * @summary Start Health Round
+ */
+export const startHealthRoundApiHealthRoundsTaskIdStartPost = async (taskId: number, options?: Parameters<typeof customInstance>[1]): Promise<startHealthRoundApiHealthRoundsTaskIdStartPostResponse> => {
+
+  return customInstance<startHealthRoundApiHealthRoundsTaskIdStartPostResponse>(getStartHealthRoundApiHealthRoundsTaskIdStartPostUrl(taskId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getStartHealthRoundApiHealthRoundsTaskIdStartPostMutationOptions = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startHealthRoundApiHealthRoundsTaskIdStartPost>>, TError,{taskId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof startHealthRoundApiHealthRoundsTaskIdStartPost>>, TError,{taskId: number}, TContext> => {
+
+const mutationKey = ['startHealthRoundApiHealthRoundsTaskIdStartPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startHealthRoundApiHealthRoundsTaskIdStartPost>>, {taskId: number}> = (props) => {
+          const {taskId} = props ?? {};
+
+          return  startHealthRoundApiHealthRoundsTaskIdStartPost(taskId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartHealthRoundApiHealthRoundsTaskIdStartPostMutationResult = NonNullable<Awaited<ReturnType<typeof startHealthRoundApiHealthRoundsTaskIdStartPost>>>
+
+    export type StartHealthRoundApiHealthRoundsTaskIdStartPostMutationError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+    /**
+ * @summary Start Health Round
+ */
+export const useStartHealthRoundApiHealthRoundsTaskIdStartPost = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startHealthRoundApiHealthRoundsTaskIdStartPost>>, TError,{taskId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof startHealthRoundApiHealthRoundsTaskIdStartPost>>,
+        TError,
+        {taskId: number},
+        TContext
+      > => {
+      return useMutation(getStartHealthRoundApiHealthRoundsTaskIdStartPostMutationOptions(options), queryClient);
+    }
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse200 = {
+  data: HealthRoundOut
+  status: 200
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponseSuccess = (addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse200) & {
+  headers: Headers;
+};
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponseError = (addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse400 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse401 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse403 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse404 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse409 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse413 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse414 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse415 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse422 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse429 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse500 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse503) & {
+  headers: Headers;
+};
+
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse = (addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponseSuccess | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponseError)
+
+export const getAddHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostUrl = (taskId: number,) => {
+
+
+
+
+  return `/api/health/rounds/${taskId}/targets`
+}
+
+/**
+ * @summary Add Health Round Targets
+ */
+export const addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPost = async (taskId: number,
+    healthRoundTargetChangeIn: HealthRoundTargetChangeIn, options?: Parameters<typeof customInstance>[1]): Promise<addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse> => {
+
+  return customInstance<addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse>(getAddHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostUrl(taskId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(healthRoundTargetChangeIn)
+  }
+);}
+
+
+
+
+
+export const getAddHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostMutationOptions = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPost>>, TError,{taskId: number;data: HealthRoundTargetChangeIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPost>>, TError,{taskId: number;data: HealthRoundTargetChangeIn}, TContext> => {
+
+const mutationKey = ['addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPost>>, {taskId: number;data: HealthRoundTargetChangeIn}> = (props) => {
+          const {taskId,data} = props ?? {};
+
+          return  addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPost(taskId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostMutationResult = NonNullable<Awaited<ReturnType<typeof addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPost>>>
+    export type AddHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostMutationBody = HealthRoundTargetChangeIn
+    export type AddHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostMutationError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+    /**
+ * @summary Add Health Round Targets
+ */
+export const useAddHealthRoundTargetsApiHealthRoundsTaskIdTargetsPost = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPost>>, TError,{taskId: number;data: HealthRoundTargetChangeIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPost>>,
+        TError,
+        {taskId: number;data: HealthRoundTargetChangeIn},
+        TContext
+      > => {
+      return useMutation(getAddHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostMutationOptions(options), queryClient);
+    }
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse200 = {
+  data: HealthRoundOut
+  status: 200
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponseSuccess = (excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse200) & {
+  headers: Headers;
+};
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponseError = (excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse400 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse401 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse403 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse404 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse409 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse413 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse414 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse415 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse422 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse429 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse500 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse503) & {
+  headers: Headers;
+};
+
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse = (excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponseSuccess | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponseError)
+
+export const getExcludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostUrl = (taskId: number,) => {
+
+
+
+
+  return `/api/health/rounds/${taskId}/exclusions`
+}
+
+/**
+ * @summary Exclude Health Round Targets
+ */
+export const excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPost = async (taskId: number,
+    healthRoundTargetChangeIn: HealthRoundTargetChangeIn, options?: Parameters<typeof customInstance>[1]): Promise<excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse> => {
+
+  return customInstance<excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse>(getExcludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostUrl(taskId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(healthRoundTargetChangeIn)
+  }
+);}
+
+
+
+
+
+export const getExcludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostMutationOptions = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPost>>, TError,{taskId: number;data: HealthRoundTargetChangeIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPost>>, TError,{taskId: number;data: HealthRoundTargetChangeIn}, TContext> => {
+
+const mutationKey = ['excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPost>>, {taskId: number;data: HealthRoundTargetChangeIn}> = (props) => {
+          const {taskId,data} = props ?? {};
+
+          return  excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPost(taskId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExcludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostMutationResult = NonNullable<Awaited<ReturnType<typeof excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPost>>>
+    export type ExcludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostMutationBody = HealthRoundTargetChangeIn
+    export type ExcludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostMutationError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+    /**
+ * @summary Exclude Health Round Targets
+ */
+export const useExcludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPost = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPost>>, TError,{taskId: number;data: HealthRoundTargetChangeIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPost>>,
+        TError,
+        {taskId: number;data: HealthRoundTargetChangeIn},
+        TContext
+      > => {
+      return useMutation(getExcludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostMutationOptions(options), queryClient);
+    }
 
 export type scheduleTemplatesApiHealthScheduleTemplatesGetResponse200 = {
   data: ScheduleTemplateListOut
@@ -18026,12 +18956,8 @@ export const getReviewFindingApiScreeningFindingsFindingIdReviewPostUrl = (findi
 /**
  * Record a vet verdict on one finding (confirm / reject).
  *
- * ``expected_status`` is optimistic concurrency: the transition runs as
- * one guarded UPDATE (``WHERE status = expected_status``), so a review
- * racing another reviewer — or a re-screen — fails with 409 instead of
- * silently overwriting the corpus, no matter how the requests interleave.
- * Re-reviewing a settled finding re-submits with its current status as
- * ``expected_status``.
+ * The locked revision detects same-status edits and ABA transitions. Each
+ * accepted decision appends an audit event in the same transaction.
  * @summary Review Finding
  */
 export const reviewFindingApiScreeningFindingsFindingIdReviewPost = async (findingId: number,
@@ -18094,6 +19020,196 @@ export const useReviewFindingApiScreeningFindingsFindingIdReviewPost = <TError =
       > => {
       return useMutation(getReviewFindingApiScreeningFindingsFindingIdReviewPostMutationOptions(options), queryClient);
     }
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse200 = {
+  data: ScreeningFindingReviewHistoryListOut
+  status: 200
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponseSuccess = (findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse200) & {
+  headers: Headers;
+};
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponseError = (findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse400 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse401 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse403 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse404 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse409 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse413 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse414 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse415 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse422 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse429 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse500 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse503) & {
+  headers: Headers;
+};
+
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse = (findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponseSuccess | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponseError)
+
+export const getFindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetUrl = (findingId: number,
+    params?: FindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/screening/findings/${findingId}/reviews?${stringifiedParams}` : `/api/screening/findings/${findingId}/reviews`
+}
+
+/**
+ * @summary Finding Review History
+ */
+export const findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet = async (findingId: number,
+    params?: FindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetParams, options?: Parameters<typeof customInstance>[1]): Promise<findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse> => {
+
+  return customInstance<findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse>(getFindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetUrl(findingId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getFindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetQueryKey = (findingId: number,
+    params?: FindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetParams,) => {
+    return [
+    `/api/screening/findings/${findingId}/reviews`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getFindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetQueryOptions = <TData = Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(findingId: number,
+    params?: FindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getFindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetQueryKey(findingId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>> = ({ signal }) => findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet(findingId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: findingId !== null && findingId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type FindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetQueryResult = NonNullable<Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>>
+export type FindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetQueryError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+
+export function useFindingReviewHistoryApiScreeningFindingsFindingIdReviewsGet<TData = Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ findingId: number,
+    params: undefined |  FindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>,
+          TError,
+          Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useFindingReviewHistoryApiScreeningFindingsFindingIdReviewsGet<TData = Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ findingId: number,
+    params?: FindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>,
+          TError,
+          Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useFindingReviewHistoryApiScreeningFindingsFindingIdReviewsGet<TData = Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ findingId: number,
+    params?: FindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Finding Review History
+ */
+
+export function useFindingReviewHistoryApiScreeningFindingsFindingIdReviewsGet<TData = Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ findingId: number,
+    params?: FindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof findingReviewHistoryApiScreeningFindingsFindingIdReviewsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getFindingReviewHistoryApiScreeningFindingsFindingIdReviewsGetQueryOptions(findingId,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export type providerStatsApiScreeningStatsGetResponse200 = {
   data: ScreeningStatsOut

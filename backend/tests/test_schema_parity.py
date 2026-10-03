@@ -26,7 +26,7 @@ from app.schemas.feeding import IngredientCategoryStr, ShiftStr
 
 
 def _literal_values(alias: object) -> set[str]:
-    return set(get_args(alias))  # type: ignore[arg-type]
+    return set(get_args(alias))
 
 
 def test_bucket_str_matches_bucket_enum() -> None:
@@ -124,9 +124,9 @@ def test_screening_vocabularies_match_enums() -> None:
 
 
 def test_sanity_caps_are_shared_from_models() -> None:
-    assert purchases.MAX_BATCH_COUNT is models.MAX_BATCH_COUNT
-    assert purchases.MAX_AGE_MONTHS is models.MAX_AGE_MONTHS
-    assert tasks.MAX_RECUR_DAYS is models.MAX_RECUR_DAYS
+    assert vars(purchases)["MAX_BATCH_COUNT"] is models.MAX_BATCH_COUNT
+    assert vars(purchases)["MAX_AGE_MONTHS"] is models.MAX_AGE_MONTHS
+    assert vars(tasks)["MAX_RECUR_DAYS"] is models.MAX_RECUR_DAYS
     # services must import the same objects, not re-define them.
     from app import services
 
@@ -139,7 +139,7 @@ def test_wire_caps_are_shared_from_models() -> None:
     """Every cap consumed by schemas traces to the single models constant."""
     import app.schemas.animals as animals_schemas
 
-    assert animals_schemas.MAX_ANIMAL_TAG_LENGTH is models.MAX_ANIMAL_TAG_LENGTH
+    assert vars(animals_schemas)["MAX_ANIMAL_TAG_LENGTH"] is models.MAX_ANIMAL_TAG_LENGTH
     assert models.MAX_WITHDRAWAL_DAYS == 730
     assert models.MAX_TASK_TITLE_LENGTH == 200
     from app.schemas.common import MAX_FREE_TEXT_LENGTH

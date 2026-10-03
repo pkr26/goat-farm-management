@@ -1,0 +1,46 @@
+{
+  "recorded_at": "2026-10-03T19:55:45.598909+00:00",
+  "command": [
+    "pnpm",
+    "exec",
+    "playwright",
+    "test",
+    "e2e/purchases.spec.ts",
+    "e2e/tasks-guards.spec.ts"
+  ],
+  "cwd": "frontend",
+  "environment": {
+    "E2E_BROWSER": "firefox",
+    "PW_TEST_CONNECT_WS_ENDPOINT": "ws://127.0.0.1:61880/",
+    "PW_TEST_CONNECT_EXPOSE_NETWORK": "<loopback>"
+  },
+  "exit_code": 0,
+  "passed": 2,
+  "failed": 0,
+  "elapsed_seconds": 12.1,
+  "retries": 0,
+  "source_changed": [
+    "frontend/e2e/purchases.spec.ts",
+    "frontend/e2e/tasks-guards.spec.ts"
+  ],
+  "production_source_changed": false,
+  "lint": {
+    "command": [
+      "pnpm",
+      "exec",
+      "eslint",
+      "e2e/purchases.spec.ts",
+      "e2e/tasks-guards.spec.ts"
+    ],
+    "exit_code": 0
+  },
+  "typecheck": {
+    "command": [
+      "pnpm",
+      "exec",
+      "tsc",
+      "--noEmit"
+    ],
+    "exit_code": 0
+  }
+}

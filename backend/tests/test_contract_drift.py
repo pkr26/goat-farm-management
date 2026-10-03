@@ -23,11 +23,13 @@ import pytest
 
 from app.main import create_app
 
+from .type_helpers import JsonObject, json_object
+
 OPENAPI_JSON = Path(__file__).resolve().parent.parent.parent / "shared" / "openapi.json"
 
 
 def _committed_schema() -> dict[str, Any]:
-    return json.loads(OPENAPI_JSON.read_text())
+    return json_object(json.loads(OPENAPI_JSON.read_text()))
 
 
 def test_committed_openapi_json_matches_the_live_schema() -> None:
@@ -46,7 +48,7 @@ def test_openapi_paths_and_schemas_are_a_superset_of_the_committed_snapshot() ->
     live = create_app().openapi()
     committed = _committed_schema()
 
-    def operation_ids(schema: dict) -> set[str]:
+    def operation_ids(schema: JsonObject) -> set[str]:
         ids: set[str] = set()
         for _path, methods in schema.get("paths", {}).items():
             for _method, op in methods.items():
@@ -54,7 +56,7 @@ def test_openapi_paths_and_schemas_are_a_superset_of_the_committed_snapshot() ->
                     ids.add(op["operationId"])
         return ids
 
-    def path_methods(schema: dict) -> set[tuple[str, str]]:
+    def path_methods(schema: JsonObject) -> set[tuple[str, str]]:
         return {
             (path, method.upper())
             for path, methods in schema.get("paths", {}).items()
@@ -62,7 +64,7 @@ def test_openapi_paths_and_schemas_are_a_superset_of_the_committed_snapshot() ->
             if method.lower() in {"get", "post", "put", "patch", "delete"}
         }
 
-    def schema_names(schema: dict) -> set[str]:
+    def schema_names(schema: JsonObject) -> set[str]:
         return set(schema.get("components", {}).get("schemas", {}).keys())
 
     committed_ops = operation_ids(committed)

@@ -24,6 +24,7 @@ from app.models import BucketMove
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm, provisioned_worker_login
+from .type_helpers import JsonObject, json_int, json_object, json_objects
 
 # ---------------------------------------------------------------------------
 # Helpers (API-driven, self-contained)
@@ -49,7 +50,7 @@ def iso(d: date) -> str:
 
 async def make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str,
     *,
     sex: str = "F",
@@ -70,23 +71,29 @@ async def make_animal(
         payload["weight_date"] = payload["date_of_birth"]
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
+async def get_animal(
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int
+) -> dict[str, Any]:
     resp = await client.get(f"/api/animals/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["animal"]
+    return json_object(resp.json()["animal"])
 
 
-async def all_tasks(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def all_tasks(client: httpx.AsyncClient, headers: dict[str, str]) -> list[JsonObject]:
     resp = await client.get("/api/tasks", headers=headers)
     assert resp.status_code == 200, resp.text
     tabs = resp.json()
-    return tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+    return json_objects(
+        tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+    )
 
 
-async def find_task(client: httpx.AsyncClient, headers: dict, **match: object) -> dict[str, Any]:
+async def find_task(
+    client: httpx.AsyncClient, headers: dict[str, str], **match: object
+) -> dict[str, Any]:
     tasks = await all_tasks(client, headers)
     for task in tasks:
         if all(task.get(k) == v for k, v in match.items()):
@@ -94,12 +101,14 @@ async def find_task(client: httpx.AsyncClient, headers: dict, **match: object) -
     raise AssertionError(f"No task matching {match} in {[t['title'] for t in tasks]}") from None
 
 
-async def complete(client: httpx.AsyncClient, headers: dict, task_id: int) -> httpx.Response:
+async def complete(
+    client: httpx.AsyncClient, headers: dict[str, str], task_id: int
+) -> httpx.Response:
     return await client.post(f"/api/tasks/{task_id}/complete", headers=headers)
 
 
 async def try_move(
-    client: httpx.AsyncClient, headers: dict, animal_id: int, to_bucket: str
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int, to_bucket: str
 ) -> httpx.Response:
     return await client.post(
         f"/api/animals/{animal_id}/move",
@@ -110,7 +119,7 @@ async def try_move(
 
 async def breed(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     doe_id: int,
     buck_id: int,
     breeding_date: date,
@@ -125,17 +134,17 @@ async def breed(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def pregnant_doe_in(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     bucket: str,
     *,
     bred_days_ago: int,
     kid_count: int = 2,
-) -> tuple[dict, dict]:
+) -> tuple[JsonObject, JsonObject]:
     """Doe + buck, bred `bred_days_ago`, ultrasound-positive; doe now in `bucket`.
 
     Works for PREGNANCY_EARLY (straight after the scan) and PREGNANCY_LATE
@@ -170,7 +179,7 @@ async def pregnant_doe_in(
 
 
 async def health_event(
-    client: httpx.AsyncClient, headers: dict, **payload: object
+    client: httpx.AsyncClient, headers: dict[str, str], **payload: object
 ) -> httpx.Response:
     scope = payload.get("scope", "animal")
     if scope in {"bucket", "batch"} and "expected_animal_ids" not in payload:
@@ -185,7 +194,7 @@ async def health_event(
     return await client.post("/api/health/events", json=payload, headers=headers)
 
 
-async def place_hold(client: httpx.AsyncClient, headers: dict, animal_id: int) -> None:
+async def place_hold(client: httpx.AsyncClient, headers: dict[str, str], animal_id: int) -> None:
     resp = await health_event(
         client,
         headers,
@@ -198,7 +207,7 @@ async def place_hold(client: httpx.AsyncClient, headers: dict, animal_id: int) -
     assert resp.status_code == 201, resp.text
 
 
-async def clear_hold(client: httpx.AsyncClient, headers: dict, animal_id: int) -> None:
+async def clear_hold(client: httpx.AsyncClient, headers: dict[str, str], animal_id: int) -> None:
     history = await client.get(f"/api/health/restrictions/{animal_id}", headers=headers)
     assert history.status_code == 200, history.text
     body = history.json()
@@ -217,7 +226,7 @@ async def clear_hold(client: httpx.AsyncClient, headers: dict, animal_id: int) -
 
 
 async def change_status(
-    client: httpx.AsyncClient, headers: dict, animal_id: int, status: str, **extra: object
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int, status: str, **extra: object
 ) -> httpx.Response:
     return await client.post(
         f"/api/animals/{animal_id}/status",
@@ -227,7 +236,7 @@ async def change_status(
 
 
 async def confirm_pregnancy(
-    client: httpx.AsyncClient, headers: dict, breeding_id: int, *, kid_count: int = 2
+    client: httpx.AsyncClient, headers: dict[str, str], breeding_id: int, *, kid_count: int = 2
 ) -> dict[str, Any]:
     """Positive ultrasound at the scheduled date; returns the refreshed record
     (expected_kidding_date is only populated once the scan confirms)."""
@@ -242,11 +251,15 @@ async def confirm_pregnancy(
         headers=headers,
     )
     assert scan.status_code == 200, scan.text
-    return (await client.get(f"/api/breeding/{breeding_id}", headers=headers)).json()
+    return json_object((await client.get(f"/api/breeding/{breeding_id}", headers=headers)).json())
 
 
 async def record_kidding(
-    client: httpx.AsyncClient, headers: dict, breeding_id: int, on: date, kids: list[dict]
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    breeding_id: int,
+    on: date,
+    kids: list[JsonObject],
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/kidding",
@@ -260,7 +273,7 @@ async def record_kidding(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def backdate_bucket_entry(animal_id: int, farm_id: int, bucket: str, days: int) -> None:
@@ -280,7 +293,11 @@ async def backdate_bucket_entry(animal_id: int, farm_id: int, bucket: str, days:
 
 
 async def set_weight(
-    client: httpx.AsyncClient, headers: dict, animal_id: int, weight: float, on: date | None = None
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    animal_id: int,
+    weight: float,
+    on: date | None = None,
 ) -> None:
     payload: dict[str, Any] = {"weight_kg": weight}
     if on is not None:
@@ -854,7 +871,7 @@ async def test_manual_move_matrix_every_bucket_every_target(client: httpx.AsyncC
     """
     headers = await owner_with_farm(client)
 
-    async def check(animal: dict, legal: set[str]) -> None:
+    async def check(animal: JsonObject, legal: set[str]) -> None:
         current = animal["current_bucket"]
         # Illegal targets first: a legal move would change `current` and make
         # every later attempt assert against the wrong source bucket.
@@ -993,7 +1010,9 @@ async def test_dashboard_suggestions_point_at_ready_animals(client: httpx.AsyncC
 # ---------------------------------------------------------------------------
 
 
-async def _worker(client: httpx.AsyncClient, owner: dict, code: str, email: str) -> dict[str, Any]:
+async def _worker(
+    client: httpx.AsyncClient, owner: dict[str, str], code: str, email: str
+) -> dict[str, Any]:
     roster = (await client.get("/api/team", headers=owner)).json()
     role_id = next(r["id"] for r in roster["roles"] if r["code"] == code)
     resp = await client.post(
@@ -1219,9 +1238,11 @@ async def test_finance_ledger_reconciles_full_chain(client: httpx.AsyncClient) -
     assert any(r.get("voided_at") for r in sale_rows if r["id"] == sale_row["id"])
 
 
-async def _first_batch_animal(client: httpx.AsyncClient, headers: dict, batch_id: int) -> int:
+async def _first_batch_animal(
+    client: httpx.AsyncClient, headers: dict[str, str], batch_id: int
+) -> int:
     detail = (await client.get(f"/api/purchases/{batch_id}", headers=headers)).json()
-    return detail["animals"][0]["id"]
+    return json_int(detail["animals"][0]["id"])
 
 
 # ---------------------------------------------------------------------------

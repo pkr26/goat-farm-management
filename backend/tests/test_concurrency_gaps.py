@@ -26,9 +26,12 @@ from app.utils import today
 
 from .conftest import owner_with_farm
 from .test_e2e_lifecycle_audit import breed, make_animal
+from .type_helpers import JsonObject
 
 
-async def _confirmed_doe(client: httpx.AsyncClient, owner: dict, tag: str, bred_days_ago: int):
+async def _confirmed_doe(
+    client: httpx.AsyncClient, owner: dict[str, str], tag: str, bred_days_ago: int
+) -> tuple[JsonObject, JsonObject]:
     doe = await make_animal(client, owner, f"{tag}-F")
     buck = await make_animal(client, owner, f"{tag}-M", sex="M", weight_kg=32.0)
     br = await breed(client, owner, doe["id"], buck["id"], today() - timedelta(days=bred_days_ago))
@@ -45,7 +48,7 @@ async def _confirmed_doe(client: httpx.AsyncClient, owner: dict, tag: str, bred_
 async def test_mixed_workload_one_farm_final_state_is_exact(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client, email="mixed@farm.in")
 
-    does: list[dict] = []
+    does: list[JsonObject] = []
     breedings = []
     for i in range(3):
         doe, br = await _confirmed_doe(client, owner, f"MIX{i}", bred_days_ago=150)
@@ -145,6 +148,7 @@ async def test_mixed_workload_one_farm_final_state_is_exact(client: httpx.AsyncC
 
         for mover in movers:
             row = await db.get(Animal, mover["id"])
+            assert row is not None
             assert row.current_bucket == "BREEDING", row.current_bucket
 
         inventory = (
@@ -163,7 +167,7 @@ async def test_cross_farm_parallel_hammer_stays_isolated(client: httpx.AsyncClie
     a = await owner_with_farm(client, email="hammer-a@farm.in", farm_name="Hammer A")
     b = await owner_with_farm(client, email="hammer-b@farm.in", farm_name="Hammer B")
 
-    async def burst(headers: dict, tag_prefix: str) -> list[httpx.Response]:
+    async def burst(headers: dict[str, str], tag_prefix: str) -> list[httpx.Response]:
         async def one(i: int) -> httpx.Response:
             return await client.post(
                 "/api/animals",

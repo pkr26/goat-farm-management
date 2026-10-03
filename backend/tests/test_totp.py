@@ -29,17 +29,27 @@ from app.security import (
     TOTP_ENVELOPE_PREFIX,
     TOTP_LEGACY_AAD,
     TOTP_STEP_SECONDS,
+    _decode_payload_result,
     _totp_code_for_step,
     decrypt_totp_secret,
     decrypt_totp_secret_with_metadata,
     encrypt_totp_secret,
     generate_totp_secret_b32,
     issue_token,
+    verify_password_async,
     verify_totp_code,
 )
 from app.utils import utcnow
 
 from .conftest import OWNER_PW, owner_with_farm, register
+from .settings_helpers import settings_from_input
+from .type_helpers import json_string
+
+
+def _required_ciphertext(value: bytes | None) -> bytes:
+    assert value is not None, "Expected an encrypted TOTP secret"
+    return value
+
 
 TEST_TOTP_KEY = "VFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFQ"
 # Resolved at import (sync) time: ruff ASYNC240 forbids Path method calls
@@ -288,7 +298,7 @@ def _current_code(secret_b32: str, *, drift: int = 0) -> tuple[str, int]:
 
 
 async def _enroll_and_activate(
-    client: httpx.AsyncClient, headers: dict, *, password: str = OWNER_PW
+    client: httpx.AsyncClient, headers: dict[str, str], *, password: str = OWNER_PW
 ) -> tuple[str, list[str]]:
     enroll = await client.post(
         "/api/auth/totp/enroll",
@@ -381,6 +391,7 @@ async def test_totp_secret_is_encrypted_at_rest(
             await db.execute(select(User).where(User.email == "totp-crypt@farm.in"))
         ).scalar_one()
         assert row.totp_state == "ACTIVE"
+        assert row.totp_secret_enc is not None
         stored = bytes(row.totp_secret_enc)
         assert secret.encode() not in stored  # never plaintext
         assert len(stored) > 12
@@ -420,6 +431,7 @@ async def test_successful_challenge_lazily_rewraps_legacy_totp_ciphertext(
         row = (
             await db.execute(select(User).where(User.email == "totp-lazy-rekey@farm.in"))
         ).scalar_one()
+        assert row.totp_secret_enc is not None
         assert bytes(row.totp_secret_enc).startswith(TOTP_ENVELOPE_PREFIX)
         assert decrypt_totp_secret_with_metadata(bytes(row.totp_secret_enc)).needs_rewrap is False
 
@@ -820,7 +832,7 @@ async def test_challenge_garbage_mfa_tokens_are_throttled_before_verification(
     limit = get_settings().auth_rate_limit_max_attempts
     window = get_settings().auth_rate_limit_window_seconds
 
-    real_decode = auth_api._decode_payload_result
+    real_decode = _decode_payload_result
     decode_calls = 0
 
     def counted_decode(token: str, expected_kind: str) -> object:
@@ -1144,8 +1156,9 @@ async def test_rekey_script_apply_path_runs_against_the_real_database(
     # the original dict, so patches must target __globals__ directly.
     rekey_globals = namespace["_rekey"].__globals__
 
-    test_settings = Settings(
-        _env_file=None,
+    test_settings = settings_from_input(
+        Settings,
+        env_file=None,
         totp_encryption_key=TEST_TOTP_KEY,
         totp_encryption_previous_keys=[TEST_TOTP_PREVIOUS_KEY],
     )
@@ -1189,9 +1202,24 @@ async def test_rekey_script_apply_path_runs_against_the_real_database(
             for user in (await db.execute(select(User).order_by(User.id))).scalars()
             if user.email.startswith("rekey-")
         }
-    assert decrypt_totp_secret_with_metadata(rows["rekey-legacy@farm.in"]).needs_rewrap is True
-    assert decrypt_totp_secret_with_metadata(rows["rekey-previous@farm.in"]).needs_rewrap is True
-    assert decrypt_totp_secret_with_metadata(rows["rekey-current@farm.in"]).needs_rewrap is False
+    assert (
+        decrypt_totp_secret_with_metadata(
+            _required_ciphertext(rows["rekey-legacy@farm.in"])
+        ).needs_rewrap
+        is True
+    )
+    assert (
+        decrypt_totp_secret_with_metadata(
+            _required_ciphertext(rows["rekey-previous@farm.in"])
+        ).needs_rewrap
+        is True
+    )
+    assert (
+        decrypt_totp_secret_with_metadata(
+            _required_ciphertext(rows["rekey-current@farm.in"])
+        ).needs_rewrap
+        is False
+    )
 
     # Apply at batch_size=1: three separate locked transactions, resumable
     # by construction after any interruption between batches.
@@ -1208,7 +1236,7 @@ async def test_rekey_script_apply_path_runs_against_the_real_database(
         ("rekey-previous@farm.in", secret_previous),
         ("rekey-current@farm.in", secret_current),
     ):
-        decrypted = decrypt_totp_secret_with_metadata(rows[email])
+        decrypted = decrypt_totp_secret_with_metadata(_required_ciphertext(rows[email]))
         assert decrypted.secret == secret
         assert decrypted.needs_rewrap is False
     assert rows["rekey-plain@farm.in"] is None
@@ -1236,8 +1264,9 @@ async def test_rekey_script_counts_undecryptable_rows_against_the_real_database(
 
     namespace = runpy.run_path(_REKEY_SCRIPT_PATH, run_name="rekey_unavailable_real_test")
     rekey_globals = namespace["_rekey"].__globals__
-    test_settings = Settings(
-        _env_file=None,
+    test_settings = settings_from_input(
+        Settings,
+        env_file=None,
         totp_encryption_key=TEST_TOTP_KEY,
         totp_encryption_previous_keys=[TEST_TOTP_PREVIOUS_KEY],
     )
@@ -1322,7 +1351,7 @@ async def _mfa_login(client: httpx.AsyncClient, email: str) -> str:
     assert login.status_code == 200, login.text
     mfa_token = login.json()["mfa_token"]
     assert mfa_token
-    return mfa_token
+    return json_string(mfa_token)
 
 
 async def _redeem(
@@ -1431,7 +1460,7 @@ async def test_recovery_with_zero_unused_codes_still_pays_one_dummy_verify(
         await db.commit()
 
     verify_calls = 0
-    real_verify = auth_api.verify_password_async
+    real_verify = verify_password_async
 
     async def counted_verify(password: str, password_hash: str) -> tuple[bool, bool]:
         nonlocal verify_calls

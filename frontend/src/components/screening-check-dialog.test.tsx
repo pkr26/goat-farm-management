@@ -8,7 +8,7 @@
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
 import { DiseaseCheckDialog } from "@/components/screening-check-dialog";
@@ -110,6 +110,9 @@ beforeEach(() => {
   toastMock.error.mockClear();
 });
 
+let restoreAbortStatics: (() => void) | null = null;
+afterEach(() => { restoreAbortStatics?.(); restoreAbortStatics = null; });
+
 describe("DiseaseCheckDialog", () => {
   it("shows the bucket choices without minting a batch on open", async () => {
     const batchPost = vi.fn();
@@ -132,7 +135,17 @@ describe("DiseaseCheckDialog", () => {
     });
   });
 
-  it("creates the batch lazily and POSTs every signed field before the file", async () => {
+  it.each([true, false])("creates the batch lazily and uploads with native abort statics=%s", async (nativeAbort) => {
+    if (!nativeAbort) {
+      const timeout = Object.getOwnPropertyDescriptor(AbortSignal, "timeout");
+      const any = Object.getOwnPropertyDescriptor(AbortSignal, "any");
+      Object.defineProperty(AbortSignal, "timeout", { configurable: true, value: undefined });
+      Object.defineProperty(AbortSignal, "any", { configurable: true, value: undefined });
+      restoreAbortStatics = () => {
+        if (timeout) Object.defineProperty(AbortSignal, "timeout", timeout);
+        if (any) Object.defineProperty(AbortSignal, "any", any);
+      };
+    }
     const user = userEvent.setup();
     const batchPost = vi.fn();
     const uploadPost = vi.fn();

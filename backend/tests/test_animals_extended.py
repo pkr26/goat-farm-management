@@ -17,6 +17,7 @@ returns the full filtered total, and supports limit/offset pagination.
 """
 
 import re
+from collections.abc import Mapping
 from datetime import date, timedelta
 from typing import Any
 from uuid import uuid4
@@ -27,6 +28,7 @@ import pytest
 from app.utils import today
 
 from .conftest import owner_with_farm, provisioned_worker_login, register
+from .type_helpers import JsonObject, json_int, json_object, json_objects, json_string
 
 WORKER_PW = "workerpass123"
 
@@ -44,14 +46,16 @@ ALL_BUCKETS = [
 ]
 
 
-def iso(d) -> str:
-    return d.isoformat()
+def iso(d: date) -> str:
+    return json_string(d.isoformat())
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-async def post_animal(client: httpx.AsyncClient, headers: dict, payload: dict) -> httpx.Response:
+async def post_animal(
+    client: httpx.AsyncClient, headers: dict[str, str], payload: Mapping[str, object]
+) -> httpx.Response:
     # Every PURCHASED create with a price books money, so the endpoint now
     # demands an Idempotency-Key for it (P2-1, 2026-09-20 audit); a fresh
     # uuid per call keeps the retry-protection semantics the tests rely on.
@@ -62,7 +66,7 @@ async def post_animal(client: httpx.AsyncClient, headers: dict, payload: dict) -
 
 async def make_animal(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     tag: str = "A-001",
     sex: str = "F",
     bucket: str = "FOUNDATION",
@@ -86,33 +90,43 @@ async def make_animal(
         payload.setdefault("historical_import_reason", "Existing-herd test fixture")
     resp = await post_animal(client, headers, payload)
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def get_profile(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
+async def get_profile(
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int
+) -> dict[str, Any]:
     resp = await client.get(f"/api/animals/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
-    return (await get_profile(client, headers, animal_id))["animal"]
+async def get_animal(
+    client: httpx.AsyncClient, headers: dict[str, str], animal_id: int
+) -> dict[str, Any]:
+    return json_object((await get_profile(client, headers, animal_id))["animal"])
 
 
-async def list_animals(client: httpx.AsyncClient, headers: dict, **params: str) -> list[dict]:
+async def list_animals(
+    client: httpx.AsyncClient, headers: dict[str, str], **params: str
+) -> list[JsonObject]:
     resp = await client.get("/api/animals", headers=headers, params=params)
     assert resp.status_code == 200, resp.text
-    return resp.json()["animals"]
+    return json_objects(resp.json()["animals"])
 
 
-async def transactions(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def transactions(client: httpx.AsyncClient, headers: dict[str, str]) -> list[JsonObject]:
     resp = await client.get("/api/finance", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["transactions"]
+    return json_objects(resp.json()["transactions"])
 
 
 async def mark_status(
-    client: httpx.AsyncClient, headers: dict, animal_id: int, status: str, **overrides: object
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    animal_id: int,
+    status: object,
+    **overrides: object,
 ) -> httpx.Response:
     return await client.post(
         f"/api/animals/{animal_id}/status",
@@ -121,14 +135,14 @@ async def mark_status(
     )
 
 
-async def role_id(client: httpx.AsyncClient, owner: dict, code: str) -> int:
+async def role_id(client: httpx.AsyncClient, owner: dict[str, str], code: str) -> int:
     resp = await client.get("/api/team", headers=owner)
     assert resp.status_code == 200, resp.text
-    return next(r["id"] for r in resp.json()["roles"] if r["code"] == code)
+    return json_int(next(r["id"] for r in resp.json()["roles"] if r["code"] == code))
 
 
 async def worker_headers(
-    client: httpx.AsyncClient, owner: dict, code: str, email: str
+    client: httpx.AsyncClient, owner: dict[str, str], code: str, email: str
 ) -> dict[str, Any]:
     """Owner adds a worker with preset role `code`; returns that worker's farm headers."""
     rid = await role_id(client, owner, code)
@@ -144,7 +158,7 @@ async def worker_headers(
 
 async def custom_worker_headers(
     client: httpx.AsyncClient,
-    owner: dict,
+    owner: dict[str, str],
     *,
     name: str,
     email: str,
@@ -172,7 +186,9 @@ async def custom_worker_headers(
 
 
 # Breeding-flow helpers (for profile kids / cull-flag tests).
-async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-101") -> dict[str, Any]:
+async def make_doe(
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "D-101"
+) -> dict[str, Any]:
     dob = today() - timedelta(days=800)
     return await make_animal(
         client,
@@ -186,7 +202,9 @@ async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-101")
     )
 
 
-async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01") -> dict[str, Any]:
+async def make_buck(
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "B-01"
+) -> dict[str, Any]:
     dob = today() - timedelta(days=800)
     return await make_animal(
         client,
@@ -201,7 +219,11 @@ async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01")
 
 
 async def make_breeding(
-    client: httpx.AsyncClient, headers: dict, doe_id: int, buck_id: int, breeding_date
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    doe_id: int,
+    buck_id: int,
+    breeding_date: date,
 ) -> dict[str, Any]:
     resp = await client.post(
         "/api/breeding",
@@ -209,12 +231,12 @@ async def make_breeding(
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 async def submit_ultrasound(
     client: httpx.AsyncClient,
-    headers: dict,
+    headers: dict[str, str],
     breeding_id: int,
     pregnant: bool,
     kid_count: int = 2,
@@ -231,7 +253,7 @@ async def submit_ultrasound(
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
 # ---------------------------------------------------------------------------
@@ -1172,7 +1194,7 @@ async def test_create_entry_weight_must_be_positive(client: httpx.AsyncClient) -
 async def test_create_wrong_types_422(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     base = {"tag_number": "G-1", "sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"}
-    for override in [
+    invalid_overrides: list[dict[str, object]] = [
         {"tag_number": 123},
         {"tag_number": ["A-1"]},
         {"name": 42},
@@ -1180,7 +1202,8 @@ async def test_create_wrong_types_422(client: httpx.AsyncClient) -> None:
         {"birth_type": {"x": 1}},
         {"purchase_price": "abc"},
         {"weight_kg": {"kg": 5}},
-    ]:
+    ]
+    for override in invalid_overrides:
         resp = await post_animal(client, owner, base | override)
         assert resp.status_code == 422, override
 
@@ -1236,7 +1259,7 @@ async def test_create_tag_stays_unique_after_sold(client: httpx.AsyncClient) -> 
 # ---------------------------------------------------------------------------
 # 4. List — filters, search, ordering
 # ---------------------------------------------------------------------------
-async def _seed_herd(client: httpx.AsyncClient, owner: dict) -> dict[str, dict]:
+async def _seed_herd(client: httpx.AsyncClient, owner: dict[str, str]) -> dict[str, JsonObject]:
     """A small herd spanning buckets/sexes/statuses for filter tests."""
     herd = {}
     herd["doe_foundation"] = await make_animal(
@@ -3264,7 +3287,7 @@ async def test_cleaner_forbidden_on_all_animal_endpoints(client: httpx.AsyncClie
 # WEANING task since hers gets skipped).
 # ---------------------------------------------------------------------------
 async def _make_kid(
-    client: httpx.AsyncClient, headers: dict, tag: str, dam_id: int, sex: str
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str, dam_id: int, sex: str
 ) -> dict[str, Any]:
     """Directly create an ACTIVE kid in RECOVERY with dam_id set — simulates
     the state after a kidding was recorded."""
@@ -3296,7 +3319,7 @@ async def _make_kid(
             .values(dam_id=dam_id, current_bucket="RECOVERY")
         )
         await db.commit()
-    return kid
+    return json_object(kid)
 
 
 async def test_selling_lactating_doe_moves_recovery_kids_out(client: httpx.AsyncClient) -> None:
@@ -3611,8 +3634,8 @@ async def test_manual_orphan_wean_rejects_kid_without_kidding_provenance(
 # record_ultrasound_result refuses a non-ACTIVE doe. It used to sit in her
 # history for good.
 async def _bred_doe(
-    client: httpx.AsyncClient, headers: dict, tag: str = "D-BRED"
-) -> tuple[dict, dict, dict]:
+    client: httpx.AsyncClient, headers: dict[str, str], tag: str = "D-BRED"
+) -> tuple[JsonObject, JsonObject, JsonObject]:
     doe = await make_doe(client, headers, tag)
     buck = await make_buck(client, headers, f"{tag}-B")
     br = await make_breeding(client, headers, doe["id"], buck["id"], today() - timedelta(days=35))
@@ -3620,17 +3643,21 @@ async def _bred_doe(
     return doe, buck, br
 
 
-async def _breeding_record(client: httpx.AsyncClient, headers: dict, br_id: int) -> dict[str, Any]:
+async def _breeding_record(
+    client: httpx.AsyncClient, headers: dict[str, str], br_id: int
+) -> dict[str, Any]:
     resp = await client.get(f"/api/breeding/{br_id}", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return json_object(resp.json())
 
 
-async def _duties(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+async def _duties(client: httpx.AsyncClient, headers: dict[str, str]) -> list[JsonObject]:
     resp = await client.get("/api/tasks", headers=headers)
     assert resp.status_code == 200, resp.text
     tabs = resp.json()
-    return tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+    return json_objects(
+        tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+    )
 
 
 async def test_sale_closes_never_scanned_service_and_still_books_income(

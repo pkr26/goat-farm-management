@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import func, literal, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +19,14 @@ from sqlalchemy.orm import aliased, selectinload
 
 from .. import metrics
 from ..core.config import get_settings
-from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm, revoke_user_sessions
+from ..deps import (
+    CurrentFarm,
+    CurrentUser,
+    DbSession,
+    require_live_session_family,
+    require_perm,
+    revoke_user_sessions,
+)
 from ..models import (
     Farm,
     FarmMembership,
@@ -58,7 +65,12 @@ from ..schemas.team import (
     WorkerPinResetIn,
     WorkerStatusIn,
 )
-from ..security import PasswordWorkCapacityError, hash_password_async, password_policy_error
+from ..security import (
+    PASSWORD_SESSION_SCOPE,
+    PasswordWorkCapacityError,
+    hash_password_async,
+    password_policy_error,
+)
 from ..services import IdempotencyKey, execute_idempotent
 from ..services.idempotency import replay_idempotent_if_committed
 from ..utils import utcnow
@@ -176,6 +188,7 @@ class PreparedWorkerCreate:
     payload: WorkerCreateIn
     actor_id: int
     actor_token_version: int
+    actor_family_id: str
     farm_id: int
 
 
@@ -185,6 +198,7 @@ class PreparedPasswordReset:
     password_hash: str
     actor_id: int
     actor_token_version: int
+    actor_family_id: str
     farm_id: int
 
 
@@ -200,6 +214,7 @@ class PreparedPinReset:
     raw_pin: str
     actor_id: int
     actor_token_version: int
+    actor_family_id: str
     farm_id: int
 
 
@@ -319,6 +334,7 @@ async def _preflight_worker_create(db: AsyncSession, farm: Farm, payload: Worker
 
 async def _prepare_worker_create(
     payload: WorkerCreateIn,
+    request: Request,
     db: DbSession,
     user: CurrentUser,
     farm: CurrentFarm,
@@ -335,6 +351,7 @@ async def _prepare_worker_create(
         raise HTTPException(status_code=403, detail=CREATE_WORKER_OWNER_ONLY_REASON)
     actor_id = user.id
     actor_token_version = user.token_version
+    actor_family_id = request.state.authenticated_family_id
     farm_id = farm.id
     # CurrentFarm pins the canonical owner authorization bundle on unsafe
     # requests. End that transaction, then let the route reauthorize this exact
@@ -344,12 +361,14 @@ async def _prepare_worker_create(
         payload=payload,
         actor_id=actor_id,
         actor_token_version=actor_token_version,
+        actor_family_id=actor_family_id,
         farm_id=farm_id,
     )
 
 
 async def _prepare_password_reset(
     payload: PasswordResetIn,
+    request: Request,
     membership_id: int,
     db: DbSession,
     user: CurrentUser,
@@ -370,6 +389,7 @@ async def _prepare_password_reset(
         raise HTTPException(status_code=400, detail=reset_policy[1])
     actor_id = user.id
     actor_token_version = user.token_version
+    actor_family_id = request.state.authenticated_family_id
     farm_id = farm.id
     await db.rollback()
     return PreparedPasswordReset(
@@ -377,12 +397,14 @@ async def _prepare_password_reset(
         password_hash=await _hash_team_password(payload.password, actor_id=actor_id),
         actor_id=actor_id,
         actor_token_version=actor_token_version,
+        actor_family_id=actor_family_id,
         farm_id=farm_id,
     )
 
 
 async def _prepare_pin_reset(
     payload: WorkerPinResetIn,
+    request: Request,
     membership_id: int,
     db: DbSession,
     user: CurrentUser,
@@ -399,6 +421,7 @@ async def _prepare_pin_reset(
     await _get_membership(db, farm, membership_id)
     actor_id = user.id
     actor_token_version = user.token_version
+    actor_family_id = request.state.authenticated_family_id
     farm_id = farm.id
     await db.rollback()
     return PreparedPinReset(
@@ -407,6 +430,7 @@ async def _prepare_pin_reset(
         raw_pin=payload.pin,
         actor_id=actor_id,
         actor_token_version=actor_token_version,
+        actor_family_id=actor_family_id,
         farm_id=farm_id,
     )
 
@@ -421,6 +445,7 @@ async def _reauthorize_prepared_owner(
     *,
     actor_id: int,
     actor_token_version: int,
+    actor_family_id: str,
     farm_id: int,
 ) -> tuple[User, Farm]:
     """Revalidate the exact owner snapshot after off-transaction preparation."""
@@ -438,6 +463,7 @@ async def _reauthorize_prepared_owner(
     ).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=401, detail="Session has been revoked")
+    await require_live_session_family(db, user.id, actor_family_id, PASSWORD_SESSION_SCOPE)
     farm = (
         await db.execute(select(Farm).where(Farm.id == farm_id, Farm.owner_id == actor_id))
     ).scalar_one_or_none()
@@ -930,6 +956,7 @@ async def _create_worker_after_idempotency_gate(
             db,
             actor_id=prepared.actor_id,
             actor_token_version=prepared.actor_token_version,
+            actor_family_id=prepared.actor_family_id,
             farm_id=prepared.farm_id,
         )
         # Resolve an already-committed response before mutable password,
@@ -1003,6 +1030,7 @@ async def _create_worker_after_idempotency_gate(
         db,
         actor_id=prepared.actor_id,
         actor_token_version=prepared.actor_token_version,
+        actor_family_id=prepared.actor_family_id,
         farm_id=prepared.farm_id,
     )
 
@@ -1245,6 +1273,7 @@ async def reset_password(
             db,
             actor_id=prepared.actor_id,
             actor_token_version=prepared.actor_token_version,
+            actor_family_id=prepared.actor_family_id,
             farm_id=prepared.farm_id,
         )
         # Owner-only variant of the lifecycle lock bundle: no self-service guard
@@ -1334,6 +1363,7 @@ async def reset_pin(
             db,
             actor_id=prepared.actor_id,
             actor_token_version=prepared.actor_token_version,
+            actor_family_id=prepared.actor_family_id,
             farm_id=prepared.farm_id,
         )
         membership = await _locked_membership(db, farm, user, prepared.membership_id)
@@ -1365,7 +1395,7 @@ async def reset_pin(
         return _membership_out(
             membership,
             await _reset_password_policy_for_membership(db, membership),
-            locked_user,
+            user,
             farm,
         )
 

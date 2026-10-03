@@ -23,6 +23,7 @@ from app.security import verify_password
 from app.utils import today, utcnow
 
 from .conftest import login_and_rotate, owner_with_farm
+from .type_helpers import JsonObject, json_object
 
 WORKER_PASSWORD = "workerpass123"
 REFRESH_COOKIE = get_settings().refresh_cookie_name
@@ -35,7 +36,7 @@ async def create_worker(
     email: str,
     role_code: str = "CLEANER_MANAGER",
     name: str = "Departing Worker",
-) -> tuple[dict, dict]:
+) -> tuple[JsonObject, JsonObject]:
     team = await client.get("/api/team", headers=owner)
     assert team.status_code == 200, team.text
     role = next(row for row in team.json()["roles"] if row["code"] == role_code)
@@ -84,7 +85,7 @@ async def create_task(
         headers=owner,
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    return json_object(response.json())
 
 
 async def wait_for_blocked_sessions(minimum: int, timeout_seconds: float = 10.0) -> None:

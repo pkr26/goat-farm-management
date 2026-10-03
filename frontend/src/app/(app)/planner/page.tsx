@@ -30,6 +30,9 @@ import {
 import Link from "next/link";
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { toast } from "sonner";
+import { NlmFundingEditor, validNlmFunding } from "../simulation/components/nlm-funding-editor";
+import { PaginationControls } from "@/components/pagination-controls";
+import { MAX_PAGE_OFFSET, useUrlState } from "@/lib/use-url-state";
 
 import {
   getPlanApiPlannerPlansPlanIdGet,
@@ -300,6 +303,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   // runs and saves against (finance.nlm_subsidy), kept as page state like the
   // start month so a run and a save always agree.
   const [nlmSubsidy, setNlmSubsidy] = useState(false);
+  const [invalidNlmFields, setInvalidNlmFields] = useState<Set<string>>(new Set());
   // A defaults response may only land while it is still the latest intent.
   const acceptDefaultsRef = useRef(true);
 
@@ -466,6 +470,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       return null;
     })
     .filter((error): error is string => error !== null);
+  if (invalidNlmFields.size > 0 || (assumptions?.finance && !validNlmFunding(
+      { ...assumptions.finance, nlm_subsidy: nlmSubsidy }, assumptions.herd?.does, assumptions.herd?.bucks)))
+    targetErrors.push(t("simulation.nlm.invalid"));
 
   // ----- Backward plan run.
   const planMutation = usePlanSalesApiPlannerPlanPost();
@@ -522,8 +529,19 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   }
 
   // ----- Saved plans.
+  const { searchParams: plansSearchParams, getNumber: plansGetNumber, set: setPlansUrl } = useUrlState();
+  const [plansOffset, setPlansOffset] = useState(() => plansGetNumber("plans_offset", 0, 0, MAX_PAGE_OFFSET));
+  const [plansParamsKey, setPlansParamsKey] = useState(plansSearchParams.toString());
+  if (plansSearchParams.toString() !== plansParamsKey) {
+    setPlansParamsKey(plansSearchParams.toString());
+    setPlansOffset(plansGetNumber("plans_offset", 0, 0, MAX_PAGE_OFFSET));
+  }
+  function turnPlansPage(offset: number) {
+    setPlansOffset(offset);
+    setPlansUrl({ plans_offset: offset || null });
+  }
   const plansQuery = useListPlansApiPlannerPlansGet(
-    { limit: 50, offset: 0 },
+    { limit: 50, offset: plansOffset },
     // Stryker disable next-line ObjectLiteral: PermissionGate refuses to mount this page without simulation.view, so `allowed` is always true by the time this hook runs
     { query: { enabled: allowed } },
   );
@@ -531,7 +549,15 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   const updatePlanMutation = useUpdatePlanApiPlannerPlansPlanIdPatch();
   const deletePlanMutation = useDeletePlanApiPlannerPlansPlanIdDelete();
   const [planName, setPlanName] = useState("");
-  const [openPlan, setOpenPlan] = useState<PlannerPlanOut | null>(null);
+  const [openPlan, setOpenPlanState] = useState<PlannerPlanOut | null>(null);
+  const openPlanRef = useRef<PlannerPlanOut | null>(null);
+  // All changes occur in event/async continuations; the ref fences older
+  // conflict responses immediately, before React paints another open plan.
+  function setOpenPlan(plan: PlannerPlanOut | null) {
+    openPlanRef.current = plan;
+    setOpenPlanState(plan);
+  }
+  const [conflictingPlan, setConflictingPlan] = useState<PlannerPlanOut | null>(null);
   // DELETE is permanent with no undo; the row button only stages the plan
   // here and the confirm dialog below performs it (same contract as the
   // simulation page's scenario delete).
@@ -541,7 +567,17 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   const [dprPendingId, setDprPendingId] = useState<number | null>(null);
 
   const plansPage = plansQuery.data?.status === 200 ? plansQuery.data.data : null;
-  const savedPlans = plansPage ? plansPage.items.filter((item) => item.valid) : [];
+  const savedPlans = plansPage ? plansPage.items : [];
+  useEffect(() => {
+    if (plansPage && plansOffset > 0 && plansOffset >= plansPage.total) {
+      const next = Math.max(0, Math.floor((plansPage.total - 1) / 50) * 50);
+      // A server count can shrink after deletion; repair the URL and local
+      // page only after that authoritative response arrives.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPlansOffset(next);
+      setPlansUrl({ plans_offset: next || null });
+    }
+  }, [plansPage, plansOffset, setPlansUrl]);
 
   function invalidatePlans() {
     void queryClient.invalidateQueries({ queryKey: getListPlansApiPlannerPlansGetQueryKey() });
@@ -628,10 +664,11 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         if (!farmScope()) return;
         if (err instanceof ApiError && err.status === 409) {
           toast.error(t("planner.toast.revisionConflict"));
-          // Adopt the current row so a retry uses the fresh revision instead
-          // of failing forever against the stale one.
+          // Keep the original revision and draft until the operator chooses
+          // whether to load the complete authoritative contents.
           const refreshed = await client_get_plan(openPlan.id);
-          if (refreshed) setOpenPlan(refreshed);
+          if (refreshed && farmScope() && openPlanRef.current?.id === openPlan.id)
+            setConflictingPlan(refreshed);
           return;
         }
         toast.error(errorMessage(t, err, t("planner.toast.updateFailed")));
@@ -722,6 +759,8 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     );
     setStartMonth(plan.start_year_month);
     setAssumptions(plan.assumptions);
+    setInvalidNlmFields(new Set());
+    setConflictingPlan(null);
     setNlmSubsidy(plan.assumptions.finance?.nlm_subsidy === true);
     acceptDefaultsRef.current = false;
     // The plan carries its own assumptions; re-anchor the preset dropdowns to
@@ -1086,7 +1125,15 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             <Checkbox
               id="planner-nlm-subsidy"
               checked={nlmSubsidy}
-              onCheckedChange={(checked) => setNlmSubsidy(checked === true)}
+              onCheckedChange={(checked) => {
+                setNlmSubsidy(checked === true);
+                if (checked !== true) {
+                  setInvalidNlmFields(new Set());
+                  setAssumptions((previous) => previous ? { ...previous, finance: {
+                    ...previous.finance, nlm_approved_subsidy_amount: null, nlm_subsidy_receipts: [],
+                  }} : previous);
+                }
+              }}
             />
             <div className="space-y-1">
               <Label htmlFor="planner-nlm-subsidy" className="font-normal">
@@ -1095,6 +1142,19 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               <p className="text-xs text-muted-foreground">{t("planner.nlmSubsidyHelp")}</p>
             </div>
           </div>
+          {nlmSubsidy && assumptions?.finance && <NlmFundingEditor
+            key={`${basisSource}:${submittedParams.breed}:${submittedParams.system}`}
+            prefix="planner" value={{ ...assumptions.finance, nlm_subsidy: true }}
+            onChange={(patch) => {
+              acceptDefaultsRef.current = false;
+              setAssumptions((previous) => previous ? { ...previous, finance: { ...previous.finance, ...patch } } : previous);
+            }}
+            onValidityChange={(key, valid) => setInvalidNlmFields((previous) => {
+              if (previous.has(key) === !valid) return previous;
+              const next = new Set(previous);
+              if (valid) next.delete(key); else next.add(key);
+              return next;
+            })} />}
           <p className="text-sm text-muted-foreground sm:col-span-2 lg:col-span-4" role="note">
             {basisSource === "preset" && t("planner.basis.note.preset")}
             {basisSource === "herd" &&
@@ -1501,6 +1561,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     {t("planner.saved.updatedAt", { datetime: formatFarmDateTime(plan.updated_at) })}
                   </span>
                 </div>
+                {plan.valid === false && <p role="note" className="text-sm text-destructive">{plan.validation_error || t("planner.saved.invalid")}</p>}
                 <p className="text-xs text-muted-foreground">
                   {t("planner.saved.startsAt", { month: formatYearMonth(plan.start_year_month) })}
                 </p>
@@ -1521,6 +1582,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     size="sm"
                     className="h-11 px-4"
                     onClick={() => onOpenPlan(plan)}
+                    disabled={plan.valid === false}
                   >
                     <FolderOpen />
                     {t("planner.saved.open")}
@@ -1530,7 +1592,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     size="sm"
                     className="h-11 px-4"
                     onClick={() => void onDownloadDpr(plan)}
-                    disabled={dprPendingId !== null}
+                    disabled={dprPendingId !== null || plan.valid === false}
                     aria-label={t("planner.downloadDprFor", { name: plan.name })}
                   >
                     <Download />
@@ -1568,7 +1630,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             <TableBody>
               {savedPlans.map((plan) => (
                 <TableRow key={plan.id}>
-                  <TableCell className="font-medium">{plan.name}</TableCell>
+                  <TableCell className="font-medium">{plan.name}
+                    {plan.valid === false && <p className="text-xs text-destructive">{plan.validation_error || t("planner.saved.invalid")}</p>}
+                  </TableCell>
                   <TableCell>{formatYearMonth(plan.start_year_month)}</TableCell>
                   <TableCell>
                     {(plan.targets ?? [])
@@ -1584,7 +1648,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                   <TableCell>{formatFarmDateTime(plan.updated_at)}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => onOpenPlan(plan)}>
+                      <Button variant="outline" size="sm" disabled={plan.valid === false} onClick={() => onOpenPlan(plan)}>
                         <FolderOpen />
                         {t("planner.saved.open")}
                       </Button>
@@ -1592,7 +1656,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                         variant="outline"
                         size="sm"
                         onClick={() => void onDownloadDpr(plan)}
-                        disabled={dprPendingId !== null}
+                        disabled={dprPendingId !== null || plan.valid === false}
                         aria-label={t("planner.downloadDprFor", { name: plan.name })}
                       >
                         <Download />
@@ -1619,15 +1683,24 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
           </div>
           </>
         )}
-        {plansPage && plansPage.total > plansPage.items.length && (
-          <p className="text-sm text-muted-foreground" role="note">
-            {t("planner.saved.showingFirst", {
-              shown: plansPage.items.length,
-              total: plansPage.total,
-            })}
-          </p>
-        )}
+        {plansPage && <PaginationControls total={plansPage.total} limit={plansPage.limit}
+          offset={plansOffset} onOffsetChange={turnPlansPage} disabled={plansQuery.isFetching} />}
       </DataTableCard>
+
+      <Dialog open={conflictingPlan !== null} onOpenChange={(open) => !open && setConflictingPlan(null)}>
+        <DialogContent><DialogHeader>
+          <DialogTitle>{t("planner.conflict.title")}</DialogTitle>
+          <DialogDescription>{t("planner.conflict.description")}</DialogDescription>
+        </DialogHeader>
+          <p>{t("planner.conflict.latest", { name: conflictingPlan?.name ?? "", revision: conflictingPlan?.revision ?? 0 })}</p>
+          <p className="text-sm text-muted-foreground">{(conflictingPlan?.targets ?? []).map((target) =>
+            `${formatPlanCount(target.count)} ${formatPlanClass(target.animal_class, vocabulary, t, language)} ${formatYearMonth(target.year_month)}`).join("; ")}</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConflictingPlan(null)}>{t("planner.conflict.keepDraft")}</Button>
+            <Button disabled={conflictingPlan?.valid === false} onClick={() => conflictingPlan && onOpenPlan(conflictingPlan)}>{t("planner.conflict.loadLatest")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={pendingDelete !== null}
