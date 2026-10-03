@@ -753,19 +753,138 @@ describe("2026-10-01 audit hardening", () => {
     }
   });
 
-  it("re-persists a kept record when storage is wiped mid-drain under the same scope (07-H)", async () => {
-    // The audit's exact race: the replay 401s, a session-death teardown (or
-    // any other wipe) clears storage while the drain still holds the record
-    // it just decided to KEEP — the old write-back then persisted the empty
-    // store and the field write vanished with remaining: 0.
+  it("re-persists a kept record when storage is cleared mid-drain by something other than a deliberate wipe (07-H)", async () => {
+    // The audit's exact race, minus the path it can no longer take: the
+    // replay 401s and storage loses the record while the drain still holds
+    // it in memory — the old write-back then persisted the empty store and
+    // the field write vanished with remaining: 0. Post-2026-10-02, a
+    // DELIBERATE wipe (wipeOfflineQueue: sign-out/end-shift) fences the
+    // drain instead (see the next test); this guard covers every OTHER
+    // clear — raw removes, cross-tab eviction, quota nukes — so a raw
+    // removeItem stands in for the storage loss here.
     enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
     const fetchImpl = vi.fn().mockImplementation(async () => {
-      wipeOfflineQueue();
+      storage().removeItem(OFFLINE_QUEUE_STORAGE_KEY);
       throw Object.assign(new Error("unauthorized"), { status: 401 });
     });
     const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
     expect(outcome).toEqual({ replayed: 0, remaining: 1, rejected: 0 });
     expect(offlineQueueDepth()).toBe(1);
+  });
+
+  it("a deliberate wipe mid-drain is never undone: kept records are not resurrected and replay stops (2026-10-02 audit)", async () => {
+    // End-shift / explicit sign-out while a drain is on the wire: the
+    // "deletes them permanently" hygiene decision must WIN over the drain's
+    // re-persist guard. Pre-fix, the 401-kept record was written back to the
+    // emptied store and the departed worker's duty payloads silently
+    // survived the handover.
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    enqueueOfflineMutation("/api/tasks/2/complete", { method: "POST" }, SCOPES);
+    const fetchImpl = vi.fn().mockImplementation(async () => {
+      wipeOfflineQueue();
+      throw Object.assign(new Error("unauthorized"), { status: 401 });
+    });
+    const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+    // Record 1 was kept in memory by the 401 — but the wipe owns the store.
+    expect(outcome).toEqual({ replayed: 0, remaining: 0, rejected: 0 });
+    expect(offlineQueueDepth()).toBe(0);
+    // The drain also stopped replaying: record 2 never hit the wire.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("a deliberate wipe from ANOTHER tab fences this tab's in-flight drain via the persisted epoch (2026-10-02 audit)", async () => {
+    // The wipe epoch lives in storage precisely because module state does
+    // not cross tabs: a sign-out in tab A must stop tab B's drain from
+    // resurrecting kept records. Simulate the other tab faithfully —
+    // wipeOfflineQueue in tab A bumps the epoch AND clears the SHARED store
+    // (localStorage is common to both tabs), so tab B's drain finds both.
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    const fetchImpl = vi.fn().mockImplementation(async () => {
+      storage().setItem("goatfarm:offlineQueue:wipeEpoch:v1", String(Date.now() + 1));
+      storage().removeItem(OFFLINE_QUEUE_STORAGE_KEY);
+      throw Object.assign(new Error("unauthorized"), { status: 401 });
+    });
+    const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+    expect(outcome).toEqual({ replayed: 0, remaining: 0, rejected: 0 });
+    expect(offlineQueueDepth()).toBe(0);
+  });
+
+  it("a drain that outlives its session stops instead of replaying under the next actor (2026-10-02 audit)", async () => {
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    enqueueOfflineMutation("/api/tasks/2/complete", { method: "POST" }, SCOPES);
+    let live: { actorScope: string; farmScope: string } | null = SCOPES;
+    const fetchImpl = vi.fn().mockImplementation(async () => {
+      live = null; // forced logout lands mid-drain
+      return {};
+    });
+    const outcome = await drainOfflineQueue(SCOPES, fetchImpl, () => live);
+    // Record 1 delivered under its own session; record 2 stays queued for
+    // its owner's next login — never fired under whoever comes next.
+    expect(outcome).toEqual({ replayed: 1, remaining: 1, rejected: 0 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(offlineQueueDepth()).toBe(1);
+  });
+
+  it("enqueue mints the record id through the secure-context-safe fallback on plain-http origins (2026-10-02 audit)", () => {
+    // jsdom provides crypto.randomUUID, so the bare call the fix replaced
+    // never threw here — the same fake as the worker-board 05-1 test
+    // reproduces the real plain-http tablet: randomUUID absent,
+    // getRandomValues present. The queue must still enqueue, with a v4 id.
+    const getRandomValues = vi.fn((bytes: Uint8Array) => {
+      bytes.set(Array.from({ length: 16 }, (_, index) => index));
+      return bytes;
+    });
+    vi.stubGlobal("crypto", { getRandomValues });
+    try {
+      const ok = enqueueOfflineMutation(
+        "/api/tasks/9/complete",
+        { method: "POST", headers: { "Idempotency-Key": "k" } },
+        SCOPES,
+      );
+      expect(ok).toBe(true);
+      expect(lastRecord().id).toBe("00010203-0405-4607-8809-0a0b0c0d0e0f");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("the merge restores FIFO order for re-persisted kept records behind mid-drain enqueues (2026-10-02 audit)", async () => {
+    // Storage is lost mid-drain (raw clear — the recovery path) while the
+    // worker keeps recording: the re-persisted KEPT records are older than
+    // the fresh ones, and appending them after `live` inverted replay order
+    // for records of the same task (complete then skip). The merge sorts by
+    // queuedAt; equal stamps keep group order via sort stability.
+    const base = Date.now() - 10_000;
+    const record = (id: string, offset: number) => ({
+      v: 1,
+      id,
+      path: `/api/tasks/${offset}/complete`,
+      method: "POST",
+      body: null,
+      headers: {},
+      queuedAt: base + offset,
+      actorScope: "7",
+      farmScope: "3",
+    });
+    storage().setItem(
+      OFFLINE_QUEUE_STORAGE_KEY,
+      JSON.stringify([record("old-kept", 1), record("new-kept", 2)]),
+    );
+    const fetchImpl = vi.fn().mockImplementation(async () => {
+      storage().removeItem(OFFLINE_QUEUE_STORAGE_KEY);
+      storage().setItem(
+        OFFLINE_QUEUE_STORAGE_KEY,
+        JSON.stringify([record("mid-drain", 3)]),
+      );
+      throw Object.assign(new Error("service unavailable"), { status: 503 });
+    });
+    const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+    expect(outcome.remaining).toBe(3);
+    expect(readOfflineQueue(storage()).map((r) => r.id)).toEqual([
+      "old-kept",
+      "new-kept",
+      "mid-drain",
+    ]);
   });
 
   it("does not resurrect a foreign actor's records from a mid-drain wipe (07-H)", async () => {

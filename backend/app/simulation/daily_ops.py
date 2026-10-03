@@ -103,10 +103,15 @@ _HEAT_CYCLE_DAYS = 21
 _RESTING_FLUSH_DAYS = max(30, GOAT_PROFILE.min_rest_flush_days)
 # Young-stock class windows in days, anchoring the post-weaning hazards to the
 # monthly engine's class boundaries (2026-10-01 audit, 08-M3): the weaner
-# class spans ages 3-5 months (3 x DAYS_PER_MONTH), and weaned stock past
-# 6 months still growing in a kids pen is a grower.
-_WEANER_PHASE_DAYS = round(3 * DAYS_PER_MONTH)
+# class spans weaning day (GOAT_PROFILE.weaning_days = 60) to the grower
+# boundary (6 months), and weaned stock past 6 months still growing in a kids
+# pen is a grower. The whole-phase weaner rate is converted over the window
+# the class actually covers — weaning→6 months ≈ 123 days — NOT the 3-month
+# "3-5 m" label: spreading it over 91 days while the window is 123 compounded
+# the phase rate to ~1.35x its configured value (5% nominal → ~6.7% effective,
+# 2026-10-02 audit).
 _GROWER_AGE_DAYS = round(6 * DAYS_PER_MONTH)
+_WEANER_WINDOW_DAYS = _GROWER_AGE_DAYS - GOAT_PROFILE.weaning_days
 # Maximum doe age before the age cull fires (mirrors CullingAssumptions
 # default max_doe_age_months used by the monthly engine).
 _MAX_DOE_AGE_MONTHS = 72
@@ -618,14 +623,13 @@ class _DailyOpsRun:
         )
         self.adult_hazard = _daily_hazard(self.params.adult_annual_mortality, 365)
         # Weaned young stock keeps its own class hazards, mirroring the monthly
-        # engine's kid_post_weaning (whole 3-month weaner phase) and grower
-        # (annual) rates instead of facing the adult hazard from the weaning
-        # day on (2026-10-01 audit, 08-M3). The weaner phase spans ages 3-5
-        # months; past 6 months a weaned animal still in a kids pen is a
-        # grower. Both windows anchor to DAYS_PER_MONTH like every other age
-        # conversion here.
+        # engine's kid_post_weaning (whole-phase weaner rate over weaning→6
+        # months) and grower (annual) rates instead of facing the adult hazard
+        # from the weaning day on (2026-10-01 audit, 08-M3). Past 6 months a
+        # weaned animal still in a kids pen is a grower. Both windows anchor to
+        # DAYS_PER_MONTH like every other age conversion here.
         self.weaner_hazard = _daily_hazard(
-            self.params.kid_post_weaning_mortality, _WEANER_PHASE_DAYS
+            self.params.kid_post_weaning_mortality, _WEANER_WINDOW_DAYS
         )
         self.grower_hazard = _daily_hazard(self.params.grower_annual_mortality, 365)
         # The draw window is scan → kidding (gestation days 32..149): a loss

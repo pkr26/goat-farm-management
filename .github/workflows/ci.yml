@@ -51,7 +51,11 @@ jobs:
             # commit of the same push otherwise escapes the gate
             # (2026-09-28 audit, F4). github.event.before is the all-zeros
             # sha on branch creation (no prior commit to diff against), so
-            # fall back to the tip-only range in that case.
+            # fall back to the tip-only range in that case — which means a
+            # branch-creating push that carries interior migration edits
+            # checks only its tip (known residual window, 2026-10-02 audit;
+            # main is never branch-created in practice, so this guards
+            # feature-branch pushes whose base check re-verifies the span).
             before="${{ github.event.before }}"
             if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
               range="HEAD~1..HEAD"
@@ -76,7 +80,15 @@ jobs:
           # c6d7e8f9a0b1, e8f9a0b1c2d3 — were removed once that push landed:
           # the allowlist only ever names genuinely-applied revisions whose
           # in-place correction shipped, never permanently.)
-          sanctioned="backend/alembic/versions/bd201c1cdc1b_goat_only_simplification.py backend/alembic/versions/b5d7f9a1c3e5_backfill_species_reference_data.py"
+          # 2026-10-02 audit: commit 213e9a1 added a DOCSTRING-ONLY audit
+          # acceptance note to c8f1d3a5e709 (the same revision the header
+          # above already discusses) — zero DDL/behavior change, no applied
+          # database affected, but the edit landed in the push range and this
+          # gate correctly flagged it. Retro-sanctioned here so a re-run of
+          # that push is green and the incident is recorded where the gate
+          # keeps its bookkeeping; remove this entry with the next push that
+          # does not touch it (D6 precedent).
+          sanctioned="backend/alembic/versions/bd201c1cdc1b_goat_only_simplification.py backend/alembic/versions/b5d7f9a1c3e5_backfill_species_reference_data.py backend/alembic/versions/c8f1d3a5e709_finance_feed_task_integrity.py"
           touched="$(git diff --name-only --diff-filter=MDR "$range" -- 'backend/alembic/versions/')"
           unexpected=""
           while IFS= read -r file; do

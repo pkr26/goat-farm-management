@@ -3047,6 +3047,19 @@ def test_production_compose_is_a_standalone_external_tls_topology() -> None:
     assert guard["volumes"][0]["target"] == "/run/config/compose.env"
     assert guard["volumes"][0]["read_only"] is True
     assert guard["volumes"][0]["bind"]["create_host_path"] is False
+    # Precedence probes (2026-10-02 audit): every secret the guard's
+    # exactly-one-of check names must be forwarded here with the same
+    # optional interpolation the consuming services use, so the guard sees
+    # what Compose would actually deliver when the shell beats the env file.
+    guard_env = guard["environment"]
+    for name in (
+        "GOATFARM_DATABASE_URL",
+        "GOATFARM_MIGRATION_DATABASE_URL",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET",
+        "GOATFARM_TOTP_ENCRYPTION_KEY",
+    ):
+        assert guard_env[name] == "${" + name + ":-}", name
+        assert guard_env[f"{name}_FILE"] == "${" + name + "_FILE:-}", name
 
     migrate_env = services["migrate"]["environment"]
     api_env = services["backend"]["environment"]
@@ -3499,13 +3512,23 @@ def test_compose_env_guard_enforces_exactly_one_delivery_route(tmp_path: Path) -
         path.write_text("".join(f"{key}={value}\n" for key, value in entries.items()))
         return path
 
-    def _run(path: Path) -> subprocess.CompletedProcess[str]:
+    def _run(
+        path: Path, extra_env: Mapping[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        # The guard consults the process environment alongside the file
+        # (2026-10-02 audit: Compose interpolates shell env ahead of
+        # --env-file), so the harness must control it — conftest exports
+        # GOATFARM_DATABASE_URL into THIS process and the subprocess would
+        # inherit it, failing every file-only scenario below.
+        scrubbed = {k: v for k, v in os.environ.items() if not k.startswith("GOATFARM_")}
+        scrubbed.update(extra_env or {})
         return subprocess.run(
             [sys.executable, str(guard), str(path)],
             cwd=REPO_ROOT / "backend",
             capture_output=True,
             text=True,
             check=False,
+            env=scrubbed,
         )
 
     assert _run(_write_env("plain.env", plain)).returncode == 0
@@ -3520,6 +3543,36 @@ def test_compose_env_guard_enforces_exactly_one_delivery_route(tmp_path: Path) -
     neither = _run(_write_env("neither.env", {}))
     assert neither.returncode == 2
     assert "neither GOATFARM_DATABASE_URL nor GOATFARM_DATABASE_URL_FILE is set" in neither.stderr
+
+    # 2026-10-02 audit: the same ambiguity split across the TWO sources —
+    # plain value exported in the operator's shell (Compose interpolation
+    # precedence: shell beats --env-file) with the file route in the env
+    # file. Compose forwards both to consumers while the file alone looks
+    # single-route; the guard must refuse it exactly like the in-file case.
+    shell_plain_file_route = _run(
+        _write_env("file.env", delivered_by_file),
+        extra_env={"GOATFARM_DATABASE_URL": "postgresql+asyncpg://api:stale@db:5432/goatfarm"},
+    )
+    assert shell_plain_file_route.returncode == 2
+    assert "GOATFARM_DATABASE_URL and GOATFARM_DATABASE_URL_FILE are both set" in (
+        shell_plain_file_route.stderr
+    )
+    # The converse is the legitimate mixed single-route delivery: each secret
+    # arrives by exactly ONE source — two by shell, one by file — so the
+    # guard passes.
+    shell_only_plain = _run(
+        _write_env(
+            "shell_route.env",
+            {
+                "GOATFARM_MIGRATION_DATABASE_URL_FILE": "/run/secrets/app/migration_database_url",
+            },
+        ),
+        extra_env={
+            "GOATFARM_DATABASE_URL": "postgresql+asyncpg://api:pw@db:5432/goatfarm",
+            "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET": "stable-secret-0000000000000001",
+        },
+    )
+    assert shell_only_plain.returncode == 0
 
     totp_both = _run(
         _write_env(

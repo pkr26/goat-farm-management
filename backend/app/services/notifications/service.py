@@ -393,7 +393,19 @@ async def _digest_text_for_recipient(
     total = int((await db.execute(scoped.with_only_columns(func.count()))).scalar_one())
     parts = [f"Herdly {reference.isoformat()}: {total} duties today"]
     if overdue:
-        parts.append(f"{len(overdue)} overdue (incl. today's list)")
+        # The overdue count gets the same exact-total treatment as the
+        # headline (03-4's sibling defect, 2026-10-02 audit): the capped
+        # title sample above is for the "has any overdue?" gate, never for
+        # the number a worker plans their morning around — 25 overdue duties
+        # must not read as "10 overdue".
+        overdue_total = int(
+            (
+                await db.execute(
+                    scoped.with_only_columns(func.count()).where(Task.due_date < reference)
+                )
+            ).scalar_one()
+        )
+        parts.append(f"{overdue_total} overdue (incl. today's list)")
     for title in titles[:5]:
         parts.append(f"- {title[:60]}")
     if total > 5:

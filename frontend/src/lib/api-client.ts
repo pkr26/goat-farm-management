@@ -707,6 +707,11 @@ function timeoutAbortReason(): unknown {
  * Mirror the Web-Locks fallback pattern: feature-detect and degrade to a
  * manual AbortController composition that preserves BOTH semantics — the
  * caller's cancellation and the bounded lifetime, timeout reason included
+ * for every browser that implements abort(reason) (Safari 15.4+; all
+ * browsers with AbortSignal.any have it). On the truly ancient remainder
+ * the reason is dropped and a timeout surfaces as a plain AbortError —
+ * classified non-queueable, so the failure is a visible toast instead of a
+ * false "Saved": fail-visible degradation, never silent misclassification
  * (2026-10-01 audit, 07-M3). */
 function composeRequestSignal(
   callerSignal: AbortSignal | null | undefined,

@@ -25,6 +25,8 @@ PRESET_ROLE_PARENT = "c3d4e5f6a7b1"
 PRESET_ROLE_INTEGRITY = "d5e7f9a1b3c4"
 KIDDING_LOCK_ORDER_PARENT = PRESET_ROLE_INTEGRITY
 KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
+
+
 # Autogenerate-drift checks must run at the CURRENT head (backend-core audit
 # wave: task provenance/title keys → updated_at/phenotype/vocabularies →
 # exact weight numerics + index hygiene → kidding parity backfill →

@@ -997,6 +997,37 @@ def test_plain_secret_environment_delivery_still_works_and_empty_file_var_is_uns
     )
 
 
+def test_worker_projection_boots_when_compose_delivers_empty_file_vars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 2026-10-02 audit: production compose always exports the screening
+    # worker's five *_FILE knobs with `${...:-}` optional interpolation, so a
+    # plain-env deployment (the documented backward-compatible route) hands
+    # the container empty strings. Without the Settings projection's
+    # empty-is-unset normalizer on the worker class too, pydantic coerced ""
+    # to Path(".") and the worker crash-looped at settings construction —
+    # pre-fix this test fails with "must name a readable secret file".
+    from app.core.config import ScreeningWorkerSettings
+
+    for name in (
+        "GOATFARM_DATABASE_URL_FILE",
+        "GOATFARM_S3_ACCESS_KEY_ID_FILE",
+        "GOATFARM_S3_SECRET_ACCESS_KEY_FILE",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY_FILE",
+        "GOATFARM_SCREENING_OPENAI_API_KEY_FILE",
+    ):
+        monkeypatch.setenv(name, "")
+    settings = ScreeningWorkerSettings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.database_url_file is None
+    assert settings.s3_access_key_id_file is None
+    assert settings.s3_secret_access_key_file is None
+    assert settings.screening_anthropic_api_key_file is None
+    assert settings.screening_openai_api_key_file is None
+    # The plain delivery route survives: conftest pins GOATFARM_DATABASE_URL
+    # to the test database, so the exact URL here is environment-derived —
+    # what matters is that construction succeeded and no file knob won.
+
+
 def test_secret_file_variable_is_read_from_the_process_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

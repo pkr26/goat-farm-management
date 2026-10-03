@@ -168,6 +168,12 @@ describe("ADV G3: secret & persistence surface scan", () => {
     expect(workerLayout).toContain('TABLET_FARM_STORAGE_KEY = "herdly.tabletFarm"');
     const offlineQueue = readFileSync(join(SRC_ROOT, "lib", "offline-queue.ts"), "utf8");
     expect(offlineQueue).toContain('OFFLINE_QUEUE_STORAGE_KEY = "goatfarm:offlineQueue:v1"');
+    // The wipe-epoch marker (2026-10-02 audit) is the queue's second key: a
+    // monotonic counter of deliberate wipes, mirrored cross-tab. It stores
+    // no session-bearing value — only a number that fences stale drains.
+    expect(offlineQueue).toContain(
+      'OFFLINE_QUEUE_WIPE_EPOCH_KEY = "goatfarm:offlineQueue:wipeEpoch:v1"',
+    );
     const i18n = readFileSync(join(SRC_ROOT, "lib", "i18n", "index.tsx"), "utf8");
     expect(i18n).toContain('LANGUAGE_STORAGE_KEY = "herdly.language"');
     for (const file of files) {
@@ -177,7 +183,7 @@ describe("ADV G3: secret & persistence surface scan", () => {
           match[1].trim(),
           `${file} writes storage key ${match[1]}`,
         ).toMatch(
-          /^(FARM_STORAGE_KEY|TABLET_FARM_STORAGE_KEY|OFFLINE_QUEUE_STORAGE_KEY|IDEMPOTENCY_SESSION_STORAGE_KEY|LANGUAGE_STORAGE_KEY)$/,
+          /^(FARM_STORAGE_KEY|TABLET_FARM_STORAGE_KEY|OFFLINE_QUEUE_STORAGE_KEY|OFFLINE_QUEUE_WIPE_EPOCH_KEY|IDEMPOTENCY_SESSION_STORAGE_KEY|LANGUAGE_STORAGE_KEY)$/,
         );
       }
     }

@@ -156,9 +156,12 @@ export function WorkerShell({ children }: { children: ReactNode }) {
     setDepth(scopedQueueDepth());
     // Arriving online with a queue: drain immediately. The effect's guard
     // makes scopes() non-null here; the callback form keeps that coupling
-    // visible instead of a dead empty-scope fallback (2026-09-29 audit).
+    // visible instead of a dead empty-scope fallback (2026-09-29 audit), and
+    // doubles as the live-session probe so a drain that outlives its login
+    // stops rather than replaying under whoever signs in next
+    // (2026-10-02 audit).
     const initialScopes = scopes();
-    if (initialScopes !== null) void drainOfflineQueue(initialScopes);
+    if (initialScopes !== null) void drainOfflineQueue(initialScopes, undefined, scopes);
     return () => {
       stop();
       window.clearInterval(tick);

@@ -390,13 +390,19 @@ class MigrationSettings(BaseSettings):
     def _production_tls(self) -> MigrationSettings:
         # File-delivered URLs win over their plain environment variables
         # (2026-10-01 audit, 09-1) and must be substituted before the URL
-        # contract checks below read the value.
+        # contract checks below read the value. The normalizer's error
+        # message names whichever route actually delivered the value
+        # (2026-10-02 audit), so a file-delivered URL's contract failure
+        # points the operator at the file knob, not the plain one.
+        database_url_source = "GOATFARM_DATABASE_URL"
         if (
             value := _secret_file_value(
                 self.database_url_file, setting_name="GOATFARM_DATABASE_URL_FILE"
             )
         ) is not None:
             self.database_url = value
+            database_url_source = "GOATFARM_DATABASE_URL_FILE"
+        migration_database_url_source = "GOATFARM_MIGRATION_DATABASE_URL"
         if (
             value := _secret_file_value(
                 self.migration_database_url_file,
@@ -404,16 +410,17 @@ class MigrationSettings(BaseSettings):
             )
         ) is not None:
             self.migration_database_url = value
+            migration_database_url_source = "GOATFARM_MIGRATION_DATABASE_URL_FILE"
         self.database_url = _normalize_database_url(
             self.database_url,
             sslmode=self.db_sslmode,
-            setting_name="GOATFARM_DATABASE_URL",
+            setting_name=database_url_source,
         )
         if self.migration_database_url is not None:
             self.migration_database_url = _normalize_database_url(
                 self.migration_database_url,
                 sslmode=self.db_sslmode,
-                setting_name="GOATFARM_MIGRATION_DATABASE_URL",
+                setting_name=migration_database_url_source,
             )
         # ``extra=ignore`` is intentional for a shared backend .env: this
         # least-privilege process must not require API cookie/JWT settings.
@@ -1294,13 +1301,18 @@ class Settings(BaseSettings):
         # File-delivered secrets (2026-10-01 audit, 09-1) are substituted
         # FIRST, before any check below reads or normalizes the value they
         # replace. A configured-but-unreadable file fails closed here in
-        # every environment, not only production.
+        # every environment, not only production. The URL normalizer's error
+        # message names whichever route actually delivered the value
+        # (2026-10-02 audit).
+        database_url_source = "GOATFARM_DATABASE_URL"
         if (
             value := _secret_file_value(
                 self.database_url_file, setting_name="GOATFARM_DATABASE_URL_FILE"
             )
         ) is not None:
             self.database_url = value
+            database_url_source = "GOATFARM_DATABASE_URL_FILE"
+        migration_database_url_source = "GOATFARM_MIGRATION_DATABASE_URL"
         if (
             value := _secret_file_value(
                 self.migration_database_url_file,
@@ -1308,6 +1320,7 @@ class Settings(BaseSettings):
             )
         ) is not None:
             self.migration_database_url = value
+            migration_database_url_source = "GOATFARM_MIGRATION_DATABASE_URL_FILE"
         if (
             value := _secret_file_value(
                 self.idempotency_request_hmac_secret_file,
@@ -1362,13 +1375,13 @@ class Settings(BaseSettings):
         self.database_url = _normalize_database_url(
             self.database_url,
             sslmode=self.db_sslmode,
-            setting_name="GOATFARM_DATABASE_URL",
+            setting_name=database_url_source,
         )
         if self.migration_database_url is not None:
             self.migration_database_url = _normalize_database_url(
                 self.migration_database_url,
                 sslmode=self.db_sslmode,
-                setting_name="GOATFARM_MIGRATION_DATABASE_URL",
+                setting_name=migration_database_url_source,
             )
         # Argon2 requires at least 8 KiB per lane. Validate this relationship
         # before startup primes the dummy hash, yielding an actionable config
@@ -1686,6 +1699,25 @@ class ScreeningWorkerSettings(BaseSettings):
     # verdict/provider errors remain durable pipeline results, not crashes.
     screening_worker_max_consecutive_cycle_failures: int = Field(default=3, ge=1, le=100)
 
+    @field_validator(
+        "database_url_file",
+        "s3_access_key_id_file",
+        "s3_secret_access_key_file",
+        "screening_anthropic_api_key_file",
+        "screening_openai_api_key_file",
+        mode="before",
+    )
+    @classmethod
+    def _empty_secret_file_var_is_unset(cls, value: object) -> object:
+        # Same idiom as the Settings projection (2026-10-01 audit, 09-1):
+        # production compose always exports the worker's *_FILE knobs with
+        # `${...:-}` optional interpolation, so a plain-env deployment (the
+        # documented backward-compatible route) delivers empty strings —
+        # without this normalizer pydantic coerces "" to Path(".") and the
+        # worker container crash-loops at settings construction
+        # (2026-10-02 audit). Whitespace remains a real path.
+        return None if value == "" else value
+
     @field_validator("db_sslrootcert_path")
     @classmethod
     def _valid_db_root_certificate(cls, value: Path | None) -> Path | None:
@@ -1718,13 +1750,17 @@ class ScreeningWorkerSettings(BaseSettings):
     def _worker_safety(self) -> ScreeningWorkerSettings:
         # File-delivered secrets (2026-10-01 audit, 09-1) are substituted
         # before the URL contract check reads the value; a configured but
-        # unreadable file fails closed here in every environment.
+        # unreadable file fails closed here in every environment. The
+        # normalizer's error names whichever route delivered the value
+        # (2026-10-02 audit).
+        database_url_source = "GOATFARM_DATABASE_URL"
         if (
             value := _secret_file_value(
                 self.database_url_file, setting_name="GOATFARM_DATABASE_URL_FILE"
             )
         ) is not None:
             self.database_url = value
+            database_url_source = "GOATFARM_DATABASE_URL_FILE"
         if (
             value := _secret_file_value(
                 self.s3_access_key_id_file, setting_name="GOATFARM_S3_ACCESS_KEY_ID_FILE"
@@ -1754,7 +1790,7 @@ class ScreeningWorkerSettings(BaseSettings):
         self.database_url = _normalize_database_url(
             self.database_url,
             sslmode=self.db_sslmode,
-            setting_name="GOATFARM_DATABASE_URL",
+            setting_name=database_url_source,
         )
         known_fields = frozenset(type(self).model_fields) | frozenset(Settings.model_fields)
         unknown = unknown_goatfarm_env_vars(known_fields) | unknown_goatfarm_dotenv_vars(

@@ -383,10 +383,12 @@ async def _ensure_daily_water_check(db: AsyncSession, farm_id: int, reference: d
 async def _ensure_feed_reorders(db: AsyncSession, farm_id: int, reference: date) -> bool:
     """One reorder duty per ingredient stock row under its reorder level.
 
-    Dedupe is PENDING-only on the ingredient name appearing in an open FEED
-    duty's title: a pending reminder already covers the purchase, while a
-    completed one means the stock was replenished (and the row should have
-    left the under-level set) or is due for a fresh reminder.
+    Dedupe is PENDING-only on the server-owned reminder identity —
+    ``title_key == "feed_reorder"`` plus the ingredient in ``title_args``
+    (2026-10-01 audit, 03-6): a pending reminder already covers the purchase,
+    while a completed one means the stock was replenished (and the row should
+    have left the under-level set) or is due for a fresh reminder. A manually
+    titled lookalike duty can no longer suppress the auto alert.
     """
     under_level = (
         (

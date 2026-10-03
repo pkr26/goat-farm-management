@@ -281,6 +281,34 @@ def test_dependent_kids_and_adults_keep_their_own_hazards() -> None:
     assert "Adult mortality" in adult_died.journeys[0].exit_reason
 
 
+def test_weaner_hazard_converts_over_the_actual_class_window() -> None:
+    """The configured weaner rate must be the CUMULATIVE rate over the window
+    the class actually covers — weaning day (60) to the grower boundary
+    (round(6 x 30.44) = 183 d), i.e. 123 days — not the 3-month label's 91
+    days. Pre-fix (2026-10-02 audit) the 91-day conversion compounded over
+    the 123-day window to ~1.35x the configured rate (5% nominal → ~6.7%
+    effective)."""
+    from app.models.species import GOAT_PROFILE
+    from app.simulation.daily_ops import (
+        _GROWER_AGE_DAYS,
+        _WEANER_WINDOW_DAYS,
+        _daily_hazard,
+    )
+    from app.simulation.feed import DAYS_PER_MONTH
+
+    assert GOAT_PROFILE.weaning_days == 60
+    assert _GROWER_AGE_DAYS == round(6 * DAYS_PER_MONTH) == 183
+    assert _WEANER_WINDOW_DAYS == 123
+
+    p = DailyOpsParams().kid_post_weaning_mortality
+    daily = _daily_hazard(p, _WEANER_WINDOW_DAYS)
+    # Cumulative over the actual window == the configured whole-phase rate.
+    assert abs((1 - (1 - daily) ** _WEANER_WINDOW_DAYS) - p) < 1e-12
+    # …and it is NOT the old mis-conversion's effective rate over this window.
+    stale_daily = _daily_hazard(p, round(3 * DAYS_PER_MONTH))
+    assert abs((1 - (1 - stale_daily) ** _WEANER_WINDOW_DAYS) - p) > 0.01
+
+
 # ---------------------------------------------------------------------------
 # 08-M4 — boundary grower event sales priced at the graduation weight
 # ---------------------------------------------------------------------------
@@ -476,6 +504,12 @@ def test_empty_herd_books_no_cultivation_cost_but_full_grazing_still_does() -> N
     )
     res = run_simulation(empty, with_break_even=False)
     assert all(row.feed_cost == 0.0 for row in res.months)
+    # 2026-10-02 audit: nothing is grown for nothing, so the empty run also
+    # reports NO physical fodder program — no stock filling to capacity, no
+    # storage spoilage, no surplus from a crop that was never planted.
+    assert all(row.fodder_stock_kg_dm == 0.0 for row in res.months)
+    assert all(row.fodder_waste_kg_dm == 0.0 for row in res.months)
+    assert all(row.fodder_surplus_kg == 0.0 for row in res.months)
 
     grazing = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=12),

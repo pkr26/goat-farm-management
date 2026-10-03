@@ -10,11 +10,22 @@ production secrets became deliverable either as plain values or as file
 mounts (2026-10-01 audit, 09-1) — that each required secret is delivered by
 exactly one of the two routes; each consuming process remains responsible for
 validating its own values and secrets.
+
+Compose interpolation precedence is shell environment over ``--env-file``
+(2026-10-02 audit): an operator shell export of the plain variable therefore
+bypasses a file-only check against the dotenv — Compose forwards BOTH routes
+to the consuming service and the app silently prefers the file, leaving the
+stale plain value exactly as "live-looking" as the dangerous case above. The
+production manifest forwards the same interpolations into THIS container's
+environment (they resolve identically — shell first, file fallback), so the
+delivery check below consults the process environment alongside the file:
+for each knob, whichever source Compose would actually interpolate counts.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -74,20 +85,31 @@ def _present(value: str | None) -> bool:
 
 
 def delivery_problems(path: Path) -> list[str]:
-    """Secret-delivery ambiguity/absence problems in a Compose dotenv file."""
+    """Secret-delivery ambiguity/absence across BOTH delivery sources.
+
+    The dotenv file is one source; the process environment is the other —
+    Compose interpolates shell values ahead of the file, and the production
+    manifest forwards the same interpolations into this container precisely
+    so they are visible here (2026-10-02 audit). A knob counts as set when
+    either source would hand Compose a non-empty value.
+    """
     values = {
         name.upper(): value for name, value in dotenv_values(path).items() if name is not None
     }
+
+    def _delivered(name: str) -> bool:
+        return _present(values.get(name)) or _present(os.environ.get(name))
+
     problems: list[str] = []
     for name in REQUIRED_EITHER_DELIVERY_VARS:
-        plain = _present(values.get(name))
-        from_file = _present(values.get(f"{name}_FILE"))
+        plain = _delivered(name)
+        from_file = _delivered(f"{name}_FILE")
         if plain and from_file:
             problems.append(f"{name} and {name}_FILE are both set; deliver exactly one")
         if not plain and not from_file:
             problems.append(f"neither {name} nor {name}_FILE is set; deliver exactly one")
     for name in AMBIGUOUS_DELIVERY_VARS:
-        if _present(values.get(name)) and _present(values.get(f"{name}_FILE")):
+        if _delivered(name) and _delivered(f"{name}_FILE"):
             problems.append(f"{name} and {name}_FILE are both set; deliver exactly one")
     return problems
 

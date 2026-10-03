@@ -138,7 +138,16 @@ describe("WorkerShell chrome", () => {
 
     await screen.findByTestId("end-shift");
     expect(startWorkersMock).toHaveBeenCalled();
-    expect(drainQueueMock).toHaveBeenCalledWith({ actorScope: "7", farmScope: "3" });
+    // The third argument is the live-session probe: a slow drain that
+    // outlives its login stops instead of replaying under the next actor
+    // (2026-10-02 audit) — so the shell must hand over its scopes reader.
+    expect(drainQueueMock).toHaveBeenCalledWith(
+      { actorScope: "7", farmScope: "3" },
+      undefined,
+      expect.any(Function),
+    );
+    const probe = drainQueueMock.mock.calls[0]?.[2] as () => unknown;
+    expect(probe()).toEqual({ actorScope: "7", farmScope: "3" });
   });
 
   it("shows the queue-depth badge only while records wait to send", async () => {

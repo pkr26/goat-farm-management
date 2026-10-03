@@ -54,6 +54,24 @@ services:
     <<: *service-hardening
     mem_limit: 128m
     cpus: 0.25
+    # Precedence probes (2026-10-02 audit): Compose interpolates shell
+    # environment ahead of --env-file, so a shell export of a plain secret
+    # alongside a file-route env file forwarded BOTH routes to consumers
+    # while the guard — reading the file alone — saw only one. These
+    # forwards resolve exactly like the consuming services' own
+    # interpolations (shell first, file fallback), so the guard's
+    # exactly-one-of check now sees what Compose would actually deliver.
+    # Values it receives are the same secrets the env file itself already
+    # carries into this container via the read-only bind; no new exposure.
+    environment:
+      GOATFARM_DATABASE_URL: '${GOATFARM_DATABASE_URL:-}'
+      GOATFARM_DATABASE_URL_FILE: '${GOATFARM_DATABASE_URL_FILE:-}'
+      GOATFARM_MIGRATION_DATABASE_URL: '${GOATFARM_MIGRATION_DATABASE_URL:-}'
+      GOATFARM_MIGRATION_DATABASE_URL_FILE: '${GOATFARM_MIGRATION_DATABASE_URL_FILE:-}'
+      GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET:-}'
+      GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE:-}'
+      GOATFARM_TOTP_ENCRYPTION_KEY: '${GOATFARM_TOTP_ENCRYPTION_KEY:-}'
+      GOATFARM_TOTP_ENCRYPTION_KEY_FILE: '${GOATFARM_TOTP_ENCRYPTION_KEY_FILE:-}'
     volumes:
       - type: bind
         source: '${GOATFARM_COMPOSE_ENV_FILE:?set this to the exact production --env-file path}'

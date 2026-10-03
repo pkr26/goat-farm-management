@@ -556,15 +556,18 @@ def test_drought_yield_multiplier_and_dm_conversion_reach_cultivation_cost() -> 
         cultivated_dm_kg - first.feed_homegrown_green_kg * assumptions.feed.green_dm_pct
     )
 
-    # The same run with an EMPTY herd books no cultivation cost at all
-    # (2026-10-01 audit, 08-L8): nothing is grown for nothing, so a zero-animal
-    # farm no longer pays ₹/month for acreage no animal consumes.
+    # The same run with an EMPTY herd books no cultivation at all — not only
+    # the cost (2026-10-01 audit, 08-L8) but the crop itself: nothing is
+    # grown for nothing, so no supply, no surplus, no stock, no waste
+    # (2026-10-02 audit — the pre-fix code reported a full fodder program
+    # with spoilage and surplus for a farm with no animals).
     empty = assumptions.model_copy(deep=True)
     empty.herd.does = 0
     empty_month = _run_core(empty, shocks).months[0]
     assert empty_month.feed_cost == pytest.approx(0.0)
-    # The surplus/waste accounting is untouched: the crop still exists.
-    assert empty_month.fodder_surplus_kg == pytest.approx(cultivated_dm_kg)
+    assert empty_month.fodder_surplus_kg == pytest.approx(0.0)
+    assert empty_month.fodder_stock_kg_dm == pytest.approx(0.0)
+    assert empty_month.fodder_waste_kg_dm == pytest.approx(0.0)
 
 
 def test_land_requirement_is_a_true_annual_rate_on_ragged_horizons() -> None:

@@ -15,6 +15,7 @@
  * Enqueue also fails closed on the queueable-mutation allowlist.
  */
 
+import { randomIdempotencyKey } from "@/lib/idempotent-request";
 import { safeStorage } from "@/lib/safe-storage";
 
 const QUEUE_VERSION = 1;
@@ -28,6 +29,16 @@ const MAX_STORAGE_BYTES = 256 * 1024;
 const RECORD_TTL_MS = 72 * 60 * 60 * 1000;
 
 export const OFFLINE_QUEUE_STORAGE_KEY = "goatfarm:offlineQueue:v1";
+/** Monotonic counter of deliberate queue wipes, mirrored into storage so a
+ * wipe in ANOTHER tab (explicit sign-out there) fences this tab's in-flight
+ * drain too. A raw storage clear that bypasses wipeOfflineQueue leaves it
+ * untouched — that is what separates "explicit wipe, hygiene decision
+ * stands" from "storage vanished underneath us, recover what the drain
+ * still holds" (2026-10-02 audit). */
+const OFFLINE_QUEUE_WIPE_EPOCH_KEY = "goatfarm:offlineQueue:wipeEpoch:v1";
+/** Same-tab mirror of the wipe epoch: fences the drain even if the epoch
+ * write itself is blocked, and costs nothing to consult. */
+let wipeGeneration = 0;
 
 export type QueuedMutation = {
   id: string;
@@ -142,9 +153,35 @@ export function readOfflineQueue(storage: Storage = safeStorage("local") ?? NULL
   return records;
 }
 
+function readWipeEpoch(storage: Storage): number {
+  try {
+    const raw = storage.getItem(OFFLINE_QUEUE_WIPE_EPOCH_KEY);
+    const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function wipeOfflineQueue(): void {
   const storage = safeStorage("local");
-  if (storage !== null) writeQueue(storage, []);
+  if (storage !== null) {
+    // Deliberate wipes are FENCED against an in-flight drain (see the drain
+    // and the epoch constant above): a sign-out or end-shift that lands while
+    // records are on the wire must win over the drain's re-persist guard, or
+    // the "deletes them permanently" promise is silently undone the moment
+    // connectivity is slow. max(now, prev + 1) keeps the counter strictly
+    // monotonic even for two wipes inside one clock millisecond.
+    const next = Math.max(Date.now(), readWipeEpoch(storage) + 1);
+    try {
+      storage.setItem(OFFLINE_QUEUE_WIPE_EPOCH_KEY, String(next));
+    } catch {
+      /* blocked or over quota: the module counter below still fences
+       * same-tab drains; the records themselves are already gone. */
+    }
+    wipeGeneration = next;
+    writeQueue(storage, []);
+  }
 }
 
 /** Queue depth for the badge and the end-shift confirm. Pass the session's
@@ -181,8 +218,23 @@ export function enqueueOfflineMutation(
   // is measured against writes that could still legitimately replay.
   const records = readOfflineQueue(storage);
   if (records.length >= MAX_QUEUED_MUTATIONS) return false;
+  // The record id is minted through the same secure-context-safe helper as
+  // the duty's Idempotency-Key: `crypto.randomUUID` exists only in secure
+  // contexts, so calling it bare threw a TypeError on exactly the plain-http
+  // tablet origins this queue exists for — inside the caller's catch block,
+  // silently losing the field write with no toast (2026-10-02 audit; same
+  // rule the 2026-10-01 audit's 05-1 fix established for the key).
+  let id: string;
+  try {
+    id = randomIdempotencyKey();
+  } catch {
+    // No crypto object at all (far older than the plain-http gap): fail
+    // closed like a full queue rather than minting guessable record ids —
+    // the caller surfaces a real error instead of a phantom "Saved".
+    return false;
+  }
   const record: QueuedMutation = {
-    id: crypto.randomUUID(),
+    id,
     path,
     method: init.method.toUpperCase(),
     body: init.body ?? null,
@@ -220,6 +272,15 @@ export function isOfflineQueueableMutation(path: string, method?: string): boole
  * connectivity can drop right after the server's rejection arrived, and
  * queueing that write would tell the worker "Saved" for something the
  * server already refused.
+ *
+ * Deliberate asymmetry vs the DRAIN below for 401/408/429 (2026-10-02
+ * audit): the drain keeps those records because no human is watching a
+ * background replay and the field write's only future is a later drain;
+ * the immediate path has the worker standing right there, so those same
+ * answers surface as a visible rollback+toast instead ("session expired,
+ * try again") rather than a silent queue whose delivery the worker cannot
+ * distinguish from success. Unifying them would make a dead-session write
+ * look "Saved" to the person who can least afford the surprise.
  *
  * The name arm distinguishes two failures that both abort the fetch: the
  * api-client's own wedged-connection timeout (TimeoutError — the field
@@ -307,6 +368,14 @@ export async function drainOfflineQueue(
   scopes: QueueScopes,
   fetchImpl: (path: string, init: RequestInit) => Promise<unknown> = (path, init) =>
     import("@/lib/api-client").then((m) => m.apiFetch(path, init)),
+  /** Live view of the session that started this drain, checked before every
+   * replay: a slow drain can outlive its own login (forced logout, farm
+   * switch), and each replay's fetch stamps whatever token is live AT THAT
+   * MOMENT — without this check a departed actor's queued write could be
+   * delivered under the next actor's authorization (2026-10-02 audit).
+   * Returning null or a different scope stops the drain; records stay
+   * queued for whoever owns them. */
+  currentScopes?: () => QueueScopes | null,
 ): Promise<DrainOutcome> {
   const storage = safeStorage("local");
   if (storage === null) return { replayed: 0, remaining: 0, rejected: 0 };
@@ -321,6 +390,21 @@ export async function drainOfflineQueue(
     return { replayed: 0, remaining: readOfflineQueue(storage).length, rejected: 0 };
   }
   drainInFlight = true;
+  // Fences for everything that can happen to the session under a slow drain:
+  // a deliberate wipe (wipeOfflineQueue — sign-out/end-shift, this tab or
+  // another) bumps the persisted epoch AND the module mirror; either alone
+  // fences, so a blocked epoch write cannot reopen the window.
+  const wipeEpochAtStart = readWipeEpoch(storage);
+  const generationAtStart = wipeGeneration;
+  const wipedMidDrain = () =>
+    wipeGeneration !== generationAtStart || readWipeEpoch(storage) !== wipeEpochAtStart;
+  const sessionStillCurrent = () => {
+    const live = currentScopes?.();
+    return (
+      live === undefined ||
+      (live !== null && live.actorScope === scopes.actorScope && live.farmScope === scopes.farmScope)
+    );
+  };
   try {
     const records = readOfflineQueue(storage);
     let replayed = 0;
@@ -345,6 +429,20 @@ export async function drainOfflineQueue(
         continue;
       }
       if (stopped) continue;
+      if (wipedMidDrain()) {
+        // An explicit wipe (sign-out / end-shift) landed while this drain
+        // was on the wire: the hygiene decision owns the store now — stop
+        // replaying, and the merge below lets the wipe stand instead of
+        // resurrecting kept records (2026-10-02 audit).
+        stopped = true;
+        continue;
+      }
+      if (!sessionStillCurrent()) {
+        // The session this drain drained FOR is gone (forced logout, farm
+        // switch): never deliver its records under whoever signed in next.
+        stopped = true;
+        continue;
+      }
       try {
         await fetchImpl(record.path, {
           method: record.method,
@@ -401,27 +499,39 @@ export async function drainOfflineQueue(
     // only the records this drain actually settled are removed.
     const live = readOfflineQueue(storage);
     const liveIds = new Set(live.map((record) => record.id));
-    // Mid-drain wipe guard (2026-10-01 audit, 07-H): the audit's exact
-    // failure had a forced logout wipe storage WHILE this drain held kept
-    // records (the 401/5xx "keep and stop" decisions) in memory — the plain
-    // merge below would then write the empty store back and the field writes
-    // would vanish with `{remaining: 0}` and no surfaced loss. The
-    // forced-logout path no longer wipes, but any teardown that still clears
-    // storage mid-drain (a cross-tab sign-out, a future regression) must not
-    // be able to destroy records THIS drain explicitly kept. Only records
-    // matching this drain's own actor+farm scope are re-persisted: foreign
-    // records belong to whoever wiped, and their hygiene decision stands.
-    const keptMissingFromLive = records.filter(
-      (record) =>
-        !resolvedIds.has(record.id) &&
-        record.actorScope === scopes.actorScope &&
-        record.farmScope === scopes.farmScope &&
-        !liveIds.has(record.id),
-    );
-    const next = [
-      ...live.filter((record) => !resolvedIds.has(record.id)),
-      ...keptMissingFromLive,
-    ];
+    // Mid-drain storage-loss guard (2026-10-01 audit, 07-H): the audit's
+    // exact failure had a forced logout wipe storage WHILE this drain held
+    // kept records (the 401/5xx "keep and stop" decisions) in memory — the
+    // plain merge below would then write the empty store back and the field
+    // writes would vanish with `{remaining: 0}` and no surfaced loss. This
+    // guard covers every storage clear that is NOT a deliberate wipe: raw
+    // removes, cross-tab eviction, quota nukes. A DELIBERATE wipe (see
+    // wipeOfflineQueue) bumps the epoch and is excluded here — the
+    // sign-out/end-shift decision must not be undone by a drain that was
+    // merely slow (2026-10-02 audit). Only records matching this drain's
+    // own actor+farm scope are re-persisted: foreign records belong to
+    // whoever cleared the store, and their hygiene decision stands.
+    const keptMissingFromLive = wipedMidDrain()
+      ? []
+      : records.filter(
+          (record) =>
+            !resolvedIds.has(record.id) &&
+            record.actorScope === scopes.actorScope &&
+            record.farmScope === scopes.farmScope &&
+            !liveIds.has(record.id) &&
+            // A record whose TTL expired while this drain was on the wire
+            // was pruned from `live` above on purpose — re-persisting it
+            // would transiently resurrect an already-retired write for one
+            // redundant disk write before the next read pruned it again
+            // (2026-10-02 audit).
+            Date.now() - record.queuedAt < RECORD_TTL_MS,
+        );
+    // Stable FIFO by enqueue time: appending older kept records after newer
+    // mid-drain enqueues would invert replay order for records of the same
+    // task (complete then skip); Array#sort is stable, so equal stamps keep
+    // their group order (2026-10-02 audit).
+    const next = [...live.filter((record) => !resolvedIds.has(record.id)), ...keptMissingFromLive]
+      .sort((a, b) => a.queuedAt - b.queuedAt);
     writeQueue(storage, next);
     return { replayed, remaining: next.length, rejected };
   } finally {
@@ -446,7 +556,10 @@ export function startOfflineQueueWorkers(
     const scopes = getScopes();
     if (scopes === null) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
-    void drainOfflineQueue(scopes).then((outcome) => {
+    // getScopes doubles as the live-session probe: a drain that outlives its
+    // own login stops instead of delivering records under the next actor's
+    // token (2026-10-02 audit).
+    void drainOfflineQueue(scopes, undefined, getScopes).then((outcome) => {
       if (outcome.rejected > 0) onRejected?.(outcome.rejected);
     });
   };

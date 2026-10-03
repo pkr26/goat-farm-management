@@ -582,6 +582,54 @@ async def test_digest_headline_states_the_true_duty_total(
     assert "... and 7 more" in body, body  # 12 total − 5 listed, not 10 − 5
 
 
+async def test_digest_overdue_line_reports_the_true_total_not_the_capped_sample(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-10-02 audit (03-4's sibling): the headline got the exact-total
+    treatment, but the very next line still counted the 10-row capped sample —
+    a worker with 12 overdue duties was told "10 overdue". The overdue count
+    is now the true total over the same scope."""
+    from datetime import timedelta
+
+    from app.models import FarmMembership
+
+    owner = await owner_with_farm(client, email="notif-overdue-count@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    settings = Settings(environment="development", notifications_enabled=True)
+    provider = RecordingProvider()
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        await _recipient(db, farm_id, membership_id)
+        role_id = (
+            await db.execute(
+                select(FarmMembership.role_id).where(FarmMembership.id == membership_id)
+            )
+        ).scalar_one()
+        # Twelve role-scoped duties due yesterday: all overdue, past the
+        # digest's 10-row overdue sample.
+        for i in range(12):
+            db.add(
+                Task(
+                    farm_id=farm_id,
+                    title=f"Overdue duty {i}",
+                    due_date=today() - timedelta(days=1),
+                    category="OTHER",
+                    status="PENDING",
+                    assigned_role_id=role_id,
+                )
+            )
+        await db.commit()
+        summary = await run_digest_for_farm(db, settings, provider, farm, now_local=midday(farm))
+
+    assert summary.sent == 1
+    body = provider.sent[0][1]
+    assert "12 duties today" in body, body
+    assert "12 overdue (incl. today's list)" in body, body
+    assert "10 overdue" not in body, body
+
+
 async def test_digest_skips_inactive_memberships_entirely(client: httpx.AsyncClient) -> None:
     """2026-09-29 audit: a deactivated worker's recipient gets NO digest SMS —
     not even a 'no duties (inactive)' one. Spending daily-cap budget on a

@@ -1360,10 +1360,24 @@ def _run_core(
         # DM first, and only the real shortfall is purchased at market price.
         storage_loss_kg_dm = fodder_stock_kg_dm * feed.fodder_storage_loss_fraction_monthly
         usable_opening_stock = fodder_stock_kg_dm - storage_loss_kg_dm
-        cultivated_supply_kg_dm = cultivated_green_supply_kg_dm_for_month(
-            feed,
-            calendar_month,
-            yield_multiplier=shocks.fodder_yield[shock_index],
+        # Degenerate-input exception (2026-10-01 audit, 08-L8; physical flows
+        # added 2026-10-02 audit): a herd with ZERO dry-matter requirement (an
+        # empty farm — dm_kg is the PRE-grazing total, so a fully-grazing herd
+        # still counts) grows nothing: no crop, so no cultivation supply, no
+        # stock fill, no storage overflow and no "surplus" from a fodder
+        # program that would exist for no one. With any animals at all the
+        # requirement is positive and the acreage-has-a-downside rule below is
+        # untouched. Without this gate the empty run cost nothing (08-L8's
+        # money fix) yet still reported stock/waste/surplus flows from a
+        # default-acreage crop nothing was growing to sell or spoil.
+        cultivated_supply_kg_dm = (
+            cultivated_green_supply_kg_dm_for_month(
+                feed,
+                calendar_month,
+                yield_multiplier=shocks.fodder_yield[shock_index],
+            )
+            if feed_total.dm_kg > 0.0
+            else 0.0
         )
         available_homegrown_kg_dm = usable_opening_stock + cultivated_supply_kg_dm
         homegrown_green_kg_dm = min(feed_total.green_dm_kg, available_homegrown_kg_dm)
@@ -1394,15 +1408,10 @@ def _run_core(
         # labour are spent on the whole crop whether or not the herd gets to it.
         # Costing it per kg consumed made storage spoilage and every tonne above
         # storage capacity free, so adding acreage could never cost anything and
-        # the acreage decision had no downside to weigh.
-        # Degenerate-input exception (2026-10-01 audit, 08-L8): a herd with ZERO
-        # dry-matter requirement (an empty farm — dm_kg is the PRE-grazing
-        # total, so a fully-grazing herd still counts) grows nothing for
-        # nothing — charging it ₹6,000/month of cultivation for 3 default
-        # acres produced a nonsense "cost with no animals" projection (NPV
-        # -₹7.5 lakh at zero head). With any animals at all the requirement is
-        # positive, so the acreage-has-a-downside rule above is untouched.
-        cultivation_cost = cultivated_green_kg * home_green_price if feed_total.dm_kg > 0.0 else 0.0
+        # the acreage decision had no downside to weigh. The empty-herd case is
+        # handled at the supply gate above (08-L8): nothing grown, nothing
+        # charged.
+        cultivation_cost = cultivated_green_kg * home_green_price
         feed_cost = (
             cultivation_cost
             + purchased_green_kg * purchased_green_price
