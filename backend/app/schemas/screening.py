@@ -129,8 +129,9 @@ class ScreeningFindingReviewHistoryOut(BaseModel):
 class ScreeningFindingReviewHistoryListOut(BaseModel):
     finding_id: int
     review_revision: int
-    # Existing review metadata is retained on the finding; absence of an
-    # event at revision zero does not invent who made an older decision.
+    # Revision zero preserves the actual known legacy decision. It is a
+    # baseline snapshot (previous_status == status), not a fabricated prior
+    # transition, and retains its original reviewer, timestamp and note.
     legacy_review: bool
     reviews: list[ScreeningFindingReviewHistoryOut]
     total: int

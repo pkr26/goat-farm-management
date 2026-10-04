@@ -1,0 +1,160 @@
+{
+  "baseline": "fee30d5",
+  "checks": [
+    {
+      "claim": "PL-01",
+      "disposition": "verified_local",
+      "finding": "PIN access/refresh carry immutable origin/farm/membership and live family, membership and role checks; global account routes deny PIN authority.",
+      "evidence_suite": "platform_security"
+    },
+    {
+      "claim": "PL-02",
+      "disposition": "verified_source_and_fixtures",
+      "finding": "Individual API/migration/worker directories and credentials are wired with read-only binds; guard rejects shared/nested paths.",
+      "evidence_suite": "deployment_artifacts; platform_ops"
+    },
+    {
+      "claim": "PL-03",
+      "disposition": "verified_local",
+      "finding": "Immediate deletion removes MFA state and sessions; bounded sweeps scrub legacy membership PIN/recovery/recipient data. The additional ownership-transfer concurrency defect is recorded separately as IA-17.",
+      "evidence_suite": "platform_security; independent_security_ops"
+    },
+    {
+      "claim": "PL-04",
+      "disposition": "verified_local",
+      "finding": "Cadence keyset position survives bounded ticks, poison farms and restarts; wraps only after exhaustion.",
+      "evidence_suite": "maintenance_progress; notification_quality"
+    },
+    {
+      "claim": "PL-05",
+      "disposition": "verified_local",
+      "finding": "MFA confirm/disable/recovery regeneration revalidate the exact authenticated generation and live family under final User lock.",
+      "evidence_suite": "platform_security"
+    },
+    {
+      "claim": "PL-06",
+      "disposition": "verified_local",
+      "finding": "Alert discovery pages farm IDs, isolates per-farm rollback and commits completed_hour only after exhaustion.",
+      "evidence_suite": "maintenance_progress; notification_quality"
+    },
+    {
+      "claim": "PL-07",
+      "disposition": "verified_source_and_fixtures",
+      "finding": "Root Docker context excludes default local secrets directory and env/private-key/backup artifacts; custom secrets are documented outside checkout.",
+      "evidence_suite": "deployment_artifacts"
+    },
+    {
+      "claim": "PL-08",
+      "disposition": "verified_local",
+      "finding": "Production metric collection stays enabled independently; public exposition is disabled and a private bearer is required; duplicate bearer headers fail.",
+      "evidence_suite": "platform_ops"
+    },
+    {
+      "claim": "PL-09",
+      "disposition": "verified_local",
+      "finding": "Immediate reset-PIN response uses the actual acting owner/farm and matches roster reset-password policy; delegated attempts fail without changing PIN.",
+      "evidence_suite": "final_evidence"
+    },
+    {
+      "claim": "PL-10",
+      "disposition": "verified_local",
+      "finding": "Bounded membership-ID keyset pages reach selectable workers beyond the first hundred.",
+      "evidence_suite": "platform_security"
+    },
+    {
+      "claim": "PL-11",
+      "disposition": "verified_local",
+      "finding": "Blank plain/file notification credentials cannot boot an enabled production MSG91 provider or construct the provider.",
+      "evidence_suite": "platform_ops"
+    },
+    {
+      "claim": "PL-12",
+      "disposition": "verified_local_fixture",
+      "finding": "An executed release step replaces its exact digest-owned section idempotently while preserving operator notes.",
+      "evidence_suite": "platform_ops"
+    },
+    {
+      "claim": "PL-13",
+      "disposition": "verified_local_fixture",
+      "finding": "Exact CI YAML/bash rejects M/D/R applied revisions and missing resolvable range history across synthetic PR/push/interior-span cases.",
+      "evidence_suite": "final_evidence"
+    },
+    {
+      "claim": "DB-01",
+      "disposition": "verified_local",
+      "finding": "Unsupported historical SQL upgrade/downgrade ranges fail before SQL output; supported forward ranges remain available.",
+      "evidence_suite": "platform_ops"
+    },
+    {
+      "claim": "DB-02",
+      "disposition": "verified_local_fixture",
+      "finding": "Missing optional private CA resolves from the same pinned dotenv snapshot while nonempty exports retain precedence.",
+      "evidence_suite": "platform_ops; deployment_artifacts"
+    },
+    {
+      "claim": "DB-03",
+      "disposition": "verified_local",
+      "finding": "Retention uses finite root/farm cohorts and lock/statement timeouts; child contention rolls the whole dependent chain back.",
+      "evidence_suite": "platform_ops"
+    },
+    {
+      "claim": "DB-04",
+      "disposition": "verified_local",
+      "finding": "Distinct expired farm discovery stays in bounded ordered SQL keyset pages rather than transferring all expired record IDs.",
+      "evidence_suite": "platform_ops"
+    },
+    {
+      "claim": "DB-05",
+      "disposition": "verified_local",
+      "finding": "Deletion counters merge only after successful cohort commit; isolated delete/commit failures contribute no durable deletion count.",
+      "evidence_suite": "platform_ops"
+    },
+    {
+      "claim": "DB-06",
+      "disposition": "delegated_domain_audit",
+      "finding": "Clinical explicit-null review CHECK and populated preflight belong to the domain agent.",
+      "evidence_suite": "domain evidence"
+    },
+    {
+      "claim": "DB-07",
+      "disposition": "delegated_domain_audit",
+      "finding": "Clinical image/crop/run/finding ancestry constraints belong to the domain agent.",
+      "evidence_suite": "domain evidence"
+    },
+    {
+      "claim": "DB-08",
+      "disposition": "verified_local_fixture",
+      "finding": "Explicit empty environment overrides win over stale dotenv values; ambiguous secret routes and shared/nested service directories fail.",
+      "evidence_suite": "platform_ops; deployment_artifacts"
+    },
+    {
+      "claim": "DB-09",
+      "disposition": "verified_source",
+      "finding": "Documentation does not claim that NOT VALID plus same-transaction VALIDATE removes locks held until commit.",
+      "evidence_suite": "README; migration env"
+    },
+    {
+      "claim": "ADD-07",
+      "disposition": "verified_local",
+      "finding": "Durable PostgreSQL checkpoint stays at the last completed page across process death, cancellation and checkpoint commit failure; separate transaction lock excludes duplicate schedulers.",
+      "evidence_suite": "maintenance_progress"
+    },
+    {
+      "claim": "D6",
+      "disposition": "verified_local",
+      "finding": "Exact SQL aggregate totals precede bounded feed/overdue examples in SMS headlines and dedupe payloads.",
+      "evidence_suite": "notification_quality"
+    },
+    {
+      "claim": "D7",
+      "disposition": "verified_with_followup_fix",
+      "finding": "Transactional clinical alert outbox and cross-day delivery claims resume quiet/cap work; historical daily receipts are now reconciled without duplicate paid/ambiguous attempts.",
+      "evidence_suite": "notifications; notification_quality; independent_security_ops"
+    }
+  ],
+  "shared_limits": [
+    "Hosted CI and release reruns not observed.",
+    "Production image boot/DB-role privileges, received external provider alert, remote verify-full CA recovery, representative lock-window/load/restart soak not performed.",
+    "PL-13 retains the documented all-zero before-SHA branch-creation tip-only fallback; normal existing-main push/PR ranges are the verified contract."
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "audited_commit": "fee30d56765cd8d1312a4f900d1450593b5e338c",
+  "immutable_git_archive": true,
+  "counts": {
+    "passed": 5124,
+    "skipped": 4,
+    "failed": 0,
+    "errors": 0
+  },
+  "unique_cases": 5128,
+  "disjoint_whole_file_partitions": true,
+  "collection_fingerprint": "3c414b088473d633d5ea321abf97cf51b8bf50ccec3bd52e7d452396af02bc41",
+  "original_combined_floor": 92,
+  "combined_floor_exit_code": 0,
+  "partition_commands": "GOATFARM_TEST_DB=herdly_independent_commit_d5nk5atr_{1,2}_test pytest -q --tb=short --cov=app --cov-branch --cov-report= --cov-fail-under=0 --junitxml=... [disjoint whole-file selection]; coverage combine --keep; coverage report --fail-under=92",
+  "per_partition_floor_zero_only_until_combination": true,
+  "fresh": true,
+  "combined_line_branch_coverage": {
+    "covered_lines": 18211,
+    "num_statements": 19262,
+    "percent_covered": 92.718882718066,
+    "percent_covered_display": "93",
+    "missing_lines": 1051,
+    "excluded_lines": 77,
+    "percent_statements_covered": 94.54366109438273,
+    "percent_statements_covered_display": "95",
+    "num_branches": 5226,
+    "num_partial_branches": 636,
+    "covered_branches": 4494,
+    "missing_branches": 732,
+    "percent_branches_covered": 85.9931113662457,
+    "percent_branches_covered_display": "86"
+  }
+}

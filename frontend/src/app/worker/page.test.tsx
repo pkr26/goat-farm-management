@@ -300,6 +300,7 @@ describe("WorkerLoginPage", () => {
     expect(signIn).toHaveBeenCalledWith(
       "manager-token",
       expect.objectContaining({ email: "owner@farm.in" }),
+      { sessionOnly: true },
     );
   });
 

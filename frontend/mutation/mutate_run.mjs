@@ -11,21 +11,25 @@ export const FRONTEND = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 export function createCampaign({ root = FRONTEND, full = false, filesOverride = null, timeoutMs = null } = {}) {
   const manifestPath = path.join(root, "mutation/manifest.json");
   const coveragePath = path.join(root, "mutation/coverage-map.json");
-  const manifest = readJSON(manifestPath);
-  const coverage = readJSON(coveragePath);
+  const manifestBytes = readFileSync(manifestPath);
+  const coverageBytes = readFileSync(coveragePath);
+  const manifest = JSON.parse(manifestBytes);
+  const coverage = JSON.parse(coverageBytes);
   const current = inputs(root);
   if (coverage.schema !== 2 || !coverage.complete || digest(current) !== digest(coverage.inputs)) throw new Error("Coverage is incomplete or stale; rebuild mutation coverage against current inputs");
   const policy = { version: 2, full, filesOverride, timeoutMs, rounds: [1, 8, 25], timeout: "inconclusive", kill: "assertion-only", node: process.version };
-  const provenance = { manifestSha: hash(readFileSync(manifestPath)), coverageSha: hash(readFileSync(coveragePath)), inputs: current, policy };
+  const provenance = { manifestSha: hash(manifestBytes), coverageSha: hash(coverageBytes), inputs: current, policy };
   return { root, manifest, coverage, policy, provenance, id: digest(provenance), runId: randomUUID(), baselines: new Map() };
 }
 export function coveringTests(mutant, campaign) {
   const indices = campaign.coverage.files[mutant.file]?.[String(mutant.line)] ?? [];
   return [...new Set(indices.map((index) => campaign.coverage.testFiles[index]).filter(Boolean))];
 }
-export function guardMutant(mutantId, root = FRONTEND) {
+export function guardMutant(mutantId, root = FRONTEND, manifestSha = null) {
   if (!mutantId) return;
-  const manifest = readJSON(path.join(root, "mutation/manifest.json"));
+  const manifestBytes = readFileSync(path.join(root, "mutation/manifest.json"));
+  if (manifestSha && hash(manifestBytes) !== manifestSha) throw new Error("MUTATION_INVALID: manifest fingerprint changed");
+  const manifest = JSON.parse(manifestBytes);
   const mutant = manifest.mutants.find((item) => item.id === mutantId);
   if (!mutant) throw new Error("MUTATION_INVALID: mutant missing");
   const target = path.resolve(root, mutant.file);
@@ -34,6 +38,7 @@ export function guardMutant(mutantId, root = FRONTEND) {
   if (hash(source) !== manifest.fileMeta[mutant.file]?.sha256) throw new Error("MUTATION_INVALID: source fingerprint changed");
   validateEdits(source, mutant);
   validateContext(source, mutant);
+  return mutant;
 }
 export function classifyVitest(code, receipt) {
   if (!receipt || !Array.isArray(receipt.tests) || receipt.reason !== "passed" && receipt.reason !== "failed") return "INFRA_ERROR";
@@ -43,16 +48,20 @@ export function classifyVitest(code, receipt) {
   if (code === 1 && failures.length > 0 && failures.every((test) => test.errors?.length > 0 && test.errors.every((error) => error.name === "AssertionError"))) return "KILLED";
   return "INFRA_ERROR";
 }
-export async function runVitest(mutantId, testFiles, timeoutMs, { root = FRONTEND, extraArgs = [] } = {}) {
+export async function runVitest(mutantId, testFiles, timeoutMs, { root = FRONTEND, extraArgs = [], manifestSha = null } = {}) {
   const started = Date.now();
   if (!testFiles.length) return { verdict: "INFRA_ERROR", ms: 0, out: "Empty selection refused" };
-  try { guardMutant(mutantId, root); } catch (error) { return { verdict: "INVALID", ms: 0, out: String(error) }; }
+  let pinnedManifestSha = manifestSha;
+  try {
+    if (mutantId) pinnedManifestSha ??= hash(readFileSync(path.join(root, "mutation/manifest.json")));
+    guardMutant(mutantId, root, pinnedManifestSha);
+  } catch (error) { return { verdict: "INVALID", ms: 0, out: String(error) }; }
   const directory = mkdtempSync(path.join(os.tmpdir(), "herdly-vitest-receipt-"));
   const receiptPath = path.join(directory, "receipt.json");
   try {
     return await new Promise((resolve) => {
       const args = [path.join(root, "node_modules/vitest/vitest.mjs"), "run", "--config", "vitest.mutation.config.ts", "--reporter", path.join(root, "mutation/vitest_receipt.mjs"), ...extraArgs, ...testFiles];
-      const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, MUTANT_ID: mutantId ?? "", MUTATION_RECEIPT_PATH: receiptPath }, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, MUTANT_ID: mutantId ?? "", MUTATION_MANIFEST_SHA: pinnedManifestSha ?? "", MUTATION_RECEIPT_PATH: receiptPath }, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
       let out = "";
       let timedOut = false;
       const collect = (data) => { out = (out + data).slice(-200_000); };
@@ -76,11 +85,21 @@ function sample(files, count) {
   if (files.length <= count) return files;
   return Array.from({ length: count }, (_, index) => files[Math.floor(index * files.length / count)]);
 }
+function campaignCurrent(campaign) {
+  try {
+    return hash(readFileSync(path.join(campaign.root, "mutation/manifest.json"))) === campaign.provenance.manifestSha &&
+      hash(readFileSync(path.join(campaign.root, "mutation/coverage-map.json"))) === campaign.provenance.coverageSha &&
+      digest(inputs(campaign.root)) === digest(campaign.provenance.inputs);
+  } catch { return false; }
+}
 export async function judge(mutant, campaign, { filesOverride = campaign.policy.filesOverride, full = campaign.policy.full, run = runVitest } = {}) {
   const tests = filesOverride ? [...new Set(filesOverride)] : coveringTests(mutant, campaign);
   const result = { id: mutant.id, mutantDigest: digest(mutant), campaignId: campaign.id, provenance: campaign.provenance, runId: campaign.runId, attemptId: randomUUID(), statusPolicy: campaign.policy, totalTests: tests.length };
-  try { guardMutant(mutant.id, campaign.root); } catch (error) { return { ...result, verdict: "INVALID", tests: 0, error: String(error) }; }
-  if (digest(inputs(campaign.root)) !== digest(campaign.provenance.inputs)) return { ...result, verdict: "INFRA_ERROR", tests: 0, error: "Inputs changed during campaign" };
+  if (!campaignCurrent(campaign)) return { ...result, verdict: "INFRA_ERROR", tests: 0, error: "Inputs or campaign artifacts changed during campaign" };
+  try {
+    const boundMutant = guardMutant(mutant.id, campaign.root, campaign.provenance.manifestSha);
+    if (digest(boundMutant) !== digest(mutant)) throw new Error("MUTATION_INVALID: mutant does not match campaign binding");
+  } catch (error) { return { ...result, verdict: campaignCurrent(campaign) ? "INVALID" : "INFRA_ERROR", tests: 0, error: String(error) }; }
   if (!tests.length) return { ...result, verdict: "NO_COVERAGE", tests: 0, selectionMode: "complete" };
   const rounds = full || filesOverride ? [tests] : [...new Set([1, 8, 25].map((size) => Math.min(size, tests.length)))].map((size) => sample(tests, size));
   let ms = 0;
@@ -91,16 +110,17 @@ export async function judge(mutant, campaign, { filesOverride = campaign.policy.
     const key = digest({ selectionSha, timeout });
     let baseline = campaign.baselines.get(key);
     if (!baseline) {
-      baseline = await run(null, files, timeout, { root: campaign.root });
+      baseline = await run(null, files, timeout, { root: campaign.root, manifestSha: campaign.provenance.manifestSha });
       if (baseline.verdict === "SURVIVED") campaign.baselines.set(key, baseline);
     }
     const complete = files.length === tests.length;
     const selectionMode = complete ? filesOverride ? "explicit" : "complete" : "sampled";
+    if (!campaignCurrent(campaign)) return { ...result, verdict: "INFRA_ERROR", tests: files.length, selectionSha, selectionMode, baseline, error: "Inputs or campaign artifacts changed during baseline" };
     if (baseline.verdict !== "SURVIVED") return { ...result, verdict: baseline.verdict === "INCONCLUSIVE_TIMEOUT" ? "INCONCLUSIVE_TIMEOUT" : "INFRA_ERROR", tests: files.length, selectionSha, selectionMode, baseline, error: "Clean exact-selection baseline did not pass" };
-    const attempt = await run(mutant.id, files, timeout, { root: campaign.root });
+    const attempt = await run(mutant.id, files, timeout, { root: campaign.root, manifestSha: campaign.provenance.manifestSha });
     ms += baseline.ms + attempt.ms;
     outcome = { ...result, verdict: attempt.verdict, tests: files.length, selectionSha, selectionMode, baseline, ms, exitCode: attempt.exitCode, receipt: attempt.receipt, tail: attempt.out };
-    if (digest(inputs(campaign.root)) !== digest(campaign.provenance.inputs)) return { ...outcome, verdict: "INFRA_ERROR", error: "Inputs changed during execution" };
+    if (!campaignCurrent(campaign)) return { ...outcome, verdict: "INFRA_ERROR", error: "Inputs or campaign artifacts changed during execution" };
     if (attempt.verdict !== "SURVIVED" || complete) return outcome;
   }
   return outcome;

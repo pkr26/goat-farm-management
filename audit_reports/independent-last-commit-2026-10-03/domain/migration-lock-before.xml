@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="22.952" timestamp="2026-10-03T15:13:03.296714-07:00" hostname="pradeeps-MacBook-Pro.local"><testcase classname="tests.test_independent_review_history_audit" name="test_forward_snapshot_lock_serializes_a_concurrent_review" time="22.840"><failure message="AssertionError: Finding lock admitted a reviewer before History DDL; migration=INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.&#10;  INFO  [alembic.runtime.migration] Will assume transactional DDL.&#10;  INFO  [alembic.runtime.migration] Running upgrade f8e2f6a0c5d3 -&gt; f9a3b7c1d5e2, Preserve known legacy screening decisions before their first re-review.&#10;  ; reviewer=DeadlockDetectedError('deadlock detected')&#10;assert (False)">backend/tests/test_independent_review_history_audit.py:310: in test_forward_snapshot_lock_serializes_a_concurrent_review
+    assert blocks_reviewer and not selected_before_release, (
+E   AssertionError: Finding lock admitted a reviewer before History DDL; migration=INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+E     INFO  [alembic.runtime.migration] Will assume transactional DDL.
+E     INFO  [alembic.runtime.migration] Running upgrade f8e2f6a0c5d3 -&gt; f9a3b7c1d5e2, Preserve known legacy screening decisions before their first re-review.
+E     ; reviewer=DeadlockDetectedError('deadlock detected')
+E   assert (False)</failure></testcase></testsuite></testsuites>

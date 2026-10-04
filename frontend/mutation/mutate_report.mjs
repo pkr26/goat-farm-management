@@ -1,7 +1,7 @@
 // Compatible latest-attempt folding. Historical percentages are not release evidence.
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { atomicJSON, digest, hash, inputs, latestCompatible, readJSON, records } from "./mutate_identity.mjs";
+import { atomicJSON, digest, hash, inputs, latestCompatible, records } from "./mutate_identity.mjs";
 import { readFileSync } from "node:fs";
 import { FRONTEND } from "./mutate_run.mjs";
 
@@ -24,11 +24,13 @@ export function summarize(campaign, rows) {
   return { campaignId: campaign.id, total: campaign.manifest.mutants.length, counts, sampled, scored: killed + survived, killed, survived, score: killed + survived ? killed / (killed + survived) : null, untrustedHistoricalRows: rows.filter((row) => row.campaignId !== campaign.id).length };
 }
 export function report({ root = FRONTEND, campaignId = null } = {}) {
-  const manifest = readJSON(path.join(root, "mutation/manifest.json"));
+  const manifestBytes = readFileSync(path.join(root, "mutation/manifest.json"));
+  const manifest = JSON.parse(manifestBytes);
   const coveragePath = path.join(root, "mutation/coverage-map.json");
-  const coverage = readJSON(coveragePath);
-  const manifestSha = hash(readFileSync(path.join(root, "mutation/manifest.json")));
-  const coverageSha = hash(readFileSync(coveragePath));
+  const coverageBytes = readFileSync(coveragePath);
+  const coverage = JSON.parse(coverageBytes);
+  const manifestSha = hash(manifestBytes);
+  const coverageSha = hash(coverageBytes);
   const current = inputs(root);
   const rows = records(path.join(root, "mutation/results.jsonl"));
   const eligible = rows.filter((row) => row.provenance && digest(row.provenance) === row.campaignId && row.provenance.manifestSha === manifestSha && row.provenance.coverageSha === coverageSha && digest(row.provenance.inputs) === digest(current) && coverage.schema === 2 && coverage.complete && digest(coverage.inputs) === digest(current) && (!campaignId || row.campaignId === campaignId));

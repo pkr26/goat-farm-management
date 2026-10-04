@@ -511,7 +511,7 @@ class ScreeningFinding(Base):
 
 
 class ScreeningFindingReview(Base):
-    """A new review decision; pre-cutover metadata stays on its original finding."""
+    """Immutable decisions; revision zero preserves an actual legacy baseline."""
 
     __tablename__ = "screening_finding_reviews"
     __table_args__ = (
@@ -521,7 +521,11 @@ class ScreeningFindingReview(Base):
             name="fk_screening_finding_reviews_farm_finding",
             ondelete="CASCADE",
         ),
-        CheckConstraint("revision > 0", name="ck_screening_finding_reviews_revision"),
+        CheckConstraint("revision >= 0", name="ck_screening_finding_reviews_revision"),
+        CheckConstraint(
+            "revision <> 0 OR previous_status = status",
+            name="ck_screening_finding_reviews_legacy_snapshot",
+        ),
         CheckConstraint(
             "previous_status IN ('PENDING_REVIEW', 'CONFIRMED', 'REJECTED') "
             "AND status IN ('CONFIRMED', 'REJECTED')",

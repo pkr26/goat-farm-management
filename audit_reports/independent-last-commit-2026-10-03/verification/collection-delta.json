@@ -1,0 +1,18 @@
+{
+  "final_current_cases": 5169,
+  "final_partition_case_counts": [
+    2350,
+    2819
+  ],
+  "final_full_run_source": "final-source-sha256.json",
+  "previous_full_corrected_snapshot_cases": 5157,
+  "additional_current_cases": 12,
+  "removed_current_cases": 0,
+  "final_suite_includes_all_current_harness_and_domain_cases": true,
+  "changed_existing_test": "test_positive_root_isolation_uses_decimal_path_at_its_term_limit; strengthened real Decimal boundary contract, same collected case identity",
+  "final_run": "Fresh complete exact final-source suite, disjoint whole-file partitions; original92combinedline/branchcoveragefloor enforced after combination.",
+  "current_final_cases": 5170,
+  "additional_concurrency_case_after_snapshot": 1,
+  "full_plus_latest_affected_checks_cover_every_current_case": true,
+  "source_delta": "post-freeze-source-delta.json"
+}

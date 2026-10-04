@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="3.917" timestamp="2026-10-03T14:52:42.838279-07:00" hostname="pradeeps-MacBook-Pro.local"><testcase classname="tests.test_simulation_finance_mutation" name="test_positive_root_isolation_uses_decimal_path_at_its_term_limit" time="3.882"><failure message="assert [1.0] == [1.25]&#10;  &#10;  At index 0 diff: 1.0 != 1.25&#10;  Use -v to get more diff">backend/tests/test_simulation_finance_mutation.py:269: in test_positive_root_isolation_uses_decimal_path_at_its_term_limit
+    assert _positive_power_roots(terms, 0.5, 2.0) == [1.25]
+E   assert [1.0] == [1.25]
+E     
+E     At index 0 diff: 1.0 != 1.25
+E     Use -v to get more diff</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,26 @@
+{
+  "scope": "Read-only independent review of root backend mutation provenance and timeout cleanup changes",
+  "finding": {
+    "issue": "Backend pins omitted from execution-input identity although deployment tests read pins/uv.txt and pins/pip-audit.txt",
+    "original_temp_project_probe": "Changing uv==1 to uv==2 left input_identity equal; reproduced and reported to root",
+    "status": "Root subsequently added pins tree to support identity",
+    "corrected_temp_project_probe_changes_identity": true
+  },
+  "cleanup_review": "Unique hex namespace guard bounds all dropped databases; subprocess timeout kills the owned process group before dropping its attempt database; failed database cleanup converts otherwise-conclusive outcome to infra. Real killed-pytest database fixture covers cleanup.",
+  "current_source_sha256": {
+    "backend/mutation/mutate_identity.py": "9ce3403240aff0b75500fd92a3ad0bcf24195617b27a0376f50746c716ee577a",
+    "backend/mutation/mutate_run.py": "ad2098d97b316fbe86ae95252728ac1e87f48dbf6e943a6e767d1bf247b58869",
+    "backend/tests/test_mutation_harness_20261003.py": "7a78ab2c23656e470c34885c56cdd433d855c73bc6dffcd6db2bbc66ceb1a566"
+  },
+  "independent_execution": {
+    "command": "GOATFARM_TEST_DB=goatfarm_test_domain_mutation_peer backend/.venv/bin/python -m pytest backend/tests/test_mutation_harness_20261003.py -q --tb=short",
+    "result": "36 passed, 1 failed in 25.93s",
+    "failure": "test_killed_pytest_attempt_reaps_its_real_disposable_database: cleanup timeout changed expected timeout status to infra; test final cleanup also timed out.",
+    "receipt": "mutation-peer-36-pass-1-fail.log",
+    "diagnosis": "Exact DROP DATABASE IF EXISTS owned attempt WITH (FORCE), asyncpg timeout10, observed IPC/CheckpointDone throughout 9.5 seconds, pg_blocking_pids empty and all locks granted. Transient PostgreSQL checkpoint contention under concurrent full suites, rather than a conflicting transaction.",
+    "diagnostic_receipt": "mutation-cleanup-diagnostic.json",
+    "final_cleanup": "Bounded45s retry succeeded in5.724s, pg_database confirmed absent. No runner or assertion changes.",
+    "cleanup_receipt": "mutation-cleanup-final.json",
+    "limit": "This independent run does not establish a passing full harness execution under catalog contention. Root separately reported37 passing before catalog load."
+  }
+}

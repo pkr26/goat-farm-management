@@ -304,6 +304,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   // start month so a run and a save always agree.
   const [nlmSubsidy, setNlmSubsidy] = useState(false);
   const [invalidNlmFields, setInvalidNlmFields] = useState<Set<string>>(new Set());
+  const [nlmBasisVersion, setNlmBasisVersion] = useState(0);
   // A defaults response may only land while it is still the latest intent.
   const acceptDefaultsRef = useRef(true);
 
@@ -321,6 +322,8 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       // Stryker disable next-line BooleanLiteral: same-key redelivery only happens via remount (a fresh ref re-accepts anyway) or loadBreedDefaults (which re-arms first); refetchOnWindowFocus is off app-wide, so no path re-delivers defaults without re-arming
       acceptDefaultsRef.current = false;
       setAssumptions(defaultsQuery.data.data);
+      setInvalidNlmFields(new Set());
+      setNlmBasisVersion((version) => version + 1);
       setBasisSource("preset");
     }
   }, [defaultsQuery.data]);
@@ -409,6 +412,8 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       }
       const calibrated = res.data.data;
       setAssumptions(calibrated.assumptions);
+      setInvalidNlmFields(new Set());
+      setNlmBasisVersion((version) => version + 1);
       setBasisSource("calibration");
       if (!farmScope()) return;
       toast.success(
@@ -551,9 +556,11 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   const [planName, setPlanName] = useState("");
   const [openPlan, setOpenPlanState] = useState<PlannerPlanOut | null>(null);
   const openPlanRef = useRef<PlannerPlanOut | null>(null);
+  const openPlanGeneration = useRef(0);
   // All changes occur in event/async continuations; the ref fences older
   // conflict responses immediately, before React paints another open plan.
   function setOpenPlan(plan: PlannerPlanOut | null) {
+    openPlanGeneration.current += 1;
     openPlanRef.current = plan;
     setOpenPlanState(plan);
   }
@@ -586,6 +593,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   async function onSavePlan() {
     await saveAction.run(async () => {
       const farmScope = captureFarmScope();
+      const generation = openPlanGeneration.current;
       const payload = anchoredAssumptions();
       const name = planName.trim();
       // Stryker disable ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral: the Save button is disabled for exactly these states (including the trimmed-empty name), so both branches are unreachable defense-in-depth
@@ -612,7 +620,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
           },
         });
         if (res.status === 201 && farmScope()) {
-          setOpenPlan(res.data);
+          if (openPlanGeneration.current === generation) setOpenPlan(res.data);
           invalidatePlans();
           toast.success(t("planner.toast.saved", { name }));
         }
@@ -626,6 +634,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   async function onUpdatePlan() {
     await saveAction.run(async () => {
       const farmScope = captureFarmScope();
+      const generation = openPlanGeneration.current;
       // Stryker disable next-line ConditionalExpression: the Update button only renders while openPlan is set, so the guard is unreachable defense-in-depth
       if (!openPlan) return;
       const payload = anchoredAssumptions();
@@ -656,7 +665,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
           },
         });
         if (res.status === 200 && farmScope()) {
-          setOpenPlan(res.data);
+          if (openPlanGeneration.current === generation) setOpenPlan(res.data);
           invalidatePlans();
           toast.success(t("planner.toast.updated", { name: res.data.name }));
         }
@@ -667,7 +676,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
           // Keep the original revision and draft until the operator chooses
           // whether to load the complete authoritative contents.
           const refreshed = await client_get_plan(openPlan.id);
-          if (refreshed && farmScope() && openPlanRef.current?.id === openPlan.id)
+          if (refreshed && farmScope() && openPlanGeneration.current === generation && openPlanRef.current?.id === openPlan.id)
             setConflictingPlan(refreshed);
           return;
         }
@@ -696,7 +705,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         params: { expected_revision: plan.revision },
       });
       if (res.status === 204 && farmScope()) {
-        if (openPlan?.id === plan.id) {
+        if (openPlanRef.current?.id === plan.id) {
           setOpenPlan(null);
           setPlanName("");
         }
@@ -760,6 +769,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     setStartMonth(plan.start_year_month);
     setAssumptions(plan.assumptions);
     setInvalidNlmFields(new Set());
+    setNlmBasisVersion((version) => version + 1);
     setConflictingPlan(null);
     setNlmSubsidy(plan.assumptions.finance?.nlm_subsidy === true);
     acceptDefaultsRef.current = false;
@@ -1143,7 +1153,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             </div>
           </div>
           {nlmSubsidy && assumptions?.finance && <NlmFundingEditor
-            key={`${basisSource}:${submittedParams.breed}:${submittedParams.system}`}
+            key={`${basisSource}:${submittedParams.breed}:${submittedParams.system}:${nlmBasisVersion}`}
             prefix="planner" value={{ ...assumptions.finance, nlm_subsidy: true }}
             onChange={(patch) => {
               acceptDefaultsRef.current = false;

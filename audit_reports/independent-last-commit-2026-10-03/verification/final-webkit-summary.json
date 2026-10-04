@@ -1,0 +1,15 @@
+{
+  "browser": "webkit",
+  "stats": {
+    "startTime": "2026-10-03T21:40:13.961Z",
+    "duration": 141893.34900000002,
+    "expected": 71,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "source_binding": "browser-source-binding.json",
+  "command": "E2E_API_URL=http://localhost:8100 E2E_BROWSER=webkit pnpm exec playwright test --reporter=list,json",
+  "retries": 0,
+  "test_changes": "Port-only runtime configuration; intended URL checks added to a11y-gate.spec.ts. Existing business and axe assertions retained."
+}

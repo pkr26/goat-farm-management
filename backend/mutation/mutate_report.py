@@ -6,7 +6,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from mutate_identity import digest_json, input_identity, latest_compatible, read_results, sha_file
+from mutate_identity import (
+    digest_json,
+    input_identity,
+    latest_compatible,
+    read_results,
+    sha_bytes,
+    sha_file,
+)
 
 BACKEND = Path(__file__).resolve().parent.parent
 MUTDIR = BACKEND / "mutation"
@@ -44,8 +51,14 @@ def main() -> None:
     parser.add_argument("--campaign-id")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    manifest = {m["id"]: m for m in json.loads((MUTDIR / "manifest.json").read_text())}
+    manifest_bytes = (MUTDIR / "manifest.json").read_bytes()
+    manifest = {m["id"]: m for m in json.loads(manifest_bytes)}
     records = read_results(MUTDIR / "results.jsonl")
+    artifacts = {
+        "manifest_sha256": sha_bytes(manifest_bytes),
+        "coverage_sha256": sha_file(BACKEND / ".coverage-mut"),
+        "coverage_provenance_sha256": sha_file(BACKEND / ".coverage-mut.provenance.json"),
+    }
     inputs = input_identity(BACKEND)
     eligible = [
         r
@@ -53,10 +66,7 @@ def main() -> None:
         if r.get("provenance")
         and r.get("campaign_id") == digest_json(r["provenance"])
         and all(r["provenance"].get(k) == v for k, v in inputs.items())
-        and r["provenance"].get("manifest_sha256") == sha_file(MUTDIR / "manifest.json")
-        and r["provenance"].get("coverage_sha256") == sha_file(BACKEND / ".coverage-mut")
-        and r["provenance"].get("coverage_provenance_sha256")
-        == sha_file(BACKEND / ".coverage-mut.provenance.json")
+        and all(r["provenance"].get(k) == v for k, v in artifacts.items())
     ]
     campaign = args.campaign_id or (eligible[-1]["campaign_id"] if eligible else "unmeasured")
     summary = summarize(manifest, eligible, campaign_id=campaign)

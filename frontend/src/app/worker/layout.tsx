@@ -153,7 +153,11 @@ export function WorkerShell({ children }: { children: ReactNode }) {
     };
     return startWorkerOutbox(scopes, (records) => {
       setOutbox({ scopeKey: `${user.id}:${farmId}`, records, error: false });
-    }, () => setOutbox({ scopeKey: `${user.id}:${farmId}`, records: [], error: true }));
+    }, () => setOutbox({ scopeKey: `${user.id}:${farmId}`, records: [], error: true }),
+    // Rotation is an authentication prerequisite, not a rejection of the
+    // saved duty. Keep receipts visible without converting pending work to
+    // definitive 403 review receipts before the worker can rotate it.
+    () => !user.must_change_password);
   }, [user, farmId, t]);
 
   // Session gates: mirror the app shell's, aimed at the worker surface.

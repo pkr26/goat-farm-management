@@ -1,0 +1,31 @@
+✔ concurrent real Vitest mutations pass exact clean baselines and never write live source (1001.302083ms)
+✔ real thrown errors, collection failures, and assertion failures in setup are infrastructure (1177.259083ms)
+✔ a failing clean baseline prevents a mutant kill (387.151667ms)
+✔ timeout and empty or nonexistent test selections do not count as kills (310.157166ms)
+✔ stale originals, overlapping edits, invalid contexts and source drift fail before spawning (5.622917ms)
+✔ the transform independently verifies exact fingerprints and keeps original bytes (2.6425ms)
+✔ test/dependency changes and reused ids invalidate provenance (3.542292ms)
+✔ service-worker, config, script and repository inputs invalidate coverage and resume (16.837583ms)
+✔ an active campaign never credits a replacement edit under the original mutant identity (3.726542ms)
+✔ manifest and coverage drift during a real baseline prevents mutation execution (796.520375ms)
+✔ manifest and coverage drift after real assertion failures cannot publish kills (1606.901541ms)
+✔ parent binding, guard and child transform independently reject replacement edits (5.642417ms)
+✔ resume retries latest error, timeout and uncovered rows and ignores historical ids (3.600292ms)
+✔ true full mode executes every one of 1001 coverers and the exact baseline (6.1375ms)
+✔ latest errors, timeouts and sampled kills are excluded from complete score (3.553209ms)
+✔ partial coverage replaces old paths, removes deleted tests and invalidates changed source positions (0.142584ms)
+{"smoke":"failed","checks":[true,false,true,true]}
+✔ real V8 coverage publishes atomically and failed partial refresh preserves exact map bytes (1293.941375ms)
+✔ smoke requires SURVIVED baseline and CLI exits nonzero on required failure (1360.493833ms)
+✔ dry-run preserves sources/maps/results and does not start Vitest (138.989375ms)
+✔ all process exits require a structured assertion receipt to be credited a kill (0.116166ms)
+✔ successful smoke returns zero after actual baseline and repeated assertion kills (1758.780334ms)
+✔ reverification runs all 41 coverers without dedicated tests and appends a complete receipt (7005.714917ms)
+ℹ tests 22
+ℹ suites 0
+ℹ pass 22
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 17077.581041

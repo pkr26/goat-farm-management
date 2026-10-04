@@ -1,0 +1,11 @@
+{
+  "scenario": "Live manifest replaces a campaign no-op edit under the same ID with a failing edit",
+  "before": {
+    "campaignEdit": "1 -> 1",
+    "executedEdit": "1 -> 2",
+    "verdict": "KILLED",
+    "baselineVerdict": "SURVIVED",
+    "recordsOriginalMutantDigest": true,
+    "campaignManifestHashDiffersFromLive": true
+  }
+}

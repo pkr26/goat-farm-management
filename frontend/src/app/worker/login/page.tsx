@@ -28,7 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError, authSessionEpochValue, revokeTabletSetupSession } from "@/lib/api-client";
-import { useAuth, type FarmEntry } from "@/lib/auth-context";
+import { failedSessionEstablishmentEpoch, useAuth, type FarmEntry } from "@/lib/auth-context";
 import { useT } from "@/lib/i18n";
 import { safeStorage } from "@/lib/safe-storage";
 import { readOfflineShift } from "@/lib/worker-offline-shift";
@@ -64,7 +64,7 @@ export default function WorkerLoginPage() {
   const setupRef = useRef(false);
   const attemptGeneration = useRef(0);
   const requestController = useRef<AbortController | null>(null);
-  const setupSessionEpoch = useRef<number | null>(null);
+  const setupSession = useRef<{ epoch: number; accessToken: string } | null>(null);
   const establishingPinSession = useRef<{ epoch: number; accessToken: string } | null>(null);
   const [unpinOpen, setUnpinOpen] = useState(false);
 
@@ -91,6 +91,21 @@ export default function WorkerLoginPage() {
     return false;
   }, [signOut]);
 
+  const abandonSetupSession = useCallback(() => {
+    const staged = setupSession.current;
+    setupSession.current = null;
+    setupRef.current = false;
+    if (staged === null) return false;
+    if (staged.epoch === authSessionEpochValue()) {
+      void signOut({ sessionOnly: true });
+      return true;
+    }
+    // A replacement worker owns local state. The temporary manager's exact
+    // bearer still needs revocation even after its epoch has been superseded.
+    void revokeTabletSetupSession(staged.accessToken).catch(() => {});
+    return false;
+  }, [signOut]);
+
   function backToRoster() {
     const endedStagedSession = cancelAttempt();
     setSelected(null);
@@ -107,12 +122,9 @@ export default function WorkerLoginPage() {
   useEffect(() => {
     return () => {
       cancelAttempt();
-      if (setupRef.current && setupSessionEpoch.current === authSessionEpochValue()) {
-        setupRef.current = false;
-        void signOut({ sessionOnly: true });
-      }
+      abandonSetupSession();
     };
-  }, [cancelAttempt, signOut]);
+  }, [cancelAttempt, abandonSetupSession]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage exists only client-side; reading it during render would break SSR hydration
@@ -188,6 +200,10 @@ export default function WorkerLoginPage() {
       toast.success(selected.display_name);
       router.replace("/worker");
     } catch (error) {
+      const failedEpoch = failedSessionEstablishmentEpoch(error);
+      if (attemptGeneration.current === attempt && !controller.signal.aborted && failedEpoch === authSessionEpochValue()) {
+        expectedEpoch = failedEpoch;
+      }
       if (!isCurrent()) return;
       establishingPinSession.current = null;
       setPin("");
@@ -238,12 +254,17 @@ export default function WorkerLoginPage() {
         return;
       }
       setupRef.current = true;
-      const establishing = signIn(body.access_token, body.user);
+      const establishing = signIn(body.access_token, body.user, { sessionOnly: true });
       expectedEpoch = authSessionEpochValue();
-      setupSessionEpoch.current = authSessionEpochValue();
+      setupSession.current = { epoch: expectedEpoch, accessToken: body.access_token };
       await establishing;
       if (isCurrent()) setSetupStep("choose-farm");
     } catch (error) {
+      const failedEpoch = failedSessionEstablishmentEpoch(error);
+      if (attemptGeneration.current === attempt && !controller.signal.aborted && failedEpoch === authSessionEpochValue()) {
+        expectedEpoch = failedEpoch;
+        setupSession.current = null; setupRef.current = false;
+      }
       if (!isCurrent()) return;
       // Mirror the PIN flow's split: an ApiError is the server judging the
       // credentials; a non-ApiError never reached the server, and "check your
@@ -279,12 +300,17 @@ export default function WorkerLoginPage() {
         void revokeTabletSetupSession(body.access_token).catch(() => {}); return;
       }
       setupRef.current = true;
-      const establishing = signIn(body.access_token, body.user);
+      const establishing = signIn(body.access_token, body.user, { sessionOnly: true });
       expectedEpoch = authSessionEpochValue();
-      setupSessionEpoch.current = authSessionEpochValue();
+      setupSession.current = { epoch: expectedEpoch, accessToken: body.access_token };
       await establishing;
       if (isCurrent()) { setMfaToken(null); setSetupStep("choose-farm"); }
     } catch (error) {
+      const failedEpoch = failedSessionEstablishmentEpoch(error);
+      if (attemptGeneration.current === attempt && !controller.signal.aborted && failedEpoch === authSessionEpochValue()) {
+        expectedEpoch = failedEpoch;
+        setupSession.current = null; setupRef.current = false;
+      }
       if (!isCurrent()) return;
       setCode("");
       // Same split as the credentials step above: the server answered (bad
@@ -300,6 +326,12 @@ export default function WorkerLoginPage() {
   }
 
   async function pinFarm(farm: FarmEntry) {
+    if (setupSession.current?.epoch !== authSessionEpochValue()) {
+      abandonSetupSession();
+      setSetupStep(null);
+      setBusy(false);
+      return;
+    }
     if (!writeTabletFarmId(farm.id)) { setError(t("worker.setup.failed")); return; }
     setTabletFarmId(farm.id);
     setSetupStep(null);
@@ -310,6 +342,7 @@ export default function WorkerLoginPage() {
     // cannot fire a second sign-out; signOut navigates to the manager's
     // /login, so hand the tablet back to the workers' PIN pad explicitly.
     setupRef.current = false;
+    setupSession.current = null;
     attemptGeneration.current += 1; requestController.current?.abort();
     const revocation = signOut({ sessionOnly: true });
     router.replace("/worker/login");
@@ -318,7 +351,7 @@ export default function WorkerLoginPage() {
 
   async function cancelSetup() {
     // Abandoning midway must not leave the manager's session behind (W3).
-    const hadManagerSession = setupRef.current && setupSessionEpoch.current === authSessionEpochValue();
+    const hadManagerSession = abandonSetupSession();
     attemptGeneration.current += 1; requestController.current?.abort();
     setupRef.current = false;
     setSetupStep(null);
@@ -330,9 +363,7 @@ export default function WorkerLoginPage() {
       // The manager signed in but never pinned: end that session, then hand
       // the tablet back to the PIN pad — signOut itself navigates to the
       // manager's /login form.
-      const revocation = signOut({ sessionOnly: true });
       router.replace("/worker/login");
-      await revocation;
     }
   }
 

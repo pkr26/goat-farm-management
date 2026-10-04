@@ -24,7 +24,11 @@ For a new campaign on a stable checkout:
    Generate a report only when ready to record the fresh campaign.
 
 Each attempt gets a private source snapshot, process session and database
-namespace. Neither the runner nor verification helpers rewrite live app files.
+namespace. The parent reaps that exact database after process exit, including
+timeouts where pytest cannot run fixture teardown. Cleanup allows PostgreSQL
+45 seconds to finish an in-progress checkpoint; a cleanup failure remains an
+infrastructure result and cannot count as a kill. Neither the runner nor
+verification helpers rewrite live app files.
 The exact selection must pass unmutated under identical resource limits before
 its mutant runs. Structured pytest receipts distinguish assertion failures
 from setup, collection, usage, internal, no-test and transport errors. Only
@@ -32,8 +36,17 @@ assertion failures become `KILLED`; other failures are `INFRA_ERROR`, invalid
 edits are `INVALID`, and every timeout is `INCONCLUSIVE_TIMEOUT`.
 
 A campaign receipt binds manifest, source, tests, dependency locks, coverage,
-coverage provenance and harness configuration. Resume accepts compatible
-terminal results only; errors, uncovered results and timeouts are retried.
+coverage provenance and harness configuration, plus executed migration/scripts
+and repository contract/deployment inputs read by the tests. The runner captures
+manifest, coverage and coverage-provenance bytes once, fingerprints those bytes,
+and parses the captured coverage. Replacing and restoring live artifacts during
+execution cannot change its test selection. Every mutation must exactly match
+the captured manifest; the snapshot uses that manifest and the execution mode
+is fixed when the campaign starts. Coverage publication hashes the bytes from
+its passing baseline, so a concurrent publication cannot receive that baseline's
+provenance. Reports parse and fingerprint the same captured manifest bytes.
+Resume accepts compatible terminal results only; errors, uncovered results and
+timeouts are retried.
 Reports fold the latest compatible attempt per mutant, show incomplete states,
 and exclude sampled/module-fallback selections and inconclusive states from
 the complete-selection score. Review equivalence separately with evidence.

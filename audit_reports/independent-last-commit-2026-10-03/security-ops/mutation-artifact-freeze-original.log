@@ -1,0 +1,42 @@
+FFFFF                                                                    [100%]
+=================================== FAILURES ===================================
+_ test_campaign_uses_captured_coverage_during_live_artifact_replacement[coverage] _
+tests/test_mutation_harness_20261003.py:191: in test_campaign_uses_captured_coverage_during_live_artifact_replacement
+    assert runner.ctx["app/alpha.py"][2] == {"tests/test_alpha.py::test_value"}
+E   AssertionError: assert {'tests/test_...::test_value'} == {'tests/test_...::test_value'}
+E     
+E     Extra items in the left set:
+E     'tests/test_beta.py::test_value'
+E     Extra items in the right set:
+E     'tests/test_alpha.py::test_value'
+E     Use -v to get more diff
+_ test_campaign_uses_captured_coverage_during_live_artifact_replacement[provenance] _
+tests/test_mutation_harness_20261003.py:191: in test_campaign_uses_captured_coverage_during_live_artifact_replacement
+    assert runner.ctx["app/alpha.py"][2] == {"tests/test_alpha.py::test_value"}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'app/alpha.py'
+__________ test_campaign_rejects_mutant_absent_from_captured_manifest __________
+tests/test_mutation_harness_20261003.py:206: in test_campaign_rejects_mutant_absent_from_captured_manifest
+    assert record["status"] == "INVALID"
+E   AssertionError: assert 'SURVIVED' == 'INVALID'
+E     
+E     - INVALID
+E     + SURVIVED
+__ test_coverage_publication_hashes_its_baseline_instead_of_live_replacement ___
+tests/test_mutation_harness_20261003.py:240: in test_coverage_publication_hashes_its_baseline_instead_of_live_replacement
+    assert provenance["coverage_sha256"] == hashlib.sha256(baseline_bytes).hexdigest()
+E   AssertionError: assert '25bd085796ec...a5937f8e93e18' == '4a45aaa3eb57...4a48ddff6d92d'
+E     
+E     - 4a45aaa3eb57c63b3ba9704f7c62dae0826728d1fe1e5a94a744a48ddff6d92d
+E     + 25bd085796ec2f969915c155309f556ec1d1e2289c466d44bf3a5937f8e93e18
+______ test_report_never_scores_manifest_different_from_the_one_it_parsed ______
+tests/test_mutation_harness_20261003.py:278: in test_report_never_scores_manifest_different_from_the_one_it_parsed
+    assert summary["score"] is None
+E   assert 100.0 is None
+=========================== short test summary info ============================
+FAILED tests/test_mutation_harness_20261003.py::test_campaign_uses_captured_coverage_during_live_artifact_replacement[coverage]
+FAILED tests/test_mutation_harness_20261003.py::test_campaign_uses_captured_coverage_during_live_artifact_replacement[provenance]
+FAILED tests/test_mutation_harness_20261003.py::test_campaign_rejects_mutant_absent_from_captured_manifest
+FAILED tests/test_mutation_harness_20261003.py::test_coverage_publication_hashes_its_baseline_instead_of_live_replacement
+FAILED tests/test_mutation_harness_20261003.py::test_report_never_scores_manifest_different_from_the_one_it_parsed
+5 failed, 40 deselected in 0.14s

@@ -1,0 +1,14 @@
+{
+  "backend/mutation/mutate_run.py": {
+    "sha256": "1c472ba63e1efd73fbe367e7d2dc201e99ef7bf9d4974084e4b7f82ad31bd6b8",
+    "snapshot": "audit_reports/independent-last-commit-2026-10-03/security-ops/mutate_run-before-artifact-freeze.py.txt"
+  },
+  "backend/mutation/mutate_cover.py": {
+    "sha256": "d1860275957ca37bda2eb2b2025ac77000097557e183e41b9a48f43add40dfcc",
+    "snapshot": "audit_reports/independent-last-commit-2026-10-03/security-ops/mutate_cover-before-artifact-freeze.py.txt"
+  },
+  "backend/mutation/mutate_report.py": {
+    "sha256": "91ae7ae3e1f56543d5b23c24b6eeb8e3db50a438c43a76e8c7e19f7aabd84295",
+    "snapshot": "audit_reports/independent-last-commit-2026-10-03/security-ops/mutate_report-before-artifact-freeze.py.txt"
+  }
+}

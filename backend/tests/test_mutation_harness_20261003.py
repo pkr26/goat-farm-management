@@ -25,10 +25,15 @@ from mutate_identity import (  # type: ignore[import-not-found]  # noqa: E402
 )
 from mutate_verify_extremes import current_attempts  # type: ignore[import-not-found]  # noqa: E402
 
+REAL_LOAD_COVERAGE_CONTEXTS = mutate_run.load_coverage_contexts
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _database() -> None:
-    """The fixture projects need no PostgreSQL or application lifecycle."""
+    """Skip the application's global database lifecycle for tiny projects.
+
+    The timeout-cleanup regression owns its separately named disposable DB.
+    """
 
 
 @pytest.fixture(autouse=True)
@@ -87,7 +92,7 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, lis
     monkeypatch.setattr(
         mutate_run,
         "load_coverage_contexts",
-        lambda: {
+        lambda *args: {
             f"app/{name}.py": {2: {f"tests/test_{name}.py::test_value"}}
             for name in ("alpha", "beta")
         },
@@ -139,6 +144,301 @@ def test_coverage_cannot_resume_after_test_changes(
     (backend / "tests/test_alpha.py").write_text("def test_changed():\n    assert True\n")
     with pytest.raises(ValueError, match="stale"):
         mutate_run.Runner(1, None)
+
+
+@pytest.mark.parametrize("artifact", ["coverage", "provenance"])
+def test_campaign_uses_captured_coverage_during_live_artifact_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, artifact: str
+) -> None:
+    import coverage
+
+    backend, _ = _project(tmp_path, monkeypatch)
+    coverage_path = backend / ".coverage-mut"
+    provenance_path = backend / ".coverage-mut.provenance.json"
+    maps = []
+    for name in ("alpha", "beta"):
+        data = coverage.CoverageData(basename=str(tmp_path / f"coverage-{name}"))
+        data.set_context(f"tests/test_{name}.py::test_value|run")
+        data.add_lines({str(backend / "app/alpha.py"): {2}})
+        data.write()
+        maps.append((tmp_path / f"coverage-{name}").read_bytes())
+    coverage_path.write_bytes(maps[0])
+    provenance = json.loads(provenance_path.read_text())
+    provenance.update(coverage_sha256=sha_file(coverage_path), source_root=str(backend))
+    provenance_path.write_text(json.dumps(provenance))
+    original_provenance = provenance_path.read_bytes()
+
+    def replace_during_loading(*args: Any) -> dict[str, dict[int, set[str]]]:
+        if artifact == "coverage":
+            coverage_path.write_bytes(maps[1])
+        else:
+            provenance_path.write_text(
+                json.dumps({**provenance, "source_root": str(backend.parent)})
+            )
+        # The artifacts are live replaced, then restored before scoring. A
+        # before/after hash check alone cannot establish which map was parsed.
+        try:
+            contexts: dict[str, dict[int, set[str]]] = REAL_LOAD_COVERAGE_CONTEXTS(*args)
+            return contexts
+        finally:
+            coverage_path.write_bytes(maps[0])
+            provenance_path.write_bytes(original_provenance)
+
+    monkeypatch.setattr(mutate_run, "load_coverage_contexts", replace_during_loading)
+    runner = mutate_run.Runner(1, None)
+    try:
+        assert runner.identity["coverage_sha256"] == sha_file(coverage_path)
+        assert runner.ctx["app/alpha.py"][2] == {"tests/test_alpha.py::test_value"}
+    finally:
+        runner.close()
+
+
+def test_campaign_rejects_mutant_absent_from_captured_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend, mutants = _project(tmp_path, monkeypatch)
+    runner = mutate_run.Runner(1, None)
+    replacement = {**mutants[0], "mut_stmt": "return 3"}
+    (backend / "mutation/manifest.json").write_text(json.dumps([replacement, mutants[1]]))
+    monkeypatch.setattr(runner, "run_pytest", lambda *args: ("pass", "", 0.01))
+    try:
+        record = runner.execute(replacement, 0)
+        assert record["status"] == "INVALID"
+        assert "captured manifest" in record["error"]
+        assert "baseline" not in record
+    finally:
+        runner.close()
+
+
+def test_coverage_publication_hashes_its_baseline_instead_of_live_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    backend, _ = _project(tmp_path, monkeypatch)
+    monkeypatch.setattr(mutate_cover, "BACKEND", backend)
+    baseline_bytes = b"coverage from this passing baseline"
+    other_bytes = b"coverage concurrently published by a different baseline"
+
+    def passing_baseline(*args: Any, **kwargs: Any) -> SimpleNamespace:
+        (kwargs["cwd"] / ".coverage-mut").write_bytes(baseline_bytes)
+        return SimpleNamespace(returncode=0)
+
+    original_replace = Path.replace
+
+    def replace_then_concurrently_publish(path: Path, target: Any) -> Path:
+        result = original_replace(path, target)
+        if Path(target) == backend / ".coverage-mut":
+            Path(target).write_bytes(other_bytes)
+        return result
+
+    monkeypatch.setattr(mutate_cover.subprocess, "run", passing_baseline)
+    monkeypatch.setattr(Path, "replace", replace_then_concurrently_publish)
+    monkeypatch.setattr(sys, "argv", ["mutate_cover.py"])
+    mutate_cover.main()
+    provenance = json.loads((backend / ".coverage-mut.provenance.json").read_text())
+    assert provenance["coverage_sha256"] == hashlib.sha256(baseline_bytes).hexdigest()
+    with pytest.raises(ValueError, match="stale"):
+        mutate_run.Runner(1, None)
+
+
+def test_report_never_scores_manifest_different_from_the_one_it_parsed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    backend, mutants = _project(tmp_path, monkeypatch)
+    manifest_path = backend / "mutation/manifest.json"
+    replacement = json.dumps([mutants[0]]).encode()
+    identity = {
+        **input_identity(backend),
+        "manifest_sha256": hashlib.sha256(replacement).hexdigest(),
+        "coverage_sha256": sha_file(backend / ".coverage-mut"),
+        "coverage_provenance_sha256": sha_file(backend / ".coverage-mut.provenance.json"),
+    }
+    record = {
+        "id": mutants[0]["id"],
+        "status": "KILLED",
+        "selection_mode": "complete",
+        "mutant_digest": digest_json(mutants[0]),
+        "provenance": identity,
+        "campaign_id": digest_json(identity),
+    }
+    (backend / "mutation/results.jsonl").write_text(json.dumps(record) + "\n")
+
+    def replace_after_manifest_parsing(path: Path) -> dict[str, Any]:
+        manifest_path.write_bytes(replacement)
+        inputs: dict[str, Any] = input_identity(path)
+        return inputs
+
+    monkeypatch.setattr(mutate_report, "BACKEND", backend)
+    monkeypatch.setattr(mutate_report, "MUTDIR", backend / "mutation")
+    monkeypatch.setattr(mutate_report, "input_identity", replace_after_manifest_parsing)
+    monkeypatch.setattr(sys, "argv", ["mutate_report.py", "--dry-run"])
+    mutate_report.main()
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["score"] is None
+    assert summary["executed"] == 0
+
+
+@pytest.mark.parametrize(
+    "relative",
+    ["alembic/env.py", "scripts/export_openapi.py", "alembic.ini", "pins/uv.txt", ".env.example"],
+)
+def test_coverage_rejects_changed_migration_and_script_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str
+) -> None:
+    backend, _ = _project(tmp_path, monkeypatch)
+    target = backend / relative
+    target.parent.mkdir(exist_ok=True)
+    target.write_text("changed execution dependency\n")
+    with pytest.raises(ValueError, match="stale"):
+        mutate_run.Runner(1, None)
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "shared/openapi.json",
+        "docker/edge-entrypoint.sh",
+        ".github/workflows/ci.yml",
+        "Dockerfile",
+        "README.md",
+        "frontend/pnpm-lock.yaml",
+    ],
+)
+def test_coverage_rejects_changed_repository_contract_and_deployment_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str
+) -> None:
+    backend, _ = _project(tmp_path, monkeypatch)
+    target = backend.parent / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("changed repository dependency\n")
+    with pytest.raises(ValueError, match="stale"):
+        mutate_run.Runner(1, None)
+
+
+def test_killed_pytest_attempt_reaps_its_real_disposable_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    import asyncpg
+
+    backend, _ = _project(tmp_path, monkeypatch)
+    marker = backend / "attempt-database.txt"
+    (backend / "tests/test_hang.py").write_text(
+        "import asyncio, os, time\n"
+        "from pathlib import Path\n"
+        "import asyncpg\n"
+        "def test_hang():\n"
+        "    name = os.environ['GOATFARM_TEST_DB']\n"
+        "    async def create():\n"
+        "        c = await asyncpg.connect('postgresql://localhost:5432/postgres')\n"
+        "        await c.execute(f'CREATE DATABASE \"{name}\"')\n"
+        "        await c.close()\n"
+        "    asyncio.run(create())\n"
+        "    Path('attempt-database.txt').write_text(name)\n"
+        "    time.sleep(60)\n"
+    )
+    runner = object.__new__(mutate_run.Runner)
+    runner.run_id = "a" * 32
+    runner.phase_timeout = 5
+    runner.local = __import__("threading").local()
+    runner.local.workspace = backend
+    status, _, _ = runner.run_pytest(["tests/test_hang.py"], 0)
+    assert marker.is_file(), "child must create a real database before the timeout"
+    database = marker.read_text()
+
+    async def remains() -> bool:
+        connection = await asyncpg.connect("postgresql://localhost:5432/postgres")
+        try:
+            return bool(
+                await connection.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", database)
+            )
+        finally:
+            await connection.close()
+
+    try:
+        assert status == "timeout"
+        assert not asyncio.run(remains())
+    finally:
+        mutate_run.drop_attempt_database(database)
+
+
+def test_attempt_database_cleanup_rejects_unowned_names() -> None:
+    with pytest.raises(ValueError, match="namespace"):
+        mutate_run.drop_attempt_database("goatfarm")
+
+
+def test_attempt_database_cleanup_bounds_connect_drop_and_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, int]] = []
+
+    class Connection:
+        async def execute(self, sql: str, **kwargs: int) -> None:
+            assert sql == (
+                'DROP DATABASE IF EXISTS "herdly_mut_aaaaaaaaaa_bbbbbbbb_test" WITH (FORCE)'
+            )
+            calls.append(("drop", kwargs["timeout"]))
+
+        async def close(self, **kwargs: int) -> None:
+            calls.append(("close", kwargs["timeout"]))
+
+    async def connect(dsn: str, **kwargs: int) -> Connection:
+        assert dsn == "postgresql://localhost:5432/postgres"
+        calls.append(("connect", kwargs["timeout"]))
+        return Connection()
+
+    monkeypatch.setattr(mutate_run.asyncpg, "connect", connect)
+    mutate_run.drop_attempt_database("herdly_mut_aaaaaaaaaa_bbbbbbbb_test")
+    assert calls == [("connect", 5), ("drop", 45), ("close", 5)]
+
+
+def test_cleanup_failure_cannot_credit_a_real_assertion_kill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, mutants = _project(tmp_path, monkeypatch)
+    calls = 0
+
+    def fail_mutant_cleanup(database: str) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise TimeoutError("controlled cleanup failure after assertion failure")
+
+    monkeypatch.setattr(mutate_run, "drop_attempt_database", fail_mutant_cleanup)
+    runner = mutate_run.Runner(1, None)
+    try:
+        record = runner.execute(mutants[0], 0)
+        assert record["baseline"]["status"] == "pass"
+        assert any(report.get("assertion") for report in record["pytest_receipt"]["reports"]), (
+            "the mutant's actual pytest assertion must fail before cleanup"
+        )
+        assert record["status"] == "INFRA_ERROR"
+        assert calls == 2
+        assert "cleanup failed" in record["fail"]
+    finally:
+        runner.close()
+
+
+def test_failed_process_launch_does_not_reuse_previous_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend, _ = _project(tmp_path, monkeypatch)
+    runner = mutate_run.Runner(1, None)
+    runner.local.workspace = backend
+    runner.local.pytest_receipt = {"exit_code": 1, "collected": 42}
+
+    def fail_launch(*args: Any, **kwargs: Any) -> None:
+        raise OSError("controlled process launch failure")
+
+    monkeypatch.setattr(mutate_run.subprocess, "Popen", fail_launch)
+    try:
+        status, _, _ = runner.run_pytest(["tests/test_alpha.py"], 0)
+        assert status == "infra"
+        assert runner.local.pytest_receipt is None
+    finally:
+        runner.close()
 
 
 @pytest.mark.parametrize(
@@ -316,6 +616,7 @@ def test_full_mode_runs_every_coverer_without_hidden_cap(
     _, mutants = _project(tmp_path, monkeypatch)
     monkeypatch.setenv("MUTATE_FULL_PHASE", "1")
     runner = mutate_run.Runner(1, None)
+    monkeypatch.delenv("MUTATE_FULL_PHASE")
     selection = [f"tests/test_alpha.py::case_{i}" for i in range(1001)]
     called: list[list[str]] = []
     monkeypatch.setattr(runner, "select_tests", lambda *args: (selection, False))
@@ -371,6 +672,6 @@ def test_isolated_coverage_paths_rebase_to_current_source(
     loaded = module.module_from_spec(spec)
     spec.loader.exec_module(loaded)
     monkeypatch.setattr(loaded, "BACKEND", backend)
-    assert loaded.load_coverage_contexts() == {
-        "app/alpha.py": {2: {"tests/test_alpha.py::test_value"}}
-    }
+    assert loaded.load_coverage_contexts(
+        (backend / ".coverage-mut").read_bytes(), json.loads(provenance.read_text())
+    ) == {"app/alpha.py": {2: {"tests/test_alpha.py::test_value"}}}

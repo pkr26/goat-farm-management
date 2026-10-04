@@ -383,6 +383,24 @@ def _crossing_decimal_power_roots(
     ]
 
 
+def _exact_decimal_power_roots(
+    terms: Sequence[tuple[float, float]], lo: float, hi: float
+) -> list[float]:
+    """All distinct zeros, including even-multiplicity NPV tangencies.
+
+    IRR is defined by zero NPV, not a sign change. Excluding a tangency
+    can certify another root as unique even though two valid returns exist.
+    """
+    with localcontext() as context:
+        context.prec = _IRR_DECIMAL_PRECISION
+        roots = _all_decimal_power_roots(
+            _decimal_normalise_power_terms(terms),
+            Decimal.from_float(lo),
+            Decimal.from_float(hi),
+        )
+        return sorted({float(root) for root in roots})
+
+
 # The recursive Decimal isolation below costs roughly O(n^2) bisections of 96
 # digits each, which is affordable for the <=21-term annual appraisal series it
 # was written for and ruinous beyond that: a 241-term monthly series (a
@@ -466,9 +484,8 @@ def _positive_power_roots(
         return roots
 
     # With several sign variations, binary-float cancellation at a stationary
-    # point can erase its sign.  Isolate every derivative root (including
-    # tangencies) in Decimal, then keep only top-level roots whose two sides
-    # really have opposite signs.
+    # point can erase its sign. Isolate every zero in Decimal, including
+    # top-level tangencies: zero NPV defines a valid IRR without a sign change.
     if len(normalised) > _DECIMAL_ISOLATION_MAX_TERMS:
         raise IRRIsolationUnsupported("Nonconventional series exceeds exact isolation term budget")
     if not _has_integral_exponents(normalised):
@@ -489,11 +506,11 @@ def _positive_power_roots(
             (float(value * periods), coefficient)
             for value, (_, coefficient) in zip(rational, normalised, strict=True)
         ]
-        roots = _crossing_decimal_power_roots(
+        roots = _exact_decimal_power_roots(
             scaled, _fpow(lo, 1.0 / periods), _fpow(hi, 1.0 / periods)
         )
         return [_fpow(root, periods) for root in roots]
-    return _crossing_decimal_power_roots(normalised, lo, hi)
+    return _exact_decimal_power_roots(normalised, lo, hi)
 
 
 class IRRIsolationUnsupported(ValueError):
@@ -518,10 +535,10 @@ def assess_irr(flows: Sequence[float], times_years: Sequence[float]) -> IRRAsses
 
 
 def irr_roots(flows: Sequence[float], times_years: Sequence[float]) -> list[float]:
-    """Every rate in ``IRR_BRACKET`` where the NPV curve crosses zero.
+    """Every rate in ``IRR_BRACKET`` where NPV is zero, including tangencies.
 
-    A series with more than one sign reversal can cross zero several times,
-    and each crossing is a mathematically valid IRR. Transforming to
+    A series with more than one sign reversal can have several zeros,
+    and each distinct zero is a mathematically valid IRR. Transforming to
     ``x = 1 / (1 + rate)`` and recursively isolating derivative roots finds
     every monotone interval, including two crossings closer together than a
     practical fixed sampling grid. Nonconventional series with >24 nonzero

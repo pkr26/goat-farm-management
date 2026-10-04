@@ -1,0 +1,18 @@
+{
+  "owned_suite_database_names_checked": [
+    "herdly_independent_commit_d5nk5atr_1_test",
+    "herdly_independent_commit_d5nk5atr_2_test",
+    "herdly_independent_corrected_d5nk5atr_1_test",
+    "herdly_independent_corrected_d5nk5atr_2_test",
+    "herdly_independent_final_d5nk5atr_1_test",
+    "herdly_independent_final_d5nk5atr_2_test",
+    "herdly_independent_browser_d5nk5atr_test",
+    "herdly_independent_final_cleanup_d5nk5atr_test",
+    "herdly_independent_final_collect_d5nk5atr_test"
+  ],
+  "owned_suite_databases_remaining": [],
+  "owned_browser_resources_removed": true,
+  "browser_cleanup": "browser-cleanup.json",
+  "test_processes_completed": true,
+  "scope": "Only exact databases owned by this rootaudit; no application database was modified."
+}

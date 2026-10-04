@@ -52,7 +52,7 @@
  *    two-row removal).
  */
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -1190,6 +1190,94 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     expect(sent.start_year_month).toBe("2028-01");
     expect(sent.targets).toEqual(latest.targets);
     expect((sent.assumptions as { herd: { does: number } }).herd.does).toBe(123);
+  });
+
+  it("does not rebind another open plan when an older update succeeds", async () => {
+    const user = userEvent.setup();
+    await renderLoaded2({ savedPlans: [savedPlanRow(), savedPlanRow({ id: 8, name: "Other plan" })] });
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    let started = false;
+    server.use(http.patch("/api/planner/plans/:id", async () => {
+      started = true;
+      await gate;
+      return HttpResponse.json(savedPlanRow({ revision: 2 }));
+    }));
+    await screen.findAllByRole("button", { name: "Open" });
+    const first = screen.getAllByRole("row").find((row) => within(row).queryByText("Festival plan"))!;
+    const other = screen.getAllByRole("row").find((row) => within(row).queryByText("Other plan"))!;
+    await user.click(within(first).getByRole("button", { name: "Open" }));
+    await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
+    await waitFor(() => expect(started).toBe(true));
+    await user.click(within(other).getByRole("button", { name: "Open" }));
+    await act(async () => { finish(); });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Update “Other plan”/ })).toBeEnabled());
+    expect(screen.queryByRole("button", { name: /Update “Festival plan”/ })).not.toBeInTheDocument();
+  });
+
+  it("does not show an old conflict after the same plan has been reopened", async () => {
+    const user = userEvent.setup();
+    await renderLoaded2({ savedPlans: [savedPlanRow()], updateStatus: 409 });
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    let started = false;
+    server.use(http.get("/api/planner/plans/:id", async () => {
+      started = true;
+      await gate;
+      return HttpResponse.json(savedPlanRow({ revision: 2 }));
+    }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
+    await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
+    await waitFor(() => expect(started).toBe(true));
+    await user.click(screen.getAllByRole("button", { name: "Open" })[0]!);
+    await act(async () => { finish(); });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Update “Festival plan”/ })).toBeEnabled());
+    expect(screen.queryByRole("dialog", { name: "This plan changed" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a different opened plan when a previous plan's deletion finishes", async () => {
+    const user = userEvent.setup();
+    await renderLoaded2({ savedPlans: [savedPlanRow(), savedPlanRow({ id: 8, name: "Other plan" })] });
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    let started = false;
+    server.use(http.delete("/api/planner/plans/:id", async () => {
+      started = true;
+      await gate;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    await screen.findAllByRole("button", { name: "Open" });
+    const first = screen.getAllByRole("row").find((row) => within(row).queryByText("Festival plan"))!;
+    const other = screen.getAllByRole("row").find((row) => within(row).queryByText("Other plan"))!;
+    await user.click(within(first).getByRole("button", { name: "Open" }));
+    await user.click(within(first).getByRole("button", { name: /Delete/ }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete plan" }));
+    await waitFor(() => expect(started).toBe(true));
+    await user.click(within(other).getByRole("button", { name: "Open" }));
+    await act(async () => { finish(); });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Update “Other plan”/ })).toBeEnabled());
+    expect(screen.getByRole("textbox", { name: "Plan name" })).toHaveValue("Other plan");
+  });
+
+  it("replaces NLM field drafts and validity when opening another saved plan", async () => {
+    const user = userEvent.setup();
+    const finance = { nlm_subsidy: true, nlm_unit_females: 100, nlm_unit_males: 5,
+      nlm_eligible_capital_cost: 2000000, nlm_approved_subsidy_amount: 1000000, nlm_subsidy_receipts: [] };
+    await renderLoaded2({ savedPlans: [
+      savedPlanRow({ assumptions: { ...GOAT_DEFAULTS, finance } }),
+      savedPlanRow({ id: 8, name: "Other NLM plan", assumptions: { ...GOAT_DEFAULTS,
+        finance: { ...finance, nlm_eligible_capital_cost: 3000000 } } }),
+    ] });
+    await screen.findAllByRole("button", { name: "Open" });
+    const first = screen.getAllByRole("row").find((row) => within(row).queryByText("Festival plan"))!;
+    const other = screen.getAllByRole("row").find((row) => within(row).queryByText("Other NLM plan"))!;
+    await user.click(within(first).getByRole("button", { name: "Open" }));
+    fireEvent.change(screen.getByLabelText("Eligible capital budget (₹)"), { target: { value: "-1" } });
+    expect(screen.getByLabelText("Eligible capital budget (₹)")).toHaveAttribute("aria-invalid", "true");
+    await user.click(within(other).getByRole("button", { name: "Open" }));
+    expect(screen.getByLabelText("Eligible capital budget (₹)")).toHaveValue(3000000);
+    expect(screen.getByLabelText("Eligible capital budget (₹)")).not.toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("button", { name: /Update “Other NLM plan”/ })).toBeEnabled();
   });
 
   it("keeps the open plan when the conflict refresh returns a non-200 body", async () => {

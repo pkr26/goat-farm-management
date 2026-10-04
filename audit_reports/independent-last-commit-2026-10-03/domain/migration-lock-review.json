@@ -1,0 +1,69 @@
+{
+  "origin": "Independent peer review of f9 repair introduced during this audit; not a defect in the original last commit.",
+  "actual_before": "Paused actual Alembic f8-to-f9 upgrade after its SRE Finding lock; real reviewer RowShareLock was granted, reviewer inserted History, and after migration resumed PostgreSQL raised DeadlockDetectedError in reviewer.1failed22.96s.",
+  "before_receipts": [
+    "migration-lock-before.log",
+    "migration-lock-before.xml"
+  ],
+  "fix": "Only newf9 initial lock/comment changed: EXCLUSIVE blocks reviewer SELECT FOR UPDATE before History DDL, while allowing ordinary SELECT readers.",
+  "actual_after": "Observed reviewer RowShareLock waiting under EXCLUSIVE; ordinary clinical SELECT completed, migration and reviewer both committed, original revision0 and next revision1 history preserved.1passed5.98s.",
+  "after_receipts": [
+    "migration-lock-after.log",
+    "migration-lock-after.xml"
+  ],
+  "new_case": "tests.test_independent_review_history_audit::test_forward_snapshot_lock_serializes_a_concurrent_review",
+  "source_delta": {
+    "before_sha256": {
+      "backend/alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py": "6173e10c7597d0fc4ae98d4ef03ef61d3751fd80865415af644aee1a0b64f97a",
+      "backend/tests/test_independent_review_history_audit.py": "2a2ea21b23dad79f27027370eb7146d002d60292c5b798c96cd7a272dbdd0525"
+    },
+    "after_sha256": {
+      "backend/alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py": "222d958766af35bb01207969d4233e1c065042515f417be68c25c82666275eae",
+      "backend/tests/test_independent_review_history_audit.py": "66bf909e7eefe92d7c2f88b727ee2659a93b5a86ef179cbe22242b50ab5268b5"
+    },
+    "all_app_model_schema_sources_unchanged": true,
+    "all101_historical_migrations_unchanged": true
+  },
+  "affected_contract_command": "GOATFARM_TEST_DB=goatfarm_test_domain_migration_lock_final backend/.venv/bin/python -m pytest backend/tests/test_independent_domain_audit.py backend/tests/test_independent_review_history_audit.py backend/tests/test_clinical_quality_20261003.py backend/tests/test_schema_parity.py backend/tests/test_ops_migration_integrity.py backend/tests/test_domain_audit_migration.py backend/tests/test_screening.py -q --tb=short --junitxml=audit_reports/independent-last-commit-2026-10-03/domain/migration-contracts-final.xml",
+  "affected_contract_result": "212 passed in93.20s; zero failures, errors or skips",
+  "affected_case_breakdown": {
+    "tests.test_independent_domain_audit": 11,
+    "tests.test_independent_review_history_audit": 4,
+    "tests.test_clinical_quality_20261003": 13,
+    "tests.test_schema_parity": 16,
+    "tests.test_ops_migration_integrity": 7,
+    "tests.test_domain_audit_migration": 5,
+    "tests.test_screening": 156
+  },
+  "affected_contract_receipts": [
+    "migration-contracts-final.log",
+    "migration-contracts-final.xml",
+    "migration-contract-case-identities.json"
+  ],
+  "static_checks": [
+    {
+      "cwd": "backend",
+      "command": ".venv/bin/ruff check tests/test_independent_review_history_audit.py alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py",
+      "exit_code": 0,
+      "result": "All checks passed!"
+    },
+    {
+      "cwd": "backend",
+      "command": ".venv/bin/ruff format --check tests/test_independent_review_history_audit.py alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py",
+      "exit_code": 0,
+      "result": "2 files already formatted"
+    },
+    {
+      "cwd": "backend",
+      "command": ".venv/bin/mypy tests/test_independent_review_history_audit.py",
+      "exit_code": 0,
+      "result": "Success: no issues found in1sourcefile"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": ""
+    }
+  ],
+  "integration_limit": "Root complete-suite snapshot uses earlier SRE migration. This source delta is covered separately by current affected212cases. Do not claim a whole-suite execution of latestf9 source or add overlapping totals."
+}

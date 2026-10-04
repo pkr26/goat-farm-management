@@ -1,0 +1,27 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_first_rereview_retains_the_known_legacy_review ______________
+backend/tests/test_independent_review_history_audit.py:45: in test_first_rereview_retains_the_known_legacy_review
+    assert history.json()["total"] == 2
+E   assert 1 == 2
+----------------------------- Captured stderr call -----------------------------
+2026-10-03 14:16:03,960 INFO goatfarm [fe3510969ee643f8a17861815424fd35] request method=POST path=/api/auth/register status=201 duration_ms=229.50
+2026-10-03 14:16:03,961 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-03 14:16:03,984 INFO goatfarm [b168360197524e07aec69883cfcd626f] request method=POST path=/api/auth/farms status=201 duration_ms=22.67
+2026-10-03 14:16:03,984 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-03 14:16:04,253 INFO goatfarm [246dcb437a6e42a18660c7a4b7efc4f1] request method=POST path=/api/screening/findings/1/review status=200 duration_ms=195.40
+2026-10-03 14:16:04,253 INFO httpx [-] HTTP Request: POST http://test/api/screening/findings/1/review "HTTP/1.1 200 OK"
+2026-10-03 14:16:04,262 INFO goatfarm [9c04f194468545ff9147e24d2e61e834] request method=GET path=/api/screening/findings/1/reviews status=200 duration_ms=8.40
+2026-10-03 14:16:04,263 INFO httpx [-] HTTP Request: GET http://test/api/screening/findings/1/reviews "HTTP/1.1 200 OK"
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/register status=201 duration_ms=229.50
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms status=201 duration_ms=22.67
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/screening/findings/1/review status=200 duration_ms=195.40
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/screening/findings/1/review "HTTP/1.1 200 OK"
+INFO     goatfarm:main.py:1107 request method=GET path=/api/screening/findings/1/reviews status=200 duration_ms=8.40
+INFO     httpx:_client.py:1740 HTTP Request: GET http://test/api/screening/findings/1/reviews "HTTP/1.1 200 OK"
+=========================== short test summary info ============================
+FAILED backend/tests/test_independent_review_history_audit.py::test_first_rereview_retains_the_known_legacy_review
+1 failed in 4.90s

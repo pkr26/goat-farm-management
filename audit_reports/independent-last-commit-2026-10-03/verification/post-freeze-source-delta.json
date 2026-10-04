@@ -1,0 +1,19 @@
+{
+  "reason": "Strengthen newf9 migration lock against actual overlapping reviewer; one added real PostgreSQL regression. Shippingapp/frontend/schema semantics unchanged.",
+  "only_source_deltas": {
+    "backend/alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py": {
+      "snapshot_sha256": "6173e10c7597d0fc4ae98d4ef03ef61d3751fd80865415af644aee1a0b64f97a",
+      "current_sha256": "222d958766af35bb01207969d4233e1c065042515f417be68c25c82666275eae"
+    },
+    "backend/tests/test_independent_review_history_audit.py": {
+      "snapshot_sha256": "2a2ea21b23dad79f27027370eb7146d002d60292c5b798c96cd7a272dbdd0525",
+      "current_sha256": "66bf909e7eefe92d7c2f88b727ee2659a93b5a86ef179cbe22242b50ab5268b5"
+    }
+  },
+  "latest_affected_sweep": "domain/migration-contracts-final.xml",
+  "backend_app_source_unchanged": true,
+  "frontend_source_unchanged": true,
+  "latest_affected_sweep_passed": 212,
+  "latest_affected_sweep_failures": 0,
+  "new_unique_case": "tests.test_independent_review_history_audit::test_forward_snapshot_lock_serializes_a_concurrent_review"
+}

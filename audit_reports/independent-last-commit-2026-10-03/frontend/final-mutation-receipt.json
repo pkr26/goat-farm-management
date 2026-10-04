@@ -1,0 +1,22 @@
+{
+  "command": "node --test mutation/mutate_harness.test.mjs",
+  "cwd": "frontend",
+  "result": {
+    "tests": 22,
+    "pass": 22,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_ms": 17077.581041
+  },
+  "source_sha256": {
+    "frontend/mutation/README.md": "329c5c78309688fc1622a8e818f41217c824c9aa00f1b595c7a58dc9c5e1660f",
+    "frontend/mutation/mutate_identity.mjs": "137469e0260875560f3425224031ae67df05d4d08bd9a53c484db265c3a00489",
+    "frontend/mutation/mutate_run.mjs": "6ad47ef31476a5c8e991bf79e3cfe53f9cfd2c843c29f194995cca62a8b35ac6",
+    "frontend/mutation/mutate_transform.mjs": "9babecb5ca2bb557faf320a8ed24e632b8706ac54ad34c0a0dca95ed6a36d8fe",
+    "frontend/mutation/mutate_report.mjs": "e9bed3559c5bc7780dd63e39e077742d23b87b2fca8468c5bffdc97425eb8b7d",
+    "frontend/mutation/mutate_harness.test.mjs": "4cd0a11ff87586c676141880805c0fd05628c584cbd85188d1c1faf9fc7e53c5"
+  },
+  "application_change": "No application, public asset, E2E or frontend unit-test edit during mutation follow-up",
+  "limits": "Isolated harness contracts; no complete application mutation campaign or score"
+}

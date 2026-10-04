@@ -1,0 +1,12 @@
+{
+  "revision": "fee30d5",
+  "original_source_sha256": {
+    "backend/app/api/auth.py": "97e83a0e0db82e5cab6bd632eb89cbb30da3504ac619e82d155d2e2fc67372ca",
+    "backend/app/services/notifications/service.py": "7af0a9e1d1d54d781781c6d00711bdfd2119660db1ac12d6daae5ec81268a785"
+  },
+  "pytest_exit_code": 1,
+  "reproduced": true,
+  "expected_failures": 6,
+  "log": "original-failures.log",
+  "scope": "Exact original auth transfer/notification function bodies; current disposable schema and fixtures"
+}

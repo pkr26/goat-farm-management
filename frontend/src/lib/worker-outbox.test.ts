@@ -5,6 +5,7 @@ import { OFFLINE_QUEUE_STORAGE_KEY } from "@/lib/offline-queue";
 import {
   clearAcceptedWorkerReceipts, clearWorkerOutboxBackoff, drainWorkerOutbox, persistWorkerOperation,
   readWorkerOutbox, settleWorkerOperation, WORKER_OUTBOX_DB, type WorkerOperation,
+  startWorkerOutbox,
 } from "@/lib/worker-outbox";
 
 const scopes = { actorScope: "7", farmScope: "42" };
@@ -258,5 +259,29 @@ describe("durable worker actions", () => {
     });
     expect(fetch).not.toHaveBeenCalled();
     expect((await readWorkerOutbox(scopes))[0].state).toBe("pending");
+  });
+
+  it("reads pending receipts during required rotation and replays only after authority is released", async () => {
+    await persistWorkerOperation("/api/tasks/1/complete", undefined, scopes, "rotation-original-key");
+    let allowed = false;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    const onChange = vi.fn();
+    const onError = vi.fn();
+    const stop = startWorkerOutbox(currentRequestScope, onChange, onError, () => allowed);
+    try {
+      await vi.waitFor(() => expect(onChange).toHaveBeenCalledWith([
+        expect.objectContaining({ state: "pending", idempotencyKey: "rotation-original-key" }),
+      ]));
+      expect(fetch).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+      allowed = true;
+      window.dispatchEvent(new Event("online"));
+      await vi.waitFor(() => expect(onChange).toHaveBeenCalledWith([
+        expect.objectContaining({ state: "sent", idempotencyKey: "rotation-original-key" }),
+      ]));
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(new Headers(fetch.mock.calls[0][1]?.headers).get("Idempotency-Key")).toBe("rotation-original-key");
+    } finally { stop(); }
   });
 });

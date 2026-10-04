@@ -1,0 +1,6 @@
+{
+  "service_worker_input_drift": {
+    "original_invalidates": false,
+    "fixed_invalidates": true
+  }
+}

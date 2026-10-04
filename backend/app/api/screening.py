@@ -16,7 +16,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import case, exists, func, literal, select
+from sqlalchemy import case, exists, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 from sqlalchemy.sql.elements import ColumnElement
@@ -356,6 +356,26 @@ async def review_finding(
         )
     reviewed_at = utcnow()
     revision = finding.review_revision + 1
+    # The old reviewer/time/note are known facts. Preserve them before
+    # replacing the current projection, including imported legacy rows
+    # created after the forward migration's populated-data snapshot.
+    if (
+        finding.review_revision == 0
+        and finding.status in ("CONFIRMED", "REJECTED")
+        and await db.get(ScreeningFindingReview, (finding.id, 0)) is None
+    ):
+        db.add(
+            ScreeningFindingReview(
+                farm_id=farm.id,
+                finding_id=finding.id,
+                revision=0,
+                previous_status=finding.status,
+                status=finding.status,
+                reviewed_by_id=finding.reviewed_by_id,
+                reviewed_at=finding.reviewed_at,
+                review_note=finding.review_note,
+            )
+        )
     db.add(
         ScreeningFindingReview(
             farm_id=farm.id,
@@ -413,6 +433,8 @@ async def finding_review_history(
     limit: Annotated[int, Query(ge=1, le=SCREENING_LIST_MAX_LIMIT)] = SCREENING_LIST_DEFAULT_LIMIT,
     offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> ScreeningFindingReviewHistoryListOut:
+    if not 1 <= finding_id <= 9_223_372_036_854_775_807:
+        raise HTTPException(status_code=404, detail="Screening finding not found")
     finding = (
         await db.execute(
             select(ScreeningFinding).where(
@@ -442,7 +464,14 @@ async def finding_review_history(
     return ScreeningFindingReviewHistoryListOut(
         finding_id=finding_id,
         review_revision=finding.review_revision,
-        legacy_review=finding.review_revision == 0 and finding.reviewed_at is not None,
+        legacy_review=(finding.review_revision == 0 and finding.reviewed_at is not None)
+        or bool(
+            (
+                await db.execute(
+                    select(exists().where(*filters, ScreeningFindingReview.revision == 0))
+                )
+            ).scalar_one()
+        ),
         reviews=[ScreeningFindingReviewHistoryOut.model_validate(row) for row in reviews],
         total=total,
         limit=limit,
@@ -709,7 +738,10 @@ def _effective_image_status() -> ColumnElement[str]:
                     newer.crop_id.is_not_distinct_from(gate.crop_id),
                     newer.stage == "GATE",
                     newer.run_status == "OK",
-                    newer.id > gate.id,
+                    or_(
+                        newer.created_at > gate.created_at,
+                        (newer.created_at == gate.created_at) & (newer.id > gate.id),
+                    ),
                 )
             ),
         )

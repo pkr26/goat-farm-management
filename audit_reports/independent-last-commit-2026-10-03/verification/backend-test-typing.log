@@ -1,0 +1,1 @@
+mypy --strict over tests/ passes with zero errors

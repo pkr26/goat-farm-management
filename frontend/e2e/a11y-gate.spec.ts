@@ -66,10 +66,14 @@ test.describe("a11y gate", () => {
           /* polling pages never idle — the content wait below is the real gate */
         }
         await page.getByRole("heading", { level: 1 }).or(page.getByRole("main")).first().waitFor({ timeout: 15_000 });
+        // Bootstrap can redirect after the first URL assertion. Scanning a
+        // delayed login page must not count as coverage of this protected route.
+        await expect(page).toHaveURL(new RegExp(`${path.replaceAll("/", "\\/")}$`));
 
         const results = await new AxeBuilder({ page })
           .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
           .analyze();
+        await expect(page).toHaveURL(new RegExp(`${path.replaceAll("/", "\\/")}$`));
 
         const serious = results.violations.filter((violation) =>
           violation.impact === "critical" || violation.impact === "serious"

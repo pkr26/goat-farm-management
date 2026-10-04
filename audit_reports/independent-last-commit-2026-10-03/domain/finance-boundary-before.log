@@ -1,0 +1,12 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_positive_root_isolation_uses_decimal_path_at_its_term_limit _______
+backend/tests/test_simulation_finance_mutation.py:269: in test_positive_root_isolation_uses_decimal_path_at_its_term_limit
+    assert _positive_power_roots(terms, 0.5, 2.0) == [1.25]
+E   assert [1.0] == [1.25]
+E     
+E     At index 0 diff: 1.0 != 1.25
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED backend/tests/test_simulation_finance_mutation.py::test_positive_root_isolation_uses_decimal_path_at_its_term_limit
+1 failed in 3.92s

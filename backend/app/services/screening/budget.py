@@ -20,6 +20,9 @@ from ...models.screening import ScreeningCallReservation, ScreeningDailyBudget, 
 from ...utils import DEFAULT_BUSINESS_TIMEZONE, utcnow
 
 BUDGET_LOCK_NAMESPACE = 4718
+# The f6 migration holds in-flight legacy work through its local-day boundary.
+# This is a cutover marker, not a spend counter to increment when cap=0.
+CUTOVER_HOLD_CALLS = 2_147_483_647
 
 
 class ScreeningBudgetExhausted(Exception):
@@ -86,6 +89,8 @@ async def reserve_provider_attempt(
             )
             charge_db.add(budget)
             await charge_db.flush()
+        if budget.reserved_calls == CUTOVER_HOLD_CALLS:
+            raise ScreeningBudgetExhausted("Legacy screening work is held until the next local day")
         if cap > 0 and budget.reserved_calls >= cap:
             raise ScreeningBudgetExhausted("Daily screening call budget is exhausted")
         budget.reserved_calls += 1

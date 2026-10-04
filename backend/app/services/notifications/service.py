@@ -203,6 +203,7 @@ async def send_notification(
         NotificationLog.payload_hash == digest,
         NotificationLog.local_date == local_date,
     )
+    day_filter = fact_filter
     if outbox_id is not None:
         # A partially delivered one-shot event survives midnight without
         # sending accepted/ambiguous recipient attempts again the next day.
@@ -211,6 +212,37 @@ async def send_notification(
             NotificationLog.recipient_id == recipient.id,
             NotificationLog.outbox_id == outbox_id,
         )
+
+    async def _adopt_legacy_claim() -> None:
+        """Keep a pre-outbox daily receipt when its fact enters the outbox.
+
+        Both unique constraints arbitrate inserts. A legacy daily receipt can
+        win the claim without having an outbox ID yet; link that real receipt
+        instead of losing it at midnight or treating the conflict as an absent
+        row. Deferred placeholders retain their normal retry policy below.
+        """
+        if outbox_id is None:
+            return
+        linked_id = (
+            await db.execute(select(NotificationLog.id).where(*fact_filter))
+        ).scalar_one_or_none()
+        if linked_id is not None:
+            return
+        legacy = (
+            await db.execute(
+                select(NotificationLog)
+                .where(*day_filter, NotificationLog.outbox_id.is_(None))
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if legacy is not None:
+            legacy.outbox_id = outbox_id
+            # Release the row before waiting for a legacy sender to settle its
+            # durable SENDING claim; it must be able to write the outcome.
+            await db.commit()
+
+    await _adopt_legacy_claim()
 
     async def _claim() -> int | None:
         """INSERT ... ON CONFLICT DO NOTHING claim of the day-dedupe slot.
@@ -235,6 +267,9 @@ async def send_notification(
         ).scalar_one_or_none()
 
     async def _current_row() -> NotificationLog:
+        # A direct/legacy sender may have won the daily claim since the
+        # initial reconciliation above. Reconcile after the insert conflict too.
+        await _adopt_legacy_claim()
         return (
             await db.execute(
                 select(NotificationLog)

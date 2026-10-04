@@ -1,0 +1,269 @@
+FFFFF.FFF                                                                [100%]
+=================================== FAILURES ===================================
+____ test_tangent_zero_is_not_discarded_when_certifying_irr_uniqueness[1.0] ____
+backend/tests/test_independent_domain_audit.py:35: in test_tangent_zero_is_not_discarded_when_certifying_irr_uniqueness
+    assert assessment.status == "multiple_roots"
+E   AssertionError: assert 'unique' == 'multiple_roots'
+E     
+E     - multiple_roots
+E     + unique
+____ test_tangent_zero_is_not_discarded_when_certifying_irr_uniqueness[0.5] ____
+backend/tests/test_independent_domain_audit.py:35: in test_tangent_zero_is_not_discarded_when_certifying_irr_uniqueness
+    assert assessment.status == "multiple_roots"
+E   AssertionError: assert 'unique' == 'multiple_roots'
+E     
+E     - multiple_roots
+E     + unique
+_ test_tangent_zero_is_not_discarded_when_certifying_irr_uniqueness[0.08333333333333333] _
+backend/tests/test_independent_domain_audit.py:35: in test_tangent_zero_is_not_discarded_when_certifying_irr_uniqueness
+    assert assessment.status == "multiple_roots"
+E   AssertionError: assert 'unique' == 'multiple_roots'
+E     
+E     - multiple_roots
+E     + unique
+____________ test_a_single_tangent_irr_is_a_zero_instead_of_no_root ____________
+backend/tests/test_independent_domain_audit.py:41: in test_a_single_tangent_irr_is_a_zero_instead_of_no_root
+    assert assess_irr([1.0, -2.0, 1.0], [0.0, 1.0, 2.0]).status == "unique"
+E   AssertionError: assert 'no_root' == 'unique'
+E     
+E     - unique
+E     + no_root
+_________ test_migration_cutover_hold_survives_a_disabled_call_cap[0] __________
+asyncpg/protocol/prepared_stmt.pyx:175: in asyncpg.protocol.protocol.PreparedStatementState._encode_bind_msg
+    ???
+asyncpg/protocol/codecs/base.pyx:251: in asyncpg.protocol.protocol.Codec.encode
+    return self.encoder(self, settings, buf, obj)
+asyncpg/protocol/codecs/base.pyx:153: in asyncpg.protocol.protocol.Codec.encode_scalar
+    self.c_encoder(settings, buf, obj)
+asyncpg/pgproto/codecs/int.pyx:60: in asyncpg.pgproto.pgproto.int4_encode
+    ???
+E   OverflowError: value out of int32 range
+
+The above exception was the direct cause of the following exception:
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:550: in _prepare_and_execute
+    self._rows = deque(await prepared_stmt.fetch(*parameters))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:177: in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:268: in __bind_execute
+    data, status, _ = await self.__do_execute(
+backend/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:257: in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+asyncpg/protocol/protocol.pyx:184: in bind_execute
+    ???
+asyncpg/protocol/prepared_stmt.pyx:204: in asyncpg.protocol.protocol.PreparedStatementState._encode_bind_msg
+    ???
+E   asyncpg.exceptions.DataError: invalid input for query argument $1: 2147483648 (value out of int32 range)
+
+The above exception was the direct cause of the following exception:
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: in _handle_exception
+    raise translated_error from error
+E   sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.Error: <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: 2147483648 (value out of int32 range)
+
+The above exception was the direct cause of the following exception:
+backend/tests/test_independent_domain_audit.py:61: in test_migration_cutover_hold_survives_a_disabled_call_cap
+    await reserve_provider_attempt(
+backend/app/services/screening/budget.py:56: in reserve_provider_attempt
+    async with AsyncSession(bind=bind, expire_on_commit=False) as charge_db, charge_db.begin():
+                                                                             ^^^^^^^^^^^^^^^^^
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py:1886: in __aexit__
+    await greenlet_spawn(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:203: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/util.py:147: in __exit__
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:122: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/util.py:145: in __exit__
+    self.commit()
+<string>:2: in commit
+    ???
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:1316: in commit
+    self._prepare_impl()
+<string>:2: in _prepare_impl
+    ???
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:1290: in _prepare_impl
+    self.session.flush()
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4353: in flush
+    self._flush(objects)
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4488: in _flush
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:122: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:4449: in _flush
+    flush_context.execute()
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py:465: in execute
+    rec.execute(self)
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/unitofwork.py:641: in execute
+    util.preloaded.orm_persistence.save_obj(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py:86: in save_obj
+    _emit_update_statements(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/persistence.py:913: in _emit_update_statements
+    c = connection.execute(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: in _handle_exception
+    raise translated_error from error
+E   sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: 2147483648 (value out of int32 range)
+E   [SQL: UPDATE screening_daily_budgets SET reserved_calls=$1::INTEGER WHERE screening_daily_budgets.farm_id = $2::INTEGER AND screening_daily_budgets.local_date = $3::DATE]
+E   [parameters: (2147483648, 1, datetime.date(2026, 10, 3))]
+E   (Background on this error at: https://sqlalche.me/e/20/dbapi)
+----------------------------- Captured stderr call -----------------------------
+2026-10-03 14:11:13,009 INFO goatfarm [3e1c15f7eb79440eb430f3c69aa008e0] request method=POST path=/api/auth/register status=201 duration_ms=229.21
+2026-10-03 14:11:13,010 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-03 14:11:13,032 INFO goatfarm [0b20cd62ba1646b4a48464abcebe3362] request method=POST path=/api/auth/farms status=201 duration_ms=21.88
+2026-10-03 14:11:13,032 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/register status=201 duration_ms=229.21
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms status=201 duration_ms=21.88
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+____ test_quality_verdict_order_agrees_between_list_filter_and_detail[True] ____
+backend/tests/test_independent_domain_audit.py:130: in test_quality_verdict_order_agrees_between_list_filter_and_detail
+    assert listing.json()["images"][0]["status"] == expected
+E   AssertionError: assert 'HEALTHY' == 'UNASSESSABLE'
+E     
+E     - UNASSESSABLE
+E     + HEALTHY
+----------------------------- Captured stderr call -----------------------------
+2026-10-03 14:11:13,717 INFO goatfarm [39a84bfb4f77465eb7997d1d7ac4936e] request method=POST path=/api/auth/register status=201 duration_ms=130.40
+2026-10-03 14:11:13,717 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-03 14:11:13,735 INFO goatfarm [cb43327c967e41fba1d475a884b02896] request method=POST path=/api/auth/farms status=201 duration_ms=17.81
+2026-10-03 14:11:13,736 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-03 14:11:13,916 INFO goatfarm [8fca2781bae24179aa29886f0a569ff6] request method=GET path=/api/screening/images/1 status=200 duration_ms=173.90
+2026-10-03 14:11:13,917 INFO httpx [-] HTTP Request: GET http://test/api/screening/images/1 "HTTP/1.1 200 OK"
+2026-10-03 14:11:14,004 INFO goatfarm [53bd83c2ddfe44f88f9e2689b9a88a77] request method=GET path=/api/screening/images status=200 duration_ms=87.07
+2026-10-03 14:11:14,005 INFO httpx [-] HTTP Request: GET http://test/api/screening/images "HTTP/1.1 200 OK"
+2026-10-03 14:11:14,017 INFO goatfarm [e49f05850afc4cee942828d7a8812789] request method=GET path=/api/screening/images status=200 duration_ms=11.56
+2026-10-03 14:11:14,018 INFO httpx [-] HTTP Request: GET http://test/api/screening/images?status=UNASSESSABLE "HTTP/1.1 200 OK"
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/register status=201 duration_ms=130.40
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms status=201 duration_ms=17.81
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=GET path=/api/screening/images/1 status=200 duration_ms=173.90
+INFO     httpx:_client.py:1740 HTTP Request: GET http://test/api/screening/images/1 "HTTP/1.1 200 OK"
+INFO     goatfarm:main.py:1107 request method=GET path=/api/screening/images status=200 duration_ms=87.07
+INFO     httpx:_client.py:1740 HTTP Request: GET http://test/api/screening/images "HTTP/1.1 200 OK"
+INFO     goatfarm:main.py:1107 request method=GET path=/api/screening/images status=200 duration_ms=11.56
+INFO     httpx:_client.py:1740 HTTP Request: GET http://test/api/screening/images?status=UNASSESSABLE "HTTP/1.1 200 OK"
+___ test_quality_verdict_order_agrees_between_list_filter_and_detail[False] ____
+backend/tests/test_independent_domain_audit.py:130: in test_quality_verdict_order_agrees_between_list_filter_and_detail
+    assert listing.json()["images"][0]["status"] == expected
+E   AssertionError: assert 'UNASSESSABLE' == 'HEALTHY'
+E     
+E     - HEALTHY
+E     + UNASSESSABLE
+----------------------------- Captured stderr call -----------------------------
+2026-10-03 14:11:14,255 INFO goatfarm [615401049910499d96c340da427574b7] request method=POST path=/api/auth/register status=201 duration_ms=136.00
+2026-10-03 14:11:14,256 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-03 14:11:14,270 INFO goatfarm [6bcaf56680364258bf87dc6b7a369a01] request method=POST path=/api/auth/farms status=201 duration_ms=13.94
+2026-10-03 14:11:14,270 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-03 14:11:14,452 INFO goatfarm [4fdaf7132c6c447186bb8a1428709009] request method=GET path=/api/screening/images/1 status=200 duration_ms=176.07
+2026-10-03 14:11:14,453 INFO httpx [-] HTTP Request: GET http://test/api/screening/images/1 "HTTP/1.1 200 OK"
+2026-10-03 14:11:14,463 INFO goatfarm [1d5ddf7cd8504397867045b826465dc1] request method=GET path=/api/screening/images status=200 duration_ms=9.75
+2026-10-03 14:11:14,464 INFO httpx [-] HTTP Request: GET http://test/api/screening/images "HTTP/1.1 200 OK"
+2026-10-03 14:11:14,473 INFO goatfarm [27fb55437ea849b78ed305010835f565] request method=GET path=/api/screening/images status=200 duration_ms=8.86
+2026-10-03 14:11:14,474 INFO httpx [-] HTTP Request: GET http://test/api/screening/images?status=HEALTHY "HTTP/1.1 200 OK"
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/register status=201 duration_ms=136.00
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms status=201 duration_ms=13.94
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=GET path=/api/screening/images/1 status=200 duration_ms=176.07
+INFO     httpx:_client.py:1740 HTTP Request: GET http://test/api/screening/images/1 "HTTP/1.1 200 OK"
+INFO     goatfarm:main.py:1107 request method=GET path=/api/screening/images status=200 duration_ms=9.75
+INFO     httpx:_client.py:1740 HTTP Request: GET http://test/api/screening/images "HTTP/1.1 200 OK"
+INFO     goatfarm:main.py:1107 request method=GET path=/api/screening/images status=200 duration_ms=8.86
+INFO     httpx:_client.py:1740 HTTP Request: GET http://test/api/screening/images?status=HEALTHY "HTTP/1.1 200 OK"
+_____________ test_exclusions_cannot_complete_a_future_health_duty _____________
+backend/tests/test_independent_domain_audit.py:155: in test_exclusions_cannot_complete_a_future_health_duty
+    assert response.status_code == 409, response.text
+E   AssertionError: {"task_id":1,"task_status":"DONE","initialized":true,"snapshot_at":"2026-10-03T21:11:14.824119","required_components":["PPR"],"total_targets":1,"excluded_targets":1,"covered_targets":0,"remaining_units":0,"available_additions":0,"targets":[{"animal_id":1,"animal_tag":"FUTURE-ROUND","animal_status":"ACTIVE","current_bucket":"FOUNDATION","covered_components":[],"exclusion_reason":"Vet deferred this animal","excluded_by_id":1,"excluded_at":"2026-10-03T21:11:14.851727","inclusion_reason":null,"added_at":"2026-10-03T21:11:14.824119"}],"limit":100,"offset":0}
+E   assert 200 == 409
+E    +  where 200 = <Response [200 OK]>.status_code
+----------------------------- Captured stderr call -----------------------------
+2026-10-03 14:11:14,706 INFO goatfarm [49971aed8ef34443906916b7c066bf96] request method=POST path=/api/auth/register status=201 duration_ms=130.28
+2026-10-03 14:11:14,706 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-03 14:11:14,729 INFO goatfarm [04bff9d275014520962d86856a597e1a] request method=POST path=/api/auth/farms status=201 duration_ms=22.75
+2026-10-03 14:11:14,730 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-03 14:11:14,771 INFO goatfarm [d65b033b1ec34841836040ad3ccb3bc5] request method=POST path=/api/animals status=201 duration_ms=41.00
+2026-10-03 14:11:14,772 INFO httpx [-] HTTP Request: POST http://test/api/animals "HTTP/1.1 201 Created"
+2026-10-03 14:11:14,839 INFO goatfarm [766cd575d5c2449eb227096299dacbf2] request method=POST path=/api/health/rounds/1/start status=200 duration_ms=62.99
+2026-10-03 14:11:14,840 INFO httpx [-] HTTP Request: POST http://test/api/health/rounds/1/start "HTTP/1.1 200 OK"
+2026-10-03 14:11:14,862 INFO goatfarm [d6ec30c85a844e719bb2046722fc9832] request method=POST path=/api/health/rounds/1/exclusions status=200 duration_ms=21.24
+2026-10-03 14:11:14,862 INFO httpx [-] HTTP Request: POST http://test/api/health/rounds/1/exclusions "HTTP/1.1 200 OK"
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/register status=201 duration_ms=130.28
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms status=201 duration_ms=22.75
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/animals status=201 duration_ms=41.00
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/animals "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/health/rounds/1/start status=200 duration_ms=62.99
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/health/rounds/1/start "HTTP/1.1 200 OK"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/health/rounds/1/exclusions status=200 duration_ms=21.24
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/health/rounds/1/exclusions "HTTP/1.1 200 OK"
+=========================== short test summary info ============================
+FAILED backend/tests/test_independent_domain_audit.py::test_tangent_zero_is_not_discarded_when_certifying_irr_uniqueness[1.0]
+FAILED backend/tests/test_independent_domain_audit.py::test_tangent_zero_is_not_discarded_when_certifying_irr_uniqueness[0.5]
+FAILED backend/tests/test_independent_domain_audit.py::test_tangent_zero_is_not_discarded_when_certifying_irr_uniqueness[0.08333333333333333]
+FAILED backend/tests/test_independent_domain_audit.py::test_a_single_tangent_irr_is_a_zero_instead_of_no_root
+FAILED backend/tests/test_independent_domain_audit.py::test_migration_cutover_hold_survives_a_disabled_call_cap[0]
+FAILED backend/tests/test_independent_domain_audit.py::test_quality_verdict_order_agrees_between_list_filter_and_detail[True]
+FAILED backend/tests/test_independent_domain_audit.py::test_quality_verdict_order_agrees_between_list_filter_and_detail[False]
+FAILED backend/tests/test_independent_domain_audit.py::test_exclusions_cannot_complete_a_future_health_duty
+8 failed, 1 passed in 6.35s

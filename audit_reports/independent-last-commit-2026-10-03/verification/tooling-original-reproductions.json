@@ -1,0 +1,11 @@
+{
+  "migration_input_drift": {
+    "original_invalidates": false,
+    "fixed_invalidates": true
+  },
+  "timeout_database_leak": {
+    "original_status": "timeout",
+    "original_database_leaked": true,
+    "fixed_cleanup_absent": true
+  }
+}

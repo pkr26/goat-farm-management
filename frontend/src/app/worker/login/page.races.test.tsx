@@ -85,13 +85,14 @@ beforeEach(() => {
 });
 
 describe("manager setup inside the real worker shell", () => {
-  async function enterManagerSetup() {
+  async function enterManagerSetup(mode: "password" | "mfa" = "password") {
     localStorage.removeItem("herdly.tabletFarm");
     localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     server.use(http.post("/api/auth/login", async ({ request }) => {
       expect(await request.json()).toEqual({ email: "alice@farm.in", password: "manager-password-1234", tablet_setup: true });
-      return HttpResponse.json(ALICE);
+      return HttpResponse.json(mode === "mfa" ? { mfa_token: "manager-challenge" } : ALICE);
     }));
+    server.use(http.post("/api/auth/totp/challenge", () => HttpResponse.json(ALICE)));
     const view = renderWithProviders(<><AuthProbe /><WorkerShell><WorkerLoginPage /></WorkerShell></>, createTestQueryClient());
     await view.waitForAuthIdle();
     const user = userEvent.setup();
@@ -99,6 +100,10 @@ describe("manager setup inside the real worker shell", () => {
     await user.type(screen.getByLabelText("Email"), "alice@farm.in");
     await user.type(screen.getByLabelText("Password"), "manager-password-1234");
     await user.click(screen.getByRole("button", { name: "Continue" }));
+    if (mode === "mfa") {
+      await user.type(await screen.findByLabelText("Verification code"), "123456");
+      await user.click(screen.getByRole("button", { name: "Continue" }));
+    }
     return { view, user };
   }
 
@@ -124,6 +129,78 @@ describe("manager setup inside the real worker shell", () => {
     view.rerender(<><AuthProbe /><WorkerShell><p>Another worker page</p></WorkerShell></>);
     await waitFor(() => expect(revocations.map((item) => item.bearer)).toEqual(["Bearer alice-grant"]));
     expect(screen.getByTestId("current-worker")).toHaveTextContent("signed out");
+  });
+
+  it.each(["password", "mfa"] as const)("cancelling a superseded %s manager stage revokes its exact grant and preserves the replacement worker", async (mode) => {
+    const farms = deferred<void>();
+    let managerDiscovering = false;
+    server.use(http.get("/api/auth/farms", async ({ request }) => {
+      if (request.headers.get("Authorization") === "Bearer alice-grant") {
+        managerDiscovering = true;
+        await farms.promise;
+      }
+      return HttpResponse.json(FARMS);
+    }));
+    const { user } = await enterManagerSetup(mode);
+    await waitFor(() => expect(managerDiscovering).toBe(true));
+    await act(async () => { await auth!.signIn(BOB.access_token, BOB.user); });
+    const bobEpoch = authSessionEpochValue();
+    replace.mockClear();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(revocations).toContainEqual({ bearer: "Bearer alice-grant", credentials: "omit" }));
+    await act(async () => { farms.resolve(); await farms.promise; });
+    expect(authSessionEpochValue()).toBe(bobEpoch);
+    expect(screen.getByTestId("current-worker")).toHaveTextContent("Bob");
+    expect(revocations.some((item) => item.bearer === "Bearer bob-grant")).toBe(false);
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does not pin or sign out a replacement worker through the abandoned manager's farm picker", async () => {
+    const { user } = await enterManagerSetup();
+    await screen.findByTestId("worker-setup-farms");
+    await act(async () => { await auth!.signIn(BOB.access_token, BOB.user); });
+    const bobEpoch = authSessionEpochValue();
+    replace.mockClear();
+    await user.click(screen.getByRole("button", { name: "Tablet Farm" }));
+    await waitFor(() => expect(revocations).toContainEqual({ bearer: "Bearer alice-grant", credentials: "omit" }));
+    expect(authSessionEpochValue()).toBe(bobEpoch);
+    expect(screen.getByTestId("current-worker")).toHaveTextContent("Bob");
+    expect(localStorage.getItem("herdly.tabletFarm")).toBeNull();
+    expect(revocations.some((item) => item.bearer === "Bearer bob-grant")).toBe(false);
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it.each(["password", "mfa"] as const)("revokes a failed temporary-manager %s establishment without sending the browser's refresh cookie", async (mode) => {
+    const cookieLogouts = vi.fn();
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.json({ detail: "Farm discovery unavailable" }, { status: 503 })),
+      http.post("/api/auth/logout", ({ request }) => {
+        cookieLogouts(request.credentials);
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    await enterManagerSetup(mode);
+    await waitFor(() => expect(revocations).toContainEqual({ bearer: "Bearer alice-grant", credentials: "omit" }));
+    expect(cookieLogouts).not.toHaveBeenCalled();
+    expect(screen.getByTestId("current-worker")).toHaveTextContent("signed out");
+    expect(await screen.findByRole("alert")).toBeVisible();
+    if (mode === "mfa") await userEvent.setup().type(screen.getByLabelText("Verification code"), "123456");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+  });
+
+  it("releases the PIN pad and shows failure when its own staged farm discovery fails", async () => {
+    pinRequest.mockResolvedValueOnce(ALICE);
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.json({ detail: "Farm discovery unavailable" }, { status: 503 })),
+      http.post("/api/auth/logout", () => new HttpResponse(null, { status: 204 })),
+    );
+    const user = userEvent.setup();
+    await renderLogin();
+    await enterPin(user, "Alice");
+    expect(await screen.findByRole("alert", {}, { timeout: 2500 })).toBeVisible();
+    expect(screen.getByTestId("current-worker")).toHaveTextContent("signed out");
+    for (const digit of "4321") await user.click(screen.getByTestId(`pin-key-${digit}`));
+    expect(screen.getByTestId("pin-sign-in")).toBeEnabled();
   });
 });
 

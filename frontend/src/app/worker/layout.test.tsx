@@ -318,6 +318,20 @@ describe("WorkerShell chrome", () => {
     expect(probe()).toBeNull();
   });
 
+  it("keeps pending-duty replay gated until required password rotation finishes", async () => {
+    authState.user = { id: 7, email: "worker@farm.in", name: "Password Worker", must_change_password: true };
+    const view = renderShell();
+    await screen.findByTestId("worker-change-password");
+    const lockedGate = startWorkersMock.mock.calls.at(-1)?.[3] as () => boolean;
+    expect(lockedGate()).toBe(false);
+    authState.user = { ...authState.user, must_change_password: false };
+    view.rerender(<WorkerShell><p>duty board</p></WorkerShell>);
+    await waitFor(() => {
+      const releasedGate = startWorkersMock.mock.calls.at(-1)?.[3] as () => boolean;
+      expect(releasedGate()).toBe(true);
+    });
+  });
+
   it("shows the queue-depth badge only while records wait to send", async () => {
     queueDepthMock.mockReturnValue(2);
     renderShell();

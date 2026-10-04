@@ -9,10 +9,13 @@ inconclusive; incompatible historical receipts cannot be resumed or scored.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import collections
 import contextlib
+import copy
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -24,7 +27,15 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from mutate_identity import digest_json, input_identity, latest_compatible, read_results, sha_file
+import asyncpg
+from mutate_identity import (
+    digest_json,
+    input_identity,
+    latest_compatible,
+    read_results,
+    sha_bytes,
+    sha_file,
+)
 
 BACKEND = Path(__file__).resolve().parent.parent
 MUTDIR = BACKEND / "mutation"
@@ -35,21 +46,50 @@ FULL_CAP = 400  # phase-2 escalation cap
 MODULE_LEVEL_FILE_SAMPLES = 3  # whole test files for module-level mutants
 
 
-def load_coverage_contexts() -> dict[str, dict[int, set[str]]]:
+def drop_attempt_database(database: str) -> None:
+    """Reap only this runner's unique database, including after SIGKILL.
+
+    Killed pytest processes cannot run their session-fixture teardown. Never
+    let an inconclusive attempt leak its database into the next campaign.
+    """
+    if re.fullmatch(r"herdly_mut_[a-f0-9]{10}_[a-f0-9]{8}_test", database) is None:
+        raise ValueError("refusing to clean a database outside the attempt namespace")
+
+    async def drop() -> None:
+        connection = await asyncpg.connect("postgresql://localhost:5432/postgres", timeout=5)
+        try:
+            # PostgreSQL can wait for an in-progress checkpoint even with every
+            # database lock granted. Allow that bounded I/O wait under parallel
+            # test load; cleanup failure still makes the attempt inconclusive.
+            await connection.execute(
+                f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)', timeout=45
+            )
+        finally:
+            await connection.close(timeout=5)
+
+    asyncio.run(drop())
+
+
+def load_coverage_contexts(
+    coverage_bytes: bytes, provenance: dict[str, Any]
+) -> dict[str, dict[int, set[str]]]:
+    """Parse exactly the captured bytes whose digest identifies this campaign."""
     import coverage
 
-    cov = coverage.Coverage(data_file=str(BACKEND / ".coverage-mut"))
-    cov.load()
-    data = cov.get_data()
-    provenance = json.loads((BACKEND / ".coverage-mut.provenance.json").read_text())
     source_root = Path(provenance.get("source_root", str(BACKEND)))
     by_file: dict[str, dict[int, set[str]]] = {}
-    for f in data.measured_files():
-        rel = Path(f).relative_to(source_root).as_posix()
-        by_file[rel] = {
-            line: {c.rsplit("|", 1)[0] for c in ctxs if c}
-            for line, ctxs in (data.contexts_by_lineno(f) or {}).items()
-        }
+    with tempfile.TemporaryDirectory(prefix="herdly-mutation-coverage-") as temporary:
+        data_file = Path(temporary) / ".coverage"
+        data_file.write_bytes(coverage_bytes)
+        cov = coverage.Coverage(data_file=str(data_file))
+        cov.load()
+        data = cov.get_data()
+        for f in data.measured_files():
+            rel = Path(f).relative_to(source_root).as_posix()
+            by_file[rel] = {
+                line: {c.rsplit("|", 1)[0] for c in ctxs if c}
+                for line, ctxs in (data.contexts_by_lineno(f) or {}).items()
+            }
     return by_file
 
 
@@ -151,45 +191,54 @@ class Runner:
         self.deadline = time.monotonic() + max_seconds if max_seconds else None
         self.run_id = uuid.uuid4().hex
         self.inputs = input_identity(BACKEND)
-        self.identity = {
-            "schema": 2,
-            **self.inputs,
-            "manifest_sha256": sha_file(MUTDIR / "manifest.json"),
-            "coverage_sha256": sha_file(BACKEND / ".coverage-mut"),
-            "config": {
-                "workers": workers,
-                "phase_timeout": phase_timeout,
-                "full": bool(os.environ.get("MUTATE_FULL_PHASE")),
-                "sample_cap": SAMPLE_CAP,
-            },
-        }
-        provenance_path = BACKEND / ".coverage-mut.provenance.json"
+        # Read each artifact once. Rechecking live hashes after parsing does
+        # not catch an artifact replaced and restored during context loading.
+        manifest_bytes = (MUTDIR / "manifest.json").read_bytes()
         try:
-            coverage_provenance = json.loads(provenance_path.read_text())
+            coverage_bytes = (BACKEND / ".coverage-mut").read_bytes()
+            provenance_bytes = (BACKEND / ".coverage-mut.provenance.json").read_bytes()
+            coverage_provenance = json.loads(provenance_bytes)
         except (OSError, ValueError) as exc:
             raise ValueError(
                 "coverage has no clean-baseline provenance; run mutation/mutate_cover.py"
             ) from exc
+        manifest = json.loads(manifest_bytes)
+        self.manifest = {m["id"]: m for m in manifest}
+        if len(self.manifest) != len(manifest):
+            raise ValueError("manifest has duplicate mutant IDs; regenerate the manifest")
+        self._mutant_digests = {mid: digest_json(m) for mid, m in self.manifest.items()}
+        self.full_phase = bool(os.environ.get("MUTATE_FULL_PHASE"))
+        self.identity = {
+            "schema": 2,
+            **self.inputs,
+            "manifest_sha256": sha_bytes(manifest_bytes),
+            "coverage_sha256": sha_bytes(coverage_bytes),
+            "coverage_provenance_sha256": sha_bytes(provenance_bytes),
+            "config": {
+                "workers": workers,
+                "phase_timeout": phase_timeout,
+                "full": self.full_phase,
+                "sample_cap": SAMPLE_CAP,
+            },
+        }
         if (
             coverage_provenance.get("inputs") != self.inputs
             or coverage_provenance.get("coverage_sha256") != self.identity["coverage_sha256"]
             or coverage_provenance.get("baseline_exit_code") != 0
         ):
             raise ValueError("coverage source/tests/locks are stale; run mutation/mutate_cover.py")
-        self.identity["coverage_provenance_sha256"] = sha_file(provenance_path)
         self.campaign_id = digest_json(self.identity)
-        self.ctx = load_coverage_contexts()
+        self.ctx = load_coverage_contexts(coverage_bytes, coverage_provenance)
         self.pop = file_popularity(self.ctx)
         self.tpf = tests_per_file(self.ctx)
         self.stop = threading.Event()
         self.counter: collections.Counter[str] = collections.Counter()
         self.print_lock = threading.Lock()
         self.results_path = MUTDIR / "results.jsonl"
-        manifest = {m["id"]: m for m in json.loads((MUTDIR / "manifest.json").read_text())}
         self.done_ids = {
             mid
             for mid, rec in latest_compatible(
-                read_results(self.results_path), self.campaign_id, manifest
+                read_results(self.results_path), self.campaign_id, self.manifest
             ).items()
             if rec.get("status") in {"KILLED", "SURVIVED", "INVALID"}
         }
@@ -197,6 +246,7 @@ class Runner:
         self.snapshot = Path(self._snapshot_tmp.name) / "repo"
         try:
             shutil.copytree(BACKEND.parent, self.snapshot, ignore=snapshot_ignore)
+            (self.snapshot / BACKEND.name / "mutation/manifest.json").write_bytes(manifest_bytes)
             # Reject a mixed snapshot taken while editors changed source/tests.
             if input_identity(self.snapshot / BACKEND.name) != self.inputs:
                 raise RuntimeError(
@@ -227,6 +277,7 @@ class Runner:
         return [], False
 
     def run_pytest(self, node_ids: list[str], worker: int) -> tuple[str, str, float]:
+        self.local.pytest_receipt = None
         env = os.environ.copy()
         env["GOATFARM_TEST_DB"] = f"herdly_mut_{self.run_id[:10]}_{uuid.uuid4().hex[:8]}_test"
         env.pop("COVERAGE_FILE", None)
@@ -276,6 +327,16 @@ class Runner:
             out, _ = proc.communicate()
             status = "timeout"
             self.local.pytest_receipt = None
+        try:
+            drop_attempt_database(env["GOATFARM_TEST_DB"])
+        except Exception as exc:
+            # A measurement with failed resource cleanup needs operator review,
+            # even if the assertion receipt itself was otherwise conclusive.
+            status = "infra"
+            out = (out or "") + (
+                f"\nAttempt database cleanup failed for {env['GOATFARM_TEST_DB']}: "
+                f"{type(exc).__name__}"
+            )
         return status, out or "", time.monotonic() - t0
 
     def apply_mutant(self, m: dict[str, Any]) -> str:
@@ -294,6 +355,16 @@ class Runner:
         return mutated
 
     def first_failure(self, out: str) -> str:
+        cleanup_failure = next(
+            (
+                line.strip()[:220]
+                for line in out.splitlines()
+                if line.strip().startswith("Attempt database cleanup failed")
+            ),
+            None,
+        )
+        if cleanup_failure:
+            return cleanup_failure
         return next(
             (
                 line.strip()[:220]
@@ -304,6 +375,7 @@ class Runner:
         )
 
     def execute(self, m: dict[str, Any], worker: int) -> dict[str, Any]:
+        m = copy.deepcopy(m)
         rec = {key: m[key] for key in ("id", "file", "line", "kind", "detail", "tier")}
         rec.update(
             campaign_id=self.campaign_id,
@@ -313,6 +385,12 @@ class Runner:
             provenance=self.identity,
             status_policy="assertions-only-timeouts-inconclusive",
         )
+        if self._mutant_digests.get(m["id"]) != rec["mutant_digest"]:
+            return {
+                **rec,
+                "status": "INVALID",
+                "error": "mutation does not match the captured manifest",
+            }
         with tempfile.TemporaryDirectory(prefix="herdly-mutant-") as temporary:
             workspace = Path(temporary) / "repo"
             shutil.copytree(self.snapshot, workspace)
@@ -333,7 +411,7 @@ class Runner:
             rec.update(n_tests=len(selection), module_level=module_level)
             if not selection:
                 return {**rec, "status": "NOT_COVERED", "selection_mode": "uncovered"}
-            phases = [len(selection)] if os.environ.get("MUTATE_FULL_PHASE") else [15, SAMPLE_CAP]
+            phases = [len(selection)] if self.full_phase else [15, SAMPLE_CAP]
             total_duration = 0.0
             for phase, cap in enumerate(phases, 1):
                 subset = sample_tests(selection, cap)
@@ -444,18 +522,20 @@ def main() -> None:
     parser.add_argument("--full", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    manifest = json.loads((MUTDIR / "manifest.json").read_text())
     tiers = {int(tier) for tier in args.tiers.split(",")}
-    todo = [
-        m
-        for m in manifest
-        if m["tier"] in tiers
-        and (not args.files or any(name in m["file"] for name in args.files.split(",")))
-        and (not args.kinds or m["kind"] in args.kinds.split(","))
-    ]
-    if args.limit:
-        todo = todo[: args.limit]
+
+    def select_targets(manifest: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        todo = [
+            m
+            for m in manifest
+            if m["tier"] in tiers
+            and (not args.files or any(name in m["file"] for name in args.files.split(",")))
+            and (not args.kinds or m["kind"] in args.kinds.split(","))
+        ]
+        return todo[: args.limit] if args.limit else todo
+
     if args.dry_run:
+        todo = select_targets(json.loads((MUTDIR / "manifest.json").read_text()))
         print(
             json.dumps(
                 {
@@ -472,6 +552,7 @@ def main() -> None:
         os.environ["MUTATE_FULL_PHASE"] = "1"
     runner = Runner(args.workers, args.max_seconds)
     try:
+        todo = select_targets(list(runner.manifest.values()))
         runner.run([m for m in todo if m["id"] not in runner.done_ids])
     finally:
         runner.close()

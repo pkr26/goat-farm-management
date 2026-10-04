@@ -10,7 +10,9 @@ export function mutationTransformPlugin({ root = FRONTEND } = {}) {
   let mutant;
   let fingerprint;
   if (id) {
-    const manifest = JSON.parse(readFileSync(path.join(root, "mutation/manifest.json"), "utf8"));
+    const manifestBytes = readFileSync(path.join(root, "mutation/manifest.json"));
+    if (process.env.MUTATION_MANIFEST_SHA && hash(manifestBytes) !== process.env.MUTATION_MANIFEST_SHA) throw new Error("MUTATION_INVALID: manifest fingerprint changed");
+    const manifest = JSON.parse(manifestBytes);
     mutant = manifest.mutants.find((item) => item.id === id);
     fingerprint = mutant && manifest.fileMeta[mutant.file]?.sha256;
     if (!mutant || !fingerprint) throw new Error(`MUTATION_INVALID: unknown mutant ${id}`);

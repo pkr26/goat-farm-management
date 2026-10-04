@@ -1,0 +1,11 @@
+{
+  "historical_modules": 101,
+  "historical_changes": [],
+  "new_forward_module": "backend/alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py",
+  "new_head": "f9a3b7c1d5e2",
+  "revises": "f8e2f6a0c5d3",
+  "source_sha256": "222d958766af35bb01207969d4233e1c065042515f417be68c25c82666275eae",
+  "populated_upgrade_and_lossy_downgrade_guard": "domain/legacy-migration-clinical-parity-31.log, domain/independent-final-14.log",
+  "metadata_already_overwritten_before_repair_cannot_be_reconstructed": true,
+  "concurrent_writer_and_latest_migration_contracts": "domain/migration-contracts-final.xml (212passed)"
+}

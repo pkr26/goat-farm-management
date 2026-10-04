@@ -1,0 +1,29 @@
+{
+  "commit": "fee30d56765cd8d1312a4f900d1450593b5e338c",
+  "frontend_recorded_sources": 964,
+  "source_mismatches": [],
+  "recorded_browser_results": {
+    "chromium": {
+      "passed": 74,
+      "failed": 0,
+      "skipped": 0,
+      "retries": 0,
+      "exit_code": 0
+    },
+    "firefox": {
+      "passed": 71,
+      "failed": 0,
+      "skipped": 0,
+      "retries": 0,
+      "exit_code": 0
+    },
+    "webkit": {
+      "passed": 71,
+      "failed": 0,
+      "skipped": 0,
+      "retries": 0,
+      "exit_code": 0
+    }
+  },
+  "limitation": "Source/count reconciliation of preserved receipts; not a fresh execution."
+}

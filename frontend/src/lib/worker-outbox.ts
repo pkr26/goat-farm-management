@@ -350,13 +350,14 @@ export function startWorkerOutbox(
   getScope: () => QueueScopes | null,
   onChange: (records: WorkerOperation[]) => void,
   onError: () => void,
+  canReplay: () => boolean = () => true,
 ): () => void {
   let active = true;
   const run = async () => {
     const scope = getScope();
     if (scope === null) return;
     try {
-      if (navigator.onLine) await drainWorkerOutbox(scope, getScope);
+      if (navigator.onLine && canReplay()) await drainWorkerOutbox(scope, getScope);
       const records = await readWorkerOutbox(scope);
       if (active && sameScope(getScope(), scope)) onChange(records);
     } catch { if (active && sameScope(getScope(), scope)) onError(); }

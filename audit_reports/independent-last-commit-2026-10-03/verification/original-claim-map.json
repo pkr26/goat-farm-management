@@ -1,0 +1,504 @@
+{
+  "original_tracked_claims": 83,
+  "claims": [
+    {
+      "finding": "FE1",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "FE2",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "FE3",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "FE4",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "FE5",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "FE6",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "FE7",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "FE8",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "FE9",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "FE10",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "FE11",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "FE12",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "FE13",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "DP1",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "DP2",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "DP3",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "DP4",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "D1",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D2",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D3",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D4",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D5",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D6",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "D7",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "D8",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D9",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D10",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D11",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D12",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D13",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D14",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D15",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "D16",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D17",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D18",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D19",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D20",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "D21",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "DB-01",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "DB-02",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "DB-03",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "DB-04",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "DB-05",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "DB-06",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "DB-07",
+      "track": "domain",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "domain/report.json"
+    },
+    {
+      "finding": "DB-08",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "DB-09",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-01",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-02",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-03",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-04",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-05",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-06",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-07",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-08",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-09",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-10",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-11",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-12",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "PL-13",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "FM-01",
+      "track": "mutation",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/final-source-review.md"
+    },
+    {
+      "finding": "FM-02",
+      "track": "mutation",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/final-source-review.md"
+    },
+    {
+      "finding": "FM-03",
+      "track": "mutation",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/final-source-review.md"
+    },
+    {
+      "finding": "FM-04",
+      "track": "mutation",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/final-source-review.md"
+    },
+    {
+      "finding": "BM-01",
+      "track": "mutation",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/mutation-peer-review.json"
+    },
+    {
+      "finding": "BM-02",
+      "track": "mutation",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/mutation-peer-review.json"
+    },
+    {
+      "finding": "BM-03",
+      "track": "mutation",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/mutation-peer-review.json"
+    },
+    {
+      "finding": "BM-04",
+      "track": "mutation",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/mutation-peer-review.json"
+    },
+    {
+      "finding": "BM-05",
+      "track": "mutation",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/mutation-peer-review.json"
+    },
+    {
+      "finding": "BM-06",
+      "track": "mutation",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/mutation-peer-review.json"
+    },
+    {
+      "finding": "BM-07",
+      "track": "mutation",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/mutation-peer-review.json"
+    },
+    {
+      "finding": "ADD-01",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "ADD-02",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "ADD-03",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "ADD-04",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "ADD-05",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "ADD-06",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "ADD-07",
+      "track": "security-ops",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "security-ops/claim-map.json"
+    },
+    {
+      "finding": "ADD-08",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "ADD-09",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "ADD-10",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "ADD-11",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    },
+    {
+      "finding": "ADD-12",
+      "track": "frontend",
+      "basis": "Independent source/diff inspection; original regression collection plus focused adversarial checks.",
+      "details": "frontend/summary.md"
+    }
+  ],
+  "limits": "Local implementation/automated evidence; external field/provider/load/staging claims were explicitly pending in the original commit."
+}

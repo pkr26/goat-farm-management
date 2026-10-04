@@ -45,6 +45,15 @@ export type FarmEntry = FarmOut;
 
 // Bootstrap retry budget for TRANSIENT refresh failures only.
 const BOOTSTRAP_REFRESH_ATTEMPTS = 3;
+const failedEstablishmentEpochs = new WeakMap<object, number>();
+
+/** A rejected sign-in may have cleared its own staged session. This lets its
+ * form release the attempt after that intentional epoch change, while an
+ * unrelated/newer session still invalidates every old continuation. */
+export function failedSessionEstablishmentEpoch(error: unknown): number | null {
+  return error !== null && typeof error === "object"
+    ? failedEstablishmentEpochs.get(error) ?? null : null;
+}
 
 export interface AuthState {
   user: SessionUser | null;
@@ -52,7 +61,7 @@ export interface AuthState {
   farmId: number | null;
   loading: boolean;
   selectFarm: (farmId: number, timezone?: string) => void;
-  signIn: (accessToken: string, user: SessionUser) => Promise<void>;
+  signIn: (accessToken: string, user: SessionUser, options?: { sessionOnly?: boolean }) => Promise<void>;
   signOut: (options?: { sessionOnly?: boolean }) => Promise<void>;
   refreshFarms: () => Promise<void>;
   /** Replace the in-memory user after a self-service change (e.g. the
@@ -399,7 +408,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * `revokeOnFailure` decides whether the failure also destroys the server
    * session, and only the login/register path may ask for that. */
   const establishSession = useCallback(
-    async (accessToken: string, u: SessionUser, revokeOnFailure: boolean) => {
+    async (accessToken: string, u: SessionUser, revokeOnFailure: boolean, sessionOnly = false) => {
       if (!mounted.current) throw providerUnmountedError();
       // Any membership read started by the previous session is stale even if
       // it later happens to resolve with a superficially valid list.
@@ -461,13 +470,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw error;
         }
         if (revokeOnFailure) {
-          // Login/register already rotated an httpOnly refresh cookie. Revoke
-          // that server session before reporting failure; otherwise a reload
-          // could silently sign in after this supposedly transactional step.
+          // Revoke the staged grant before reporting failure. Normal sign-in
+          // rotated a refresh cookie; transient tablet setup instead revokes
+          // only its exact bearer family without touching that cookie.
           // Fired while the bearer is still installed but never awaited, for
           // the same reason as signOut: a black-holed connection would
           // otherwise hang the login form forever with a live token.
-          void apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {
+          void apiFetch(sessionOnly ? "/api/auth/logout-session" : "/api/auth/logout", { method: "POST" }).catch(() => {
             // A network-wide outage can also block logout; local state is
             // still cleared and the refresh cookie remains httpOnly.
           });
@@ -476,6 +485,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // queued writes (possibly this actor's, preserved by an earlier
         // forced logout) must survive the retry (2026-10-01 audit, 07-H).
         clearSession();
+        if (error !== null && typeof error === "object") {
+          failedEstablishmentEpochs.set(error, authSessionEpochValue());
+        }
         throw error;
       }
     },
@@ -483,9 +495,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signIn = useCallback(
-    async (accessToken: string, u: SessionUser) => {
+    async (accessToken: string, u: SessionUser, options?: { sessionOnly?: boolean }) => {
       forcedLogout.current = false;
-      await establishSession(accessToken, u, true);
+      await establishSession(accessToken, u, true, options?.sessionOnly);
       // `loading` was otherwise written only by the one-shot bootstrap IIFE's
       // finally. If that bootstrap is still parked on an unanswered
       // /api/auth/farms, a completed sign-in would render the app shell's

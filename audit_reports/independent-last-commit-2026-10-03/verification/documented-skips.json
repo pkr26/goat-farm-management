@@ -1,0 +1,22 @@
+[
+  {
+    "case": "tests.test_finance_extended::test_create_income_every_category[ANIMAL_SALE]",
+    "message": "system-generated categories reject manual rows",
+    "reason": "/private/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-last-commit-audit-d5nk5atr/snapshot/backend/tests/test_finance_extended.py:339: system-generated categories reject manual rows"
+  },
+  {
+    "case": "tests.test_finance_extended::test_create_income_every_category[ANIMAL_PURCHASE]",
+    "message": "system-generated categories reject manual rows",
+    "reason": "/private/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-last-commit-audit-d5nk5atr/snapshot/backend/tests/test_finance_extended.py:339: system-generated categories reject manual rows"
+  },
+  {
+    "case": "tests.test_finance_extended::test_create_expense_every_category[ANIMAL_SALE]",
+    "message": "system-generated categories reject manual rows",
+    "reason": "/private/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-last-commit-audit-d5nk5atr/snapshot/backend/tests/test_finance_extended.py:366: system-generated categories reject manual rows"
+  },
+  {
+    "case": "tests.test_finance_extended::test_create_expense_every_category[ANIMAL_PURCHASE]",
+    "message": "system-generated categories reject manual rows",
+    "reason": "/private/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/herdly-last-commit-audit-d5nk5atr/snapshot/backend/tests/test_finance_extended.py:366: system-generated categories reject manual rows"
+  }
+]

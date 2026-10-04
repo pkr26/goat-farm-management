@@ -1,0 +1,46 @@
+{
+  "baseline_commit": "fee30d5",
+  "database": "goatfarm_test_independent_security (disposable, dropped by pytest)",
+  "test_command": "GOATFARM_TEST_DB=goatfarm_test_independent_security .venv/bin/python -m pytest tests/test_independent_security_ops_audit.py tests/test_platform_security_20261003.py tests/test_platform_ops_20261003.py tests/test_maintenance_progress_20261003.py tests/test_notification_quality_20261003.py tests/test_notifications.py tests/test_final_evidence_20261003.py tests/test_deployment_artifacts.py -q",
+  "exit_code": 0,
+  "passed": 269,
+  "seconds": 203.85,
+  "log": "fixed-regressions.log",
+  "new_regressions": 6,
+  "source_sha256": {
+    "backend/app/api/auth.py": "d2885f94ed3e7eb953861a667bb1436e6d155c2831d8110f1fc443fcfa115caa",
+    "backend/app/services/notifications/service.py": "61e0b64cad5e17e1498f87427c7976535dbe7d2fa666b9d8c2ab8adfbcd60f11",
+    "backend/scripts/restore_floor.sh": "824414bda54d2844468e990beb4b8317dd0740ac35e52a812a980b84df69f59b",
+    "backend/tests/test_independent_security_ops_audit.py": "8172351ff6bac1b9f3fa09bdf8365088242f6ef0379186abb6046267de2ebaf6"
+  },
+  "static_checks": {
+    "ruff_check": "passed for auth.py, notification service.py and new test file",
+    "ruff_format_check": "3 files already formatted",
+    "strict_mypy": "Success: no issues found in 3 source files",
+    "git_diff_check": "passed for owned changes"
+  },
+  "fixes": [
+    {
+      "id": "OPS-01",
+      "claim": "D7 durable one-shot notification delivery",
+      "problem": "A legacy daily receipt won the original unique constraint but had no outbox ID; the new sender then raised NoResultFound. An unsettled event could resend the already accepted or ambiguous attempt after midnight.",
+      "repair": "Link the real legacy receipt before claiming and after a racing insert conflict; preserve provider receipts and ambiguous attempts; retry deferred quiet/cap placeholders.",
+      "test": "Five PostgreSQL cases: SENT, FAILED, SENDING, SKIPPED_QUIET, SKIPPED_CAP, then next-day replay."
+    },
+    {
+      "id": "OPS-02",
+      "claim": "Additional concurrency defect in the ownership-transfer journey supporting deletion; PL-03 itself promises credential/recipient scrubbing and tombstone backfill.",
+      "problem": "An A-to-B transfer held User A UPDATE while waiting for User B UPDATE; B roster editing A held User B SHARE while waiting for User A SHARE. PostgreSQL aborted the reciprocal lock cycle with DeadlockDetectedError/500.",
+      "repair": "Use NOWAIT for the successor User lock, translate only SQLSTATE 55P03 into an actionable 409, and roll the transfer transaction back before responding.",
+      "test": "Two actual API requests in controlled overlap; roster returns 200, transfer returns 409; owner, token versions, memberships outside the intended roster edit, and all session-family state remain intact; retry succeeds."
+    }
+  ],
+  "forward_restore_floor": "Added f9a3b7c1d5e2; allowlist exactly matches the forward migration graph and rejects older/unknown revisions.",
+  "other_outbox_variant": "Production dispatch uses payload=event_key and outbox uniqueness on farm_id+alert_class+event_key; distinct valid events cannot share a daily payload hash without a SHA-256 collision. No unsupported direct-call aliases were introduced.",
+  "limits": [
+    "No production data or external notification was modified.",
+    "No received paid-provider alert, production service boot/privilege drill, live remote CA restore, representative migration-lock measurement or production-size soak was performed.",
+    "Hosted GitHub CI/release reruns remain unobserved.",
+    "Docker context/mount checks here were current source and executable fixtures; prior implementation live-container receipts are not represented as a new production deployment observation."
+  ]
+}

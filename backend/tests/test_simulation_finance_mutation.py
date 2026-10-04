@@ -1,5 +1,6 @@
 """Mutation-resistant boundary contracts for the simulation finance kernel."""
 
+from collections.abc import Sequence
 from decimal import Decimal, localcontext
 
 import pytest
@@ -263,10 +264,31 @@ def test_positive_root_isolation_uses_decimal_path_at_its_term_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     terms = [(float(exponent), 1.0 if exponent % 2 == 0 else -1.0) for exponent in range(24)]
-    monkeypatch.setattr(finance_module, "_crossing_decimal_power_roots", lambda *_args: [1.25])
-    monkeypatch.setattr(finance_module, "_scanned_power_roots", lambda *_args: [1.5])
+    exact_roots = finance_module._exact_decimal_power_roots
+    calls: list[int] = []
 
-    assert _positive_power_roots(terms, 0.5, 2.0) == [1.25]
+    def track_exact_roots(
+        received_terms: Sequence[tuple[float, float]], lo: float, hi: float
+    ) -> list[float]:
+        assert received_terms == terms
+        assert (lo, hi) == (0.5, 2.0)
+        calls.append(len(received_terms))
+        return exact_roots(received_terms, lo, hi)
+
+    def forbid_fallback(*_args: object) -> list[float]:
+        pytest.fail("Product IRR must use exact-zero Decimal isolation at its term limit")
+
+    monkeypatch.setattr(finance_module, "_exact_decimal_power_roots", track_exact_roots)
+    monkeypatch.setattr(finance_module, "_crossing_decimal_power_roots", forbid_fallback)
+    monkeypatch.setattr(finance_module, "_scanned_power_roots", forbid_fallback)
+
+    # The alternating polynomial has its sole positive zero at one. Exercise
+    # the real exact-zero implementation, including the declared upper bound.
+    assert _positive_power_roots(terms, 0.5, 2.0) == pytest.approx([1.0], abs=1e-14)
+    assert calls == [24]
+    with pytest.raises(finance_module.IRRIsolationUnsupported, match="term budget"):
+        _positive_power_roots([*terms, (24.0, 1.0)], 0.5, 2.0)
+    assert calls == [24]
 
 
 def test_irr_root_search_honours_both_public_rate_bracket_boundaries() -> None:

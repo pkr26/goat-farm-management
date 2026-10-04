@@ -286,6 +286,10 @@ async def _change_round_targets(
         raise HTTPException(status_code=404, detail="Round animal not found")
     task = await _writable_round_task(db, farm, task_id, user, membership)
     round_ = await db.get(HealthRound, task.id)
+    if exclude and task.due_date > today(farm.timezone):
+        # An exclusion can itself finish the round. Apply the same due-date
+        # fence as linked treatment evidence before changing its cohort.
+        raise lifecycle_conflict(detail="This linked health duty is not due yet")
     if round_ is None:
         raise stale_state_conflict(detail="Start the herd round before changing targets")
     for animal in animals:

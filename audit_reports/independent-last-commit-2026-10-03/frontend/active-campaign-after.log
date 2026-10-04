@@ -1,0 +1,12 @@
+✔ an active campaign never credits a replacement edit under the original mutant identity (10.338584ms)
+✔ manifest and coverage drift during a real baseline prevents mutation execution (847.438083ms)
+✔ manifest and coverage drift after real assertion failures cannot publish kills (1449.015416ms)
+✔ the guard and child transform independently reject a replaced pinned manifest (3.089791ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2445.789875

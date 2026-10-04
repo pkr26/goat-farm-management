@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -2276,14 +2276,25 @@ async def transfer_farm_ownership(
     ).scalar_one_or_none()
     if member is None or member.user_id == actor_id:
         raise lifecycle_conflict(detail="Choose another active team member.")
-    successor = (
-        await db.execute(
-            select(User)
-            .where(User.id == member.user_id)
-            .execution_options(populate_existing=True)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    try:
+        successor = (
+            await db.execute(
+                select(User)
+                .where(User.id == member.user_id)
+                .execution_options(populate_existing=True)
+                # The successor can own another farm. Its roster operations
+                # lock that actor before targeting this transfer's actor;
+                # waiting here would create a reciprocal User-lock cycle.
+                .with_for_update(nowait=True)
+            )
+        ).scalar_one_or_none()
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) != "55P03":
+            raise
+        await db.rollback()
+        raise lifecycle_conflict(
+            detail="The selected team member's account is busy; retry the ownership transfer.",
+        ) from None
     if successor is None or successor.deleted_at is not None or successor.must_change_password:
         raise lifecycle_conflict(
             detail="The new owner must sign in and rotate their password first."

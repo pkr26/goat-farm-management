@@ -1,0 +1,42 @@
+{
+  "root_reported_corrected_backend_partition_1": "2574 passed, 4 skipped, 1 failed",
+  "failed_case": "tests.test_simulation_finance_mutation::test_positive_root_isolation_uses_decimal_path_at_its_term_limit",
+  "cause": "Existing boundary test mocked retired _crossing_decimal_power_roots, but the corrected product solver retains tangent zeros through _exact_decimal_power_roots. Its real24-term polynomial result is1.0 rather than mocked1.25.",
+  "before_receipts": [
+    "finance-boundary-before.log",
+    "finance-boundary-before.xml"
+  ],
+  "test_only_correction": "Same case now wraps the actual exact-zero Decimal helper, asserts24terms and bracket, verifies its real positive root1.0, forbids retired crossing and sampled fallbacks, and asserts25terms reject before Decimal execution.",
+  "shipping_source_changes": "None for this reconciliation; all original domain report shipping-source hashes still match.",
+  "changed_test_source": "backend/tests/test_simulation_finance_mutation.py",
+  "changed_test_sha256": "5281d2cac1ab05b303ebfb7f29fc97cca9bdeac994b1d30027642aa75ff97905",
+  "after_command": "GOATFARM_TEST_DB=goatfarm_test_domain_reconcile backend/.venv/bin/python -m pytest backend/tests/test_simulation_finance_mutation.py backend/tests/test_independent_domain_audit.py backend/tests/test_independent_review_history_audit.py -q --tb=short --junitxml=audit_reports/independent-last-commit-2026-10-03/domain/finance-and-domain-reconciled.xml",
+  "after_result": "32 passed in11.90s; fullfinance18 and finalindependentdomain14; zero failures, errors or skips",
+  "after_receipts": [
+    "finance-and-domain-reconciled.log",
+    "finance-and-domain-reconciled.xml"
+  ],
+  "static_checks": [
+    {
+      "command": "backend/.venv/bin/ruff check backend/tests/test_simulation_finance_mutation.py",
+      "exit_code": 0,
+      "result": "All checks passed!"
+    },
+    {
+      "command": "backend/.venv/bin/ruff format --check backend/tests/test_simulation_finance_mutation.py",
+      "exit_code": 0,
+      "result": "1 file already formatted"
+    },
+    {
+      "command": "backend/.venv/bin/mypy backend/tests/test_simulation_finance_mutation.py",
+      "exit_code": 0,
+      "result": "Success: no issues found in1sourcefile"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": ""
+    }
+  ],
+  "count_limit": "Case names preserved; this focused rerun overlaps root full partition and earlier domain receipts. Root must reconcile exact cases and source identity before claiming final full-suite result."
+}

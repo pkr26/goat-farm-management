@@ -1,0 +1,71 @@
+Sanitized focused Vitest output excerpts. Only result/failure summaries retained; fixture credentials and DOM/error bodies excluded.
+
+Before: own session-establishment teardown UI regressions (initial fixture; see summary limitation)
+Source: frontend-own-stage-before.log
+ RUN  v4.1.11 frontend
+ FAIL  src/app/worker/login/page.races.test.tsx > manager setup inside the real worker shell > revokes a failed temporary-manager establishment without sending the browser's refresh cookie
+Error: expect(element).toBeEnabled()
+Received element is not enabled:
+ FAIL  src/app/worker/login/page.races.test.tsx > manager setup inside the real worker shell > releases the PIN pad and shows failure when its own staged farm discovery fails
+Error: expect(element).toBeEnabled()
+Received element is not enabled:
+ Test Files  1 failed (1)
+      Tests  2 failed | 9 skipped (11)
+   Duration  5.42s (transform 222ms, setup 126ms, import 365ms, tests 4.59s, environment 248ms)
+
+Before: saved-plan NLM draft adoption regression
+Source: frontend-planner-nlm-before.log
+ RUN  v4.1.11 frontend
+ FAIL  src/app/(app)/planner/page.mutation2.test.tsx > PlannerPage mutation round 2: save, update, delete and open > replaces NLM field drafts and validity when opening another saved plan
+Error: expect(element).toHaveValue(3000000)
+Expected the element to have value:
+  3000000
+Received:
+  -1
+ Test Files  1 failed (1)
+      Tests  1 failed | 70 skipped (71)
+   Duration  2.12s (transform 999ms, setup 156ms, import 1.34s, tests 280ms, environment 273ms)
+
+Before: worker mandatory-password replay capability regression
+Source: frontend-worker-password-before.log
+ RUN  v4.1.11 frontend
+ FAIL  src/app/worker/layout.test.tsx > WorkerShell chrome > keeps pending-duty replay gated until required password rotation finishes
+TypeError: lockedGate is not a function
+ Test Files  1 failed (1)
+      Tests  1 failed | 33 skipped (34)
+   Duration  1.01s (transform 231ms, setup 166ms, import 436ms, tests 47ms, environment 289ms)
+
+Intermediate: mapped claim subset (one exact-call mock expectation subsequently corrected)
+Source: frontend-audit-mapped-tests.log
+ RUN  v4.1.11 frontend
+ FAIL  src/app/worker/page.test.tsx > WorkerLoginPage > pins the farm straight through when the manager has no TOTP
+AssertionError: expected "vi.fn()" to be called with arguments: [ Array(2) ]
+Received:
+ Test Files  1 failed | 23 passed (24)
+      Tests  1 failed | 441 passed (442)
+   Duration  27.61s (transform 1.56s, setup 3.11s, import 5.73s, tests 36.79s, environment 7.60s)
+
+After: login/auth and planner changed-surface subset
+Source: frontend-audit-changes-tests.log
+ RUN  v4.1.11 frontend
+ Test Files  8 passed (8)
+      Tests  207 passed (207)
+   Duration  17.01s (transform 1.38s, setup 1.38s, import 2.45s, tests 25.78s, environment 2.80s)
+
+After: planner/decision provenance subset including NLM correction
+Source: frontend-audit-planner-final.log
+ RUN  v4.1.11 frontend
+ Test Files  3 passed (3)
+      Tests  104 passed (104)
+   Duration  12.01s (transform 1.63s, setup 417ms, import 2.35s, tests 13.61s, environment 877ms)
+
+After: worker shell/outbox full files including rotation gate
+Source: frontend-audit-rotation-final.log
+ RUN  v4.1.11 frontend
+ Test Files  2 passed (2)
+      Tests  52 passed (52)
+   Duration  3.79s (transform 450ms, setup 747ms, import 838ms, tests 3.04s, environment 651ms)
+
+Independent new mutation support-input harness contract
+Command: node --test --test-name-pattern='service-worker, config, script and repository inputs' mutation/mutate_harness.test.mjs
+Observed receipt: tests 1; pass 1; fail 0; cancelled 0; skipped 0; duration_ms 191.4585

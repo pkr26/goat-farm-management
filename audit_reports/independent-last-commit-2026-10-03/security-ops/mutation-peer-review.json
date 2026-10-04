@@ -1,0 +1,142 @@
+{
+  "scope": "Independent backend BM-01 through BM-07 peer audit; final artifact freeze repair",
+  "audited_at_utc": "2026-10-03T21:57:09.641468+00:00",
+  "source_stable": true,
+  "source_sha256": {
+    "backend/mutation/mutate_cover.py": "af821a4d5d2227f66fd6ee1480705c1d86d6fc264799b84af1d04f45141e98c1",
+    "backend/mutation/mutate_final_pass.py": "507822b686334f43b7e7d55098d1da488917b8f229421f9210c508ffb093363d",
+    "backend/mutation/mutate_gen.py": "2cf141e342ed5de7cdcb942239dc43d2679f85ce787356c5915a2c965ddd729f",
+    "backend/mutation/mutate_identity.py": "e8340c676a43f13f90e8169bd4fe56aadd2dddd92087f84efe5664ae4bdc9128",
+    "backend/mutation/mutate_report.py": "85e71a9835f8ddeaa3c2e6f666e7e7b680a4c1a01a487dcce520110468346b6f",
+    "backend/mutation/mutate_rerun_survivors.py": "e7db9edbcb5bc15d0e338191be13b49497f6988d266189f846ff0b7aca34fc22",
+    "backend/mutation/mutate_reverify.py": "43fc190ffc01d621cc3412db9610ba148d1314a8df88f17731252d4ee0ae3060",
+    "backend/mutation/mutate_run.py": "939cc4bfe3309a6917f0582ac246477cd5d6cde116f2f8ae84b9a20090dd0128",
+    "backend/mutation/mutate_triage.py": "e2647d4145124346f68b4aa2e13f6cde1f6285713ecc63a9e85f0826fbe678f9",
+    "backend/mutation/mutate_verify.py": "f2921aef67a086b62dca01d029a076b123e7ed13d750404d73dace1a3c7af013",
+    "backend/mutation/mutate_verify_extremes.py": "83b369e021b93311b5ab63ec0575c3b2d4fef36dc6fa9738cac740346f85d02c",
+    "backend/mutation/pytest_receipt.py": "d501beca19492219b08b1ed809d72c74650245651f6f145e77b58746e2e1e5aa",
+    "backend/mutation/README.md": "df012d7e318224de4f4efa8290282f85ec60687cccdf483ffbdbf611e6d5532b",
+    "backend/tests/test_mutation_harness_20261003.py": "84b58bde41445ca7b3fc445bc1e025f0939372126afc753e19d5a1d876d35caa"
+  },
+  "findings": [
+    {
+      "claims": [
+        "BM-03",
+        "BM-06"
+      ],
+      "defect": "Active campaign/report consume live manifest or coverage/provenance after fingerprinting; uncaptured requested mutation accepted.",
+      "repair": "Capture consumed bytes once; parse captured coverage/provenance; bind exact manifest mutation and execution mode; pin snapshot/main targets to captured manifest; report uses same captured bytes for hash and parse."
+    },
+    {
+      "claims": [
+        "BM-03"
+      ],
+      "defect": "Coverage publisher hashes currently live coverage after publication, allowing another publication to inherit its passing baseline receipt.",
+      "repair": "Hash captured coverage from passing isolated baseline; concurrent mismatched publication pairs fail freshness validation."
+    }
+  ],
+  "before_receipt": {
+    "command": "backend/.venv/bin/python audit_reports/independent-last-commit-2026-10-03/security-ops/replay-mutation-artifact-freeze.py",
+    "exit_code": 1,
+    "result": "5 failed, 40 deselected in 0.14s",
+    "log": "mutation-artifact-freeze-original.log",
+    "original_source_snapshots": "mutation-artifact-freeze-before.json",
+    "method": "Captured pre-fix modules loaded inside disposable process; no working-tree source replacement."
+  },
+  "after_receipt": {
+    "command": "cd backend && .venv/bin/python -m pytest tests/test_mutation_harness_20261003.py -q --tb=short",
+    "exit_code": 0,
+    "result": "45 passed in 6.86s",
+    "log": "mutation-artifact-freeze-fixed.log",
+    "new_cases_since_root_37_case_snapshot": 8
+  },
+  "static_gates": {
+    "ruff_check": "pass: four mutation modules plus harness test",
+    "ruff_format_check": "pass: five files",
+    "mypy_strict_mutation_modules": "pass: four files",
+    "mypy_strict_harness_test": "pass: one file",
+    "git_diff_check": "pass: owned mutation source/test/docs"
+  },
+  "claims": [
+    {
+      "claim": "BM-01",
+      "result": "Verified locally; root database-leak repair independently retested",
+      "basis": "Private immutable worker snapshots and run/attempt database names; strict owned cleanup namespace; process-group SIGKILL reaping; DROP45, connect5, close5; cleanup failure remains infrastructure.",
+      "tests": [
+        "test_two_concurrent_mutants_have_clean_baselines_and_exclusive_snapshots",
+        "test_killed_pytest_attempt_reaps_its_real_disposable_database",
+        "test_attempt_database_cleanup_rejects_unowned_names",
+        "test_attempt_database_cleanup_bounds_connect_drop_and_close",
+        "test_cleanup_failure_cannot_credit_a_real_assertion_kill"
+      ]
+    },
+    {
+      "claim": "BM-02",
+      "result": "Verified locally",
+      "basis": "Exact selected clean baseline must pass before edits; structured setup/collection/runtime/assertion classification; failed baseline, timeout, cleanup and launch failures cannot become kills.",
+      "tests": [
+        "test_structured_pytest_exit_classification",
+        "test_bad_baseline_cannot_be_credited_as_mutant_kill",
+        "test_timeout_after_passing_baseline_remains_inconclusive",
+        "test_cleanup_failure_cannot_credit_a_real_assertion_kill",
+        "test_failed_process_launch_does_not_reuse_previous_receipt"
+      ]
+    },
+    {
+      "claim": "BM-03",
+      "result": "Residual artifact races reproduced and repaired; final local verification passes",
+      "basis": "Source/original statement verification retained, support-input fingerprints independently inspected. Capture manifest/coverage/provenance bytes once for hash and parsing; bind exact mutation membership and execution mode. Coverage publisher hashes its own passing baseline bytes.",
+      "tests": [
+        "test_invalid_or_stale_mutant_never_spawns_pytest",
+        "test_coverage_cannot_resume_after_test_changes",
+        "test_coverage_rejects_changed_migration_and_script_inputs",
+        "test_coverage_rejects_changed_repository_contract_and_deployment_inputs",
+        "test_campaign_uses_captured_coverage_during_live_artifact_replacement",
+        "test_campaign_rejects_mutant_absent_from_captured_manifest",
+        "test_coverage_publication_hashes_its_baseline_instead_of_live_replacement",
+        "test_latest_compatible_resume_retries_errors_and_ignores_old_id_reuse",
+        "test_full_mode_runs_every_coverer_without_hidden_cap"
+      ]
+    },
+    {
+      "claim": "BM-04",
+      "result": "Verified locally",
+      "basis": "Final-pass preview exits before Runner, process or artifact/source writes; byte-identical artifact regression.",
+      "tests": [
+        "test_final_pass_dry_run_writes_nothing_and_spawns_no_runner"
+      ]
+    },
+    {
+      "claim": "BM-05",
+      "result": "Verified locally",
+      "basis": "Exact current run, campaign and target IDs only; fold stored status verbatim, including timeout.",
+      "tests": [
+        "test_extremes_folds_only_current_targets_and_preserves_timeout_status"
+      ]
+    },
+    {
+      "claim": "BM-06",
+      "result": "Report artifact race reproduced and repaired; existing latest folding verified",
+      "basis": "Latest compatible per-mutant/campaign digest wins; only complete measured assertion kills/survivors form score; report parses and hashes identical captured manifest bytes, freezes coverage digests for all rows.",
+      "tests": [
+        "test_report_folds_latest_and_excludes_timeout_invalid_and_sampled_scores",
+        "test_report_never_scores_manifest_different_from_the_one_it_parsed"
+      ]
+    },
+    {
+      "claim": "BM-07",
+      "result": "Verified locally",
+      "basis": "Compile each generated replacement within the complete original edited file; retain valid return/await/yield context and original bytes/hash.",
+      "tests": [
+        "test_generator_validates_returns_awaits_and_yields_in_full_file"
+      ]
+    }
+  ],
+  "limits": [
+    "No new complete application mutation campaign or product score.",
+    "No full application suite run during peer mutation review; parent owns immutable complete backend revalidation.",
+    "Harness contracts use tiny disposable projects, plus real PostgreSQL timeout database reaping.",
+    "External PostgreSQL unavailability fails closed and can require operator reaping. DROP allows45sec after connect5sec; graceful close bounded5sec.",
+    "Historical mutation rows remain historical/untrusted."
+  ]
+}

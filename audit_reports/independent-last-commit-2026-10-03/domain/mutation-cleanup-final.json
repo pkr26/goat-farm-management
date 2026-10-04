@@ -1,0 +1,8 @@
+{
+  "database": "herdly_mut_aaaaaaaaaa_485f3322_test",
+  "sql": "DROP DATABASE IF EXISTS \"herdly_mut_aaaaaaaaaa_485f3322_test\" WITH (FORCE)",
+  "timeout_seconds": 45,
+  "result": "DROP DATABASE",
+  "elapsed_seconds": 5.724,
+  "database_remains": false
+}

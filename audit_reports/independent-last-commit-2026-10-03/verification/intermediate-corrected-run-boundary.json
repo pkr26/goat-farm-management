@@ -1,0 +1,13 @@
+{
+  "snapshot_cases": 5157,
+  "partition_1": {
+    "passed": 2574,
+    "skipped": 4,
+    "failed": 1
+  },
+  "failure": "tests/test_simulation_finance_mutation.py::test_positive_root_isolation_uses_decimal_path_at_its_term_limit",
+  "cause": "Existing boundary spy targeted retired crossing-only helper after the tangency correction; shipping result1.0 was correct.",
+  "correction": "Wrap real exact Decimal solver, preserve24term acceptance/25term refusal and prohibit grid/crossing fallback.",
+  "focused_after": "domain/finance-and-domain-reconciled.xml (32passed)",
+  "later_changes": "Backend/frontend mutation artifact freeze, additional45case harness and final bounds/pins tests. A final current-source full run supersedes this intermediate run."
+}

@@ -1,0 +1,63 @@
+{
+  "review": "read-only support dependency presence; no hashes or credential contents persisted",
+  "paths": [
+    {
+      "file": "public/sw.js",
+      "captured": true
+    },
+    {
+      "file": "next.config.ts",
+      "captured": true
+    },
+    {
+      "file": "scripts/scan-english-literals.mjs",
+      "captured": true
+    },
+    {
+      "file": "scripts/verify-dependency-mitigations.mjs",
+      "captured": true
+    },
+    {
+      "file": "src/lib/i18n/english-literal-baseline.json",
+      "captured": true
+    },
+    {
+      "file": "../shared/openapi.json",
+      "captured": true
+    },
+    {
+      "file": "../backend/app/schemas/common.py",
+      "captured": true
+    },
+    {
+      "file": "../backend/app/models/species.py",
+      "captured": true
+    },
+    {
+      "file": "../backend/app/models/animals.py",
+      "captured": true
+    },
+    {
+      "file": "../backend/app/models/enums.py",
+      "captured": true
+    },
+    {
+      "file": "../docker-compose.yml",
+      "captured": true
+    },
+    {
+      "file": "../docker/edge-entrypoint.sh",
+      "captured": true
+    },
+    {
+      "file": "../docker/edge-proxy.production.conf.template",
+      "captured": true
+    },
+    {
+      "file": "../docker/edge-proxy.dev.conf.template",
+      "captured": true
+    }
+  ],
+  "capturedFiles": 1054,
+  "pythonBytecode": 0
+}

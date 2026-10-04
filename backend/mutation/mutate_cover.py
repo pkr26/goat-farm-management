@@ -9,7 +9,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from mutate_identity import atomic_json, input_identity, sha_file
+from mutate_identity import atomic_json, input_identity, sha_bytes
 from mutate_run import BACKEND, VENV_PY, snapshot_ignore
 
 
@@ -55,8 +55,9 @@ def main() -> None:
             raise SystemExit("clean coverage baseline failed; no coverage published")
         if input_identity(BACKEND) != inputs:
             raise SystemExit("source/tests changed during baseline; no coverage published")
+        coverage_bytes = (workspace / ".coverage-mut").read_bytes()
         temporary_data = BACKEND / ".coverage-mut.tmp"
-        shutil.copyfile(workspace / ".coverage-mut", temporary_data)
+        temporary_data.write_bytes(coverage_bytes)
         temporary_data.replace(BACKEND / ".coverage-mut")
         atomic_json(
             BACKEND / ".coverage-mut.provenance.json",
@@ -64,7 +65,7 @@ def main() -> None:
                 "schema": 1,
                 "source_root": str(workspace),
                 "inputs": inputs,
-                "coverage_sha256": sha_file(BACKEND / ".coverage-mut"),
+                "coverage_sha256": sha_bytes(coverage_bytes),
                 "baseline_exit_code": 0,
                 "selection": "all tests",
             },

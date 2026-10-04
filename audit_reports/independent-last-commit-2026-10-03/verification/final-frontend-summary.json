@@ -1,0 +1,42 @@
+{
+  "test_files": 326,
+  "passed": 5281,
+  "failed": 0,
+  "command": "pnpm test:coverage",
+  "exit_code": 0,
+  "coverage": {
+    "lines": {
+      "total": 8576,
+      "covered": 8286,
+      "skipped": 0,
+      "pct": 96.61
+    },
+    "statements": {
+      "total": 9657,
+      "covered": 9124,
+      "skipped": 0,
+      "pct": 94.48
+    },
+    "functions": {
+      "total": 2587,
+      "covered": 2442,
+      "skipped": 0,
+      "pct": 94.39
+    },
+    "branches": {
+      "total": 10485,
+      "covered": 9656,
+      "skipped": 0,
+      "pct": 92.09
+    },
+    "branchesTrue": {
+      "total": 0,
+      "covered": 0,
+      "skipped": 0,
+      "pct": "Unknown"
+    }
+  },
+  "global_and_scoped_thresholds_unchanged": true,
+  "shipping_source_binding": "browser-source-binding.json",
+  "production_build_exit_code": 0
+}

@@ -21,13 +21,18 @@ export function inputs(root) {
   function walk(directory) {
     if (!existsSync(path.join(root, directory))) return;
     for (const entry of readdirSync(path.join(root, directory), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.name === "__pycache__" || /\.py[co]$/.test(entry.name)) continue;
       const relative = path.join(directory, entry.name);
       if (entry.isDirectory()) walk(relative);
       else if (entry.isFile() && (!directory.startsWith("mutation") || entry.name.endsWith(".mjs"))) files[relative] = hash(readFileSync(path.join(root, relative)));
     }
   }
-  walk("src"); walk("mutation"); walk("patches");
-  for (const file of ["pnpm-lock.yaml", "package.json", "vitest.mutation.config.ts", "vitest.setup.ts", "tsconfig.json"]) if (existsSync(path.join(root, file))) files[file] = hash(readFileSync(path.join(root, file)));
+  walk("src"); walk("mutation"); walk("patches"); walk("public"); walk("scripts");
+  for (const file of ["pnpm-lock.yaml", "package.json", "vitest.mutation.config.ts", "vitest.setup.ts", "tsconfig.json", "next.config.ts"]) if (existsSync(path.join(root, file))) files[file] = hash(readFileSync(path.join(root, file)));
+  // Parity and deployment tests read these files outside the frontend tree.
+  // Keep them in the same provenance as the tests that execute them.
+  for (const directory of ["../shared", "../backend/app", "../docker"]) walk(directory);
+  for (const file of ["../docker-compose.yml", "../docker-compose.production.yml", "../.dockerignore"]) if (existsSync(path.join(root, file))) files[file] = hash(readFileSync(path.join(root, file)));
   for (const file of readdirSync(root).filter((file) => /^(?:vite|vitest).*\.config\.(?:ts|mjs|js)$/.test(file))) files[file] = hash(readFileSync(path.join(root, file)));
   return files;
 }

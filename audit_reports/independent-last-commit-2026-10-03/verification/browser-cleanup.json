@@ -1,0 +1,9 @@
+{
+  "owned_pids_stopped": [
+    55713,
+    49413
+  ],
+  "ephemeral_auth_state_and_raw_browser_artifacts_removed": true,
+  "owned_browser_database_removed": "herdly_independent_browser_d5nk5atr_test",
+  "production_preview_ports_3000_8000_untouched": true
+}

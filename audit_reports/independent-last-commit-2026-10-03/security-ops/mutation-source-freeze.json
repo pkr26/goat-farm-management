@@ -1,0 +1,19 @@
+{
+  "recorded_at_utc": "2026-10-03T21:57:09.641468+00:00",
+  "sha256": {
+    "backend/mutation/mutate_cover.py": "af821a4d5d2227f66fd6ee1480705c1d86d6fc264799b84af1d04f45141e98c1",
+    "backend/mutation/mutate_final_pass.py": "507822b686334f43b7e7d55098d1da488917b8f229421f9210c508ffb093363d",
+    "backend/mutation/mutate_gen.py": "2cf141e342ed5de7cdcb942239dc43d2679f85ce787356c5915a2c965ddd729f",
+    "backend/mutation/mutate_identity.py": "e8340c676a43f13f90e8169bd4fe56aadd2dddd92087f84efe5664ae4bdc9128",
+    "backend/mutation/mutate_report.py": "85e71a9835f8ddeaa3c2e6f666e7e7b680a4c1a01a487dcce520110468346b6f",
+    "backend/mutation/mutate_rerun_survivors.py": "e7db9edbcb5bc15d0e338191be13b49497f6988d266189f846ff0b7aca34fc22",
+    "backend/mutation/mutate_reverify.py": "43fc190ffc01d621cc3412db9610ba148d1314a8df88f17731252d4ee0ae3060",
+    "backend/mutation/mutate_run.py": "939cc4bfe3309a6917f0582ac246477cd5d6cde116f2f8ae84b9a20090dd0128",
+    "backend/mutation/mutate_triage.py": "e2647d4145124346f68b4aa2e13f6cde1f6285713ecc63a9e85f0826fbe678f9",
+    "backend/mutation/mutate_verify.py": "f2921aef67a086b62dca01d029a076b123e7ed13d750404d73dace1a3c7af013",
+    "backend/mutation/mutate_verify_extremes.py": "83b369e021b93311b5ab63ec0575c3b2d4fef36dc6fa9738cac740346f85d02c",
+    "backend/mutation/pytest_receipt.py": "d501beca19492219b08b1ed809d72c74650245651f6f145e77b58746e2e1e5aa",
+    "backend/mutation/README.md": "df012d7e318224de4f4efa8290282f85ec60687cccdf483ffbdbf611e6d5532b",
+    "backend/tests/test_mutation_harness_20261003.py": "84b58bde41445ca7b3fc445bc1e025f0939372126afc753e19d5a1d876d35caa"
+  }
+}

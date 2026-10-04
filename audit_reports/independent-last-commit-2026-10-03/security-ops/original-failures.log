@@ -1,0 +1,895 @@
+FFFFFF                                                                   [100%]
+=================================== FAILURES ===================================
+_ test_outbox_preserves_pre_migration_delivery_claims_across_midnight[SENT-0] __
+tests/test_independent_security_ops_audit.py:67: in test_outbox_preserves_pre_migration_delivery_claims_across_midnight
+    await dispatch_outbox_event(event_id, settings, provider, now_utc=midday.astimezone(UTC))
+app/services/notifications/outbox.py:144: in dispatch_outbox_event
+    outcome = await send_notification(
+fee30d5:backend/app/services/notifications/service.py:120: in send_notification
+    ???
+fee30d5:backend/app/services/notifications/service.py:68: in _current_row
+    ???
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:1518: in scalar_one
+    return self._only_one_row(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:799: in _only_one_row
+    raise exc.NoResultFound(
+E   sqlalchemy.exc.NoResultFound: No row was found when one was required
+----------------------------- Captured stderr call -----------------------------
+2026-10-03 14:19:52,201 INFO goatfarm [4ce6bfd7b5a6491d830c0b1da5ac2814] request method=POST path=/api/auth/register status=201 duration_ms=251.62
+2026-10-03 14:19:52,202 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-03 14:19:52,236 INFO goatfarm [8918792b8ba64fa085318061e84b4c0b] request method=POST path=/api/auth/farms status=201 duration_ms=33.47
+2026-10-03 14:19:52,236 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-03 14:19:52,387 INFO goatfarm.audit [8662b8a8e84e424e9a46164cc04b5266] security_event event='team.role.create' farm_id=1 actor_id=1 role_id=10 role_name='Notif role 1' — created custom role
+2026-10-03 14:19:52,388 INFO goatfarm [8662b8a8e84e424e9a46164cc04b5266] request method=POST path=/api/team/roles status=201 duration_ms=150.52
+2026-10-03 14:19:52,388 INFO httpx [-] HTTP Request: POST http://test/api/team/roles "HTTP/1.1 201 Created"
+2026-10-03 14:19:52,449 INFO goatfarm.audit [2dd0137971f04f92ab3b952b1184baf2] security_event event='team.worker.create' farm_id=1 actor_id=1 membership_id=1 user_id=2 role_id=10 — provisioned worker account with must-change credential
+2026-10-03 14:19:52,449 INFO goatfarm [2dd0137971f04f92ab3b952b1184baf2] request method=POST path=/api/team/workers status=201 duration_ms=61.23
+2026-10-03 14:19:52,450 INFO httpx [-] HTTP Request: POST http://test/api/team/workers "HTTP/1.1 201 Created"
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/register status=201 duration_ms=251.62
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms status=201 duration_ms=33.47
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+INFO     goatfarm.audit:team.py:98 security_event event='team.role.create' farm_id=1 actor_id=1 role_id=10 role_name='Notif role 1' — created custom role
+INFO     goatfarm:main.py:1107 request method=POST path=/api/team/roles status=201 duration_ms=150.52
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/team/roles "HTTP/1.1 201 Created"
+INFO     goatfarm.audit:team.py:98 security_event event='team.worker.create' farm_id=1 actor_id=1 membership_id=1 user_id=2 role_id=10 — provisioned worker account with must-change credential
+INFO     goatfarm:main.py:1107 request method=POST path=/api/team/workers status=201 duration_ms=61.23
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/team/workers "HTTP/1.1 201 Created"
+_ test_outbox_preserves_pre_migration_delivery_claims_across_midnight[FAILED-0] _
+tests/test_independent_security_ops_audit.py:67: in test_outbox_preserves_pre_migration_delivery_claims_across_midnight
+    await dispatch_outbox_event(event_id, settings, provider, now_utc=midday.astimezone(UTC))
+app/services/notifications/outbox.py:144: in dispatch_outbox_event
+    outcome = await send_notification(
+fee30d5:backend/app/services/notifications/service.py:120: in send_notification
+    ???
+fee30d5:backend/app/services/notifications/service.py:68: in _current_row
+    ???
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:1518: in scalar_one
+    return self._only_one_row(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:799: in _only_one_row
+    raise exc.NoResultFound(
+E   sqlalchemy.exc.NoResultFound: No row was found when one was required
+----------------------------- Captured stderr call -----------------------------
+2026-10-03 14:19:52,870 INFO goatfarm [530d1ef062c741aab9b909838b1d917d] request method=POST path=/api/auth/register status=201 duration_ms=147.66
+2026-10-03 14:19:52,871 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-03 14:19:52,888 INFO goatfarm [79244cd75c884b3d97eaf1734c1fe8c1] request method=POST path=/api/auth/farms status=201 duration_ms=17.07
+2026-10-03 14:19:52,889 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-03 14:19:53,096 INFO goatfarm.audit [a431deac882c41c5a53d92fdf07896b3] security_event event='team.role.create' farm_id=1 actor_id=1 role_id=10 role_name='Notif role 2' — created custom role
+2026-10-03 14:19:53,097 INFO goatfarm [a431deac882c41c5a53d92fdf07896b3] request method=POST path=/api/team/roles status=201 duration_ms=207.21
+2026-10-03 14:19:53,097 INFO httpx [-] HTTP Request: POST http://test/api/team/roles "HTTP/1.1 201 Created"
+2026-10-03 14:19:53,151 INFO goatfarm.audit [560a50a59027412487e850d15dc7c891] security_event event='team.worker.create' farm_id=1 actor_id=1 membership_id=1 user_id=2 role_id=10 — provisioned worker account with must-change credential
+2026-10-03 14:19:53,152 INFO goatfarm [560a50a59027412487e850d15dc7c891] request method=POST path=/api/team/workers status=201 duration_ms=53.97
+2026-10-03 14:19:53,152 INFO httpx [-] HTTP Request: POST http://test/api/team/workers "HTTP/1.1 201 Created"
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/register status=201 duration_ms=147.66
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms status=201 duration_ms=17.07
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+INFO     goatfarm.audit:team.py:98 security_event event='team.role.create' farm_id=1 actor_id=1 role_id=10 role_name='Notif role 2' — created custom role
+INFO     goatfarm:main.py:1107 request method=POST path=/api/team/roles status=201 duration_ms=207.21
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/team/roles "HTTP/1.1 201 Created"
+INFO     goatfarm.audit:team.py:98 security_event event='team.worker.create' farm_id=1 actor_id=1 membership_id=1 user_id=2 role_id=10 — provisioned worker account with must-change credential
+INFO     goatfarm:main.py:1107 request method=POST path=/api/team/workers status=201 duration_ms=53.97
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/team/workers "HTTP/1.1 201 Created"
+_ test_outbox_preserves_pre_migration_delivery_claims_across_midnight[SENDING-0] _
+tests/test_independent_security_ops_audit.py:67: in test_outbox_preserves_pre_migration_delivery_claims_across_midnight
+    await dispatch_outbox_event(event_id, settings, provider, now_utc=midday.astimezone(UTC))
+app/services/notifications/outbox.py:144: in dispatch_outbox_event
+    outcome = await send_notification(
+fee30d5:backend/app/services/notifications/service.py:120: in send_notification
+    ???
+fee30d5:backend/app/services/notifications/service.py:68: in _current_row
+    ???
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:1518: in scalar_one
+    return self._only_one_row(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:799: in _only_one_row
+    raise exc.NoResultFound(
+E   sqlalchemy.exc.NoResultFound: No row was found when one was required
+----------------------------- Captured stderr call -----------------------------
+2026-10-03 14:19:53,505 INFO goatfarm [37c50caa8a784eb7b925faf2be78a90f] request method=POST path=/api/auth/register status=201 duration_ms=147.20
+2026-10-03 14:19:53,506 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-03 14:19:53,523 INFO goatfarm [dc64d42424ed4d0fbc93072292ff3915] request method=POST path=/api/auth/farms status=201 duration_ms=16.97
+2026-10-03 14:19:53,523 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-03 14:19:53,661 INFO goatfarm.audit [ada5e75226914de9beab59fc1b48a492] security_event event='team.role.create' farm_id=1 actor_id=1 role_id=10 role_name='Notif role 3' — created custom role
+2026-10-03 14:19:53,661 INFO goatfarm [ada5e75226914de9beab59fc1b48a492] request method=POST path=/api/team/roles status=201 duration_ms=137.68
+2026-10-03 14:19:53,662 INFO httpx [-] HTTP Request: POST http://test/api/team/roles "HTTP/1.1 201 Created"
+2026-10-03 14:19:53,717 INFO goatfarm.audit [1f1043bd2ea74ac584b0d855e44c1cf8] security_event event='team.worker.create' farm_id=1 actor_id=1 membership_id=1 user_id=2 role_id=10 — provisioned worker account with must-change credential
+2026-10-03 14:19:53,718 INFO goatfarm [1f1043bd2ea74ac584b0d855e44c1cf8] request method=POST path=/api/team/workers status=201 duration_ms=55.98
+2026-10-03 14:19:53,719 INFO httpx [-] HTTP Request: POST http://test/api/team/workers "HTTP/1.1 201 Created"
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/register status=201 duration_ms=147.20
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms status=201 duration_ms=16.97
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+INFO     goatfarm.audit:team.py:98 security_event event='team.role.create' farm_id=1 actor_id=1 role_id=10 role_name='Notif role 3' — created custom role
+INFO     goatfarm:main.py:1107 request method=POST path=/api/team/roles status=201 duration_ms=137.68
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/team/roles "HTTP/1.1 201 Created"
+INFO     goatfarm.audit:team.py:98 security_event event='team.worker.create' farm_id=1 actor_id=1 membership_id=1 user_id=2 role_id=10 — provisioned worker account with must-change credential
+INFO     goatfarm:main.py:1107 request method=POST path=/api/team/workers status=201 duration_ms=55.98
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/team/workers "HTTP/1.1 201 Created"
+_ test_outbox_preserves_pre_migration_delivery_claims_across_midnight[SKIPPED_QUIET-1] _
+tests/test_independent_security_ops_audit.py:67: in test_outbox_preserves_pre_migration_delivery_claims_across_midnight
+    await dispatch_outbox_event(event_id, settings, provider, now_utc=midday.astimezone(UTC))
+app/services/notifications/outbox.py:144: in dispatch_outbox_event
+    outcome = await send_notification(
+fee30d5:backend/app/services/notifications/service.py:120: in send_notification
+    ???
+fee30d5:backend/app/services/notifications/service.py:68: in _current_row
+    ???
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:1518: in scalar_one
+    return self._only_one_row(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:799: in _only_one_row
+    raise exc.NoResultFound(
+E   sqlalchemy.exc.NoResultFound: No row was found when one was required
+----------------------------- Captured stderr call -----------------------------
+2026-10-03 14:19:54,077 INFO goatfarm [dea56245a9944b89bfeec7b4e481e7ac] request method=POST path=/api/auth/register status=201 duration_ms=146.25
+2026-10-03 14:19:54,078 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-03 14:19:54,096 INFO goatfarm [6680dc1c3ab04e71bc07b975f5910dad] request method=POST path=/api/auth/farms status=201 duration_ms=17.32
+2026-10-03 14:19:54,096 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-03 14:19:54,242 INFO goatfarm.audit [55eeb48bde1d4acbb0def485d505b07d] security_event event='team.role.create' farm_id=1 actor_id=1 role_id=10 role_name='Notif role 4' — created custom role
+2026-10-03 14:19:54,242 INFO goatfarm [55eeb48bde1d4acbb0def485d505b07d] request method=POST path=/api/team/roles status=201 duration_ms=145.60
+2026-10-03 14:19:54,242 INFO httpx [-] HTTP Request: POST http://test/api/team/roles "HTTP/1.1 201 Created"
+2026-10-03 14:19:54,290 INFO goatfarm.audit [e4c29d034cc047a5beb9f56e6bd7ae3e] security_event event='team.worker.create' farm_id=1 actor_id=1 membership_id=1 user_id=2 role_id=10 — provisioned worker account with must-change credential
+2026-10-03 14:19:54,291 INFO goatfarm [e4c29d034cc047a5beb9f56e6bd7ae3e] request method=POST path=/api/team/workers status=201 duration_ms=48.08
+2026-10-03 14:19:54,291 INFO httpx [-] HTTP Request: POST http://test/api/team/workers "HTTP/1.1 201 Created"
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/register status=201 duration_ms=146.25
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms status=201 duration_ms=17.32
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+INFO     goatfarm.audit:team.py:98 security_event event='team.role.create' farm_id=1 actor_id=1 role_id=10 role_name='Notif role 4' — created custom role
+INFO     goatfarm:main.py:1107 request method=POST path=/api/team/roles status=201 duration_ms=145.60
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/team/roles "HTTP/1.1 201 Created"
+INFO     goatfarm.audit:team.py:98 security_event event='team.worker.create' farm_id=1 actor_id=1 membership_id=1 user_id=2 role_id=10 — provisioned worker account with must-change credential
+INFO     goatfarm:main.py:1107 request method=POST path=/api/team/workers status=201 duration_ms=48.08
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/team/workers "HTTP/1.1 201 Created"
+_ test_outbox_preserves_pre_migration_delivery_claims_across_midnight[SKIPPED_CAP-1] _
+tests/test_independent_security_ops_audit.py:67: in test_outbox_preserves_pre_migration_delivery_claims_across_midnight
+    await dispatch_outbox_event(event_id, settings, provider, now_utc=midday.astimezone(UTC))
+app/services/notifications/outbox.py:144: in dispatch_outbox_event
+    outcome = await send_notification(
+fee30d5:backend/app/services/notifications/service.py:120: in send_notification
+    ???
+fee30d5:backend/app/services/notifications/service.py:68: in _current_row
+    ???
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:1518: in scalar_one
+    return self._only_one_row(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:799: in _only_one_row
+    raise exc.NoResultFound(
+E   sqlalchemy.exc.NoResultFound: No row was found when one was required
+----------------------------- Captured stderr call -----------------------------
+2026-10-03 14:19:54,637 INFO goatfarm [bbe8e28c2dbc4eb383a8ba06a4e41dc9] request method=POST path=/api/auth/register status=201 duration_ms=142.91
+2026-10-03 14:19:54,637 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-03 14:19:54,657 INFO goatfarm [51c9684657d84c4196b7dd56f697acb3] request method=POST path=/api/auth/farms status=201 duration_ms=18.82
+2026-10-03 14:19:54,657 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-03 14:19:54,796 INFO goatfarm.audit [6430c75eed2846fb8fef050d35b16b73] security_event event='team.role.create' farm_id=1 actor_id=1 role_id=10 role_name='Notif role 5' — created custom role
+2026-10-03 14:19:54,796 INFO goatfarm [6430c75eed2846fb8fef050d35b16b73] request method=POST path=/api/team/roles status=201 duration_ms=138.69
+2026-10-03 14:19:54,797 INFO httpx [-] HTTP Request: POST http://test/api/team/roles "HTTP/1.1 201 Created"
+2026-10-03 14:19:54,845 INFO goatfarm.audit [bbb8af666f554698a1022ad8562c6650] security_event event='team.worker.create' farm_id=1 actor_id=1 membership_id=1 user_id=2 role_id=10 — provisioned worker account with must-change credential
+2026-10-03 14:19:54,846 INFO goatfarm [bbb8af666f554698a1022ad8562c6650] request method=POST path=/api/team/workers status=201 duration_ms=48.68
+2026-10-03 14:19:54,846 INFO httpx [-] HTTP Request: POST http://test/api/team/workers "HTTP/1.1 201 Created"
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/register status=201 duration_ms=142.91
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms status=201 duration_ms=18.82
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+INFO     goatfarm.audit:team.py:98 security_event event='team.role.create' farm_id=1 actor_id=1 role_id=10 role_name='Notif role 5' — created custom role
+INFO     goatfarm:main.py:1107 request method=POST path=/api/team/roles status=201 duration_ms=138.69
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/team/roles "HTTP/1.1 201 Created"
+INFO     goatfarm.audit:team.py:98 security_event event='team.worker.create' farm_id=1 actor_id=1 membership_id=1 user_id=2 role_id=10 — provisioned worker account with must-change credential
+INFO     goatfarm:main.py:1107 request method=POST path=/api/team/workers status=201 duration_ms=48.68
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/team/workers "HTTP/1.1 201 Created"
+____ test_ownership_transfer_does_not_deadlock_with_reciprocal_roster_edit _____
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:550: in _prepare_and_execute
+    self._rows = deque(await prepared_stmt.fetch(*parameters))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:177: in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:268: in __bind_execute
+    data, status, _ = await self.__do_execute(
+.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py:257: in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+asyncpg/protocol/protocol.pyx:205: in bind_execute
+    ???
+E   asyncpg.exceptions.DeadlockDetectedError: deadlock detected
+E   DETAIL:  Process 2810 waits for ShareLock on transaction 1487222; blocked by process 2809.
+E   Process 2809 waits for ShareLock on transaction 1487224; blocked by process 2810.
+E   HINT:  See server log for query details.
+
+The above exception was the direct cause of the following exception:
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: in _handle_exception
+    raise translated_error from error
+E   sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.Error: <class 'asyncpg.exceptions.DeadlockDetectedError'>: deadlock detected
+E   DETAIL:  Process 2810 waits for ShareLock on transaction 1487222; blocked by process 2809.
+E   Process 2809 waits for ShareLock on transaction 1487224; blocked by process 2810.
+E   HINT:  See server log for query details.
+
+The above exception was the direct cause of the following exception:
+tests/test_independent_security_ops_audit.py:178: in test_ownership_transfer_does_not_deadlock_with_reciprocal_roster_edit
+    responses = await asyncio.wait_for(asyncio.gather(roster, transfer), timeout=10)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.13.15-macos-aarch64-none/lib/python3.13/asyncio/tasks.py:507: in wait_for
+    return await fut
+           ^^^^^^^^^
+.venv/lib/python3.13/site-packages/httpx/_client.py:1859: in post
+    return await self.request(
+.venv/lib/python3.13/site-packages/httpx/_client.py:1540: in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/httpx/_client.py:1629: in send
+    response = await self._send_handling_auth(
+.venv/lib/python3.13/site-packages/httpx/_client.py:1657: in _send_handling_auth
+    response = await self._send_handling_redirects(
+.venv/lib/python3.13/site-packages/httpx/_client.py:1694: in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/httpx/_client.py:1730: in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/httpx/_transports/asgi.py:170: in handle_async_request
+    await self.app(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/applications.py:1163: in __call__
+    await super().__call__(scope, receive, send)
+.venv/lib/python3.13/site-packages/starlette/applications.py:90: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.13/site-packages/starlette/middleware/errors.py:186: in __call__
+    raise exc
+.venv/lib/python3.13/site-packages/starlette/middleware/errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+.venv/lib/python3.13/site-packages/starlette/middleware/base.py:193: in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/main.py:1089: in request_id_middleware
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/starlette/middleware/base.py:168: in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+.venv/lib/python3.13/site-packages/starlette/middleware/base.py:144: in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+.venv/lib/python3.13/site-packages/starlette/middleware/trustedhost.py:51: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.13/site-packages/starlette/middleware/cors.py:88: in __call__
+    await self.app(scope, receive, send)
+app/main.py:164: in __call__
+    await self.app(scope, limited_receive, send)
+.venv/lib/python3.13/site-packages/starlette/middleware/exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.13/site-packages/fastapi/middleware/asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+.venv/lib/python3.13/site-packages/starlette/routing.py:660: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:2734: in app
+    await route.handle(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:1780: in handle
+    await self.original_router.handle(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:2789: in handle
+    await included_router._handle_selected(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:1800: in _handle_selected
+    await original_route.handle(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:1279: in handle
+    await app(scope, receive, send)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:158: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv/lib/python3.13/site-packages/starlette/_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv/lib/python3.13/site-packages/fastapi/routing.py:144: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/fastapi/routing.py:706: in app
+    raw_response = await run_endpoint_function(
+.venv/lib/python3.13/site-packages/fastapi/routing.py:352: in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+fee30d5:backend/app/api/auth.py:65: in transfer_farm_ownership
+    LoginIn,
+.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py:448: in execute
+    result = await greenlet_spawn(
+.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:201: in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:2373: in execute
+    return self._execute_internal(
+.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:2271: in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+.venv/lib/python3.13/site-packages/sqlalchemy/orm/context.py:306: in orm_execute_statement
+    result = conn.execute(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: in _handle_exception
+    raise translated_error from error
+E   sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DeadlockDetectedError'>: deadlock detected
+E   DETAIL:  Process 2810 waits for ShareLock on transaction 1487222; blocked by process 2809.
+E   Process 2809 waits for ShareLock on transaction 1487224; blocked by process 2810.
+E   HINT:  See server log for query details.
+E   [SQL: SELECT users.id, users.email, users.name, users.password_hash, users.must_change_password, users.token_version, users.totp_secret_enc, users.totp_state, users.totp_last_step, users.created_at, users.deleted_at 
+E   FROM users 
+E   WHERE users.id = $1::INTEGER FOR UPDATE]
+E   [parameters: (2,)]
+E   (Background on this error at: https://sqlalche.me/e/20/dbapi)
+----------------------------- Captured stderr call -----------------------------
+2026-10-03 14:19:55,194 INFO goatfarm [7835d51ea91b4be1af76cfd5169c3828] request method=POST path=/api/auth/register status=201 duration_ms=144.70
+2026-10-03 14:19:55,195 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-03 14:19:55,212 INFO goatfarm [0175e2bc2ffb48ddb28e2f4fedea1aac] request method=POST path=/api/auth/farms status=201 duration_ms=16.74
+2026-10-03 14:19:55,213 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-03 14:19:55,336 INFO goatfarm [2dcfcffec2d94629880933df27176f7e] request method=POST path=/api/auth/register status=201 duration_ms=123.41
+2026-10-03 14:19:55,337 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-03 14:19:55,351 INFO goatfarm [4ae84e65a4d6421f9911487a6d0f05ed] request method=POST path=/api/auth/farms status=201 duration_ms=14.06
+2026-10-03 14:19:55,352 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-03 14:19:56,567 INFO goatfarm [0dc42e066d0d4da5906a9606a6f3e435] request method=POST path=/api/auth/farms/1/transfer-ownership status=500 duration_ms=1052.77
+2026-10-03 14:19:56,567 ERROR goatfarm [0dc42e066d0d4da5906a9606a6f3e435] unhandled error on POST /api/auth/farms/1/transfer-ownership
+Traceback (most recent call last):
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 550, in _prepare_and_execute
+    self._rows = deque(await prepared_stmt.fetch(*parameters))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py", line 177, in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py", line 268, in __bind_execute
+    data, status, _ = await self.__do_execute(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda protocol: protocol.bind_execute(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            self._state, args, '', limit, True, timeout))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py", line 257, in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 205, in bind_execute
+asyncpg.exceptions.DeadlockDetectedError: deadlock detected
+DETAIL:  Process 2810 waits for ShareLock on transaction 1487222; blocked by process 2809.
+Process 2809 waits for ShareLock on transaction 1487224; blocked by process 2810.
+HINT:  See server log for query details.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self._prepare_and_execute(operation, parameters)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.Error: <class 'asyncpg.exceptions.DeadlockDetectedError'>: deadlock detected
+DETAIL:  Process 2810 waits for ShareLock on transaction 1487222; blocked by process 2809.
+Process 2809 waits for ShareLock on transaction 1487224; blocked by process 2810.
+HINT:  See server log for query details.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/main.py", line 1089, in request_id_middleware
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/trustedhost.py", line 51, in __call__
+    await self.app(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/cors.py", line 88, in __call__
+    await self.app(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/main.py", line 164, in __call__
+    await self.app(scope, limited_receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 2734, in app
+    await route.handle(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 1780, in handle
+    await self.original_router.handle(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 2789, in handle
+    await included_router._handle_selected(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 1800, in _handle_selected
+    await original_route.handle(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 1279, in handle
+    await app(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 158, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 144, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 706, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 352, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "fee30d5:backend/app/api/auth.py", line 65, in transfer_farm_ownership
+    LoginIn,
+        ^^^^
+    ...<4 lines>...
+    RegisterIn,
+    ^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py", line 448, in execute
+    result = await greenlet_spawn(
+             ^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 201, in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 2373, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 2271, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<4 lines>...
+        conn,
+        ^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+        statement, params or {}, execution_options=execution_options
+    )
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1421, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1643, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<8 lines>...
+        cache_hit=cache_hit,
+    )
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1848, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1988, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 2365, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self._prepare_and_execute(operation, parameters)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DeadlockDetectedError'>: deadlock detected
+DETAIL:  Process 2810 waits for ShareLock on transaction 1487222; blocked by process 2809.
+Process 2809 waits for ShareLock on transaction 1487224; blocked by process 2810.
+HINT:  See server log for query details.
+[SQL: SELECT users.id, users.email, users.name, users.password_hash, users.must_change_password, users.token_version, users.totp_secret_enc, users.totp_state, users.totp_last_step, users.created_at, users.deleted_at 
+FROM users 
+WHERE users.id = $1::INTEGER FOR UPDATE]
+[parameters: (2,)]
+(Background on this error at: https://sqlalche.me/e/20/dbapi)
+2026-10-03 14:19:56,575 INFO goatfarm [3697dc3846944e2395d2e8e4febd214c] request method=PUT path=/api/team/workers/1/status status=500 duration_ms=1211.80
+2026-10-03 14:19:56,576 ERROR sqlalchemy.pool.impl.AsyncAdaptedQueuePool [3697dc3846944e2395d2e8e4febd214c] Exception terminating connection <AdaptedConnection <asyncpg.connection.Connection object at 0x10e2cc9b0>>
+Traceback (most recent call last):
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py", line 373, in _close_connection
+    self._dialect.do_terminate(connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 1131, in do_terminate
+    dbapi_connection.terminate()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 402, in terminate
+    self.await_(asyncio.shield(self._terminate_graceful_close()))  # type: ignore[attr-defined] # noqa: E501
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+asyncio.exceptions.CancelledError: Cancelled via cancel scope 10fc9cd70 by <Task cancelling name='Task-149' coro=<AsyncClient.put() running at /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/httpx/_client.py:1896> cb=[gather.<locals>._done_callback() at /Users/pradeepreddy/.local/share/uv/python/cpython-3.13.15-macos-aarch64-none/lib/python3.13/asyncio/tasks.py:822, gather.<locals>._done_callback() at /Users/pradeepreddy/.local/share/uv/python/cpython-3.13.15-macos-aarch64-none/lib/python3.13/asyncio/tasks.py:822]>
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/register status=201 duration_ms=144.70
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms status=201 duration_ms=16.74
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/register status=201 duration_ms=123.41
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms status=201 duration_ms=14.06
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1107 request method=POST path=/api/auth/farms/1/transfer-ownership status=500 duration_ms=1052.77
+ERROR    goatfarm:main.py:893 unhandled error on POST /api/auth/farms/1/transfer-ownership
+Traceback (most recent call last):
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 550, in _prepare_and_execute
+    self._rows = deque(await prepared_stmt.fetch(*parameters))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py", line 177, in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py", line 268, in __bind_execute
+    data, status, _ = await self.__do_execute(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda protocol: protocol.bind_execute(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            self._state, args, '', limit, True, timeout))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/asyncpg/prepared_stmt.py", line 257, in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 205, in bind_execute
+asyncpg.exceptions.DeadlockDetectedError: deadlock detected
+DETAIL:  Process 2810 waits for ShareLock on transaction 1487222; blocked by process 2809.
+Process 2809 waits for ShareLock on transaction 1487224; blocked by process 2810.
+HINT:  See server log for query details.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self._prepare_and_execute(operation, parameters)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.Error: <class 'asyncpg.exceptions.DeadlockDetectedError'>: deadlock detected
+DETAIL:  Process 2810 waits for ShareLock on transaction 1487222; blocked by process 2809.
+Process 2809 waits for ShareLock on transaction 1487224; blocked by process 2810.
+HINT:  See server log for query details.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/main.py", line 1089, in request_id_middleware
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/trustedhost.py", line 51, in __call__
+    await self.app(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/cors.py", line 88, in __call__
+    await self.app(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/app/main.py", line 164, in __call__
+    await self.app(scope, limited_receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 2734, in app
+    await route.handle(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 1780, in handle
+    await self.original_router.handle(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 2789, in handle
+    await included_router._handle_selected(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 1800, in _handle_selected
+    await original_route.handle(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 1279, in handle
+    await app(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 158, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 144, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 706, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 352, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "fee30d5:backend/app/api/auth.py", line 65, in transfer_farm_ownership
+    LoginIn,
+        ^^^^
+    ...<4 lines>...
+    RegisterIn,
+    ^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/session.py", line 448, in execute
+    result = await greenlet_spawn(
+             ^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 201, in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 2373, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py", line 2271, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<4 lines>...
+        conn,
+        ^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+        statement, params or {}, execution_options=execution_options
+    )
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1421, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1643, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<8 lines>...
+        cache_hit=cache_hit,
+    )
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1848, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1988, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 2365, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self._prepare_and_execute(operation, parameters)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DeadlockDetectedError'>: deadlock detected
+DETAIL:  Process 2810 waits for ShareLock on transaction 1487222; blocked by process 2809.
+Process 2809 waits for ShareLock on transaction 1487224; blocked by process 2810.
+HINT:  See server log for query details.
+[SQL: SELECT users.id, users.email, users.name, users.password_hash, users.must_change_password, users.token_version, users.totp_secret_enc, users.totp_state, users.totp_last_step, users.created_at, users.deleted_at 
+FROM users 
+WHERE users.id = $1::INTEGER FOR UPDATE]
+[parameters: (2,)]
+(Background on this error at: https://sqlalche.me/e/20/dbapi)
+INFO     goatfarm:main.py:1107 request method=PUT path=/api/team/workers/1/status status=500 duration_ms=1211.80
+ERROR    sqlalchemy.pool.impl.AsyncAdaptedQueuePool:base.py:377 Exception terminating connection <AdaptedConnection <asyncpg.connection.Connection object at 0x10e2cc9b0>>
+Traceback (most recent call last):
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/pool/base.py", line 373, in _close_connection
+    self._dialect.do_terminate(connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 1131, in do_terminate
+    dbapi_connection.terminate()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 402, in terminate
+    self.await_(asyncio.shield(self._terminate_graceful_close()))  # type: ignore[attr-defined] # noqa: E501
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+asyncio.exceptions.CancelledError: Cancelled via cancel scope 10fc9cd70 by <Task cancelling name='Task-149' coro=<AsyncClient.put() running at /Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/lib/python3.13/site-packages/httpx/_client.py:1896> cb=[gather.<locals>._done_callback() at /Users/pradeepreddy/.local/share/uv/python/cpython-3.13.15-macos-aarch64-none/lib/python3.13/asyncio/tasks.py:822, gather.<locals>._done_callback() at /Users/pradeepreddy/.local/share/uv/python/cpython-3.13.15-macos-aarch64-none/lib/python3.13/asyncio/tasks.py:822]>
+=========================== short test summary info ============================
+FAILED tests/_audit_security_ops_replay_jmicx8tj.py::test_outbox_preserves_pre_migration_delivery_claims_across_midnight[SENT-0]
+FAILED tests/_audit_security_ops_replay_jmicx8tj.py::test_outbox_preserves_pre_migration_delivery_claims_across_midnight[FAILED-0]
+FAILED tests/_audit_security_ops_replay_jmicx8tj.py::test_outbox_preserves_pre_migration_delivery_claims_across_midnight[SENDING-0]
+FAILED tests/_audit_security_ops_replay_jmicx8tj.py::test_outbox_preserves_pre_migration_delivery_claims_across_midnight[SKIPPED_QUIET-1]
+FAILED tests/_audit_security_ops_replay_jmicx8tj.py::test_outbox_preserves_pre_migration_delivery_claims_across_midnight[SKIPPED_CAP-1]
+FAILED tests/_audit_security_ops_replay_jmicx8tj.py::test_ownership_transfer_does_not_deadlock_with_reciprocal_roster_edit
+6 failed in 11.81s

@@ -1,0 +1,69 @@
+[
+  {
+    "argv": [
+      ".venv/bin/ruff",
+      "check",
+      "app/api/health.py",
+      "app/api/screening.py",
+      "app/models/screening.py",
+      "app/schemas/screening.py",
+      "app/services/screening/budget.py",
+      "app/simulation/finance.py",
+      "tests/test_independent_domain_audit.py",
+      "tests/test_independent_review_history_audit.py",
+      "alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py"
+    ],
+    "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+    "exit_code": 0,
+    "stdout": "All checks passed!\n",
+    "stderr": ""
+  },
+  {
+    "argv": [
+      ".venv/bin/ruff",
+      "format",
+      "--check",
+      "app/api/health.py",
+      "app/api/screening.py",
+      "app/models/screening.py",
+      "app/schemas/screening.py",
+      "app/services/screening/budget.py",
+      "app/simulation/finance.py",
+      "tests/test_independent_domain_audit.py",
+      "tests/test_independent_review_history_audit.py",
+      "alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py"
+    ],
+    "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+    "exit_code": 0,
+    "stdout": "9 files already formatted\n",
+    "stderr": ""
+  },
+  {
+    "argv": [
+      ".venv/bin/mypy",
+      "app/api/health.py",
+      "app/api/screening.py",
+      "app/models/screening.py",
+      "app/schemas/screening.py",
+      "app/services/screening/budget.py",
+      "app/simulation/finance.py",
+      "tests/test_independent_domain_audit.py",
+      "tests/test_independent_review_history_audit.py"
+    ],
+    "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+    "exit_code": 0,
+    "stdout": "Success: no issues found in 8 source files\n",
+    "stderr": ""
+  },
+  {
+    "argv": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "initial_origin_omitted": true,
+  "consequence": "Refresh403; initial browser attempt is not passing application evidence.",
+  "corrected_origins": [
+    "http://localhost:3100",
+    "http://127.0.0.1:3100"
+  ],
+  "qa_fix": "Assert route again after content settles and after axe scan."
+}

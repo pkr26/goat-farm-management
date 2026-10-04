@@ -1,0 +1,289 @@
+{
+  "date": "2026-10-03",
+  "timezone": "America/Phoenix",
+  "audited_commit": "fee30d56765cd8d1312a4f900d1450593b5e338c",
+  "scope": "Independent backend domain, clinical evidence, budget and decision-model audit of last-commit claims. No commit created.",
+  "findings": [
+    {
+      "id": "DOMAIN-01",
+      "claims": [
+        "D5"
+      ],
+      "severity": "P2",
+      "before": "For [-2,5,-4,1] at t=[0,1,2,3], NPV is zero at both 0% and -50%, but the solver discarded the tangent zero at 0% and certified -50% as unique. [1,-2,1] was incorrectly no_root.",
+      "fix": "Retain all exact isolated NPV zeros, including tangencies, inside the existing supported numerical domain.",
+      "source": "backend/app/simulation/finance.py",
+      "regression": "test_tangent_zero_is_not_discarded_when_certifying_irr_uniqueness; test_a_single_tangent_irr_is_a_zero_instead_of_no_root"
+    },
+    {
+      "id": "DOMAIN-02",
+      "claims": [
+        "D4"
+      ],
+      "severity": "P2",
+      "before": "With cap=0, admission incremented the f6 migration INT_MAX cutover hold and raised a PostgreSQL integer overflow instead of preserving the day hold.",
+      "fix": "Treat the cutover counter as a held local date independently of the configurable cap; normal admission resumes on the next local date.",
+      "source": "backend/app/services/screening/budget.py",
+      "regression": "test_migration_cutover_hold_survives_a_disabled_call_cap"
+    },
+    {
+      "id": "DOMAIN-03",
+      "claims": [
+        "D2"
+      ],
+      "severity": "P2",
+      "before": "List/filter/batch legacy quality queries chose the latest GATE by ID while detail chose timestamp then ID. Historical/delayed insert ordering produced contradictory HEALTHY and UNASSESSABLE responses.",
+      "fix": "Use timestamp then ID consistently in effective quality-status queries.",
+      "source": "backend/app/api/screening.py",
+      "regression": "test_quality_verdict_order_agrees_between_list_filter_and_detail"
+    },
+    {
+      "id": "DOMAIN-04",
+      "claims": [
+        "D3"
+      ],
+      "severity": "P2",
+      "before": "Excluding the last target marked a generated health round DONE even when its due date was thirty days later. Other linked treatment completion paths reject early completion.",
+      "fix": "Enforce the same local due-date fence before exclusions that can finish a round.",
+      "source": "backend/app/api/health.py",
+      "regression": "test_exclusions_cannot_complete_a_future_health_duty"
+    },
+    {
+      "id": "DOMAIN-05",
+      "claims": [
+        "D12"
+      ],
+      "severity": "P2",
+      "before": "The first re-review of a revision-zero legacy decision overwrote the known original reviewer, timestamp and note; only the new decision entered history.",
+      "fix": "Forward f9 migration snapshots known legacy metadata as immutable revision zero, and the API lazily snapshots post-upgrade imported legacy decisions before overwriting the current projection. previous_status equals status for a baseline, avoiding an invented unknown earlier transition. Refuse downgrade that would destroy snapshots.",
+      "source": "backend/alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py; backend/app/api/screening.py; backend/app/models/screening.py; backend/app/schemas/screening.py",
+      "regression": "test_first_rereview_retains_the_known_legacy_review; test_populated_forward_upgrade_archives_only_known_legacy_decisions",
+      "limit": "Original metadata already overwritten before this repair cannot be reconstructed from current rows."
+    },
+    {
+      "id": "DOMAIN-06",
+      "claims": [
+        "D12"
+      ],
+      "severity": "P2",
+      "before": "New GET finding-review-history route accepted ID 9223372036854775808 and raised asyncpg int64 overflow.",
+      "fix": "Apply the same bounded 404 guard as its sibling POST review route.",
+      "source": "backend/app/api/screening.py",
+      "regression": "test_review_history_id_bound_returns_404_instead_of_database_overflow"
+    },
+    {
+      "id": "DOMAIN-07",
+      "claims": [
+        "D12"
+      ],
+      "severity": "P2",
+      "origin": "Independent review of audit-added f9 repair, not original audited commit",
+      "before": "SHARE ROW EXCLUSIVE admitted a reviewer SELECT FOR UPDATE between Finding lock and History DDL, producing a real PostgreSQL deadlock during populated f8-to-f9 upgrade.",
+      "fix": "Use EXCLUSIVE on Finding before locking History for DDL, permitting ordinary readers but serializing reviewer row locks.",
+      "source": "backend/alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py",
+      "regression": "test_forward_snapshot_lock_serializes_a_concurrent_review",
+      "evidence": "migration-lock-review.json"
+    }
+  ],
+  "per_claim_map": {
+    "D1": "Stage system prompt reaches actual OpenAI-compatible HTTP system message; captured adapter request tested using mock transport. Live paid provider not certified.",
+    "D2": "Unusable gate stops cascade and propagates UNASSESSABLE through worker, crop, image, list/detail/batch. DOMAIN-03 closes legacy chronology disagreement.",
+    "D3": "Frozen active cohort, required ET and HS component units, explicit additions/exclusions, immutable per-animal evidence, Animal-before-Task locking. DOMAIN-04 closes future-duty completion.",
+    "D4": "Independent committed admission on every initial, transport-retry and fallback attempt, farm/local-date locking, idempotent receipt and concurrent/rollback cap enforcement. DOMAIN-02 closes cap-disabled cutover overflow.",
+    "D5": "Long or unsupported nonconventional series remain indeterminate with stated numerical domain. DOMAIN-01 preserves tangent roots when certifying uniqueness.",
+    "D6": "Notification aggregate claim delegated to security/operations auditor.",
+    "D7": "Transactional notification outbox claim delegated to security/operations auditor.",
+    "D8": "Both 2039 calendar occurrences, horizon-relative explicit local overrides, provenance warnings and dashboard/calibration consumers inspected and tested.",
+    "D9": "Animal-before-Policy locks, populate_existing refresh and current eligibility checks; actual waiting-writer PostgreSQL tests passed.",
+    "D10": "Recorded sale weight takes priority; fallback routine weighing limited to thirty days before exit; missing/stale observations excluded and provenance warnings retained.",
+    "D11": "PostgresText rejects NUL and unpaired surrogates; blank review notes normalize to None.",
+    "D12": "Expected revision detects same-status and ABA changes; accepted decisions append immutable history. DOMAIN-05 preserves actual legacy facts; DOMAIN-06 guards history IDs. DOMAIN-07 closes a concurrent-upgrade deadlock in audit-added f9.",
+    "D13": "Voided ledger rows excluded, canonical expense type applied to feed benchmark and current ledger correction reconciliation tested.",
+    "D14": "Stable date/ID endpoints preserve negative gains and exclude same-day zero elapsed intervals.",
+    "D15": "Cadence ownership delegated to security/operations auditor; domain clinical suite also passed poison-first-farm regression.",
+    "D16": "Live births, sex share, kidding does and timely services use distinct units; litter applied once, zero conception refused. Later retries shift birth dates.",
+    "D17": "Whole three-month post-weaning hazard and exposure calibration agree with engine class boundaries.",
+    "D18": "Male age/weight curve used consistently for young-stock opening, event and terminal values; adult values retain declared basis.",
+    "D19": "Feed computed at each shift after lifecycle events; prepared equals delivered plus unused by recipe, with top-ups recorded.",
+    "D20": "Exact unit caps, fifty-percent eligible capital basis, exclusions and two equal installments match fetched official January 2025 DAHD guidelines. Toggle alone books no award; explicit approved receipts occur at month>=1 and leave opening equity unchanged.",
+    "D21": "Clinical outcome dictionaries gated by health.view; inventory status dictionaries gated by animals.view.",
+    "DB-06": "Explicit pending/both-null versus reviewed/both-present CHECK and atomic f6 preflight inspected; malformed direct-SQL review rejected in executed clinical suite.",
+    "DB-07": "Compound image/crop FK, immutable run ancestry and finding crop/run trigger enforce whole-photo/null ancestry; direct-SQL mismatches rejected in executed clinical suite."
+  },
+  "validation": [
+    {
+      "receipt": "initial-four-before.log",
+      "result": "8 failed, 1 passed; four independently reproduced defects"
+    },
+    {
+      "receipt": "initial-four-after.log",
+      "result": "9 passed in 5.06s"
+    },
+    {
+      "receipt": "domain-integration-425.log",
+      "result": "425 passed in 118.24s",
+      "files": [
+        "test_independent_domain_audit.py",
+        "test_clinical_quality_20261003.py",
+        "test_decision_audit_postgres.py",
+        "test_decision_audit_regressions.py",
+        "test_simulation_deep_mutation.py",
+        "test_simulation_financials.py",
+        "test_simulation_goat_domain.py",
+        "test_health_safety.py",
+        "test_dashboard_permissions.py",
+        "test_screening.py"
+      ],
+      "limit": "Before subsequent f9 repair and final two bounds cases."
+    },
+    {
+      "receipt": "legacy-review-before.log",
+      "result": "1 failed; actual original reviewer/date/note lost on first re-review"
+    },
+    {
+      "receipt": "legacy-review-after.log",
+      "result": "1 passed in 5.47s"
+    },
+    {
+      "receipt": "legacy-migration-clinical-parity-31.log",
+      "result": "31 passed in 20.19s; populated f8-to-head upgrade, lazy snapshot, immutable history, atomic lossy-downgrade refusal, clinical and schema parity"
+    },
+    {
+      "receipt": "history-id-before.log",
+      "result": "1 failed; actual asyncpg DataError beyond int64"
+    },
+    {
+      "receipt": "focused-final-41.log",
+      "result": "41 passed in 22.02s; independent cases plus clinical and parity, preceding last two bounds tests"
+    },
+    {
+      "receipt": "independent-final-14.log",
+      "command": "GOATFARM_TEST_DB=goatfarm_test_domain_history backend/.venv/bin/python -m pytest backend/tests/test_independent_domain_audit.py backend/tests/test_independent_review_history_audit.py -q --tb=short",
+      "result": "14 passed in 27.81s",
+      "limit": "Overlaps prior receipts. Do not add counts into a unique-suite total."
+    },
+    {
+      "receipt": "finance-boundary-before.log",
+      "junit": "finance-boundary-before.xml",
+      "result": "1 failed in3.92s; stale old-helper monkeypatch in existing boundary test reproduced independently"
+    },
+    {
+      "receipt": "finance-and-domain-reconciled.log",
+      "junit": "finance-and-domain-reconciled.xml",
+      "command": "GOATFARM_TEST_DB=goatfarm_test_domain_reconcile backend/.venv/bin/python -m pytest backend/tests/test_simulation_finance_mutation.py backend/tests/test_independent_domain_audit.py backend/tests/test_independent_review_history_audit.py -q --tb=short --junitxml=audit_reports/independent-last-commit-2026-10-03/domain/finance-and-domain-reconciled.xml",
+      "result": "32 passed in11.90s (fullfinance18 plus independentdomain14)",
+      "limit": "Test-only correction of same existing boundary case; shipping source unchanged. Focused overlap must be reconciled, not added to unique total."
+    },
+    {
+      "receipt": "migration-lock-before.log",
+      "junit": "migration-lock-before.xml",
+      "result": "1 failed in22.96s; actual f8-to-f9 concurrent reviewer deadlock with SRE"
+    },
+    {
+      "receipt": "migration-lock-after.log",
+      "junit": "migration-lock-after.xml",
+      "result": "1 passed in5.98s; actual upgrade/review serialized with EXCLUSIVE and plain readers proceed"
+    },
+    {
+      "receipt": "migration-contracts-final.log",
+      "junit": "migration-contracts-final.xml",
+      "command": "GOATFARM_TEST_DB=goatfarm_test_domain_migration_lock_final backend/.venv/bin/python -m pytest backend/tests/test_independent_domain_audit.py backend/tests/test_independent_review_history_audit.py backend/tests/test_clinical_quality_20261003.py backend/tests/test_schema_parity.py backend/tests/test_ops_migration_integrity.py backend/tests/test_domain_audit_migration.py backend/tests/test_screening.py -q --tb=short --junitxml=audit_reports/independent-last-commit-2026-10-03/domain/migration-contracts-final.xml",
+      "result": "212 passed in93.20s; affected migration, clinical, parity and screening contracts",
+      "limit": "Post-freeze f9 lock/test delta; overlaps root full suite and earlier focused cases. Latest entire backend source was not executed here."
+    }
+  ],
+  "final_static_commands": [
+    {
+      "argv": [
+        ".venv/bin/ruff",
+        "check",
+        "app/api/health.py",
+        "app/api/screening.py",
+        "app/models/screening.py",
+        "app/schemas/screening.py",
+        "app/services/screening/budget.py",
+        "app/simulation/finance.py",
+        "tests/test_independent_domain_audit.py",
+        "tests/test_independent_review_history_audit.py",
+        "alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py"
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+      "exit_code": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        ".venv/bin/ruff",
+        "format",
+        "--check",
+        "app/api/health.py",
+        "app/api/screening.py",
+        "app/models/screening.py",
+        "app/schemas/screening.py",
+        "app/services/screening/budget.py",
+        "app/simulation/finance.py",
+        "tests/test_independent_domain_audit.py",
+        "tests/test_independent_review_history_audit.py",
+        "alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py"
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+      "exit_code": 0,
+      "stdout": "9 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        ".venv/bin/mypy",
+        "app/api/health.py",
+        "app/api/screening.py",
+        "app/models/screening.py",
+        "app/schemas/screening.py",
+        "app/services/screening/budget.py",
+        "app/simulation/finance.py",
+        "tests/test_independent_domain_audit.py",
+        "tests/test_independent_review_history_audit.py"
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+      "exit_code": 0,
+      "stdout": "Success: no issues found in 8 source files\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "route_boundary_sweep": "All four new round routes tested with 0/int32+1/int64+1 task IDs; targets/exclusions reject bool/string/zero/int32+1 animal IDs, NUL/blank/4001-character reason and escaped lone surrogate; preview rejects NUL component. Review expected_revision/note and pagination bounds inspected.",
+  "migration": "Only audit-added f9 was changed from SRE to EXCLUSIVE after a real concurrent-upgrade deadlock. All101 migration modules at audited commit remain byte-identical; see historical-migrations-sha256.json.",
+  "policy_source": "https://dahd.gov.in/sites/default/files/2026-04/NLMGuidelinesJan2025.pdf",
+  "nlm_test_integrity": "Removed tests asserted incorrect automatic grants for below-minimum units, per-head eligibility ceilings and grant reductions of opening equity. Replacement decision-model cases cover exact and unsupported unit bands, estimate-only/no cash, declared approved dated two-stage receipts, NPV, annual cash/EBITDA separation and month-zero/unapproved rejection. No legitimate policy guarantee was silently removed.",
+  "limits": [
+    "Automated inspections do not establish veterinarian-labeled diagnostic accuracy, live paid-provider readiness, human usability, supported production load or staging operations.",
+    "Policy arithmetic checked against versioned official guidelines; no applicant award is inferred.",
+    "Metadata overwritten before this audit cannot be reconstructed from the remaining current row.",
+    "Root full corrected-source integration is recorded separately."
+  ],
+  "source_sha256": {
+    "backend/app/api/health.py": "3da64e561be8357e21c07097c9e5175dd03bc353332825b807b249fe130803fc",
+    "backend/app/api/screening.py": "cac56654d831917da3ade1867e34c6e9c4add615104270e157923bbfdf276fd3",
+    "backend/app/models/screening.py": "37da1ead000a274396fc0ba97072dfcb71add87e2aafec86ac4f5b297d4c2893",
+    "backend/app/schemas/screening.py": "13da57fa5907378eb02e22345e3b5509aa213773ba9d697e2463d2b4308641a0",
+    "backend/app/services/screening/budget.py": "796d1c7d1dccf15ba89c2bf485085a5cfcf3769aa9855af6adb43edd1221b9cc",
+    "backend/app/simulation/finance.py": "c91882d9a157efed2fce31e29d24f590cc8cf8022ac79f1c78c506d842b1055e",
+    "backend/tests/test_independent_domain_audit.py": "2e7ef12a4f364a9747c41e5ba39feb1ded664a9faa2047f2e3982b5dbf855193",
+    "backend/tests/test_independent_review_history_audit.py": "66bf909e7eefe92d7c2f88b727ee2659a93b5a86ef179cbe22242b50ab5268b5",
+    "backend/alembic/versions/f9a3b7c1d5e2_preserve_legacy_screening_reviews.py": "222d958766af35bb01207969d4233e1c065042515f417be68c25c82666275eae",
+    "backend/tests/test_simulation_finance_mutation.py": "5281d2cac1ab05b303ebfb7f29fc97cca9bdeac994b1d30027642aa75ff97905"
+  },
+  "credential_scan": "Saved logs contain no matched bearer token, password JSON or API-key JSON; all probes used synthetic local data and disposable databases.",
+  "test_reconciliation": "finance-test-reconciliation.json",
+  "migration_lock_review": "migration-lock-review.json"
+}

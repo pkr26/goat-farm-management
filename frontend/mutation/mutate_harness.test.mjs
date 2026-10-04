@@ -1,7 +1,7 @@
 // Real Vitest contracts use temporary projects, never the shared application.
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -85,6 +85,116 @@ test('test/dependency changes and reused ids invalidate provenance',()=>{
   const {root,campaign,manifest}=fixture(),original=row(campaign,manifest.mutants[0],'KILLED');assert.equal(latestCompatible([original],campaign).size,1);
   const changed={...campaign,manifest:{...manifest,mutants:[{...manifest.mutants[0],edits:[]}]}};assert.equal(latestCompatible([original],changed).size,0);
   writeFileSync(path.join(root,'pnpm-lock.yaml'),'changed dependency');assert.throws(()=>createCampaign({root}),/stale/);
+});
+
+test('service-worker, config, script and repository inputs invalidate coverage and resume',()=>{
+  for (const relative of ['public/sw.js', 'next.config.ts', 'scripts/verify-dependency-mitigations.mjs']) {
+    const {root} = fixture();
+    const target = path.join(root, relative);
+    mkdirSync(path.dirname(target), {recursive:true});
+    writeFileSync(target, 'changed execution dependency');
+    assert.throws(()=>createCampaign({root}), /stale/);
+  }
+  // A nested frontend fixture makes its ../ support files task-owned as well.
+  const outer = mkdtempSync(path.join(os.tmpdir(), 'herdly-fm-repo-contract-'));
+  roots.push(outer);
+  const {root} = fixture();
+  const nested = path.join(outer, 'frontend');
+  mkdirSync(nested);
+  for (const entry of readdirSync(root)) {
+    if (entry === 'node_modules') symlinkSync(path.resolve(directory, '../node_modules'), path.join(nested, entry));
+    else cpSync(path.join(root, entry), path.join(nested, entry), {recursive:true});
+  }
+  mkdirSync(path.join(outer, 'shared'));
+  writeFileSync(path.join(outer, 'shared/openapi.json'), '{}');
+  assert.throws(()=>createCampaign({root:nested}), /stale/);
+  const beforeCache = inputs(nested);
+  mkdirSync(path.join(outer, 'backend/app/__pycache__'), {recursive:true});
+  writeFileSync(path.join(outer, 'backend/app/__pycache__/logic.cpython-313.pyc'), 'transient bytecode');
+  writeFileSync(path.join(outer, 'backend/app/logic.pyc'), 'transient bytecode');
+  assert.deepEqual(inputs(nested), beforeCache);
+});
+
+test('an active campaign never credits a replacement edit under the original mutant identity',async()=>{
+  const {root,manifest}=fixture();
+  manifest.mutants[0].edits[0].text='1';
+  writeFileSync(path.join(root,'mutation/manifest.json'),JSON.stringify(manifest));
+  const campaign=createCampaign({root,full:true,timeoutMs:20000});
+  manifest.mutants[0].edits[0].text='2';
+  writeFileSync(path.join(root,'mutation/manifest.json'),JSON.stringify(manifest));
+  const result=await judge(campaign.manifest.mutants[0],campaign);
+  assert.equal(result.verdict,'INFRA_ERROR',JSON.stringify(result));
+  assert.equal(result.tests,0);
+  assert.equal(result.receipt,undefined);
+});
+
+test('manifest and coverage drift during a real baseline prevents mutation execution',async()=>{
+  for(const artifact of ['manifest.json','coverage-map.json']) {
+    const {root,campaign,manifest}=fixture();
+    let attempted=false;
+    const result=await judge(manifest.mutants[0],campaign,{run:async(id,files,timeout,options)=>{
+      if(id!==null) attempted=true;
+      assert.equal(options.manifestSha,campaign.provenance.manifestSha);
+      const actual=await runVitest(id,files,timeout,options);
+      if(id===null) {
+        const file=path.join(root,'mutation',artifact);
+        const changed=JSON.parse(readFileSync(file));
+        if(artifact==='manifest.json') changed.mutants[0].edits[0].text='1';
+        else changed.generatedAt='changed during baseline';
+        writeFileSync(file,JSON.stringify(changed));
+      }
+      return actual;
+    }});
+    assert.equal(result.baseline.verdict,'SURVIVED');
+    assert.equal(result.verdict,'INFRA_ERROR',JSON.stringify(result));
+    assert.equal(attempted,false);
+  }
+});
+
+test('manifest and coverage drift after real assertion failures cannot publish kills',async()=>{
+  for(const artifact of ['manifest.json','coverage-map.json']) {
+    const {root,campaign,manifest}=fixture();
+    let mutationVerdict;
+    const result=await judge(manifest.mutants[0],campaign,{run:async(id,files,timeout,options)=>{
+      const actual=await runVitest(id,files,timeout,options);
+      if(id!==null) {
+        mutationVerdict=actual.verdict;
+        const file=path.join(root,'mutation',artifact);
+        const changed=JSON.parse(readFileSync(file));
+        if(artifact==='manifest.json') changed.mutants[0].edits[0].text='1';
+        else changed.generatedAt='changed during mutation';
+        writeFileSync(file,JSON.stringify(changed));
+      }
+      return actual;
+    }});
+    assert.equal(mutationVerdict,'KILLED');
+    assert.equal(result.verdict,'INFRA_ERROR',JSON.stringify(result));
+    assert.equal(summarize(campaign,[result]).scored,0);
+    writeFileSync(path.join(root,'mutation/results.jsonl'),JSON.stringify(result)+'\n');
+    assert.equal(loadDone(campaign).size,0);
+  }
+});
+
+test('parent binding, guard and child transform independently reject replacement edits',async()=>{
+  const {root,campaign,manifest}=fixture();
+  const unbound=structuredClone(manifest.mutants[0]);
+  unbound.edits[0].text='1';
+  const unboundResult=await judge(unbound,campaign);
+  assert.equal(unboundResult.verdict,'INVALID');
+  assert.match(unboundResult.error,/campaign binding/);
+  manifest.mutants[0].edits[0].text='1';
+  writeFileSync(path.join(root,'mutation/manifest.json'),JSON.stringify(manifest));
+  assert.throws(()=>guardMutant('m1',root,campaign.provenance.manifestSha),/manifest fingerprint/);
+  const result=await runVitest('m1',['src/alpha.test.ts'],20000,{root,manifestSha:campaign.provenance.manifestSha});
+  assert.equal(result.verdict,'INVALID');
+  const previousId=process.env.MUTANT_ID,previousSha=process.env.MUTATION_MANIFEST_SHA;
+  try {
+    process.env.MUTANT_ID='m1';process.env.MUTATION_MANIFEST_SHA=campaign.provenance.manifestSha;
+    assert.throws(()=>mutationTransformPlugin({root}),/manifest fingerprint/);
+  } finally {
+    if(previousId===undefined)delete process.env.MUTANT_ID;else process.env.MUTANT_ID=previousId;
+    if(previousSha===undefined)delete process.env.MUTATION_MANIFEST_SHA;else process.env.MUTATION_MANIFEST_SHA=previousSha;
+  }
 });
 
 test('resume retries latest error, timeout and uncovered rows and ignores historical ids',()=>{

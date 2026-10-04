@@ -1,0 +1,45 @@
+{
+  "audited_commit": "fee30d56765cd8d1312a4f900d1450593b5e338c",
+  "counts": {
+    "passed": 5166,
+    "skipped": 4,
+    "failed": 0,
+    "errors": 0
+  },
+  "unique_cases": 5170,
+  "complete_suite_snapshot_counts": {
+    "passed": 5165,
+    "skipped": 4,
+    "failed": 0,
+    "errors": 0
+  },
+  "complete_suite_snapshot_cases": 5169,
+  "latest_migration_sweep_cases": 212,
+  "additional_unique_current_case": [
+    "tests.test_independent_review_history_audit::test_forward_snapshot_lock_serializes_a_concurrent_review"
+  ],
+  "full_plus_latest_migration_checks_match_current_collection": true,
+  "combined_line_branch_coverage": {
+    "covered_lines": 18247,
+    "num_statements": 19295,
+    "percent_covered": 92.75380038309491,
+    "percent_covered_display": "93",
+    "missing_lines": 1048,
+    "excluded_lines": 77,
+    "percent_statements_covered": 94.56854107281679,
+    "percent_statements_covered_display": "95",
+    "num_branches": 5242,
+    "num_partial_branches": 634,
+    "covered_branches": 4512,
+    "missing_branches": 730,
+    "percent_branches_covered": 86.07401755055322,
+    "percent_branches_covered_display": "86"
+  },
+  "combined_floor_exit_code": 0,
+  "unchanged_combined_floor": 92,
+  "coverage_scope": "Complete suite instruments unchanged current app source; post-freeze delta changes only Alembicf9 lock and adds a migration test. Alembic/test code is not the app coverage target.",
+  "source_binding": "final-source-sha256.json plus post-freeze-source-delta.json; only two allowed source changes, validated by the212case latest sweep.",
+  "method": "Disjoint immutable full-suite selections followed by latest-source affected-migration validation; deduplicate overlapping successful JUnit identities. No single full invocation of the final EXCLUSIVE migration revision is claimed.",
+  "case_fingerprint": "ffaeed33257024ed8fd995af994bd9e93fd7a35b2bb08b3d6c1cbae1e2488478",
+  "command": "pytest -q --tb=short --cov=app --cov-branch --cov-report= --cov-fail-under=0 --junitxml=... [wholefilepartition]; coverage combine --keep; coverage report --fail-under=92; latest212affectedcasesperdomain/migration-lock-review.json"
+}
