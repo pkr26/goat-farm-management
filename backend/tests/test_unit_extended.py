@@ -36,7 +36,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.services.feeding as feeding_service
 from app import security
-from app.db import Base
 from app.models import (
     BREEDING_READY_BUCKETS,
     BUCK_DOE_RATIO,

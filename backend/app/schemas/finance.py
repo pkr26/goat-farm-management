@@ -103,9 +103,10 @@ class PnlRowOut(BaseModel):
 
 
 class MortalityMemoOut(BaseModel):
-    """Ledger-neutral mortality visibility (audit backlog #31): deaths in the
-    P&L window with an optional estimated loss. A memo — deliberately NOT a
-    transaction and never part of the income/expense totals."""
+    """Ledger-neutral mortality visibility for deaths in the P&L window.
+
+    The optional estimated loss is a memo, never a transaction or part of the
+    income and expense totals."""
 
     window_months: int
     head_count: int

@@ -276,11 +276,9 @@ async def list_animals(
 ) -> AnimalListOut:
     """Paginated herd register, bucket/tag ordered.
 
-    ``q`` semantics (2026-09-28 audit — they deliberately differ per
-    router): matches tag_number/name substring only; a numeric query does
-    NOT resolve an id here (purchases exact-matches bare digits, health
-    exact-matches only ``#``-prefixed digits).
-    """
+    ``q`` matches tag-number and name substrings. Numeric queries do not resolve
+    an animal id here. Purchase search also matches numeric batch ids, while
+    health search supports exact ``#``-prefixed animal ids."""
     stmt = select(Animal).where(Animal.farm_id == farm.id)
     if bucket is not None:
         stmt = stmt.where(Animal.current_bucket == bucket)
@@ -337,14 +335,13 @@ async def create_animal(
 ) -> AnimalOut:
     """Register one animal.
 
-    Idempotency-Key is CONDITIONALLY required (2026-09-28 audit): any
-    purchased-animal create that books money — a managed purchase (batch +
-    quarantine schedule + ANIMAL_PURCHASE expense) or a historical import
-    with a purchase_price — answers 422 without the header, because a
-    keyless retry would double-book the expense. Creates that book no money
-    (BORN, or price-less imports) accept a keyless request, so the header
-    cannot be published as unconditionally required on this route.
-    """
+    Idempotency-Key is required when a purchased-animal create books money:
+    either a managed purchase with a batch, quarantine schedule, and purchase
+    expense, or a historical import with a purchase price. These requests return
+    422 without the header to prevent duplicate expenses after a retry.
+
+    Creates that book no money, including births and imports without a price,
+    accept keyless requests. The header is therefore conditionally required."""
     farm_date = today(farm.timezone)
     try:
         for field_name, value in (

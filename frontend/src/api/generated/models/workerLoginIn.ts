@@ -6,7 +6,7 @@
  */
 
 /**
- * Shared-tablet quick sign-in (ITEM 2, 2026-09-21 playbook).
+ * Shared-tablet quick sign-in credentials.
  */
 export interface WorkerLoginIn {
   /**

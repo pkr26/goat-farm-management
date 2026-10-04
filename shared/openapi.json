@@ -551,7 +551,7 @@
           "auth"
         ],
         "summary": "Worker Login",
-        "description": "Shared-tablet quick sign-in: farm + tap + PIN, throttled like login.\n\nThe PIN is a convenience credential scoped to ONE membership. It never\nbypasses the second factor (an ACTIVE TOTP refuses \u2014 the tablet is not an\nauthenticator) and never admits an owner (owners hold no membership row).\nEvery failure answers the same generic 401 after identical Argon work, so\nthe exchange cannot enumerate farms, memberships or PINs by timing.\nTwo deliberate exceptions AFTER a proven-correct PIN: an ACTIVE-TOTP\naccount and a must-change-password account answer distinguishable 403s\nnaming the flow to use instead \u2014 an oracle that opens only for a caller\nwho already knows the PIN, kept deliberately and pinned by tests\n(2026-09-28 audit, S5; test_worker_pin_auth.py).",
+        "description": "Shared-tablet quick sign-in: farm + tap + PIN, throttled like login.\n\nThe PIN is scoped to one membership. It cannot bypass an active TOTP second\nfactor or admit a farm owner. Invalid credentials return the same generic 401\nafter equivalent Argon work to prevent timing-based enumeration of farms,\nmemberships, or PINs.\n\nAfter a correct PIN, an account with active TOTP or a required password change\nreceives a distinct 403 directing it to the appropriate authentication flow.",
         "operationId": "worker_login_api_auth_worker_login_post",
         "requestBody": {
           "content": {
@@ -2578,7 +2578,7 @@
           "auth"
         ],
         "summary": "Totp Confirm",
-        "description": "Finish enrollment: a code generated from the PENDING secret activates\nthe second factor. Proof-of-possession before it gates login.\n\nITEM 7 (2026-09-21 playbook): activation mints the one-time recovery-code\nset and returns it HERE, exactly once \u2014 the codes are unrecoverable\nafterwards, so the client must present them for copy/print immediately.",
+        "description": "Finish enrollment by proving possession of the PENDING secret.\n\nA valid code activates the second factor and returns the one-time recovery\ncodes exactly once. The codes cannot be recovered later, so clients must\noffer a copy or print action immediately.",
         "operationId": "totp_confirm_api_auth_totp_confirm_post",
         "requestBody": {
           "content": {
@@ -3219,7 +3219,7 @@
           "animals"
         ],
         "summary": "List Animals",
-        "description": "Paginated herd register, bucket/tag ordered.\n\n``q`` semantics (2026-09-28 audit \u2014 they deliberately differ per\nrouter): matches tag_number/name substring only; a numeric query does\nNOT resolve an id here (purchases exact-matches bare digits, health\nexact-matches only ``#``-prefixed digits).",
+        "description": "Paginated herd register, bucket/tag ordered.\n\n``q`` matches tag-number and name substrings. Numeric queries do not resolve\nan animal id here. Purchase search also matches numeric batch ids, while\nhealth search supports exact ``#``-prefixed animal ids.",
         "operationId": "list_animals_api_animals_get",
         "security": [
           {
@@ -3502,7 +3502,7 @@
           "animals"
         ],
         "summary": "Create Animal",
-        "description": "Register one animal.\n\nIdempotency-Key is CONDITIONALLY required (2026-09-28 audit): any\npurchased-animal create that books money \u2014 a managed purchase (batch +\nquarantine schedule + ANIMAL_PURCHASE expense) or a historical import\nwith a purchase_price \u2014 answers 422 without the header, because a\nkeyless retry would double-book the expense. Creates that book no money\n(BORN, or price-less imports) accept a keyless request, so the header\ncannot be published as unconditionally required on this route.",
+        "description": "Register one animal.\n\nIdempotency-Key is required when a purchased-animal create books money:\neither a managed purchase with a batch, quarantine schedule, and purchase\nexpense, or a historical import with a purchase price. These requests return\n422 without the header to prevent duplicate expenses after a retry.\n\nCreates that book no money, including births and imports without a price,\naccept keyless requests. The header is therefore conditionally required.",
         "operationId": "create_animal_api_animals_post",
         "security": [
           {
@@ -7498,7 +7498,7 @@
           "health"
         ],
         "summary": "Health Animal Options",
-        "description": "Farm-local active-animal summaries for health schedules and events.\n\nA numeric query, optionally prefixed by ``#``, resolves an exact selected\nid without requiring access to the full animal profile endpoint.\n``q`` semantics (2026-09-28 audit \u2014 they deliberately differ per\nrouter): ``#123`` resolves id 123 only; bare ``123`` matches the id OR\na tag/name substring (purchases exact-matches bare digits too, animals\nnever resolves an id).",
+        "description": "Farm-local active-animal summaries for health schedules and events.\n\nA numeric query can resolve a selected animal without requiring full-profile\naccess. ``#123`` matches only id 123; bare ``123`` matches either that id or a\ntag/name substring. Purchase search also matches numeric batch ids; herd\nregister search matches tag/name substrings only.",
         "operationId": "health_animal_options_api_health_animals_get",
         "security": [
           {
@@ -9006,7 +9006,7 @@
           "tasks"
         ],
         "summary": "List Tasks",
-        "description": "All tab counts plus only the requested deterministic row page(s).\n\nRead-only: recurring husbandry duties are materialized by the background\ncadence sweep (main.py), never on this hot read path. ``all`` preserves\nthe pre-2026-10-04 wire behavior for older clients; interactive clients\nuse one selected tab, while the worker board uses the two-row-page\n``worker`` view.",
+        "description": "All tab counts plus the requested deterministic row pages.\n\nThis read-only endpoint uses recurring duties materialized by the background\ncadence sweep. ``all`` preserves the existing multi-page response for older\nclients. Interactive clients select one tab, while the worker board uses the\ntwo-page ``worker`` view.",
         "operationId": "list_tasks_api_tasks_get",
         "security": [
           {
@@ -13833,7 +13833,7 @@
           "purchases"
         ],
         "summary": "List Batches",
-        "description": "Searched, paginated purchase batches for this farm, newest first.\n\nText searches supplier names literally (LIKE wildcards are escaped); a\nnumeric query, with an optional leading ``#``, also matches an exact batch\nid. This keeps selectors bounded without hiding old purchase batches.\n(``q`` semantics deliberately differ per router \u2014 2026-09-28 audit:\nanimals matches tag/name only, health exact-matches an id only when\n``#``-prefixed.)",
+        "description": "Searched, paginated purchase batches for this farm, newest first.\n\nText searches supplier names literally, with LIKE wildcards escaped. A\nnumeric query, optionally prefixed by ``#``, also matches an exact batch id.\nHerd register search matches tag/name substrings; health search supports\nexact ``#``-prefixed animal ids.",
         "operationId": "list_batches_api_purchases_get",
         "security": [
           {
@@ -21677,7 +21677,7 @@
           "screening"
         ],
         "summary": "List Batches",
-        "description": "A page of disease-check walkthroughs, newest first, with per-pen\nprogress. ``total`` is the farm's full batch count so clients can page\npast the newest screen (2026-09-28 audit, A2).",
+        "description": "A page of disease-check walkthroughs, newest first, with per-pen progress.\n\n``total`` is the farm's full batch count so clients can page beyond the\nnewest screen.",
         "operationId": "list_batches_api_screening_batches_get",
         "security": [
           {
@@ -30931,7 +30931,7 @@
           "basis"
         ],
         "title": "MortalityMemoOut",
-        "description": "Ledger-neutral mortality visibility (audit backlog #31): deaths in the\nP&L window with an optional estimated loss. A memo \u2014 deliberately NOT a\ntransaction and never part of the income/expense totals."
+        "description": "Ledger-neutral mortality visibility for deaths in the P&L window.\n\nThe optional estimated loss is a memo, never a transaction or part of the\nincome and expense totals."
       },
       "MortalityOut": {
         "properties": {
@@ -38735,7 +38735,7 @@
           "pin"
         ],
         "title": "WorkerLoginIn",
-        "description": "Shared-tablet quick sign-in (ITEM 2, 2026-09-21 playbook)."
+        "description": "Shared-tablet quick sign-in credentials."
       },
       "WorkerPinResetIn": {
         "properties": {

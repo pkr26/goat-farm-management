@@ -1162,17 +1162,13 @@ async def worker_login(
 ) -> LoginOut:
     """Shared-tablet quick sign-in: farm + tap + PIN, throttled like login.
 
-    The PIN is a convenience credential scoped to ONE membership. It never
-    bypasses the second factor (an ACTIVE TOTP refuses — the tablet is not an
-    authenticator) and never admits an owner (owners hold no membership row).
-    Every failure answers the same generic 401 after identical Argon work, so
-    the exchange cannot enumerate farms, memberships or PINs by timing.
-    Two deliberate exceptions AFTER a proven-correct PIN: an ACTIVE-TOTP
-    account and a must-change-password account answer distinguishable 403s
-    naming the flow to use instead — an oracle that opens only for a caller
-    who already knows the PIN, kept deliberately and pinned by tests
-    (2026-09-28 audit, S5; test_worker_pin_auth.py).
-    """
+    The PIN is scoped to one membership. It cannot bypass an active TOTP second
+    factor or admit a farm owner. Invalid credentials return the same generic 401
+    after equivalent Argon work to prevent timing-based enumeration of farms,
+    memberships, or PINs.
+
+    After a correct PIN, an account with active TOTP or a required password change
+    receives a distinct 403 directing it to the appropriate authentication flow."""
     s = get_settings()
     identity_key = f"{_client_key(request)}|{payload.farm_id}|{payload.membership_id}"
     # IP-agnostic per-membership budget: rotating source addresses cannot reset
@@ -2682,12 +2678,11 @@ async def totp_confirm(
     db: DbSession,
     user: CurrentUser,
 ) -> TotpRecoveryCodesOut:
-    """Finish enrollment: a code generated from the PENDING secret activates
-    the second factor. Proof-of-possession before it gates login.
+    """Finish enrollment by proving possession of the PENDING secret.
 
-    ITEM 7 (2026-09-21 playbook): activation mints the one-time recovery-code
-    set and returns it HERE, exactly once — the codes are unrecoverable
-    afterwards, so the client must present them for copy/print immediately."""
+    A valid code activates the second factor and returns the one-time recovery
+    codes exactly once. The codes cannot be recovered later, so clients must
+    offer a copy or print action immediately."""
     user_id = user.id
     authenticated_token_version = user.token_version
     snapshot = (

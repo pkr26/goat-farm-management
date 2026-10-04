@@ -287,14 +287,12 @@ async def list_tasks(
         ),
     ] = "all",
 ) -> TaskTabsOut:
-    """All tab counts plus only the requested deterministic row page(s).
+    """All tab counts plus the requested deterministic row pages.
 
-    Read-only: recurring husbandry duties are materialized by the background
-    cadence sweep (main.py), never on this hot read path. ``all`` preserves
-    the pre-2026-10-04 wire behavior for older clients; interactive clients
-    use one selected tab, while the worker board uses the two-row-page
-    ``worker`` view.
-    """
+    This read-only endpoint uses recurring duties materialized by the background
+    cadence sweep. ``all`` preserves the existing multi-page response for older
+    clients. Interactive clients select one tab, while the worker board uses the
+    two-page ``worker`` view."""
     now = today(farm.timezone)
     scoped = await task_scope(db, farm, user)
     pending = scoped.where(actionable_pending_task_predicate()).options(*TASK_LOADS)

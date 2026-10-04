@@ -335,14 +335,11 @@ class ScreeningBatchListOut(BaseModel):
 
 
 class ScreeningBatchCreateIn(StrictInputModel):
-    """Degenerate input model for the bodyless batch-intake idempotency claim.
+    """Empty input model for the bodyless batch-intake idempotency claim.
 
-    B5 (2026-09-21 audit): POST /batches accepts no request body, so the
-    idempotency claim's request identity is exactly (actor, farm, key). An
-    empty payload pins that fingerprint with nothing else to disagree with —
-    a replay of the same key can never 409 as a changed request. Like every
-    other request model it forbids unknown fields: zero declared fields means
-    any supplied key is rejected."""
+    The request identity consists only of actor, farm, and key. An empty payload
+    keeps the fingerprint stable on replay. Unknown fields are forbidden, as in
+    every other request model."""
 
 
 class ScreeningUploadIn(StrictInputModel):

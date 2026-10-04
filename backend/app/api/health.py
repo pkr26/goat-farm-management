@@ -420,13 +420,10 @@ async def health_animal_options(
 ) -> HealthAnimalOptionListOut:
     """Farm-local active-animal summaries for health schedules and events.
 
-    A numeric query, optionally prefixed by ``#``, resolves an exact selected
-    id without requiring access to the full animal profile endpoint.
-    ``q`` semantics (2026-09-28 audit — they deliberately differ per
-    router): ``#123`` resolves id 123 only; bare ``123`` matches the id OR
-    a tag/name substring (purchases exact-matches bare digits too, animals
-    never resolves an id).
-    """
+    A numeric query can resolve a selected animal without requiring full-profile
+    access. ``#123`` matches only id 123; bare ``123`` matches either that id or a
+    tag/name substring. Purchase search also matches numeric batch ids; herd
+    register search matches tag/name substrings only."""
     stmt = select(Animal).where(
         Animal.farm_id == farm.id,
         Animal.status == AnimalStatus.ACTIVE.value,

@@ -103,13 +103,10 @@ async def list_batches(
 ) -> PurchaseBatchListOut:
     """Searched, paginated purchase batches for this farm, newest first.
 
-    Text searches supplier names literally (LIKE wildcards are escaped); a
-    numeric query, with an optional leading ``#``, also matches an exact batch
-    id. This keeps selectors bounded without hiding old purchase batches.
-    (``q`` semantics deliberately differ per router — 2026-09-28 audit:
-    animals matches tag/name only, health exact-matches an id only when
-    ``#``-prefixed.)
-    """
+    Text searches supplier names literally, with LIKE wildcards escaped. A
+    numeric query, optionally prefixed by ``#``, also matches an exact batch id.
+    Herd register search matches tag/name substrings; health search supports
+    exact ``#``-prefixed animal ids."""
     base = select(PurchaseBatch).where(PurchaseBatch.farm_id == farm.id)
     if q and q.strip():
         raw = q.strip()

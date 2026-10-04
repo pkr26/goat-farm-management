@@ -1174,9 +1174,10 @@ async def list_batches(
     ] = SCREENING_BATCH_LIST_DEFAULT_LIMIT,
     offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> ScreeningBatchListOut:
-    """A page of disease-check walkthroughs, newest first, with per-pen
-    progress. ``total`` is the farm's full batch count so clients can page
-    past the newest screen (2026-09-28 audit, A2)."""
+    """A page of disease-check walkthroughs, newest first, with per-pen progress.
+
+    ``total`` is the farm's full batch count so clients can page beyond the
+    newest screen."""
     total = (
         await db.execute(
             select(func.count())

@@ -1010,16 +1010,13 @@ export const getWorkerLoginApiAuthWorkerLoginPostUrl = () => {
 /**
  * Shared-tablet quick sign-in: farm + tap + PIN, throttled like login.
  *
- * The PIN is a convenience credential scoped to ONE membership. It never
- * bypasses the second factor (an ACTIVE TOTP refuses — the tablet is not an
- * authenticator) and never admits an owner (owners hold no membership row).
- * Every failure answers the same generic 401 after identical Argon work, so
- * the exchange cannot enumerate farms, memberships or PINs by timing.
- * Two deliberate exceptions AFTER a proven-correct PIN: an ACTIVE-TOTP
- * account and a must-change-password account answer distinguishable 403s
- * naming the flow to use instead — an oracle that opens only for a caller
- * who already knows the PIN, kept deliberately and pinned by tests
- * (2026-09-28 audit, S5; test_worker_pin_auth.py).
+ * The PIN is scoped to one membership. It cannot bypass an active TOTP second
+ * factor or admit a farm owner. Invalid credentials return the same generic 401
+ * after equivalent Argon work to prevent timing-based enumeration of farms,
+ * memberships, or PINs.
+ *
+ * After a correct PIN, an account with active TOTP or a required password change
+ * receives a distinct 403 directing it to the appropriate authentication flow.
  * @summary Worker Login
  */
 export const workerLoginApiAuthWorkerLoginPost = async (workerLoginIn: WorkerLoginIn, options?: Parameters<typeof customInstance>[1]): Promise<workerLoginApiAuthWorkerLoginPostResponse> => {
@@ -2984,12 +2981,11 @@ export const getTotpConfirmApiAuthTotpConfirmPostUrl = () => {
 }
 
 /**
- * Finish enrollment: a code generated from the PENDING secret activates
- * the second factor. Proof-of-possession before it gates login.
+ * Finish enrollment by proving possession of the PENDING secret.
  *
- * ITEM 7 (2026-09-21 playbook): activation mints the one-time recovery-code
- * set and returns it HERE, exactly once — the codes are unrecoverable
- * afterwards, so the client must present them for copy/print immediately.
+ * A valid code activates the second factor and returns the one-time recovery
+ * codes exactly once. The codes cannot be recovered later, so clients must
+ * offer a copy or print action immediately.
  * @summary Totp Confirm
  */
 export const totpConfirmApiAuthTotpConfirmPost = async (totpCodeIn: TotpCodeIn, options?: Parameters<typeof customInstance>[1]): Promise<totpConfirmApiAuthTotpConfirmPostResponse> => {
@@ -3575,10 +3571,9 @@ export const getListAnimalsApiAnimalsGetUrl = (params?: ListAnimalsApiAnimalsGet
 /**
  * Paginated herd register, bucket/tag ordered.
  *
- * ``q`` semantics (2026-09-28 audit — they deliberately differ per
- * router): matches tag_number/name substring only; a numeric query does
- * NOT resolve an id here (purchases exact-matches bare digits, health
- * exact-matches only ``#``-prefixed digits).
+ * ``q`` matches tag-number and name substrings. Numeric queries do not resolve
+ * an animal id here. Purchase search also matches numeric batch ids, while
+ * health search supports exact ``#``-prefixed animal ids.
  * @summary List Animals
  */
 export const listAnimalsApiAnimalsGet = async (params?: ListAnimalsApiAnimalsGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listAnimalsApiAnimalsGetResponse> => {
@@ -3751,13 +3746,13 @@ export const getCreateAnimalApiAnimalsPostUrl = () => {
 /**
  * Register one animal.
  *
- * Idempotency-Key is CONDITIONALLY required (2026-09-28 audit): any
- * purchased-animal create that books money — a managed purchase (batch +
- * quarantine schedule + ANIMAL_PURCHASE expense) or a historical import
- * with a purchase_price — answers 422 without the header, because a
- * keyless retry would double-book the expense. Creates that book no money
- * (BORN, or price-less imports) accept a keyless request, so the header
- * cannot be published as unconditionally required on this route.
+ * Idempotency-Key is required when a purchased-animal create books money:
+ * either a managed purchase with a batch, quarantine schedule, and purchase
+ * expense, or a historical import with a purchase price. These requests return
+ * 422 without the header to prevent duplicate expenses after a retry.
+ *
+ * Creates that book no money, including births and imports without a price,
+ * accept keyless requests. The header is therefore conditionally required.
  * @summary Create Animal
  */
 export const createAnimalApiAnimalsPost = async (animalCreateIn: AnimalCreateIn, options?: Parameters<typeof customInstance>[1]): Promise<createAnimalApiAnimalsPostResponse> => {
@@ -7061,12 +7056,10 @@ export const getHealthAnimalOptionsApiHealthAnimalsGetUrl = (params?: HealthAnim
 /**
  * Farm-local active-animal summaries for health schedules and events.
  *
- * A numeric query, optionally prefixed by ``#``, resolves an exact selected
- * id without requiring access to the full animal profile endpoint.
- * ``q`` semantics (2026-09-28 audit — they deliberately differ per
- * router): ``#123`` resolves id 123 only; bare ``123`` matches the id OR
- * a tag/name substring (purchases exact-matches bare digits too, animals
- * never resolves an id).
+ * A numeric query can resolve a selected animal without requiring full-profile
+ * access. ``#123`` matches only id 123; bare ``123`` matches either that id or a
+ * tag/name substring. Purchase search also matches numeric batch ids; herd
+ * register search matches tag/name substrings only.
  * @summary Health Animal Options
  */
 export const healthAnimalOptionsApiHealthAnimalsGet = async (params?: HealthAnimalOptionsApiHealthAnimalsGetParams, options?: Parameters<typeof customInstance>[1]): Promise<healthAnimalOptionsApiHealthAnimalsGetResponse> => {
@@ -8392,13 +8385,12 @@ export const getListTasksApiTasksGetUrl = (params?: ListTasksApiTasksGetParams,)
 }
 
 /**
- * All tab counts plus only the requested deterministic row page(s).
+ * All tab counts plus the requested deterministic row pages.
  *
- * Read-only: recurring husbandry duties are materialized by the background
- * cadence sweep (main.py), never on this hot read path. ``all`` preserves
- * the pre-2026-10-04 wire behavior for older clients; interactive clients
- * use one selected tab, while the worker board uses the two-row-page
- * ``worker`` view.
+ * This read-only endpoint uses recurring duties materialized by the background
+ * cadence sweep. ``all`` preserves the existing multi-page response for older
+ * clients. Interactive clients select one tab, while the worker board uses the
+ * two-page ``worker`` view.
  * @summary List Tasks
  */
 export const listTasksApiTasksGet = async (params?: ListTasksApiTasksGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listTasksApiTasksGetResponse> => {
@@ -12332,12 +12324,10 @@ export const getListBatchesApiPurchasesGetUrl = (params?: ListBatchesApiPurchase
 /**
  * Searched, paginated purchase batches for this farm, newest first.
  *
- * Text searches supplier names literally (LIKE wildcards are escaped); a
- * numeric query, with an optional leading ``#``, also matches an exact batch
- * id. This keeps selectors bounded without hiding old purchase batches.
- * (``q`` semantics deliberately differ per router — 2026-09-28 audit:
- * animals matches tag/name only, health exact-matches an id only when
- * ``#``-prefixed.)
+ * Text searches supplier names literally, with LIKE wildcards escaped. A
+ * numeric query, optionally prefixed by ``#``, also matches an exact batch id.
+ * Herd register search matches tag/name substrings; health search supports
+ * exact ``#``-prefixed animal ids.
  * @summary List Batches
  */
 export const listBatchesApiPurchasesGet = async (params?: ListBatchesApiPurchasesGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listBatchesApiPurchasesGetResponse> => {
@@ -19255,9 +19245,10 @@ export const getListBatchesApiScreeningBatchesGetUrl = (params?: ListBatchesApiS
 }
 
 /**
- * A page of disease-check walkthroughs, newest first, with per-pen
- * progress. ``total`` is the farm's full batch count so clients can page
- * past the newest screen (2026-09-28 audit, A2).
+ * A page of disease-check walkthroughs, newest first, with per-pen progress.
+ *
+ * ``total`` is the farm's full batch count so clients can page beyond the
+ * newest screen.
  * @summary List Batches
  */
 export const listBatchesApiScreeningBatchesGet = async (params?: ListBatchesApiScreeningBatchesGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listBatchesApiScreeningBatchesGetResponse> => {
