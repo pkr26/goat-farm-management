@@ -144,7 +144,11 @@ async def test_multi_crop_cascade_never_exceeds_actual_call_cap(client: httpx.As
             await db.execute(select(func.count()).select_from(ScreeningCallReservation))
         ).scalar_one()
     assert sum(cast(CountingProvider, provider).calls for provider in providers) == receipts == 8
-    assert image.status == "FLAGGED" and findings
+    # The cap can interrupt a later crop after valid findings have already
+    # been written. Keep that evidence, but do not publish a partial parent
+    # verdict as FLAGGED: the unfinished image must remain retryable.
+    assert image.status == "ERROR" and findings
+    assert image.error is not None and "Daily screening call budget reached" in image.error
     assert result.budget_deferred > 0
 
 

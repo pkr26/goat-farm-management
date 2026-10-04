@@ -16,6 +16,10 @@ export interface DispenseIn {
      * @maxLength 30
      */
   recipe_code: string;
+  /**
+     * @maximum 1000000
+     * @exclusiveMinimum 0
+     */
   qty_kg: number;
   date?: string | null;
 }

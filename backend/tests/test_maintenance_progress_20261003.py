@@ -358,10 +358,12 @@ async def test_alert_poison_is_retried_after_durable_rotation_wrap(
     assert await _saved("notification_alerts") == (0, HOUR)
     assert await main._notification_alert_maintenance_page(settings, provider, HOUR) is None
     await main._notification_alert_maintenance_page(settings, provider, HOUR + timedelta(hours=1))
-    assert visited == [*ids, ids[0], ids[1]]
+    assert sorted(visited[:2]) == ids[:2]
+    assert visited[2] == ids[2]
+    assert sorted(visited[3:]) == ids[:2]
 
 
-async def test_notification_loop_restarts_resume_hour_and_skip_completed_hour(
+async def test_notification_alert_schedule_restarts_resume_hour_and_skip_completed_hour(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ids = await _farms(3)
@@ -370,7 +372,6 @@ async def test_notification_loop_restarts_resume_hour_and_skip_completed_hour(
     )
     provider = ConsoleNotificationProvider()
     cursors: list[int] = []
-    ticks = 0
     original_batch = main._notification_alert_farm_batch
 
     async def alert_batch(
@@ -379,31 +380,15 @@ async def test_notification_loop_restarts_resume_hour_and_skip_completed_hour(
         cursors.append(after_farm_id)
         return await original_batch(config, sink, after_farm_id)
 
-    async def no_digests(_db: AsyncSession, _config: Settings, _now: datetime) -> list[Farm]:
-        return []
+    async def stop_after_tick(_seconds: float) -> None:
+        raise asyncio.CancelledError
 
-    async def no_outbox(_config: Settings, _sink: NotificationProvider) -> int:
-        return 0
-
-    async def one_tick(_seconds: float) -> None:
-        nonlocal ticks
-        ticks += 1
-        if ticks % 2 == 0:
-            raise asyncio.CancelledError
-
-    import app.services.notifications as notifications
-    import app.services.notifications.outbox as outbox
-
-    monkeypatch.setattr(main, "get_settings", lambda: settings)
     monkeypatch.setattr(main, "utcnow", lambda: HOUR.replace(tzinfo=None))
     monkeypatch.setattr(main, "_notification_alert_farm_batch", alert_batch)
-    monkeypatch.setattr(notifications, "build_notification_provider", lambda _config: provider)
-    monkeypatch.setattr(notifications, "farms_ready_for_digest", no_digests)
-    monkeypatch.setattr(outbox, "dispatch_pending_alerts", no_outbox)
-    monkeypatch.setattr(asyncio, "sleep", one_tick)
+    monkeypatch.setattr(asyncio, "sleep", stop_after_tick)
     for saved in [(ids[1], None), (0, HOUR), (0, HOUR)]:
         with pytest.raises(asyncio.CancelledError):
-            await main._notifications_loop()
+            await main._notification_periodic_alert_loop(settings, provider)
         assert await _saved("notification_alerts") == saved
     assert cursors == [0, ids[1]]
 

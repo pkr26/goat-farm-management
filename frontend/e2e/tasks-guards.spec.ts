@@ -55,6 +55,16 @@ test.describe("tasks guards", () => {
     // The kidding duty is also form-linked, not a raw Complete button.
     await page.goto("/tasks");
     await page.getByRole("tab", { name: /Upcoming/ }).click();
+    // Future protocol duties are ordered by due date and independently
+    // paginated. Kidding is roughly five months after breeding, so navigate
+    // to the final page rather than assuming it fits in the first 50 rows.
+    const upcomingTab = page.getByRole("tab", { name: /Upcoming/ });
+    const upcomingLabel = await upcomingTab.textContent();
+    const upcomingTotal = Number(upcomingLabel?.match(/\((\d+)\)/)?.[1] ?? "0");
+    const finalUpcomingOffset = Math.floor(Math.max(0, upcomingTotal - 1) / 50) * 50;
+    if (finalUpcomingOffset > 0) {
+      await page.goto(`/tasks?tab=upcoming&upcoming_offset=${finalUpcomingOffset}`);
+    }
     const kiddingRow = page.getByRole("row", { name: new RegExp(`Kidding due: ${doeTag}`) });
     await expect(kiddingRow).toBeVisible({ timeout: 15_000 });
     await expect(kiddingRow.getByRole("link", { name: "Open form" })).toBeVisible();

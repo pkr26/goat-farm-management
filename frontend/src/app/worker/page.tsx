@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { useListTasksApiTasksGet } from "@/api/generated/endpoints";
-import type { TaskOut } from "@/api/generated/models";
+import type { ListTasksApiTasksGetParams, TaskOut } from "@/api/generated/models";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { apiFetch, ApiError, currentRequestScope } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
-import { farmToday, formatDate } from "@/lib/format";
+import { farmToday, formatDate, formatFarmDateTime } from "@/lib/format";
 import { randomIdempotencyKey } from "@/lib/idempotent-request";
 import { useLanguage, useT } from "@/lib/i18n";
 import { OutboxReviewRequiredError, persistWorkerOperation, settleWorkerOperation, type WorkerOperation } from "@/lib/worker-outbox";
@@ -37,23 +37,26 @@ import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { saveOfflineShift } from "@/lib/worker-offline-shift";
 import { useQueryClient } from "@tanstack/react-query";
 
-function DutyCard({
+export function DutyCard({
   task,
   canComplete,
+  canOpenAction,
+  staleBoard,
   busy,
   onComplete,
   onSkip,
 }: {
   task: TaskOut;
   canComplete: boolean;
+  canOpenAction: (permission: string) => boolean;
+  staleBoard: boolean;
   busy: boolean;
   onComplete: (task: TaskOut) => void;
   onSkip: (task: TaskOut) => void;
 }) {
   const t = useT();
   const { language } = useLanguage();
-  const perms = usePermissions();
-  const actionPath = permittedTaskActionPath(task.action_url, perms.can);
+  const actionPath = permittedTaskActionPath(task.action_url, canOpenAction);
   // Generated linked duties (purchase pickups, ultrasounds, weaning or moving
   // a specific animal) answer a bare skip with a definitive refusal
   // server-side — the manager board hides Skip for exactly these
@@ -78,6 +81,7 @@ function DutyCard({
         {overdue ? (
           <StatusBadge status="ERROR">
             <AlertTriangle aria-hidden className="size-4" />
+            <span className="sr-only">{t("worker.overdueSection")}</span>
           </StatusBadge>
         ) : null}
       </div>
@@ -93,6 +97,9 @@ function DutyCard({
               data-testid={`complete-${task.id}`}
             >
               <Check aria-hidden /> {t("worker.complete")}
+              {staleBoard ? (
+                <span className="sr-only"> — {t("worker.staleActionSuffix")}</span>
+              ) : null}
             </Button>
             {skippable ? (
               <Button
@@ -104,6 +111,9 @@ function DutyCard({
                 data-testid={`skip-${task.id}`}
               >
                 <X aria-hidden /> {t("worker.skip")}
+                {staleBoard ? (
+                  <span className="sr-only"> — {t("worker.staleActionSuffix")}</span>
+                ) : null}
               </Button>
             ) : null}
           </>
@@ -130,22 +140,21 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
   const [busyIds, setBusyIds] = useState<ReadonlySet<number>>(() => new Set<number>());
   const allowed = perms.can("tasks.view");
 
-  const query = useListTasksApiTasksGet(
-    {
+  const taskListParams: ListTasksApiTasksGetParams = {
       // The board must never silently drop duties (2026-09-28 audit, W4):
       // fetch up to the server cap and surface the "and N more" note below
       // when the totals say more exist.
       active_limit: 200,
       today_offset: 0,
       overdue_offset: 0,
-      upcoming_offset: 0,
-      awaiting_offset: 0,
-      completed_limit: 10,
-      completed_offset: 0,
-    },
+      view: "worker",
+  };
+  const query = useListTasksApiTasksGet(
+    taskListParams,
     { query: { enabled: allowed, refetchOnWindowFocus: true } },
   );
   const payload = query.data?.status === 200 ? query.data.data : undefined;
+  const staleBoard = query.isError && payload !== undefined;
   const canComplete = perms.can("tasks.complete");
   useEffect(() => {
     const scope = currentRequestScope();
@@ -265,10 +274,29 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
   const hiddenDuties =
     Math.max(0, (payload?.overdue_total ?? 0) - overdue.length) +
     Math.max(0, (payload?.today_total ?? 0) - today.length);
+  const lastChecked = query.dataUpdatedAt > 0
+    ? formatFarmDateTime(new Date(query.dataUpdatedAt).toISOString())
+    : "—";
 
   return (
     <div className="space-y-6">
       <PageHeader title={t("worker.title")} description={t("worker.description")} />
+      {staleBoard ? (
+        <div
+          role="alert"
+          className="flex flex-col gap-3 rounded-xl border border-warning/50 bg-warning-tint p-4 text-sm text-warning-tint-foreground sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p>{t("worker.staleBoard", { date: lastChecked })}</p>
+          <Button
+            variant="outline"
+            size="lg"
+            className="min-h-11 shrink-0"
+            onClick={() => void query.refetch()}
+          >
+            {t("common.retry")}
+          </Button>
+        </div>
+      ) : null}
       {query.isPending ? (
         <p role="status" aria-live="polite" className="text-muted-foreground">
           {t("common.loading")}
@@ -302,6 +330,8 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
                     key={task.id}
                     task={task}
                     canComplete={canComplete}
+                    canOpenAction={perms.can}
+                    staleBoard={staleBoard}
                     busy={busyIds.has(task.id)}
                     onComplete={(tk) => void runDutyMutation(tk, "complete")}
                     onSkip={(tk) => void runDutyMutation(tk, "skip")}
@@ -321,6 +351,8 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
                     key={task.id}
                     task={task}
                     canComplete={canComplete}
+                    canOpenAction={perms.can}
+                    staleBoard={staleBoard}
                     busy={busyIds.has(task.id)}
                     onComplete={(tk) => void runDutyMutation(tk, "complete")}
                     onSkip={(tk) => void runDutyMutation(tk, "skip")}

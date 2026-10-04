@@ -97,7 +97,7 @@ const FIELD_HELP: Partial<Record<string, (v: FarmVocabulary) => FieldHelp>> = {
     body: `Adult breeding ${v.femaleAdultPlural} in the starting herd. These are the foundation animals: they are spread across ages and reproductive states per the foundation settings below, and the whole projection grows from them.`,
   }),
   "herd.bucks": (v) => ({
-    body: `Adult ${malePlural(v)} in the starting herd. 0 is normal for an AI-first herd (no sire battery carried) — service capacity is then unlimited; for natural service keep roughly one ${v.maleAdult} per buck-doe-ratio females.`,
+    body: `Adult ${malePlural(v)} in the starting herd. Natural-service capacity comes only from sires the model carries or auto-purchases: with 0 ${malePlural(v)} and auto-purchase off, no females can be served. Keep roughly one ${v.maleAdult} per buck-doe-ratio females.`,
   }),
   "herd.female_growers": () => ({
     body: `Female young stock aged 6 months up to first-breeding age already on the ground at month 1. They graduate into the breeding pool per the retention fraction.`,
@@ -130,7 +130,7 @@ const FIELD_HELP: Partial<Record<string, (v: FarmVocabulary) => FieldHelp>> = {
     body: `Purchase price of one adult ${v.maleAdult} (₹). Used when auto-purchase replaces sires or a scheduled event buys ${malePlural(v)}.`,
   }),
   "herd.auto_purchase_bucks": (v) => ({
-    body: `When on, the model automatically buys ${malePlural(v)} whenever the sire ratio falls short, so breeding is never sire-limited. Turn off for an AI programme (technician-limited service) — then 0 ${malePlural(v)} still breeds the whole herd.`,
+    body: `When on, the model automatically buys ${malePlural(v)} whenever the natural-service sire ratio falls short. When off, breeding is sire-limited; 0 ${malePlural(v)} means zero service capacity until a sire is added by a scheduled event.`,
   }),
   "herd.foundation_doe_age_min_months": (v) => ({
     body: `Youngest age (months) of the foundation ${v.femaleAdultPlural} bought at month 1 — with the max below, the opening animals are spread uniformly across this window. Buying young proven animals avoids an immediate max-age cull wave. Must be ≤ the max.`,

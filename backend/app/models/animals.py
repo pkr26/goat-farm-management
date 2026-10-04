@@ -418,8 +418,8 @@ class Animal(Base):
 
     @property
     def is_breeding_ready(self) -> bool:
-        """Breeding-ready doe: female, ACTIVE, >=10 mo, >=22 kg, not pregnant,
-        living in FOUNDATION / FEMALE_KIDS / RESTING (per SPEC)."""
+        """Breeding-ready doe: female, ACTIVE, at least the profile minimum
+        age/weight, not pregnant, and in an eligible lifecycle bucket."""
         return self.is_breeding_ready_on(today())
 
     def is_breeding_ready_on(self, reference_date: date) -> bool:

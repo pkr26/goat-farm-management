@@ -7,6 +7,10 @@
 
 export interface WeightIn {
   date?: string | null;
+  /**
+     * @maximum 1000
+     * @exclusiveMinimum 0
+     */
   weight_kg: number;
   bcs?: number | null;
   notes?: string | null;

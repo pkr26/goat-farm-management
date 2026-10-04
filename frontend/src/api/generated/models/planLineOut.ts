@@ -5,9 +5,13 @@
  * OpenAPI spec version: 2.0.0
  */
 import type { PlanLineOutBasis } from './planLineOutBasis';
+import type { PlanLineOutSegment } from './planLineOutSegment';
 import type { PlanLineOutShiftsItem } from './planLineOutShiftsItem';
 
 export interface PlanLineOut {
+  line_id: string;
+  allocation_id: string;
+  segment: PlanLineOutSegment;
   bucket: string;
   recipe_code: string;
   recipe_name: string;

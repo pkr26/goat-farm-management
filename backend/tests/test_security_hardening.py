@@ -774,6 +774,20 @@ async def test_invalid_access_tokens_are_blocked_before_repeated_signature_work(
     assert calls == 2
 
 
+async def test_bearer_401s_publish_the_authentication_challenge(
+    client: httpx.AsyncClient,
+) -> None:
+    missing = await client.get("/api/auth/me")
+    invalid = await client.get("/api/auth/me", headers={"Authorization": "Bearer not.a.jwt"})
+    old_headers = await register(client, "bearer-challenge-revoked@farm.in")
+    assert (await client.post("/api/auth/logout", headers=old_headers)).status_code == 204
+    revoked = await client.get("/api/auth/me", headers=old_headers)
+
+    for response in (missing, invalid, revoked):
+        assert response.status_code == 401
+        assert response.headers["WWW-Authenticate"] == "Bearer"
+
+
 @pytest.mark.usefixtures("rate_limit_one")
 async def test_verified_expired_access_token_stays_401_without_spending_invalid_budget(
     client: httpx.AsyncClient,
@@ -809,6 +823,7 @@ async def test_verified_expired_access_token_stays_401_without_spending_invalid_
         *(client.get("/api/auth/me", headers=headers) for _ in range(4))
     )
     assert [response.status_code for response in responses] == [401, 401, 401, 401]
+    assert all(response.headers["WWW-Authenticate"] == "Bearer" for response in responses)
     assert all(response.json()["detail"] == "Invalid or expired token" for response in responses)
     assert calls == 4
     digest = hashlib.sha256(expired_token.encode("utf-8")).hexdigest()
@@ -1941,6 +1956,7 @@ def test_allowed_hosts_are_stored_the_way_trustedhost_compares_them(
     boot green and then 400 every browser request."""
     settings = Settings(
         environment="production",
+        auth_rate_limit_enabled=True,
         cookie_secure=True,
         cors_origins=["https://app.example.com"],
         allowed_hosts=[configured],

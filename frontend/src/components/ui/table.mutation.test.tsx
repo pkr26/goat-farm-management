@@ -74,7 +74,14 @@ describe("table markup primitives", () => {
     const wrapper = container.firstElementChild as HTMLElement;
     expect(wrapper.tagName).toBe("DIV");
     expect(wrapper).toHaveAttribute("data-slot", "table-container");
-    expect(wrapper).toHaveClass("relative", "w-full", "overflow-x-auto");
+    expect(wrapper).toHaveAttribute("tabindex", "0");
+    expect(wrapper).toHaveClass(
+      "relative",
+      "w-full",
+      "overflow-x-auto",
+      "focus-visible:ring-3",
+      "focus-visible:ring-ring/50",
+    );
 
     const table = wrapper.querySelector("table");
     expect(table).toHaveAttribute("data-slot", "table");

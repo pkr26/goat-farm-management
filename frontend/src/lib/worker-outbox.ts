@@ -7,6 +7,7 @@ import { OFFLINE_QUEUE_STORAGE_KEY, isOfflineQueueableMutation, type QueueScopes
 import { safeStorage } from "@/lib/safe-storage";
 
 export const WORKER_OUTBOX_DB = "herdly-worker-outbox-v2";
+export const LEGACY_QUARANTINE_META_PREFIX = "legacy-quarantine:";
 const MAX_PENDING = 100;
 const MAX_BYTES = 2 * 1024 * 1024;
 const REVIEW_AFTER_MS = 72 * 60 * 60 * 1000;
@@ -28,6 +29,13 @@ export type WorkerOperation = QueueScopes & {
   reason?: string;
   status?: number;
   settledAt?: number;
+  confirmedAt?: number;
+  lastRetriedAt?: number;
+};
+export type LegacyQueueQuarantine = {
+  raw: string;
+  malformedRecords: number;
+  quarantinedAt: number;
 };
 export class OutboxStorageError extends Error {
   constructor() { super("This device could not save the duty. Keep this screen open and try again."); }
@@ -76,45 +84,73 @@ function changed(): void {
   if (typeof window !== "undefined") window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
-function legacyOperations(): WorkerOperation[] {
+type LegacySnapshot = {
+  raw: string;
+  operations: WorkerOperation[];
+  malformedRecords: number;
+};
+
+function parseLegacyOperation(entry: unknown): WorkerOperation | null {
+  if (entry === null || typeof entry !== "object") return null;
+  const item = entry as Record<string, unknown>;
+  if (item.v !== 1 || typeof item.id !== "string" || !item.id ||
+    typeof item.path !== "string" || typeof item.method !== "string" ||
+    typeof item.actorScope !== "string" || typeof item.farmScope !== "string" ||
+    typeof item.queuedAt !== "number" || !Number.isFinite(item.queuedAt) ||
+    (item.body !== null && typeof item.body !== "string") ||
+    typeof item.headers !== "object" || item.headers === null) return null;
+  const key = Object.entries(item.headers).find(([name]) => name.toLowerCase() === "idempotency-key")?.[1];
+  const allowed = isOfflineQueueableMutation(item.path, item.method);
+  return {
+    id: item.id, path: item.path, method: "POST", body: item.body as string | null,
+    actorScope: item.actorScope, farmScope: item.farmScope, queuedAt: item.queuedAt,
+    idempotencyKey: typeof key === "string" && key ? key : item.id,
+    state: allowed ? "pending" : "review", legacyImported: true,
+    ...(!allowed ? { reason: "unsupported" } : {}),
+  };
+}
+
+function legacySnapshot(): LegacySnapshot | null {
   const storage = safeStorage("local");
-  if (storage === null) return [];
+  if (storage === null) return null;
   let raw: string | null;
   try { raw = storage.getItem(OFFLINE_QUEUE_STORAGE_KEY); }
-  catch { throw new OutboxStorageError(); }
-  if (raw === null) return [];
-  // Keep the original store intact even if migration cannot understand it.
-  // It can be exported and repaired; never replace it with an empty queue.
+  catch { return null; }
+  if (raw === null) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) throw new Error();
-    return parsed.map((entry: unknown) => {
-      if (entry === null || typeof entry !== "object") throw new Error();
-      const item = entry as Record<string, unknown>;
-      if (item.v !== 1 || typeof item.id !== "string" || !item.id ||
-        typeof item.path !== "string" || typeof item.method !== "string" ||
-        typeof item.actorScope !== "string" || typeof item.farmScope !== "string" ||
-        typeof item.queuedAt !== "number" || !Number.isFinite(item.queuedAt) ||
-        (item.body !== null && typeof item.body !== "string") ||
-        typeof item.headers !== "object" || item.headers === null) throw new Error();
-      const key = Object.entries(item.headers).find(([name]) => name.toLowerCase() === "idempotency-key")?.[1];
-      const allowed = isOfflineQueueableMutation(item.path, item.method);
-      return {
-        id: item.id, path: item.path, method: "POST", body: item.body as string | null,
-        actorScope: item.actorScope, farmScope: item.farmScope, queuedAt: item.queuedAt,
-        idempotencyKey: typeof key === "string" && key ? key : item.id,
-        state: allowed ? "pending" : "review", legacyImported: true,
-        ...(!allowed ? { reason: "unsupported" } : {}),
-      };
-    });
-  } catch { throw new OutboxStorageError(); }
+    if (!Array.isArray(parsed)) return { raw, operations: [], malformedRecords: 1 };
+    const operations: WorkerOperation[] = [];
+    let malformedRecords = 0;
+    for (const entry of parsed) {
+      const operation = parseLegacyOperation(entry);
+      if (operation === null) malformedRecords++;
+      else operations.push(operation);
+    }
+    return { raw, operations, malformedRecords };
+  } catch { return { raw, operations: [], malformedRecords: 1 }; }
+}
+
+function legacyArchiveKey(raw: string): string {
+  // A deterministic two-lane checksum prevents repeated migrations from
+  // creating unbounded archive copies. The raw value remains the evidence;
+  // this checksum is only an IndexedDB key, not an integrity claim.
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < raw.length; index++) {
+    const code = raw.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ (code + index), 0x85ebca6b);
+  }
+  return `${LEGACY_QUARANTINE_META_PREFIX}${raw.length}:${(first >>> 0).toString(16)}:${(second >>> 0).toString(16)}`;
 }
 
 const deliveredLegacyKey = (id: string) => `delivered-legacy:${id}`;
 
 async function migrateLegacy(): Promise<void> {
-  const legacy = legacyOperations();
-  if (legacy.length === 0) return;
+  const snapshot = legacySnapshot();
+  if (snapshot === null) return;
+  const legacy = snapshot.operations;
   await transaction<void>((tx, finish) => {
     const store = tx.objectStore("operations");
     const meta = tx.objectStore("meta");
@@ -142,12 +178,29 @@ async function migrateLegacy(): Promise<void> {
           };
         };
       }
+      if (snapshot.malformedRecords > 0) {
+        const quarantine: LegacyQueueQuarantine = {
+          raw: snapshot.raw,
+          malformedRecords: snapshot.malformedRecords,
+          quarantinedAt: Date.now(),
+        };
+        meta.put({ key: legacyArchiveKey(snapshot.raw), value: quarantine });
+      }
     };
     finish(undefined);
   });
-  // Receipts remain in the new store, so an old tab re-importing this legacy
-  // array cannot resurrect a delivered operation. Retain the source for
-  // recovery; no cross-tab localStorage read/modify/write is performed.
+  // Remove only the exact source that was committed. If another tab changed
+  // it, that newer value remains for the next migration. Malformed source is
+  // retained byte-for-byte in IndexedDB before this best-effort cleanup.
+  try {
+    const storage = safeStorage("local");
+    if (storage?.getItem(OFFLINE_QUEUE_STORAGE_KEY) === snapshot.raw) {
+      storage.removeItem(OFFLINE_QUEUE_STORAGE_KEY);
+    }
+  } catch {
+    // Re-reading the source is harmless and idempotent; never make a healthy
+    // IndexedDB outbox unavailable merely because Web Storage is blocked.
+  }
 }
 
 export async function readWorkerOutbox(scopes: QueueScopes): Promise<WorkerOperation[]> {
@@ -161,14 +214,27 @@ export async function readWorkerOutbox(scopes: QueueScopes): Promise<WorkerOpera
   });
 }
 
+/** Recoverable, byte-exact legacy sources containing malformed records. */
+export async function readLegacyQueueQuarantine(): Promise<LegacyQueueQuarantine[]> {
+  await migrateLegacy();
+  return transaction<LegacyQueueQuarantine[]>((tx, finish) => {
+    const request = tx.objectStore("meta").getAll();
+    request.onsuccess = () => finish((request.result as Array<{ key: string; value?: unknown }>)
+      .filter((item) => item.key.startsWith(LEGACY_QUARANTINE_META_PREFIX))
+      .map((item) => item.value as LegacyQueueQuarantine));
+  });
+}
+
 export async function persistWorkerOperation(
   path: string, body: string | undefined, scopes: QueueScopes, key = randomIdempotencyKey(),
+  initialState: "pending" | "review" = "pending",
+  initialReason?: string,
 ): Promise<WorkerOperation> {
   if (!isOfflineQueueableMutation(path, "POST") || !scopes.actorScope || !scopes.farmScope) throw new OutboxStorageError();
   await migrateLegacy();
   const operation: WorkerOperation = {
     ...scopes, id: randomIdempotencyKey(), path, method: "POST", body: body ?? null,
-    idempotencyKey: key, queuedAt: Date.now(), state: "pending",
+    idempotencyKey: key, queuedAt: Date.now(), state: initialState, reason: initialReason,
   };
   const accepted = await transaction<WorkerOperation | null>((tx, finish) => {
     const store = tx.objectStore("operations");
@@ -178,7 +244,8 @@ export async function persistWorkerOperation(
       const existing = records.find((item) => item.state !== "sent" && item.actorScope === scopes.actorScope &&
         item.farmScope === scopes.farmScope && item.path === path && item.body === operation.body);
       if (existing) { finish(existing.state === "review" ? null : existing); return; }
-      const active = records.filter((item) => item.state !== "sent");
+      const active = records.filter((item) => item.state !== "sent" &&
+        item.actorScope === scopes.actorScope && item.farmScope === scopes.farmScope);
       if (active.length >= MAX_PENDING ||
         new TextEncoder().encode(JSON.stringify([...active, operation])).length > MAX_BYTES) {
         tx.abort(); return;
@@ -197,6 +264,118 @@ export async function persistWorkerOperation(
   if (accepted === null) throw new OutboxReviewRequiredError();
   changed();
   return accepted;
+}
+
+/** Save an action entered without a live server session as an untrusted
+ * draft. It is never eligible for automatic replay until the original worker
+ * signs in to the same farm and explicitly confirms it. */
+export function persistOfflineWorkerDraft(
+  path: string, body: string | undefined, scopes: QueueScopes,
+): Promise<WorkerOperation> {
+  return persistWorkerOperation(
+    path,
+    body,
+    scopes,
+    randomIdempotencyKey(),
+    "review",
+    "offline-untrusted",
+  );
+}
+
+/** Promote only an offline-origin draft for the currently authenticated
+ * actor/farm. Server rejections and stale/conflict receipts are never
+ * approvable through this path. */
+export async function confirmOfflineWorkerDraft(
+  scope: RequestScope, id: string,
+): Promise<boolean> {
+  assertCleanupScope(scope);
+  const confirmed = await transaction<boolean>((tx, finish) => {
+    assertCleanupScope(scope);
+    const store = tx.objectStore("operations");
+    const request = store.get(id);
+    request.onsuccess = () => {
+      try { assertCleanupScope(scope); }
+      catch { tx.abort(); return; }
+      const operation = request.result as WorkerOperation | undefined;
+      if (operation === undefined || operation.actorScope !== scope.actorScope ||
+        operation.farmScope !== scope.farmScope || operation.state !== "review" ||
+        operation.reason !== "offline-untrusted") { finish(false); return; }
+      store.put({
+        ...operation,
+        state: "pending",
+        reason: undefined,
+        status: undefined,
+        settledAt: undefined,
+        confirmedAt: Date.now(),
+      });
+      finish(true);
+    };
+  });
+  if (confirmed) changed();
+  return confirmed;
+}
+
+/** Delete only an unauthenticated offline draft after the original worker
+ * signs in to its actor/farm scope and rejects it. Server rejection receipts
+ * remain immutable evidence and cannot be removed through this path. */
+export async function discardOfflineWorkerDraft(
+  scope: RequestScope, id: string,
+): Promise<boolean> {
+  assertCleanupScope(scope);
+  const discarded = await transaction<boolean>((tx, finish) => {
+    assertCleanupScope(scope);
+    const store = tx.objectStore("operations");
+    const request = store.get(id);
+    request.onsuccess = () => {
+      try { assertCleanupScope(scope); }
+      catch { tx.abort(); return; }
+      const operation = request.result as WorkerOperation | undefined;
+      if (operation === undefined || operation.actorScope !== scope.actorScope ||
+        operation.farmScope !== scope.farmScope || operation.state !== "review" ||
+        operation.reason !== "offline-untrusted") { finish(false); return; }
+      store.delete(id);
+      finish(true);
+    };
+  });
+  if (discarded) changed();
+  return discarded;
+}
+
+/** Resolve a server/staleness review receipt for only the live actor/farm.
+ * Retrying preserves its original request and idempotency key. Dismissal is
+ * an explicit evidence deletion and is therefore confirmed by the caller. */
+export async function resolveWorkerReviewReceipt(
+  scope: RequestScope, id: string, resolution: "retry" | "dismiss",
+): Promise<boolean> {
+  assertCleanupScope(scope);
+  const resolved = await transaction<boolean>((tx, finish) => {
+    assertCleanupScope(scope);
+    const store = tx.objectStore("operations");
+    const request = store.get(id);
+    request.onsuccess = () => {
+      try { assertCleanupScope(scope); }
+      catch { tx.abort(); return; }
+      const operation = request.result as WorkerOperation | undefined;
+      if (operation === undefined || operation.actorScope !== scope.actorScope ||
+        operation.farmScope !== scope.farmScope || operation.state !== "review" ||
+        operation.reason === "offline-untrusted" ||
+        (resolution === "retry" && !isOfflineQueueableMutation(operation.path, operation.method))) {
+        finish(false); return;
+      }
+      if (resolution === "dismiss") store.delete(id);
+      else store.put({
+        ...operation,
+        state: "pending",
+        reason: undefined,
+        status: undefined,
+        settledAt: undefined,
+        lastRetriedAt: Date.now(),
+      });
+      finish(true);
+    };
+  });
+  if (resolved) changed();
+  return resolved;
 }
 
 export async function settleWorkerOperation(id: string, state: "sent" | "review", reason?: string, status?: number): Promise<void> {
@@ -319,7 +498,8 @@ export async function drainWorkerOutbox(
     for (const operation of initial) {
       if (operation.state !== "pending") continue;
       if (!sameScope(getScope(), scopes) || !(await lease(scopes, owner))) break;
-      if (!isOfflineQueueableMutation(operation.path, operation.method) || Date.now() - operation.queuedAt >= REVIEW_AFTER_MS) {
+      const lastAuthorizedAt = operation.lastRetriedAt ?? operation.confirmedAt ?? operation.queuedAt;
+      if (!isOfflineQueueableMutation(operation.path, operation.method) || Date.now() - lastAuthorizedAt >= REVIEW_AFTER_MS) {
         await settleWorkerOperation(operation.id, "review", "stale-or-unsupported"); rejected++; continue;
       }
       try {

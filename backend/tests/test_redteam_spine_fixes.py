@@ -13,8 +13,8 @@ audit_reports/2026-09-13/01..17 + 18_REMEDIATION_LOG.md):
   protocol; the non-override path still 409s.
 * RT-DE-1 / RT-C-5 — overrides cannot strand an open service outside the
   reproductive workflow buckets.
-* RT-A-1 — the per-email login ceiling is soft: a correct password still
-  logs in while the account is under distributed attack.
+* RT-A-1 — the per-email login ceiling caps rotating-source attempts before
+  another password verification or session can be admitted.
 * RT-B-4 — X-Farm-Id accepts canonical ASCII digits only.
 * RT-M2-1 / RT-M2-2 / RT-M-6 — unknown GOATFARM_* env vars refuse boot,
   production force-disables /metrics, multi-worker production refuses boot.
@@ -433,7 +433,7 @@ async def test_override_cannot_strand_open_pregnancy(client: httpx.AsyncClient) 
 
 
 # ---------------------------------------------------------------------------
-# RT-A-1: soft per-email lockout
+# RT-A-1: bounded per-email lockout
 # ---------------------------------------------------------------------------
 
 
@@ -450,7 +450,7 @@ def rate_limit_one(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 @pytest.mark.usefixtures("rate_limit_one")
-async def test_soft_email_lockout_still_admits_correct_password(
+async def test_email_ceiling_caps_correct_password_until_window_recovers(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     await register(client, "victim-soft@farm.in", "realpass12345")
@@ -461,8 +461,8 @@ async def test_soft_email_lockout_still_admits_correct_password(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as proxied:
         # Fill the IP-agnostic per-email ceiling from rotating addresses. The
-        # failure that exactly reaches the ceiling answers 429 (the soft
-        # ceiling announces itself on the trip); earlier ones are plain 401s.
+        # failure that exactly reaches the ceiling answers 429 (the bounded
+        # lock announces itself on the trip); earlier ones are plain 401s.
         for ip, expected in (("1.1.1.1", 401), ("2.2.2.2", 401), ("3.3.3.3", 429)):
             resp = await proxied.post(
                 "/api/auth/login",
@@ -477,13 +477,14 @@ async def test_soft_email_lockout_still_admits_correct_password(
             headers={"X-Forwarded-For": "4.4.4.4"},
         )
         assert resp.status_code == 429, resp.text
-        # … but the victim's CORRECT password still logs in (RT-A-1).
+        # The correct password is not verified/admitted after the account
+        # ceiling either; otherwise rotating sources retain unlimited guesses.
         resp = await proxied.post(
             "/api/auth/login",
             json={"email": "victim-soft@farm.in", "password": "realpass12345"},
             headers={"X-Forwarded-For": "5.5.5.5"},
         )
-        assert resp.status_code == 200, resp.text
+        assert resp.status_code == 429, resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +515,7 @@ def test_unknown_goatfarm_env_var_refuses_boot(monkeypatch: pytest.MonkeyPatch) 
 
 def _production_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GOATFARM_ENVIRONMENT", "production")
+    monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_ENABLED", "true")
     monkeypatch.setenv("GOATFARM_COOKIE_SECURE", "true")
     monkeypatch.setenv("GOATFARM_CORS_ORIGINS", '["https://farm.example.com"]')
     monkeypatch.setenv("GOATFARM_ALLOWED_HOSTS", '["farm.example.com"]')

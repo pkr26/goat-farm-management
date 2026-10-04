@@ -349,6 +349,29 @@ def _secret_file_value(path: Path | None, *, setting_name: str) -> str | None:
     return _read_secret_file(path, setting_name=setting_name)
 
 
+def _reject_dual_secret_delivery(settings: BaseModel, pairs: tuple[tuple[str, str], ...]) -> None:
+    """Reject an explicitly delivered plain value beside its ``*_FILE`` route.
+
+    Defaults do not count as a delivery route. Pydantic records environment,
+    dotenv, and direct-input fields in ``model_fields_set``, which lets file
+    delivery coexist with development defaults while still catching an
+    operator's stale non-blank plain secret.
+    """
+    for plain_field, file_field in pairs:
+        from_file = getattr(settings, file_field)
+        plain_value = getattr(settings, plain_field)
+        if isinstance(plain_value, SecretStr):
+            plain_present = bool(plain_value.get_secret_value().strip())
+        elif isinstance(plain_value, str):
+            plain_present = bool(plain_value.strip())
+        else:
+            plain_present = plain_value is not None
+        if from_file is not None and plain_field in settings.model_fields_set and plain_present:
+            plain_name = f"GOATFARM_{plain_field.upper()}"
+            file_name = f"GOATFARM_{file_field.upper()}"
+            raise ValueError(f"{plain_name} and {file_name} are both set; deliver exactly one")
+
+
 class MigrationSettings(BaseSettings):
     """Minimal settings surface for the privileged Alembic release job.
 
@@ -372,7 +395,12 @@ class MigrationSettings(BaseSettings):
     migration_database_url: str | None = None
     db_sslmode: DbSslMode = "disable"
     db_sslrootcert_path: Path | None = None
-    migration_statement_timeout_ms: int = Field(default=0, ge=0)
+    # Release DDL is allowed substantially longer than OLTP, but never
+    # forever. Operators can raise this explicit bound after a rehearsal.
+    migration_statement_timeout_ms: int = Field(default=900_000, ge=1)
+    # Required only when the pending revision set contains a migration whose
+    # lock/backfill contract explicitly needs application writes drained.
+    migration_writes_quiesced: bool = False
     # File-delivered URL variants (2026-10-01 audit, 09-1): when set, the
     # read-only mounted file's trimmed content replaces the plain URL
     # variable's value. See the Settings block for the delivery contract.
@@ -393,6 +421,13 @@ class MigrationSettings(BaseSettings):
 
     @model_validator(mode="after")
     def _production_tls(self) -> MigrationSettings:
+        _reject_dual_secret_delivery(
+            self,
+            (
+                ("database_url", "database_url_file"),
+                ("migration_database_url", "migration_database_url_file"),
+            ),
+        )
         # File-delivered URLs win over their plain environment variables
         # (2026-10-01 audit, 09-1) and must be substituted before the URL
         # contract checks below read the value. The normalizer's error
@@ -447,10 +482,10 @@ class MigrationSettings(BaseSettings):
                 "in production — use 'verify-full'"
             )
         # Alembic is the only component intentionally allowed to receive the
-        # DDL-capable database identity.  Falling back to DATABASE_URL here
-        # would make a direct production invocation either run migrations as
-        # the API role or tempt an operator to grant that long-lived role DDL
-        # privileges.  Development retains the ergonomic single-URL fallback.
+        # DDL-capable database identity. Online migration execution separately
+        # requires this explicit URL in every environment; keeping validation
+        # here production-specific lets offline SQL rendering retain its
+        # historical development ergonomics.
         if self.environment == "production" and not self.migration_database_url:
             raise ValueError(
                 "Refusing migration: GOATFARM_MIGRATION_DATABASE_URL is required in production"
@@ -669,11 +704,9 @@ class Settings(BaseSettings):
 
     # Migrations get their own budget: a table rewrite or a CREATE INDEX
     # CONCURRENTLY (which additionally waits for every concurrent transaction
-    # to drain) legitimately runs far longer than any request ever may, so the
-    # OLTP backstop above would cancel it and abort the release. 0 disables the
-    # per-statement cap for the Alembic connection; lock_timeout still bounds
-    # how long DDL may queue behind live traffic.
-    migration_statement_timeout_ms: int = Field(default=0, ge=0)
+    # to drain) legitimately runs far longer than any request ever may. Give
+    # release DDL a separate 15-minute default, but never an unbounded one.
+    migration_statement_timeout_ms: int = Field(default=900_000, ge=1)
 
     # Successful Idempotency-Key results are replayable for this window.
     # Expired records are removed by a bounded background cleanup job.
@@ -724,17 +757,15 @@ class Settings(BaseSettings):
     cadence_materialization_farm_batch_size: int = Field(default=100, ge=1, le=1000)
     cadence_materialization_max_batches: int = Field(default=10, ge=1, le=100)
 
-    # Data retention sweep (2026-09-28 audit, ITEM 9.1): an opt-in daily job
-    # deletes aged screening fact chains and long-terminal duties in bounded,
-    # farm-scoped batches committed incrementally. Off by default — operators
-    # opt in once data accumulates (the playbook marks it "do when data
-    # accumulates; not urgent"), so an unconfigured deployment pays nothing,
-    # same posture as notifications/screening. Sibling cleanup settings carry
-    # no production validator and neither do these: enabling the sweep is a
-    # deliberate retention decision, not a security invariant.
-    retention_sweep_enabled: bool = False
+    # Data retention is a default-on privacy/capacity control. Every scope is
+    # bounded and farm-paged; object evidence is removed before its relational
+    # index so a failed storage deletion remains safely retryable.
+    retention_sweep_enabled: bool = True
     retention_sweep_interval_seconds: int = Field(default=86_400, ge=60)
     retention_screening_days: int = Field(default=180, ge=30)
+    retention_screening_batch_days: int = Field(default=365, ge=30)
+    retention_screening_budget_days: int = Field(default=90, ge=7)
+    retention_notification_days: int = Field(default=400, ge=30)
     retention_terminal_task_days: int = Field(default=365, ge=30)
     retention_delete_batch_size: int = Field(default=500, ge=1, le=10_000)
     retention_farm_batch_size: int = Field(default=100, ge=1, le=1000)
@@ -919,6 +950,14 @@ class Settings(BaseSettings):
     # over successive cycles instead of one unbounded batch.
     screening_poll_interval_seconds: int = Field(default=300, ge=30)
     screening_max_images_per_cycle: int = Field(default=50, ge=1, le=1_000)
+    # Raw browser uploads get an eager delete after normalization and a
+    # second, durable purge after their presigned write window expires.  The
+    # latter must run frequently and in finite pages: it is independent of
+    # both the model worker's attempt ceiling and the daily evidence-retention
+    # sweep.
+    screening_raw_cleanup_interval_seconds: int = Field(default=60, ge=10)
+    screening_raw_cleanup_batch_size: int = Field(default=25, ge=1, le=500)
+    screening_raw_cleanup_max_batches: int = Field(default=4, ge=1, le=100)
     # ITEM 6 (2026-09-21 playbook): per-farm daily provider-call budget. The
     # claim path measures spend as the farm's ScreeningRun rows for the
     # current UTC day (every provider call records exactly one run) and
@@ -954,6 +993,11 @@ class Settings(BaseSettings):
     # loop (same template as the cleanup loops; 20-farm deployments never
     # notice it, a misconfigured multitenant box cannot loop unbounded).
     notifications_loop_batch_size: int = Field(default=100, ge=1, le=1000)
+    # Provider I/O is concurrent but deliberately small. The process-wide
+    # ceiling protects the SMS transport and event loop; the per-farm ceiling
+    # prevents one large recipient list from occupying every shared slot.
+    notifications_delivery_concurrency: int = Field(default=8, ge=1, le=64)
+    notifications_per_farm_delivery_concurrency: int = Field(default=2, ge=1, le=16)
 
     # --- Worker tablet PIN login (ITEM 2, 2026-09-21 playbook) ---------------
     # Short numeric PINs are a convenience credential for a shared farm
@@ -966,7 +1010,7 @@ class Settings(BaseSettings):
     # an enumeration oracle by documented design (names only, hard-throttled).
     # Deployments with no shared tablets can close it entirely; the endpoint
     # then answers 404 before any roster row is read.
-    worker_roster_enabled: bool = True
+    worker_roster_enabled: bool = False
     # VLM cost scales with pixels: normalize every image to this longest-edge
     # before it is ever sent to a provider.
     screening_image_max_edge_px: int = Field(default=1_568, ge=256, le=4_096)
@@ -1310,6 +1354,27 @@ class Settings(BaseSettings):
         trivially insecure — an HTTP refresh-cookie, localhost CORS origins,
         or a plaintext database connection are always operator mistakes,
         never valid production config."""
+        _reject_dual_secret_delivery(
+            self,
+            (
+                ("database_url", "database_url_file"),
+                ("migration_database_url", "migration_database_url_file"),
+                (
+                    "idempotency_request_hmac_secret",
+                    "idempotency_request_hmac_secret_file",
+                ),
+                ("totp_encryption_key", "totp_encryption_key_file"),
+                ("metrics_bearer_token", "metrics_bearer_token_file"),
+                ("s3_access_key_id", "s3_access_key_id_file"),
+                ("s3_secret_access_key", "s3_secret_access_key_file"),
+                (
+                    "screening_anthropic_api_key",
+                    "screening_anthropic_api_key_file",
+                ),
+                ("screening_openai_api_key", "screening_openai_api_key_file"),
+                ("msg91_auth_key", "msg91_auth_key_file"),
+            ),
+        )
         # File-delivered secrets (2026-10-01 audit, 09-1) are substituted
         # FIRST, before any check below reads or normalizes the value they
         # replace. A configured-but-unreadable file fails closed here in
@@ -1418,6 +1483,14 @@ class Settings(BaseSettings):
             raise ValueError(
                 "GOATFARM_ARGON2_MEMORY_COST must be at least 8 * GOATFARM_ARGON2_PARALLELISM"
             )
+        if (
+            self.notifications_per_farm_delivery_concurrency
+            > self.notifications_delivery_concurrency
+        ):
+            raise ValueError(
+                "GOATFARM_NOTIFICATIONS_PER_FARM_DELIVERY_CONCURRENCY cannot exceed "
+                "GOATFARM_NOTIFICATIONS_DELIVERY_CONCURRENCY"
+            )
         if problem := _invalid_db_ca_mode(self.db_sslrootcert_path, self.db_sslmode):
             raise ValueError(problem)
         # Keep local HTTP development ergonomic, but make the production
@@ -1440,13 +1513,13 @@ class Settings(BaseSettings):
                 "GOATFARM_NOTIFICATIONS_ENABLED=true in production requires "
                 "GOATFARM_NOTIFICATIONS_PROVIDER=msg91 and GOATFARM_MSG91_AUTH_KEY"
             )
-        if self.environment == "production" and self.worker_pin_min_length < 6:
+        if self.environment == "production" and self.worker_pin_min_length < 12:
             if "worker_pin_min_length" in self.model_fields_set:
                 raise ValueError(
-                    "GOATFARM_WORKER_PIN_MIN_LENGTH must be at least 6 in production — "
-                    "4-digit PINs are only a development convenience"
+                    "GOATFARM_WORKER_PIN_MIN_LENGTH must be 12 in production — "
+                    "short PINs do not provide an adequate online guessing space"
                 )
-            self.worker_pin_min_length = 6
+            self.worker_pin_min_length = 12
         if (
             self.environment == "production"
             and self.refresh_cookie_name == DEVELOPMENT_REFRESH_COOKIE_NAME
@@ -1607,6 +1680,13 @@ class Settings(BaseSettings):
             )
         if self.min_password_length < 12:
             problems.append("GOATFARM_MIN_PASSWORD_LENGTH must be at least 12 in production")
+        if not self.auth_rate_limit_enabled:
+            problems.append("GOATFARM_AUTH_RATE_LIMIT_ENABLED must remain true in production")
+        if not self.retention_sweep_enabled:
+            problems.append(
+                "GOATFARM_RETENTION_SWEEP_ENABLED must remain true in production; "
+                "screening evidence and durable operational ledgers require a finite lifecycle"
+            )
         if self.argon2_time_cost < 2:
             problems.append("GOATFARM_ARGON2_TIME_COST must be at least 2 in production")
         if self.argon2_memory_cost < 19 * 1024:
@@ -1774,6 +1854,19 @@ class ScreeningWorkerSettings(BaseSettings):
 
     @model_validator(mode="after")
     def _worker_safety(self) -> ScreeningWorkerSettings:
+        _reject_dual_secret_delivery(
+            self,
+            (
+                ("database_url", "database_url_file"),
+                ("s3_access_key_id", "s3_access_key_id_file"),
+                ("s3_secret_access_key", "s3_secret_access_key_file"),
+                (
+                    "screening_anthropic_api_key",
+                    "screening_anthropic_api_key_file",
+                ),
+                ("screening_openai_api_key", "screening_openai_api_key_file"),
+            ),
+        )
         # File-delivered secrets (2026-10-01 audit, 09-1) are substituted
         # before the URL contract check reads the value; a configured but
         # unreadable file fails closed here in every environment. The

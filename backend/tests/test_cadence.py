@@ -1,7 +1,7 @@
 """Recurring husbandry cadence (services/cadence.ensure_cadence_tasks).
 
 Domain rules under test:
-- Seasonal calendar rounds (FMD Sep/Mar, ET+HS May, Goat Pox Nov, CCPP Jan,
+- Annual PPR plus seasonal calendar rounds (FMD Sep/Mar, ET+HS May, Goat Pox Nov, CCPP Jan,
   deworming Jun/Jan) fire once per (category, month, year) and are herd-level.
 - Interval rounds (hoof trimming, spraying, disinfection, weighing) respect
   their lookback windows; a round due inside the window — including an
@@ -33,7 +33,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_sessionmaker
-from app.models import Animal, Farm, FeedInventory, Task, TaskStatus
+from app.models import Animal, Farm, FeedInventory, HealthRound, Task, TaskStatus
 from app.services.cadence import ensure_cadence_tasks
 from app.utils import utcnow
 
@@ -52,6 +52,7 @@ WEIGHING_TITLE = "Monthly weighing round — record weights; grow-out buckets fi
 ROUTINE_TITLE = (
     "Morning routine: sweep bunks before the 6:30 AM feeding; check and refill water troughs"
 )
+PPR_TITLE_TEMPLATE = "PPR annual vaccination round ({year}) — all animals"
 
 
 def freeze_business_date(monkeypatch: pytest.MonkeyPatch, frozen: date) -> date:
@@ -120,6 +121,7 @@ async def seed_history_task(
     due_date: date,
     status: str = TaskStatus.DONE.value,
     animal_id: int | None = None,
+    title_key: str | None = None,
 ) -> None:
     """A pre-existing duty standing in for history created by earlier rounds."""
     async with get_sessionmaker()() as db:
@@ -131,6 +133,7 @@ async def seed_history_task(
                 category=category,
                 status=status,
                 animal_id=animal_id,
+                title_key=title_key,
                 auto_generated=True,
                 completed_at=utcnow() if status == TaskStatus.DONE.value else None,
                 skipped_at=utcnow() if status == TaskStatus.SKIPPED.value else None,
@@ -205,7 +208,7 @@ async def test_calendar_round_fires_in_month(
     assert len(rounds) == 1
 
 
-async def test_calendar_round_is_not_created_off_month(
+async def test_only_annual_ppr_is_created_off_seasonal_month(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     headers = await owner_with_farm(client)
@@ -215,7 +218,58 @@ async def test_calendar_round_is_not_created_off_month(
 
     await run_ensure(farm_id)
     vaccine_titles = [t.title for t in await farm_tasks(farm_id, "VACCINE")]
-    assert vaccine_titles == []
+    assert vaccine_titles == [PPR_TITLE_TEMPLATE.format(year=2026)]
+
+
+async def test_annual_ppr_has_independent_dedupe_and_round_snapshot(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "PPR-001")
+    farm_id = int(headers["X-Farm-Id"])
+    frozen = freeze_business_date(monkeypatch, date(2024, 2, 29))
+
+    await run_ensure(farm_id)
+    ppr = [
+        task
+        for task in await farm_tasks(farm_id, "VACCINE")
+        if task.title_key == "ppr_vaccination_round"
+    ]
+    assert len(ppr) == 1
+    assert ppr[0].title == PPR_TITLE_TEMPLATE.format(year=2024)
+    assert ppr[0].due_date == frozen
+    async with get_sessionmaker()() as db:
+        snapshot = await db.get(HealthRound, ppr[0].id)
+        assert snapshot is not None
+        assert snapshot.required_components == ["PPR"]
+
+    # Any-status programme history inside twelve months suppresses a second
+    # copy, while unrelated vaccine rounds never do.
+    await run_ensure(farm_id)
+    assert (
+        len(
+            [
+                task
+                for task in await farm_tasks(farm_id, "VACCINE")
+                if task.title_key == "ppr_vaccination_round"
+            ]
+        )
+        == 1
+    )
+
+    # The exact calendar anniversary starts a new annual round, including
+    # across leap-year/month-length differences.
+    freeze_business_date(monkeypatch, date(2025, 2, 28))
+    await run_ensure(farm_id)
+    ppr = [
+        task
+        for task in await farm_tasks(farm_id, "VACCINE")
+        if task.title_key == "ppr_vaccination_round"
+    ]
+    assert [(task.due_date, task.title) for task in ppr] == [
+        (date(2024, 2, 29), PPR_TITLE_TEMPLATE.format(year=2024)),
+        (date(2025, 2, 28), PPR_TITLE_TEMPLATE.format(year=2025)),
+    ]
 
 
 async def test_calendar_round_dedupe_is_scoped_to_month_and_year(
@@ -746,6 +800,7 @@ async def test_missed_seasonal_round_is_backfilled_late(
             date(2026, 9, 14),
         ),
         ("VACCINE", "Goat Pox round (2025)", date(2025, 11, 30)),
+        ("VACCINE", PPR_TITLE_TEMPLATE.format(year=2026), date(2026, 9, 14)),
     ]
 
     # The late copies are the series' record now: no second mint on reload.
@@ -772,6 +827,7 @@ async def test_backfill_never_precedes_farm_creation(
     assert sorted(titles) == [
         DEWORM_TITLE_TEMPLATE.format(month="June", year=2026),
         FMD_TITLE_TEMPLATE.format(month="September", year=2026),
+        PPR_TITLE_TEMPLATE.format(year=2026),
     ]
 
 
@@ -791,11 +847,17 @@ async def test_backfill_never_precedes_the_first_animal(
 
     await run_ensure(farm_id)
     rounds = [t for t in await farm_tasks(farm_id) if t.category in ("VACCINE", "DEWORMING")]
-    # Only the current-month September FMD round survives: every January-June
+    # Only the current-month September FMD round and annual PPR survive: every January-June
     # series occurrence ended before the first animal stood on the farm, and
     # no duty from those months is materialized as overdue.
-    assert [(t.category, t.due_date) for t in rounds] == [("VACCINE", date(2026, 9, 14))]
-    assert all("September 2026" in t.title for t in rounds)
+    assert [(t.category, t.due_date) for t in rounds] == [
+        ("VACCINE", date(2026, 9, 14)),
+        ("VACCINE", date(2026, 9, 14)),
+    ]
+    assert {t.title for t in rounds} == {
+        FMD_TITLE_TEMPLATE.format(month="September", year=2026),
+        PPR_TITLE_TEMPLATE.format(year=2026),
+    }
 
 
 async def test_interval_round_forward_window_suppresses_operator_scheduled_round(

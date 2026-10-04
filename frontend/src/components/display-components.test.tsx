@@ -3,6 +3,7 @@ import { Activity, PawPrint, Plus } from "lucide-react";
 import { describe, expect, it } from "vitest";
 
 import { DataTableCard } from "@/components/data-table-card";
+import { Table } from "@/components/ui/table";
 import { EmptyState } from "@/components/empty-state";
 import { Logo } from "@/components/logo";
 import { PageHeader } from "@/components/page-header";
@@ -51,6 +52,17 @@ describe("shared display components", () => {
     rerender(<DataTableCard>Only body</DataTableCard>);
     expect(container.querySelector('[data-slot="card-header"]')).toBeNull();
     expect(screen.getByText("Only body")).toHaveAttribute("data-slot", "card-content");
+  });
+
+  it("uses the card title as a semantic heading and the descendant table's name", () => {
+    render(
+      <DataTableCard title="Animal register">
+        <Table><tbody><tr><td>G-1</td></tr></tbody></Table>
+      </DataTableCard>,
+    );
+
+    expect(screen.getByRole("heading", { level: 2, name: "Animal register" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Animal register" })).toBeInTheDocument();
   });
 
   it("renders EmptyState's optional branches including numeric zero", () => {
@@ -130,15 +142,19 @@ describe("shared display components", () => {
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 
-  it("normalizes known status spellings and humanizes unknown statuses", () => {
-    const { rerender } = render(<StatusBadge status=" awaiting-verification " />);
+  it("normalizes status spellings for tone while preserving caller-provided labels", () => {
+    const { rerender } = render(
+      <StatusBadge status=" awaiting-verification ">Awaiting Verification</StatusBadge>,
+    );
     let badge = screen.getByText("Awaiting Verification");
     expect(badge.textContent).toBe("Awaiting Verification");
     expect(badge).toHaveClass("bg-warning-tint");
     expect(badge).toHaveAttribute("data-variant", "warning");
 
-    rerender(<StatusBadge status="custom_state" className="custom-badge" />);
-    badge = screen.getByText("Custom State");
+    rerender(
+      <StatusBadge status="custom_state" className="custom-badge">Custom label</StatusBadge>,
+    );
+    badge = screen.getByText("Custom label");
     expect(badge).toHaveAttribute("data-variant", "secondary");
     expect(badge).toHaveClass("custom-badge");
 
@@ -146,14 +162,14 @@ describe("shared display components", () => {
     expect(screen.getByText("Ready now")).toHaveClass("bg-success-tint");
   });
 
-  it("collapses repeated spaces and hyphens before tint lookup and display", () => {
+  it("collapses repeated spaces and hyphens before tint lookup", () => {
     const { rerender } = render(
-      <StatusBadge status="awaiting---verification" />,
+      <StatusBadge status="awaiting---verification">First label</StatusBadge>,
     );
-    expect(screen.getByText("Awaiting Verification")).toHaveClass("bg-warning-tint");
+    expect(screen.getByText("First label")).toHaveClass("bg-warning-tint");
 
-    rerender(<StatusBadge status="  awaiting   verification  " />);
-    expect(screen.getByText("Awaiting Verification")).toHaveClass("bg-warning-tint");
+    rerender(<StatusBadge status="  awaiting   verification  ">Second label</StatusBadge>);
+    expect(screen.getByText("Second label")).toHaveClass("bg-warning-tint");
   });
 
   it.each([
@@ -176,10 +192,8 @@ describe("shared display components", () => {
     ["AWAITING_VERIFICATION", "bg-warning-tint"],
     ["ASSISTED", "bg-warning-tint"],
   ])("renders the semantic tint for %s", (status, expectedClass) => {
-    render(<StatusBadge status={status} />);
-    expect(
-      screen.getByText(new RegExp(`^${status.replaceAll("_", " ")}$`, "i")),
-    ).toHaveClass(expectedClass);
+    render(<StatusBadge status={status}>{status}</StatusBadge>);
+    expect(screen.getByText(status)).toHaveClass(expectedClass);
   });
 
   it("renders the logo mark with an optional wordmark", () => {

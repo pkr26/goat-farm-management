@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
-import { daysAgo, E2E_EMAIL, E2E_PASSWORD, monthsAgo } from "./helpers";
+import { daysAgo, e2eCredentials, monthsAgo } from "./helpers";
 
 /**
  * Worker tablet journey on a Pixel 7 (ITEM 2 Phase 2, 2026-09-21 playbook):
  * provision a PIN worker over the API → pin the tablet → tap-name + PIN
- * sign-in → own duties only → complete a duty OFFLINE → reconnect → the
- * queued write lands exactly once and is ATTRIBUTED to the worker.
+ * sign-in → own duties only → complete a duty OFFLINE → reconnect → review
+ * and confirm the draft → the write lands exactly once and is ATTRIBUTED to
+ * the worker.
  *
  * Runs in the Mobile Chrome project (device emulation) — the desktop project
  * testIgnores this file.
@@ -25,8 +26,9 @@ type ApiInit = {
 };
 
 async function ownerApi(request: APIRequestContext, path: string, init: ApiInit = {}) {
+  const credentials = e2eCredentials();
   const login = await request.post("http://localhost:8000/api/auth/login", {
-    data: { email: E2E_EMAIL, password: E2E_PASSWORD },
+    data: { email: credentials.email, password: credentials.password },
   });
   expect(login.ok()).toBeTruthy();
   const { access_token: token } = (await login.json()) as { access_token: string };
@@ -53,6 +55,7 @@ async function ownerApi(request: APIRequestContext, path: string, init: ApiInit 
 
 test.describe("worker tablet", () => {
   test("PIN login, offline completion, sync with attribution", async ({
+    browserName,
     page,
     request,
   }) => {
@@ -169,10 +172,27 @@ test.describe("worker tablet", () => {
     await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
     await expect.poll(() => page.evaluate(() => sessionStorage.getItem("herdly:offline-shift:v1") !== null)).toBe(true);
 
-    // --- Complete OFFLINE: the write queues with its idempotency key. -----
+    // --- Complete OFFLINE: save an untrusted, non-replayable draft. -------
     const context = page.context();
-    await context.setOffline(true);
-    await page.goto("/worker/offline");
+    const webkitOfflineFallback = browserName === "webkit";
+    if (webkitOfflineFallback) {
+      // Playwright WebKit cannot navigate any page after context.setOffline:
+      // it fails in the automation transport before the service worker can
+      // return its cached response. Prove that the cold shell is cached, then
+      // reproduce the platform offline signal inside the controlled page.
+      await expect.poll(() => page.evaluate(async () => Boolean(await caches.match("/worker/offline")))).toBe(true);
+      await page.addInitScript(() => {
+        Object.defineProperty(Navigator.prototype, "onLine", {
+          configurable: true,
+          get: () => sessionStorage.getItem("herdly:e2e-offline") !== "1",
+        });
+      });
+      await page.evaluate(() => sessionStorage.setItem("herdly:e2e-offline", "1"));
+      await page.goto("/worker/offline");
+    } else {
+      await context.setOffline(true);
+      await page.goto("/worker/offline");
+    }
     await expect(page.getByTestId(`offline-complete-${dutyId}`)).toBeVisible({ timeout: 15_000 });
     await page.getByTestId(`offline-complete-${dutyId}`).click();
     await expect(page.getByTestId(`offline-duty-${dutyId}`).getByRole("status")).toBeVisible();
@@ -180,9 +200,27 @@ test.describe("worker tablet", () => {
     await expect(page.getByTestId(`offline-duty-${dutyId}`).getByRole("status")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId(`offline-complete-${dutyId}`)).toHaveCount(0);
 
-    // --- Reconnect: the online event drains the queue. --------------------
-    await context.setOffline(false);
+    // --- Reconnect: do not replay until the original worker confirms. -----
+    if (webkitOfflineFallback) {
+      await page.evaluate(() => {
+        sessionStorage.removeItem("herdly:e2e-offline");
+        window.dispatchEvent(new Event("online"));
+      });
+    } else await context.setOffline(false);
     await page.goto("/worker");
+    const confirmDraft = page.locator('[data-testid^="worker-confirm-offline-"]');
+    const receiptDetails = page.locator("details").filter({ has: confirmDraft });
+    await receiptDetails.locator("summary").click();
+    await expect(confirmDraft).toBeVisible({ timeout: 20_000 });
+
+    // Reauthentication alone is not consent to attribute the physical
+    // tablet user's offline action to this worker.
+    const beforeConfirmation = await ownerApi(request, `/api/tasks/${dutyId}`);
+    expect(beforeConfirmation.ok()).toBeTruthy();
+    expect(((await beforeConfirmation.json()) as { status: string }).status).not.toBe("DONE");
+
+    await confirmDraft.click();
+    await expect(confirmDraft).toHaveCount(0, { timeout: 20_000 });
     await expect(page.getByTestId("worker-queue-depth")).toHaveCount(0, { timeout: 30_000 });
 
     // The duty is DONE and attributed to the worker (exactly once).

@@ -49,6 +49,10 @@ MAX_SCREENING_REGION_LENGTH = 40
 # Confidence columns are NUMERIC(4,3) CHECK-bounded to [0, 1] so a
 # schema-valid-but-absurd value cannot reach the review UI.
 SCREENING_CONFIDENCE_SQL = "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)"
+# Reserved label for deterministic healthy-verdict quality-control samples.
+# It deliberately fits the existing bounded label column, so the feedback
+# loop needs no ambiguous schema migration or provider-controlled type flag.
+HEALTHY_CONTROL_LABEL = "Routine quality-control review"
 
 
 class ScreeningBatch(Base):
@@ -102,10 +106,13 @@ class ScreeningImage(Base):
             f"status IN ({sql_in_values(ScreeningImageStatus)})",
             name="ck_screening_images_status",
         ),
-        # Only ERROR rows carry an error, and must: a HEALTHY/FLAGGED/SKIPPED
-        # row that also "errored" would contradict the review UI's semantics.
+        # ERROR rows require a failure reason. SKIPPED/UNASSESSABLE may carry
+        # their terminal explanation; active/success states never may.
         CheckConstraint(
-            "status <> 'ERROR' OR (error IS NOT NULL AND btrim(error) <> '')",
+            "(status = 'ERROR' AND error IS NOT NULL AND btrim(error) <> '') OR "
+            "(status IN ('SKIPPED', 'UNASSESSABLE') AND "
+            "(error IS NULL OR btrim(error) <> '')) OR "
+            "(status NOT IN ('ERROR', 'SKIPPED', 'UNASSESSABLE') AND error IS NULL)",
             name="ck_screening_images_error_requires_error_status",
         ),
         CheckConstraint(
@@ -113,7 +120,8 @@ class ScreeningImage(Base):
             name="ck_screening_images_byte_size_nonneg",
         ),
         CheckConstraint(
-            "width IS NULL OR height IS NULL OR (width > 0 AND height > 0)",
+            "(width IS NULL AND height IS NULL) OR "
+            "(width IS NOT NULL AND height IS NOT NULL AND width > 0 AND height > 0)",
             name="ck_screening_images_dimensions_positive",
         ),
         CheckConstraint(
@@ -131,6 +139,26 @@ class ScreeningImage(Base):
         CheckConstraint(
             "upload_token IS NULL OR length(upload_token) >= 32",
             name="ck_screening_images_upload_token_nontrivial",
+        ),
+        CheckConstraint(
+            "raw_cleanup_attempts >= 0",
+            name="ck_screening_images_raw_cleanup_attempts_nonneg",
+        ),
+        CheckConstraint(
+            "(raw_cleanup_completed_at IS NULL AND "
+            "raw_cleanup_next_attempt_at IS NOT NULL AND "
+            "raw_cleanup_next_attempt_at >= raw_cleanup_after) OR "
+            "(raw_cleanup_completed_at IS NOT NULL AND "
+            "raw_cleanup_completed_at >= raw_cleanup_after AND "
+            "raw_cleanup_attempts > 0 AND "
+            "raw_cleanup_next_attempt_at IS NULL AND raw_cleanup_last_error IS NULL)",
+            name="ck_screening_images_raw_cleanup_state",
+        ),
+        CheckConstraint(
+            "raw_cleanup_last_error IS NULL OR "
+            "(btrim(raw_cleanup_last_error) <> '' AND "
+            "length(raw_cleanup_last_error) <= 255)",
+            name="ck_screening_images_raw_cleanup_error_bounded",
         ),
         ForeignKeyConstraint(
             ["farm_id", "batch_id"],
@@ -155,6 +183,17 @@ class ScreeningImage(Base):
             "farm_id",
             "created_at",
             "id",
+        ),
+        # Privacy cleanup is independent of the screening retry budget.  A
+        # terminal/attempt-exhausted row therefore remains discoverable by a
+        # small due-time range scan after its browser upload form has expired.
+        Index(
+            "ix_screening_images_raw_cleanup_due",
+            "raw_cleanup_next_attempt_at",
+            "id",
+            postgresql_where=text(
+                "raw_cleanup_completed_at IS NULL AND raw_cleanup_next_attempt_at IS NOT NULL"
+            ),
         ),
     )
 
@@ -199,15 +238,40 @@ class ScreeningImage(Base):
     # pipeline's attempt cap the row is terminal and never re-claimed, so a
     # deterministic failure cannot poll and re-bill providers forever.
     screening_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    # A direct-upload form remains capable of recreating the raw object even
+    # after the worker's immediate privacy deletion.  Keep a separate,
+    # durable cleanup obligation until expiry + clock/write slack has passed;
+    # the background saga then purges every object version and acknowledges
+    # success.  The 25-hour defaults are a conservative migration/legacy
+    # fallback (24-hour maximum presign lifetime + one-hour slack).  The API
+    # overwrites both timestamps with the exact configured lifetime for every
+    # newly issued form.
+    raw_cleanup_after: Mapped[dt.datetime] = mapped_column(
+        server_default=text("timezone('UTC', now()) + interval '25 hours'")
+    )
+    raw_cleanup_next_attempt_at: Mapped[dt.datetime | None] = mapped_column(
+        server_default=text("timezone('UTC', now()) + interval '25 hours'")
+    )
+    raw_cleanup_attempts: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default=text("0")
+    )
+    raw_cleanup_completed_at: Mapped[dt.datetime | None] = mapped_column()
+    raw_cleanup_last_error: Mapped[str | None] = mapped_column(String(255))
+    # Same-row fence for the separate aged-evidence deletion saga.  Claims
+    # and this raw cleanup worker exclude tombstoned rows; retention owns the
+    # complete object manifest once this timestamp is committed.
+    retention_tombstoned_at: Mapped[dt.datetime | None] = mapped_column()
     created_at: Mapped[dt.datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
     # Unlike animals/farms, this column IS the worker pipeline's lease and
     # retry-backoff marker AND receives direct SQL UPDATEs in production (the
-    # pipeline's Core sweeps), so a BEFORE UPDATE trigger refreshes it for
-    # out-of-band writers too (2026-10-01 audit, 04-2). The trigger only
-    # fires when the statement did not set updated_at itself, so the
-    # onupdate above keeps deciding the value on every app-layer write.
+    # pipeline's Core sweeps), so a column-scoped BEFORE UPDATE trigger
+    # refreshes it for out-of-band pipeline writers too (2026-10-01 audit,
+    # 04-2). Independent raw-cleanup fields and the retention tombstone are
+    # intentionally outside that trigger: their retries are not evidence that
+    # model processing is alive. App-layer writers still set the value via
+    # ``onupdate`` unless they explicitly preserve it for that bookkeeping.
     updated_at: Mapped[dt.datetime] = mapped_column(
         default=utcnow,
         onupdate=utcnow,
@@ -223,6 +287,124 @@ class ScreeningImage(Base):
     )
     runs: Mapped[list[ScreeningRun]] = relationship(
         back_populates="image", cascade="all, delete-orphan"
+    )
+
+
+class ScreeningRetentionDeletion(Base):
+    """Durable tombstone for one screening evidence deletion saga.
+
+    Retention first commits this exact object-key manifest, then performs the
+    idempotent object-store purge, and only then removes the relational chain.
+    The restrictive image FK is deliberate: an ad-hoc SQL delete cannot erase
+    the sole retry manifest while object deletion is pending or unfinalized.
+    """
+
+    __tablename__ = "screening_retention_deletions"
+    __table_args__ = (
+        UniqueConstraint("farm_id", "image_id", name="uq_screening_retention_deletions_farm_image"),
+        ForeignKeyConstraint(
+            ["farm_id", "image_id"],
+            ["screening_images.farm_id", "screening_images.id"],
+            name="fk_screening_retention_deletions_image",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "status IN ('PENDING', 'OBJECTS_DELETED')",
+            name="ck_screening_retention_deletions_status",
+        ),
+        CheckConstraint(
+            "btrim(s3_bucket) <> ''",
+            name="ck_screening_retention_deletions_bucket_nonblank",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(object_keys) = 'array' AND jsonb_array_length(object_keys) > 0",
+            name="ck_screening_retention_deletions_object_keys_array",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(preserved_keys) = 'array'",
+            name="ck_screening_retention_deletions_preserved_keys_array",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(deleted_keys) = 'array'",
+            name="ck_screening_retention_deletions_deleted_keys_array",
+        ),
+        CheckConstraint(
+            "attempt_count >= 0 AND failure_count >= 0 "
+            "AND failure_count <= attempt_count AND "
+            "((attempt_count = 0 AND last_attempt_at IS NULL) OR "
+            "(attempt_count > 0 AND last_attempt_at IS NOT NULL))",
+            name="ck_screening_retention_deletions_attempts",
+        ),
+        CheckConstraint(
+            "(last_error IS NULL AND failure_count = 0) OR "
+            "(last_error IS NOT NULL AND failure_count > 0)",
+            name="ck_screening_retention_deletions_failure_state",
+        ),
+        CheckConstraint(
+            "(status = 'PENDING' AND objects_deleted_at IS NULL "
+            "AND next_attempt_at IS NOT NULL) OR "
+            "(status = 'OBJECTS_DELETED' AND objects_deleted_at IS NOT NULL "
+            "AND next_attempt_at IS NULL AND last_error IS NULL)",
+            name="ck_screening_retention_deletions_state",
+        ),
+        CheckConstraint(
+            "last_error IS NULL OR btrim(last_error) <> ''",
+            name="ck_screening_retention_deletions_error_nonblank",
+        ),
+        Index(
+            "ix_screening_retention_deletions_farm_status_due_id",
+            "farm_id",
+            "status",
+            "next_attempt_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    farm_id: Mapped[int] = mapped_column(Integer)
+    image_id: Mapped[int] = mapped_column(BigInteger)
+    s3_bucket: Mapped[str] = mapped_column(String(MAX_S3_BUCKET_LENGTH))
+    # JSONB keeps the deletion manifest in one transactionally inserted row.
+    # The service validates every member as a bounded nonblank string before
+    # dispatch, rather than trusting manually inserted JSON.
+    object_keys: Mapped[list[str]] = mapped_column(JSONB)
+    # Legacy deterministic derivatives can be referenced by another live
+    # image. Those keys get a durable terminal PRESERVED disposition here.
+    preserved_keys: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
+    # Verified exact keys are checkpointed after each one-key object-store
+    # transaction. A large/corrupt version history therefore never requires
+    # holding the intent lock while walking the whole manifest again.
+    deleted_keys: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), default="PENDING", server_default=text("'PENDING'")
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    # Consecutive failures are distinct from total calls: successful bounded
+    # version-page progress resets this counter, so a long history does not
+    # force the next transient outage straight to the maximum retry delay.
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    last_attempt_at: Mapped[dt.datetime | None] = mapped_column()
+    # Retry eligibility is persisted explicitly. Operational failures use a
+    # capped exponential delay, while a page-bounded version purge schedules
+    # a short continuation without being mislabeled as a provider failure.
+    next_attempt_at: Mapped[dt.datetime | None] = mapped_column(
+        default=utcnow,
+        server_default=text("timezone('UTC', now())"),
+    )
+    last_error: Mapped[str | None] = mapped_column(Text)
+    objects_deleted_at: Mapped[dt.datetime | None] = mapped_column()
+    created_at: Mapped[dt.datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=text("timezone('UTC', now())"),
+        server_onupdate=text("timezone('UTC', now())"),
     )
 
 
@@ -297,7 +479,10 @@ class ScreeningCrop(Base):
             name="ck_screening_crops_box_bounds",
         ),
         CheckConstraint(
-            "status <> 'ERROR' OR (error IS NOT NULL AND btrim(error) <> '')",
+            "(status = 'ERROR' AND error IS NOT NULL AND btrim(error) <> '') OR "
+            "(status IN ('SKIPPED', 'UNASSESSABLE') AND "
+            "(error IS NULL OR btrim(error) <> '')) OR "
+            "(status NOT IN ('ERROR', 'SKIPPED', 'UNASSESSABLE') AND error IS NULL)",
             name="ck_screening_crops_error_requires_error_status",
         ),
         Index("ix_screening_crops_farm_image", "farm_id", "image_id"),
@@ -358,10 +543,26 @@ class ScreeningRun(Base):
             name="ck_screening_runs_status",
         ),
         # Verdicts exist only for OK runs; provider/API failures record
-        # ERROR status + error text instead of inventing a verdict.
+        # ERROR status + error text instead of inventing a verdict. DETECT is
+        # the one OK stage whose structured goat boxes live in ``detail`` and
+        # therefore has no clinical verdict. Specialist conditions likewise
+        # live in ``detail``/finding rows; only GATE/CROSS_CHECK own this
+        # summary-verdict column. Explicit IS [NOT] NULL terms keep SQL's
+        # three-valued CHECK semantics from accepting an unintended NULL.
         CheckConstraint(
-            "run_status <> 'OK' OR verdict IN ('healthy', 'flagged', 'unassessable')",
+            "run_status <> 'OK' OR ("
+            "(stage = 'DETECT' AND verdict IS NULL) OR "
+            "(stage IN ('GATE', 'CROSS_CHECK') AND verdict IS NOT NULL AND "
+            "verdict IN ('healthy', 'flagged', 'unassessable')) OR "
+            "(stage IN ('SPECIALIST_SKIN', 'SPECIALIST_EYE', 'SPECIALIST_HOOF', "
+            "'SPECIALIST_UDDER', 'SPECIALIST_GENERAL') AND verdict IS NULL))",
             name="ck_screening_runs_verdict_vocabulary",
+        ),
+        CheckConstraint(
+            "(run_status = 'OK' AND error IS NULL) OR "
+            "(run_status = 'ERROR' AND error IS NOT NULL AND btrim(error) <> '' "
+            "AND verdict IS NULL AND confidence IS NULL)",
+            name="ck_screening_runs_payload_by_status",
         ),
         CheckConstraint(
             SCREENING_CONFIDENCE_SQL,
@@ -400,7 +601,7 @@ class ScreeningRun(Base):
     model: Mapped[str] = mapped_column(String(MAX_SCREENING_MODEL_LENGTH))
     prompt_version: Mapped[str] = mapped_column(String(20))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
-    # Bounded response summary (observations + usage), never the full payload.
+    # Bounded validated evidence plus a response digest, never the raw provider payload.
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[dt.datetime] = mapped_column(
@@ -508,6 +709,11 @@ class ScreeningFinding(Base):
     )
 
     run: Mapped[ScreeningRun] = relationship(back_populates="findings")
+
+    @property
+    def evaluation_kind(self) -> str:
+        """Distinguish positive findings from sampled healthy controls."""
+        return "HEALTHY_CONTROL" if self.label == HEALTHY_CONTROL_LABEL else "POSITIVE_FINDING"
 
 
 class ScreeningFindingReview(Base):

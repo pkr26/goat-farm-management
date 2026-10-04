@@ -134,7 +134,9 @@ async def test_populated_forward_upgrade_archives_only_known_legacy_decisions() 
             originals = await connection.fetch("SELECT * FROM screening_findings ORDER BY id")
         finally:
             await connection.close()
-        await _alembic(database, "upgrade", "head")
+        # Stop at the revision under test. Later irreversible revisions must
+        # not change where this downgrade is expected to fail.
+        await _alembic(database, "upgrade", "f9a3b7c1d5e2")
         connection = await asyncpg.connect(f"postgresql://localhost:5432/{database}")
         try:
             assert await connection.fetch("SELECT * FROM screening_findings ORDER BY id") == (
@@ -235,11 +237,15 @@ def pause_after_finding_lock(statement, *args, **kwargs):
             time.sleep(0.01)
     return result
 op.execute = pause_after_finding_lock
-command.upgrade(Config('alembic.ini'), 'head')
+command.upgrade(Config('alembic.ini'), 'f9a3b7c1d5e2')
 """
         env = os.environ.copy()
-        env["GOATFARM_DATABASE_URL"] = f"postgresql+asyncpg://localhost:5432/{database}"
-        env.pop("GOATFARM_MIGRATION_DATABASE_URL", None)
+        target_url = f"postgresql+asyncpg://localhost:5432/{database}"
+        env["GOATFARM_DATABASE_URL"] = target_url
+        env["GOATFARM_MIGRATION_DATABASE_URL"] = target_url
+        # The test deliberately pauses the quiescence-gated revision in a
+        # disposable database and coordinates its only concurrent writer.
+        env["GOATFARM_MIGRATION_WRITES_QUIESCED"] = "true"
         migration = asyncio.create_task(
             asyncio.to_thread(
                 subprocess.run,

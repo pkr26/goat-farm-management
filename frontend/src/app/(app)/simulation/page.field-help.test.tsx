@@ -314,6 +314,7 @@ describe("SimulationPage field explanations", () => {
       const help = screen.getByRole("button", {
         name: `${translate(language, "simulation.accessibility.explainField", { label })}?`,
       });
+      expect(help).toHaveClass("size-6");
       expect(help.closest("summary")).toBeNull();
       expect(help.closest("details")).toBeNull();
       expect(details).toHaveAttribute("open");

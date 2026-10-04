@@ -859,18 +859,36 @@ async def test_farm_scoped_deletion_order_is_child_first(
                     "reversed sorted_tables is no longer child-first"
                 )
 
-    # (2) The behavioural pin: the full graph deletes in that order.
+    # (2) The behavioural pin: the full graph deletes in that order. Immutable
+    # owner history is deliberately not directly deletable while its farm
+    # exists; leave it for its declared parent-FK cascade, then remove the
+    # parent after every non-cascading child has gone.
     async with get_sessionmaker()() as db:
         for table in reversed(Base.metadata.sorted_tables):
             if table.name not in farm_scoped:
+                continue
+            if table.name == "farm_owner_history":
                 continue
             await db.execute(
                 text(f'DELETE FROM "{table.name}" WHERE farm_id = :farm_id'),
                 {"farm_id": farm_one},
             )
+        await db.execute(text("DELETE FROM farms WHERE id = :farm_id"), {"farm_id": farm_one})
         await db.commit()
 
     async with get_sessionmaker()() as db:
+        deleted_farm_rows = (
+            await db.execute(
+                text("SELECT count(*) FROM farms WHERE id = :farm_id"), {"farm_id": farm_one}
+            )
+        ).scalar_one()
+        retained_farm_rows = (
+            await db.execute(
+                text("SELECT count(*) FROM farms WHERE id = :farm_id"), {"farm_id": farm_two}
+            )
+        ).scalar_one()
+        assert deleted_farm_rows == 0
+        assert retained_farm_rows == 1
         for table_name in sorted(farm_scoped):
             remaining = (
                 await db.execute(

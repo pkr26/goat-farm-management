@@ -88,7 +88,7 @@ SETTINGS_DEFAULTS: dict[str, object] = {
     "metrics_bearer_token_file": None,
     "migration_database_url": None,
     "migration_database_url_file": None,
-    "migration_statement_timeout_ms": 0,
+    "migration_statement_timeout_ms": 900000,
     "min_password_length": 8,
     "msg91_auth_key": None,
     "msg91_auth_key_file": None,
@@ -99,6 +99,8 @@ SETTINGS_DEFAULTS: dict[str, object] = {
     "notifications_enabled": False,
     "notifications_farm_daily_cap": 50,
     "notifications_loop_batch_size": 100,
+    "notifications_delivery_concurrency": 8,
+    "notifications_per_farm_delivery_concurrency": 2,
     "notifications_provider": "console",
     "notifications_quiet_end_hour": 6,
     "notifications_quiet_start_hour": 21,
@@ -120,7 +122,10 @@ SETTINGS_DEFAULTS: dict[str, object] = {
     "retention_lock_timeout_ms": 250,
     "retention_statement_timeout_ms": 5000,
     "retention_screening_days": 180,
-    "retention_sweep_enabled": False,
+    "retention_screening_batch_days": 365,
+    "retention_screening_budget_days": 90,
+    "retention_notification_days": 400,
+    "retention_sweep_enabled": True,
     "retention_sweep_interval_seconds": 86400,
     "retention_terminal_task_days": 365,
     "s3_access_key_id": None,
@@ -149,6 +154,9 @@ SETTINGS_DEFAULTS: dict[str, object] = {
     "screening_provider": "anthropic",
     "screening_provider_rotation": [],
     "screening_provider_timeout_seconds": 120,
+    "screening_raw_cleanup_batch_size": 25,
+    "screening_raw_cleanup_interval_seconds": 60,
+    "screening_raw_cleanup_max_batches": 4,
     "screening_s3_prefix": "raw",
     "screening_stale_processing_after_seconds": 1800,
     "screening_worker_health_max_age_seconds": 900,
@@ -160,7 +168,7 @@ SETTINGS_DEFAULTS: dict[str, object] = {
     "worker_pin_min_length": 4,
     "worker_pin_rate_limit_max_attempts": 10,
     "worker_pin_rate_limit_window_seconds": 300,
-    "worker_roster_enabled": True,
+    "worker_roster_enabled": False,
 }
 
 MIGRATION_DEFAULTS: dict[str, object] = {
@@ -171,7 +179,8 @@ MIGRATION_DEFAULTS: dict[str, object] = {
     "environment": "development",
     "migration_database_url": None,
     "migration_database_url_file": None,
-    "migration_statement_timeout_ms": 0,
+    "migration_statement_timeout_ms": 900000,
+    "migration_writes_quiesced": False,
 }
 
 WORKER_DEFAULTS: dict[str, object] = {

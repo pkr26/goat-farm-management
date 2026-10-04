@@ -1,17 +1,16 @@
-"""Contract-drift guard.
+"""Current-checkout OpenAPI freshness and semantic contract assertions.
 
 `shared/openapi.json` is the Orval input for the frontend's generated
-client; before CI existed nothing failed when it went stale. Two tests:
+client; before CI existed nothing failed when it went stale.
 
 - Byte-identical guard — the file matches the live schema. If it fails,
   run: `backend/.venv/bin/python backend/scripts/export_openapi.py`
   followed by `cd frontend && pnpm orval`.
-- Shape-diff guard — the operations and schema names are a superset of the
-  committed snapshot. The byte-identical guard is cosmetic (trailing
-  whitespace or indent changes trip it); this second guard catches the
-  case where the file is re-exported after a *breaking* change (removed
-  operation, dropped schema, dropped enum value) and the byte-identical
-  test starts passing again.
+
+Backward compatibility is a separate CI gate: ``scripts/openapi_compat.py``
+compares this candidate with ``shared/openapi.json`` read from the immutable
+pull-request base Git object. Regenerating candidate artifacts therefore
+cannot rewrite its comparison baseline.
 """
 
 import json
@@ -23,7 +22,7 @@ import pytest
 
 from app.main import create_app
 
-from .type_helpers import JsonObject, json_object
+from .type_helpers import json_object
 
 OPENAPI_JSON = Path(__file__).resolve().parent.parent.parent / "shared" / "openapi.json"
 
@@ -41,46 +40,34 @@ def test_committed_openapi_json_matches_the_live_schema() -> None:
     )
 
 
-def test_openapi_paths_and_schemas_are_a_superset_of_the_committed_snapshot() -> None:
-    """A stronger check than byte-identical: no operationId, path+method, or
-    schema name that the frontend depends on may disappear. Additions are
-    fine (additive change); removals must be an explicit, reviewed edit."""
-    live = create_app().openapi()
-    committed = _committed_schema()
+def test_openapi_numeric_bounds_use_standard_json_schema_keywords() -> None:
+    """Runtime numeric caps must be visible to standards-based consumers.
 
-    def operation_ids(schema: JsonObject) -> set[str]:
-        ids: set[str] = set()
-        for _path, methods in schema.get("paths", {}).items():
-            for _method, op in methods.items():
-                if isinstance(op, dict) and "operationId" in op:
-                    ids.add(op["operationId"])
-        return ids
+    A ``Field(le=...)`` appended outside an ``AfterValidator`` is still
+    enforced by Pydantic but used to leak the internal key ``le`` into the
+    schema. OpenAPI understands ``maximum``, not Pydantic's constraint name.
+    """
+    schema = create_app().openapi()
+    forbidden = {"le", "lt", "ge", "gt"}
 
-    def path_methods(schema: JsonObject) -> set[tuple[str, str]]:
-        return {
-            (path, method.upper())
-            for path, methods in schema.get("paths", {}).items()
-            for method in methods
-            if method.lower() in {"get", "post", "put", "patch", "delete"}
-        }
+    def invalid_constraint_paths(value: object, path: str = "$") -> list[str]:
+        if isinstance(value, dict):
+            found = [f"{path}.{key}" for key in value if key in forbidden]
+            for key, child in value.items():
+                found.extend(invalid_constraint_paths(child, f"{path}.{key}"))
+            return found
+        if isinstance(value, list):
+            return [
+                match
+                for index, child in enumerate(value)
+                for match in invalid_constraint_paths(child, f"{path}[{index}]")
+            ]
+        return []
 
-    def schema_names(schema: JsonObject) -> set[str]:
-        return set(schema.get("components", {}).get("schemas", {}).keys())
-
-    committed_ops = operation_ids(committed)
-    live_ops = operation_ids(live)
-    missing_ops = committed_ops - live_ops
-    assert not missing_ops, f"operationIds removed since snapshot: {sorted(missing_ops)}"
-
-    committed_paths = path_methods(committed)
-    live_paths = path_methods(live)
-    missing_paths = committed_paths - live_paths
-    assert not missing_paths, f"path/method pairs removed since snapshot: {sorted(missing_paths)}"
-
-    committed_schemas = schema_names(committed)
-    live_schemas = schema_names(live)
-    missing_schemas = committed_schemas - live_schemas
-    assert not missing_schemas, f"schemas removed since snapshot: {sorted(missing_schemas)}"
+    assert invalid_constraint_paths(schema) == []
+    components = schema["components"]["schemas"]
+    assert components["WeightIn"]["properties"]["weight_kg"]["maximum"] == 1000
+    assert components["TransactionIn"]["properties"]["amount"]["maximum"] == 1_000_000_000
 
 
 def test_openapi_declares_bearer_security_on_protected_operations() -> None:
@@ -101,6 +88,13 @@ def test_openapi_declares_bearer_security_on_protected_operations() -> None:
         )
 
     assert "security" not in schema["paths"]["/api/auth/login"]["post"]
+    assert schema["paths"]["/api/auth/me"]["get"]["responses"]["401"]["headers"] == {
+        "WWW-Authenticate": {
+            "description": "Bearer authentication challenge",
+            "schema": {"type": "string", "example": "Bearer"},
+        }
+    }
+    assert "headers" not in schema["paths"]["/api/auth/login"]["post"]["responses"]["401"]
 
 
 def test_openapi_error_responses_match_runtime_shapes_and_have_no_dangling_schema_refs() -> None:
@@ -123,10 +117,20 @@ def test_openapi_error_responses_match_runtime_shapes_and_have_no_dangling_schem
     }
     assert components["RequestValidationErrorOut"]["required"] == ["detail"]
     assert components["RequestValidationIssueOut"]["required"] == ["type", "loc", "msg"]
-    for status_code in ("413", "414", "415", "500", "503"):
+    for status_code in ("413", "414", "500", "503"):
         assert responses[status_code]["content"]["application/json"]["schema"] == {
             "$ref": "#/components/schemas/ErrorOut"
         }
+    assert "415" not in schema["paths"]["/api/animals"]["get"]["responses"]
+    for path in (
+        "/api/auth/register",
+        "/api/auth/login",
+        "/api/auth/worker-login",
+        "/api/auth/totp/challenge",
+    ):
+        assert schema["paths"][path]["post"]["responses"]["415"]["content"]["application/json"][
+            "schema"
+        ] == {"$ref": "#/components/schemas/ErrorOut"}
 
     def schema_references(value: object) -> set[str]:
         if isinstance(value, dict):

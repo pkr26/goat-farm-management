@@ -684,10 +684,11 @@ describe("TasksPage (extended)", () => {
       }),
     );
     const user = await openAwaiting();
+    const callsBeforeMutation = listCalls;
     await user.click(within(rowOf("Deep-clean kidding pen")).getByRole("button", { name: "Verify" }));
 
     await waitFor(() => expect(failed).toBe(1));
-    expect(listCalls).toBe(1);
+    expect(listCalls).toBe(callsBeforeMutation);
     expect(await screen.findByRole("alert")).toHaveTextContent("already sent back");
     expect(screen.getByRole("button", { name: "Retry verify" })).toBeInTheDocument();
   });
@@ -701,6 +702,7 @@ describe("TasksPage (extended)", () => {
       }),
     );
     const user = await openAwaiting();
+    const callsBeforeMutation = listCalls;
     const row = rowOf("Deep-clean kidding pen");
     await user.click(within(row).getByRole("button", { name: "Reject…" }));
     const dialog = await screen.findByRole("dialog", { name: "Reject duty" });
@@ -709,7 +711,7 @@ describe("TasksPage (extended)", () => {
     await user.click(within(dialog).getByRole("button", { name: "Reject duty" }));
 
     await waitFor(() => expect(failed).toBe(1));
-    expect(listCalls).toBe(1);
+    expect(listCalls).toBe(callsBeforeMutation);
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "verification already changed",
     );

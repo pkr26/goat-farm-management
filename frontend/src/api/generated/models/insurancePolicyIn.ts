@@ -16,7 +16,15 @@ export interface InsurancePolicyIn {
      * @maxLength 120
      */
   insurer: string;
+  /**
+     * @maximum 1000000000
+     * @exclusiveMinimum 0
+     */
   sum_insured: number;
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   premium: number;
   start_date: string;
   renewal_date: string;

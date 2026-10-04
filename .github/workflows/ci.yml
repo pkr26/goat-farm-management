@@ -102,6 +102,8 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
@@ -119,8 +121,12 @@ jobs:
 
       # conftest connects to postgres without an explicit user, i.e. as the
       # runner OS user — give that role superuser so it can create the test DB.
+      # The migration round-trip gets its own disposable database rather than
+      # applying the complete application schema to PostgreSQL's maintenance DB.
       - name: Create runner Postgres role
-        run: psql -h localhost -U postgres -d postgres -c "CREATE ROLE runner LOGIN SUPERUSER"
+        run: |
+          psql -h localhost -U postgres -d postgres -c "CREATE ROLE runner LOGIN SUPERUSER"
+          psql -h localhost -U postgres -d postgres -c "CREATE DATABASE goatfarm_ci_migration_test OWNER runner"
 
       - name: Install backend (+ dev tools)
         working-directory: backend
@@ -173,10 +179,29 @@ jobs:
           python scripts/export_openapi.py
           git diff --exit-code -- ../shared/openapi.json
 
+      - name: OpenAPI remains backward compatible with the immutable base
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        run: |
+          base="${PR_BASE_SHA:-$PUSH_BASE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="HEAD^"
+          fi
+          if ! git cat-file -e "$base:shared/openapi.json"; then
+            echo "::error::Immutable OpenAPI baseline is unavailable at $base"
+            exit 1
+          fi
+          git show "$base:shared/openapi.json" > /tmp/openapi-baseline.json
+          backend/.venv/bin/python backend/scripts/openapi_compat.py \
+            /tmp/openapi-baseline.json shared/openapi.json \
+            --waivers shared/openapi-compatibility-waivers.json
+
       - name: Migration round-trip and metadata drift check
         working-directory: backend
         env:
-          GOATFARM_DATABASE_URL: postgresql+asyncpg://localhost:5432/postgres
+          GOATFARM_DATABASE_URL: postgresql+asyncpg://runner@localhost:5432/goatfarm_ci_migration_test
+          GOATFARM_MIGRATION_DATABASE_URL: postgresql+asyncpg://runner@localhost:5432/goatfarm_ci_migration_test
         run: |
           alembic upgrade head
           alembic check
@@ -200,6 +225,25 @@ jobs:
         # seed/lifecycle code drags the aggregate down) — raise it toward the
         # measured value, never above it.
         run: python -m pytest -q --cov=app --cov-branch --cov-report=term --cov-report=xml
+
+      - name: Changed backend code is covered
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        run: |
+          base="${PR_BASE_SHA:-$PUSH_BASE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="HEAD^"
+          fi
+          python .github/scripts/check_changed_coverage.py \
+            --base "$base" \
+            --coverage backend/coverage.xml \
+            --format cobertura \
+            --source-root backend/app \
+            --root backend/app \
+            --include-suffix .py \
+            --changed-lines-min 85 \
+            --changed-file-min 60
 
       - name: Upload backend coverage report
         # Keep the measured number auditable from CI history — without a
@@ -236,6 +280,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -272,6 +318,10 @@ jobs:
           pnpm orval
           git diff --exit-code -- src/api/generated
 
+      - name: Playwright test discovery is state-free
+        working-directory: frontend
+        run: pnpm exec playwright test --list
+
       - name: Frontend mutation harness contracts (isolated Vitest fixtures)
         working-directory: frontend
         run: node --test mutation/mutate_harness.test.mjs
@@ -287,6 +337,26 @@ jobs:
         # raises the per-test/hook timeouts under CI for the same reason.
         run: pnpm test:coverage
 
+      - name: Changed frontend code is covered
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        run: |
+          base="${PR_BASE_SHA:-$PUSH_BASE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="HEAD^"
+          fi
+          python .github/scripts/check_changed_coverage.py \
+            --base "$base" \
+            --coverage frontend/coverage/coverage-final.json \
+            --format istanbul \
+            --source-root frontend \
+            --root frontend/src \
+            --include-suffix .ts \
+            --include-suffix .tsx \
+            --changed-lines-min 85 \
+            --changed-file-min 60
+
       - name: Upload frontend coverage report
         # Same rationale as the backend report: retain the measured numbers
         # so the thresholds' headroom is auditable from CI history.
@@ -300,6 +370,10 @@ jobs:
       - name: Production build + typecheck
         working-directory: frontend
         run: pnpm build
+
+      - name: Cold-route JavaScript budgets
+        working-directory: frontend
+        run: pnpm check:route-js-budget
 
       - name: Dependency vulnerability scan
         working-directory: frontend
@@ -332,7 +406,12 @@ jobs:
       # Next standalone server; the backend needs a DB URL and the auth
       # limiter off (E2E register flow bursts past the per-IP window).
       GOATFARM_DATABASE_URL: postgresql+asyncpg://runner@localhost:5432/goatfarm_e2e
+      GOATFARM_MIGRATION_DATABASE_URL: postgresql+asyncpg://runner@localhost:5432/goatfarm_e2e
       GOATFARM_AUTH_RATE_LIMIT_ENABLED: "false"
+      # The shared-tablet journey intentionally exercises the optional public
+      # roster deployment mode. Production remains fail-closed by default;
+      # only this isolated E2E stack opts in.
+      GOATFARM_WORKER_ROSTER_ENABLED: "true"
       E2E_BROWSER: ${{ matrix.browser }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -413,12 +492,36 @@ jobs:
           flaky_count="$(jq '.stats.flaky' "$report")"
           if [ "$flaky_count" != "0" ]; then
             echo "::error::$flaky_count e2e test(s) needed a retry (flaky) — see the playwright-report artifact"
-            jq -r '[.suites[] | recurse(.suites[]?) | .tests[]? | select((.results // []) | any(.status == "flaky")) | .title] | unique | .[]' "$report" | sed 's/^/  flaky: /'
+            jq -r '[.suites[] | recurse(.suites[]?) | .specs[]? | select(any(.tests[]?; .status == "flaky")) | .title] | unique | .[]' "$report" | sed 's/^/  flaky: /'
             exit 1
           fi
           echo "no flaky retries in this run"
 
-      - name: Upload Playwright report on failure
+      - name: Record Playwright run identity
+        if: always()
+        working-directory: frontend
+        run: |
+          mkdir -p playwright-report
+          jq -n \
+            --arg commit "${{ github.sha }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg run_attempt "${{ github.run_attempt }}" \
+            --arg browser "${{ matrix.browser }}" \
+            '{commit: $commit, run_id: $run_id, run_attempt: $run_attempt, browser: $browser}' \
+            > playwright-report/run-metadata.json
+
+      - name: Upload Playwright verdict evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-results-${{ matrix.browser }}
+          path: |
+            frontend/playwright-report/results.json
+            frontend/playwright-report/run-metadata.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Playwright diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -426,7 +529,7 @@ jobs:
           path: |
             frontend/playwright-report
             frontend/test-results
-          retention-days: 7
+          retention-days: 30
 
   # Sanity-check the Dockerfile still builds so a broken image doesn't
   # land on main unnoticed.
@@ -449,6 +552,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.37.2
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
       - name: Build backend image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -469,6 +575,7 @@ jobs:
         run: |
           docker run --rm --network host \
             -e GOATFARM_DATABASE_URL=postgresql+asyncpg://postgres@localhost:5432/postgres \
+            -e GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://postgres@localhost:5432/postgres \
             goatfarm-backend:ci alembic upgrade head
           docker run --rm --detach --name goatfarm-backend-smoke --network host \
             -e GOATFARM_DATABASE_URL=postgresql+asyncpg://postgres@localhost:5432/postgres \

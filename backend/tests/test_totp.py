@@ -17,13 +17,15 @@ from typing import Any
 import httpx
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from sqlalchemy import func, select, update
+from sqlalchemy import event, func, select, update
+from sqlalchemy.orm import Session
 
 from app import security
 from app.api import auth as auth_api
+from app.audit import drain_transient_security_signals, emit_transient_security_signal_summary
 from app.core.config import get_settings
-from app.db import get_sessionmaker
-from app.models import TotpRecoveryCode, User
+from app.db import get_engine, get_sessionmaker
+from app.models import SecurityEvent, TotpRecoveryCode, User
 from app.ratelimit import auth_limiter
 from app.security import (
     TOTP_ENVELOPE_PREFIX,
@@ -402,6 +404,50 @@ async def test_totp_secret_is_encrypted_at_rest(
         assert stored != hashlib.sha256(secret.encode()).digest()
 
 
+async def test_totp_confirm_hashes_recovery_codes_without_holding_the_user_lock(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    email = "totp-confirm-no-lock@farm.in"
+    headers = await register(client, email)
+    enroll = await client.post(
+        "/api/auth/totp/enroll",
+        json={"current_password": OWNER_PW},
+        headers=headers,
+    )
+    assert enroll.status_code == 200, enroll.text
+    secret = enroll.json()["secret"]
+    async with get_sessionmaker()() as db:
+        user_id = (await db.execute(select(User.id).where(User.email == email))).scalar_one()
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    real_hash = security.hash_totp_recovery_codes_async
+
+    async def stalled_hash(codes: list[str]) -> list[str]:
+        started.set()
+        await release.wait()
+        return await real_hash(codes)
+
+    monkeypatch.setattr(auth_api, "hash_totp_recovery_codes_async", stalled_hash)
+    code, _step = _current_code(secret)
+    request = asyncio.create_task(
+        client.post("/api/auth/totp/confirm", json={"code": code}, headers=headers)
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=3)
+        async with get_sessionmaker()() as probe:
+            assert (
+                await probe.execute(
+                    select(User.id).where(User.id == user_id).with_for_update(nowait=True)
+                )
+            ).scalar_one() == user_id
+            await probe.rollback()
+    finally:
+        release.set()
+    response = await request
+    assert response.status_code == 200, response.text
+
+
 async def test_successful_challenge_lazily_rewraps_legacy_totp_ciphertext(
     client: httpx.AsyncClient,
     stable_totp_key: None,
@@ -455,6 +501,13 @@ async def test_undecryptable_totp_secret_fails_closed_without_500(
         json={"email": "totp-unavailable@farm.in", "password": OWNER_PW},
     )
     assert login.status_code == 200, login.text
+    drain_transient_security_signals()
+    async with get_sessionmaker()() as db:
+        failure_rows_before = await db.scalar(
+            select(func.count())
+            .select_from(SecurityEvent)
+            .where(SecurityEvent.event == "auth.totp.secret_unavailable")
+        )
     challenge = await client.post(
         "/api/auth/totp/challenge",
         json={"mfa_token": login.json()["mfa_token"], "code": "000000"},
@@ -463,6 +516,14 @@ async def test_undecryptable_totp_secret_fails_closed_without_500(
     assert challenge.json()["detail"] == (
         "Two-factor authentication is temporarily unavailable. Contact an administrator."
     )
+    assert emit_transient_security_signal_summary(300) == {"auth.totp.secret_unavailable": 1}
+    async with get_sessionmaker()() as db:
+        failure_rows_after = await db.scalar(
+            select(func.count())
+            .select_from(SecurityEvent)
+            .where(SecurityEvent.event == "auth.totp.secret_unavailable")
+        )
+    assert failure_rows_before == failure_rows_after
 
 
 async def test_full_totp_login_challenge_flow(client: httpx.AsyncClient) -> None:
@@ -725,12 +786,27 @@ async def test_disable_requires_password_and_code_when_active(
     secret, _codes = await _enroll_and_activate(client, headers)
     # Confirm consumed the current step's code; disable needs a fresh one.
     code, _step = _current_code(secret, drift=1)
+    drain_transient_security_signals()
+    async with get_sessionmaker()() as db:
+        failure_rows_before = await db.scalar(
+            select(func.count())
+            .select_from(SecurityEvent)
+            .where(SecurityEvent.event == "auth.totp.disable_failed")
+        )
     bad_code = await client.post(
         "/api/auth/totp/disable",
         json={"current_password": OWNER_PW, "code": "000000"},
         headers=headers,
     )
     assert bad_code.status_code == 400
+    assert emit_transient_security_signal_summary(300) == {"auth.totp.disable_failed": 1}
+    async with get_sessionmaker()() as db:
+        failure_rows_after = await db.scalar(
+            select(func.count())
+            .select_from(SecurityEvent)
+            .where(SecurityEvent.event == "auth.totp.disable_failed")
+        )
+    assert failure_rows_before == failure_rows_after
     bad_pw = await client.post(
         "/api/auth/totp/disable",
         json={"current_password": "wrong-password", "code": code},
@@ -820,8 +896,9 @@ async def test_challenge_garbage_mfa_tokens_are_throttled_before_verification(
 ) -> None:
     """A garbage mfa_token costs one RS256 verify; the pre-verification budget
     (mirror of the refresh cookie's) refuses a repeat of the SAME failed token
-    before PyJWT runs again, emits a security event per classified-invalid
-    token, and never judges a valid challenge by a neighbour's garbage."""
+    before PyJWT runs again, aggregates classified-invalid attempts without
+    per-attempt writes, and never judges a valid challenge by a neighbour's
+    garbage."""
     monkeypatch.setattr(get_settings(), "auth_rate_limit_enabled", True)
     headers = await register(client, "totp-preverify@farm.in")
     secret, _codes = await _enroll_and_activate(client, headers)
@@ -841,6 +918,7 @@ async def test_challenge_garbage_mfa_tokens_are_throttled_before_verification(
         return real_decode(token, expected_kind)
 
     monkeypatch.setattr(auth_api, "_decode_payload_result", counted_decode)
+    drain_transient_security_signals()
     with caplog.at_level(logging.INFO, logger="goatfarm.audit"):
         for _ in range(limit):
             resp = await client.post(
@@ -848,17 +926,11 @@ async def test_challenge_garbage_mfa_tokens_are_throttled_before_verification(
             )
             assert resp.status_code == 401
         assert decode_calls == limit
-        # Each failed verification is an alertable event, not a silent 401.
-        failures = [
-            record.getMessage()
-            for record in caplog.records
-            if "event='auth.totp.challenge_failed'" in record.getMessage()
-        ]
-        assert len([m for m in failures if "failed verification" in m]) == limit, failures
         # Re-presenting the SAME garbage is refused before another RSA verify.
         repeat = await client.post(
             "/api/auth/totp/challenge", json={"mfa_token": "garbage", "code": "000000"}
         )
+        summary = emit_transient_security_signal_summary(300)
     assert repeat.status_code == 429
     assert repeat.headers["Retry-After"] == str(window)
     assert "Too many" in repeat.json()["detail"]
@@ -869,6 +941,15 @@ async def test_challenge_garbage_mfa_tokens_are_throttled_before_verification(
         limit,
         window,
     )
+    assert summary == {"auth.totp.challenge_failed": limit}
+    signals = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "goatfarm.audit" and record.getMessage().startswith("security_signal_")
+    ]
+    assert len(signals) == 2, signals
+    assert "count=" + str(limit) in signals[-1]
+    assert "garbage" not in " ".join(signals)
 
     # ...but a different token from the same address is judged on its own
     # merits: the valid challenge still reaches PyJWT and completes the login.
@@ -877,6 +958,72 @@ async def test_challenge_garbage_mfa_tokens_are_throttled_before_verification(
         "/api/auth/totp/challenge", json={"mfa_token": valid_token, "code": code}
     )
     assert challenge.status_code == 200, challenge.text
+
+
+async def test_many_unique_forged_mfa_tokens_never_write_the_database(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Unique tokens bypass a per-token cache by design, so the IP ceiling is
+    the backstop. Attempts before *and* after saturation must remain zero-SQL:
+    otherwise an attacker can exchange RSA work for append-only DB growth."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "auth_rate_limit_enabled", True)
+    monkeypatch.setattr(settings, "auth_rate_limit_max_attempts", 2)
+    ip_limit = auth_api._refresh_preverification_limit(2)
+    attempts = ip_limit + 8
+    drain_transient_security_signals()
+
+    async with get_sessionmaker()() as db:
+        rows_before = await db.scalar(
+            select(func.count())
+            .select_from(SecurityEvent)
+            .where(SecurityEvent.event == "auth.totp.challenge_failed")
+        )
+
+    commits = 0
+    statements = 0
+
+    def count_commit(_session: Session) -> None:
+        nonlocal commits
+        commits += 1
+
+    def count_statement(*_args: object, **_kwargs: object) -> None:
+        nonlocal statements
+        statements += 1
+
+    sync_engine = get_engine().sync_engine
+    event.listen(Session, "after_commit", count_commit)
+    event.listen(sync_engine, "before_cursor_execute", count_statement)
+    caplog.clear()
+    try:
+        with caplog.at_level(logging.INFO):
+            responses = [
+                await client.post(
+                    "/api/auth/totp/challenge",
+                    json={"mfa_token": f"forged-{index}.payload.signature", "code": "000000"},
+                )
+                for index in range(attempts)
+            ]
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", count_statement)
+        event.remove(Session, "after_commit", count_commit)
+
+    assert {response.status_code for response in responses} == {401, 429}
+    assert all(response.status_code == 429 for response in responses[-8:])
+    assert statements == 0
+    assert commits == 0
+    assert not [record for record in caplog.records if record.name == "goatfarm.auth"]
+    assert "forged-" not in " ".join(record.getMessage() for record in caplog.records)
+    assert emit_transient_security_signal_summary(300) == {"auth.totp.challenge_failed": attempts}
+    async with get_sessionmaker()() as db:
+        rows_after = await db.scalar(
+            select(func.count())
+            .select_from(SecurityEvent)
+            .where(SecurityEvent.event == "auth.totp.challenge_failed")
+        )
+    assert rows_before == rows_after
 
 
 async def test_challenge_expired_but_genuine_mfa_token_is_never_charged(
@@ -1478,7 +1625,6 @@ async def test_recovery_with_zero_unused_codes_still_pays_one_dummy_verify(
 async def test_recovery_credential_change_mid_verify_cannot_ride_the_proof(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """2026-09-29 audit: a credential change that lands while a recovery code
     is mid-Argon2 must not ride the proof. The re-lock revalidates
@@ -1504,14 +1650,11 @@ async def test_recovery_credential_change_mid_verify_cannot_ride_the_proof(
         return True, False
 
     monkeypatch.setattr(auth_api, "verify_password_async", rotate_then_accept)
-    with caplog.at_level("INFO", logger="app.audit"):
-        refused = await _redeem(client, email, mfa_token, codes[0])
+    drain_transient_security_signals()
+    refused = await _redeem(client, email, mfa_token, codes[0])
     assert refused.status_code == 401, refused.text
     assert refused.json()["detail"] == "Invalid or expired challenge."
-    assert any(
-        "account changed while a recovery code was being verified" in record.message
-        for record in caplog.records
-    ), "the race must leave a security event"
+    assert emit_transient_security_signal_summary(300) == {"auth.totp.challenge_failed": 1}
 
     # The proven code was NOT consumed: after re-login (fresh challenge bound
     # to the rotated token_version), the same code redeems normally.
@@ -1562,6 +1705,99 @@ async def test_recovery_regenerate_requires_password_and_totp_and_revokes(
     mfa_token = await _mfa_login(client, email)
     new = await _redeem(client, email, mfa_token, fresh[0])
     assert new.status_code == 200, new.text
+
+
+async def test_recovery_regenerate_hashes_without_holding_the_user_lock(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    email = "totp-regen-no-lock@farm.in"
+    headers = await register(client, email)
+    secret, _codes = await _enroll_and_activate(client, headers)
+    async with get_sessionmaker()() as db:
+        user_id = (await db.execute(select(User.id).where(User.email == email))).scalar_one()
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    real_hash = security.hash_totp_recovery_codes_async
+
+    async def stalled_hash(codes: list[str]) -> list[str]:
+        started.set()
+        await release.wait()
+        return await real_hash(codes)
+
+    monkeypatch.setattr(auth_api, "hash_totp_recovery_codes_async", stalled_hash)
+    code, _step = _current_code(secret, drift=1)
+    request = asyncio.create_task(
+        client.post(
+            "/api/auth/totp/recovery/regenerate",
+            json={"current_password": OWNER_PW, "code": code},
+            headers=headers,
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=3)
+        async with get_sessionmaker()() as probe:
+            # NOWAIT succeeding proves the slow ten-hash phase holds neither
+            # the user row lock nor the request's database transaction.
+            assert (
+                await probe.execute(
+                    select(User.id).where(User.id == user_id).with_for_update(nowait=True)
+                )
+            ).scalar_one() == user_id
+            await probe.rollback()
+    finally:
+        release.set()
+    response = await request
+    assert response.status_code == 200, response.text
+
+
+async def test_recovery_regenerate_revalidates_state_after_lock_free_hashing(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    email = "totp-regen-race@farm.in"
+    headers = await register(client, email)
+    secret, _codes = await _enroll_and_activate(client, headers)
+    async with get_sessionmaker()() as db:
+        user_id = (await db.execute(select(User.id).where(User.email == email))).scalar_one()
+        original_hashes = list(
+            (
+                await db.execute(
+                    select(TotpRecoveryCode.code_hash)
+                    .where(TotpRecoveryCode.user_id == user_id)
+                    .order_by(TotpRecoveryCode.id)
+                )
+            ).scalars()
+        )
+
+    real_hash = security.hash_totp_recovery_codes_async
+
+    async def advance_totp_state(codes: list[str]) -> list[str]:
+        async with get_sessionmaker()() as concurrent:
+            await concurrent.execute(
+                update(User).where(User.id == user_id).values(totp_last_step=2_000_000_000)
+            )
+            await concurrent.commit()
+        return await real_hash(codes)
+
+    monkeypatch.setattr(auth_api, "hash_totp_recovery_codes_async", advance_totp_state)
+    code, _step = _current_code(secret, drift=1)
+    response = await client.post(
+        "/api/auth/totp/recovery/regenerate",
+        json={"current_password": OWNER_PW, "code": code},
+        headers=headers,
+    )
+    assert response.status_code == 409, response.text
+    async with get_sessionmaker()() as db:
+        hashes = list(
+            (
+                await db.execute(
+                    select(TotpRecoveryCode.code_hash)
+                    .where(TotpRecoveryCode.user_id == user_id)
+                    .order_by(TotpRecoveryCode.id)
+                )
+            ).scalars()
+        )
+    assert hashes == original_hashes
 
 
 async def test_disabling_totp_purges_recovery_codes(

@@ -27,6 +27,7 @@ from .models import (
     TaskStatus,
     VaccineTemplate,
 )
+from .models.species import GOAT_PROFILE
 from .permissions import (
     ROLE_PRESETS,
     TASK_CATEGORY_ROLE_MAP,
@@ -43,6 +44,9 @@ CONC = IngredientCategory.CONCENTRATE.value
 
 GREEN = "Super Napier green fodder"
 DRY_STOVER = "Dry jowar stover"
+_MIN_BREEDING_AGE_MONTHS = GOAT_PROFILE.min_breeding_age_months
+_MIN_BREEDING_WEIGHT_KG = f"{GOAT_PROFILE.min_breeding_weight_kg:g}"
+_LAST_GROWER_AGE_MONTHS = _MIN_BREEDING_AGE_MONTHS - 1
 
 # ---------------------------------------------------------------------------
 # Bucket definitions — one row per lifecycle stage code.
@@ -61,8 +65,8 @@ BUCKET_DEFINITIONS: list[tuple[Bucket, str, str, str, float]] = [
     (
         Bucket.FOUNDATION,
         "Foundation / Grow-out",
-        "Purchased doelings 6–7 mo; own female kids 2–10 mo",
-        "Breeding-ready (10–12 mo, ≥22 kg) → BREEDING",
+        f"Purchased doelings 6–7 mo; own female kids 2–{_LAST_GROWER_AGE_MONTHS} mo",
+        f"Breeding-ready (≥{_MIN_BREEDING_AGE_MONTHS} mo, ≥{_MIN_BREEDING_WEIGHT_KG} kg) → BREEDING",
         1.2,
     ),
     (
@@ -117,8 +121,8 @@ BUCKET_DEFINITIONS: list[tuple[Bucket, str, str, str, float]] = [
     (
         Bucket.FEMALE_KIDS,
         "Female Kids Growing",
-        "Female kids 2–10 months; 60/40 mix steady",
-        "Breeding-ready (10–12 mo, ≥22 kg) → BREEDING",
+        f"Female kids 2–{_LAST_GROWER_AGE_MONTHS} months; 60/40 mix steady",
+        f"Breeding-ready (≥{_MIN_BREEDING_AGE_MONTHS} mo, ≥{_MIN_BREEDING_WEIGHT_KG} kg) → BREEDING",
         1.0,
     ),
 ]

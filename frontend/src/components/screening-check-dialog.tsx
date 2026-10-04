@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dialog";
 import { ApiError, composeRequestSignal } from "@/lib/api-client";
 import { enumLabel } from "@/lib/enum-labels";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useLanguage, useT } from "@/lib/i18n";
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -73,6 +74,16 @@ export function DiseaseCheckDialog({
   // Bumped on every open/close boundary: an upload started under a previous
   // walkthrough session must not credit its photo to the freshly reset one.
   const walkthroughEpoch = useRef(0);
+  const uploadAbort = useRef<AbortController | null>(null);
+
+  useEffect(() => () => {
+    // Farm switches and route navigation unmount the dialog without changing
+    // `open`. Invalidate every continuation before it can toast, close a new
+    // surface, or refresh the next farm's list.
+    walkthroughEpoch.current += 1;
+    uploadAbort.current?.abort();
+    uploadAbort.current = null;
+  }, []);
 
   // A fresh walkthrough starts clean on open. The batch itself is minted
   // lazily on the first successful upload attempt: opening the dialog to
@@ -83,7 +94,11 @@ export function DiseaseCheckDialog({
     // gets a new token. An old create response must never populate the new
     // session's batch state or keep its controls locked.
     walkthroughEpoch.current += 1;
-    if (!open) return;
+    if (!open) {
+      uploadAbort.current?.abort();
+      uploadAbort.current = null;
+      return;
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setBatchId(null);
     setSelectedBucket(null);
@@ -118,17 +133,24 @@ export function DiseaseCheckDialog({
     setPreviewUrl(URL.createObjectURL(file));
   };
 
-  const ensureBatchId = async (epoch: number): Promise<number | null> => {
+  const ensureBatchId = async (
+    epoch: number,
+    stillOwnsFarm: () => boolean,
+  ): Promise<number | null> => {
     if (batchId !== null) return batchId;
     try {
       const result = await createBatch.mutateAsync(undefined);
-      if (result.status === 201 && walkthroughEpoch.current === epoch) {
+      if (
+        result.status === 201 &&
+        walkthroughEpoch.current === epoch &&
+        stillOwnsFarm()
+      ) {
         setBatchId(result.data.id);
         return result.data.id;
       }
       return null;
     } catch {
-      if (walkthroughEpoch.current === epoch) {
+      if (walkthroughEpoch.current === epoch && stillOwnsFarm()) {
         toast.error(t("screening.check.noBatch"));
       }
       return null;
@@ -140,10 +162,13 @@ export function DiseaseCheckDialog({
     const epoch = walkthroughEpoch.current;
     if (uploadInFlightEpoch.current === epoch) return;
     uploadInFlightEpoch.current = epoch;
-    const stillCurrentSession = () => walkthroughEpoch.current === epoch;
+    const stillOwnsFarm = captureFarmScope();
+    const stillCurrentSession = () =>
+      walkthroughEpoch.current === epoch && stillOwnsFarm();
+    let ownedUploadController: AbortController | null = null;
     setUploading(true);
     try {
-      const activeBatchId = await ensureBatchId(epoch);
+      const activeBatchId = await ensureBatchId(epoch, stillOwnsFarm);
       if (activeBatchId === null || !stillCurrentSession()) return;
       const extension = pendingFile.type === "image/png" ? ".png" : ".jpg";
       const result = await requestUploadApiScreeningUploadsPost({
@@ -169,10 +194,14 @@ export function DiseaseCheckDialog({
       // Bounded like every API request: on flaky mobile data an unbounded
       // upload never settles, leaving the dialog's uploading state wedged
       // until a full page reload (2026-09-17 audit M-11).
+      const controller = new AbortController();
+      ownedUploadController = controller;
+      uploadAbort.current?.abort();
+      uploadAbort.current = controller;
       const response = await fetch(result.data.upload_url, {
         method: result.data.upload_method ?? "POST",
         body: formData,
-        signal: composeRequestSignal(undefined, 60_000),
+        signal: composeRequestSignal(controller.signal, 60_000),
       });
       if (!response.ok) {
         if (stillCurrentSession()) {
@@ -206,6 +235,9 @@ export function DiseaseCheckDialog({
       if (uploadInFlightEpoch.current === epoch) {
         uploadInFlightEpoch.current = null;
       }
+      if (uploadAbort.current === ownedUploadController) {
+        uploadAbort.current = null;
+      }
       if (stillCurrentSession()) {
         setUploading(false);
       }
@@ -220,18 +252,21 @@ export function DiseaseCheckDialog({
       return;
     }
     const epoch = walkthroughEpoch.current;
+    const stillOwnsFarm = captureFarmScope();
+    const stillCurrentSession = () =>
+      walkthroughEpoch.current === epoch && stillOwnsFarm();
     try {
       const result = await submitBatch.mutateAsync({ batchId });
       if (result.status !== 200) return;
       // The dialog may have been closed (and a new session opened) while the
       // submit was in flight; the continuation must not toast or fire the
       // caller's refresh into the new session — same fence the uploads use.
-      if (walkthroughEpoch.current !== epoch) return;
+      if (!stillCurrentSession()) return;
       toast.success(t("screening.check.finished"));
       onOpenChange(false);
       onFinished();
     } catch {
-      if (walkthroughEpoch.current === epoch) {
+      if (stillCurrentSession()) {
         toast.error(t("screening.check.noBatch"));
       }
     }

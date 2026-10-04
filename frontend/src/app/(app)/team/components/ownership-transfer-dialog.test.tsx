@@ -94,11 +94,11 @@ describe("Owner transfer journey", () => {
     expect(screen.queryByRole("button", { name: "Transfer ownership" })).toBeNull();
   });
 
-  it("requires confirmation and password, freezes a pending transfer, and retains actionable conflicts", async () => {
+  it("requires confirmation and password, freezes a pending transfer, and localizes conflicts", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     let calls = 0;
-    server.use(http.post("/api/auth/farms/:farmId/transfer-ownership", async () => { calls += 1; await gate; return HttpResponse.json({ detail: "The new owner must sign in and rotate their password first.", code: "lifecycle_conflict" }, { status: 409 }); }));
+    server.use(http.post("/api/auth/farms/:farmId/transfer-ownership", async () => { calls += 1; await gate; return HttpResponse.json({ detail: "The new owner must sign in and rotate their password first.", code: "LIFECYCLE_CONFLICT" }, { status: 409 }); }));
     const { user, dialog } = await prepare();
     await confirm(user, dialog);
     await user.dblClick(within(dialog).getByRole("button", { name: "Transfer ownership" }));
@@ -108,7 +108,7 @@ describe("Owner transfer journey", () => {
     await user.keyboard("{Escape}");
     expect(dialog).toBeInTheDocument();
     await act(async () => { release(); });
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent("sign in and rotate their password first");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("This action no longer matches the current state");
     expect(replace).not.toHaveBeenCalled();
   });
 

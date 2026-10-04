@@ -10,22 +10,29 @@ export interface E2ECredentials {
   farmName: string;
 }
 
-function loadCredentials(): E2ECredentials {
+let cachedCredentials: E2ECredentials | undefined;
+
+/** Read credentials only when a test actually executes.
+ *
+ * Playwright imports spec modules during `--list`/shard discovery before
+ * globalSetup runs. Import-time filesystem reads made a clean checkout
+ * impossible to enumerate even though normal execution provisions the file.
+ */
+export function e2eCredentials(): E2ECredentials {
+  if (cachedCredentials) return cachedCredentials;
   try {
-    return JSON.parse(
+    const value = JSON.parse(
       readFileSync(new URL(".e2e-state.json", import.meta.url), "utf8"),
     ) as E2ECredentials;
+    if (!value.email || !value.password || !value.farmName) throw new Error("invalid state");
+    cachedCredentials = value;
+    return value;
   } catch {
     throw new Error(
       "e2e/.e2e-state.json missing — Playwright globalSetup provisions it before the specs run.",
     );
   }
 }
-
-const CREDS = loadCredentials();
-export const E2E_EMAIL = CREDS.email;
-export const E2E_PASSWORD = CREDS.password;
-export const E2E_FARM_NAME = CREDS.farmName;
 
 /** Run-unique, regex-safe tag/title suffix (alphanumerics + hyphens only). */
 export function uniqueTag(prefix: string): string {
@@ -55,6 +62,7 @@ export function daysAgo(days: number): string {
 
 /** Sign in through the login page and land on the dashboard. */
 export async function signIn(page: Page): Promise<void> {
+  const credentials = e2eCredentials();
   await page.goto("/login");
   const email = page.getByLabel("Email");
   const password = page.getByLabel("Password");
@@ -65,10 +73,10 @@ export async function signIn(page: Page): Promise<void> {
   // in every browser and would degrade to the full navigation timeout if the
   // page ever gained background polling.
   await expect(async () => {
-    await email.fill(E2E_EMAIL);
-    await password.fill(E2E_PASSWORD);
-    await expect(email).toHaveValue(E2E_EMAIL);
-    await expect(password).toHaveValue(E2E_PASSWORD);
+    await email.fill(credentials.email);
+    await password.fill(credentials.password);
+    await expect(email).toHaveValue(credentials.email);
+    await expect(password).toHaveValue(credentials.password);
   }).toPass({ timeout: 15_000 });
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });

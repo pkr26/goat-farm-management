@@ -7,7 +7,8 @@
 
 /**
  * Rotation-provider scoreboard over the requested window: call volume,
- * verdict behavior, vet-labeled precision, and cross-check agreement.
+ * conditional reviewed-positive precision, sampled healthy-verdict misses,
+ * and cross-check agreement. It is not full sensitivity/specificity.
  */
 export interface ScreeningProviderStatsOut {
   provider: string;
@@ -23,4 +24,14 @@ export interface ScreeningProviderStatsOut {
   findings_confirmed: number;
   findings_rejected: number;
   findings_pending: number;
+  positive_precision?: string | null;
+  positive_precision_ci_low?: string | null;
+  positive_precision_ci_high?: string | null;
+  healthy_controls_confirmed?: number;
+  healthy_controls_rejected?: number;
+  healthy_controls_pending?: number;
+  healthy_controls_reviewed?: number;
+  healthy_false_negative_rate?: string | null;
+  healthy_false_negative_ci_low?: string | null;
+  healthy_false_negative_ci_high?: string | null;
 }

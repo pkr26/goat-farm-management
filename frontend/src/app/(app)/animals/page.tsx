@@ -706,7 +706,10 @@ function CreateAnimalDialog({
                     id="animal-bucket"
                     value={bucketLabel(AnimalCreateInCurrentBucket.QUARANTINE, language)}
                     readOnly
-                    aria-describedby="purchased-quarantine-note"
+                    aria-invalid={Boolean(errors.current_bucket) || undefined}
+                    aria-describedby={errors.current_bucket
+                      ? "purchased-quarantine-note create-bucket-error"
+                      : "purchased-quarantine-note"}
                   />
                   <p id="purchased-quarantine-note" className="text-xs text-muted-foreground">
                     {t("animals.create.quarantineNote")}
@@ -718,7 +721,12 @@ function CreateAnimalDialog({
                   name="current_bucket"
                   render={({ field }) => (
                     <Select value={field.value} onValueChange={field.onChange} items={bucketItems(language)}>
-                      <SelectTrigger id="animal-bucket" className="w-full">
+                      <SelectTrigger
+                        id="animal-bucket"
+                        className="w-full"
+                        aria-invalid={Boolean(errors.current_bucket) || undefined}
+                        aria-describedby={errors.current_bucket ? "create-bucket-error" : undefined}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -735,7 +743,7 @@ function CreateAnimalDialog({
                 />
               )}
               {errors.current_bucket && (
-                <p role="alert" className="text-sm text-destructive">
+                <p id="create-bucket-error" role="alert" className="text-sm text-destructive">
                   {errors.current_bucket.message}
                 </p>
               )}
@@ -835,10 +843,12 @@ function CreateAnimalDialog({
                 id="date_of_birth"
                 type="date"
                 max={farmToday()}
+                aria-invalid={Boolean(errors.date_of_birth) || undefined}
+                aria-describedby={errors.date_of_birth ? "create-dob-error" : undefined}
                 {...register("date_of_birth")}
               />
               {errors.date_of_birth && (
-                <p role="alert" className="text-sm text-destructive">{errors.date_of_birth.message}</p>
+                <p id="create-dob-error" role="alert" className="text-sm text-destructive">{errors.date_of_birth.message}</p>
               )}
             </div>
             <div className="space-y-1.5">
@@ -847,10 +857,12 @@ function CreateAnimalDialog({
                 id="estimated_dob"
                 type="date"
                 max={farmToday()}
+                aria-invalid={Boolean(errors.estimated_dob) || undefined}
+                aria-describedby={errors.estimated_dob ? "create-estimated-dob-error" : undefined}
                 {...register("estimated_dob")}
               />
               {errors.estimated_dob && (
-                <p role="alert" className="text-sm text-destructive">{errors.estimated_dob.message}</p>
+                <p id="create-estimated-dob-error" role="alert" className="text-sm text-destructive">{errors.estimated_dob.message}</p>
               )}
             </div>
             {source === AnimalCreateInSource.BORN && (
@@ -868,10 +880,11 @@ function CreateAnimalDialog({
                     rows={2}
                     maxLength={255}
                     aria-invalid={Boolean(errors.historical_import_reason) || undefined}
+                    aria-describedby={errors.historical_import_reason ? "create-historical-reason-error" : undefined}
                     {...register("historical_import_reason")}
                   />
                   {errors.historical_import_reason && (
-                    <p className="text-sm text-destructive">
+                    <p id="create-historical-reason-error" role="alert" className="text-sm text-destructive">
                       {errors.historical_import_reason.message}
                     </p>
                   )}
@@ -888,7 +901,12 @@ function CreateAnimalDialog({
                         onValueChange={field.onChange}
                         items={birthTypeItems(language)}
                       >
-                        <SelectTrigger id="animal-birth-type" className="w-full">
+                        <SelectTrigger
+                          id="animal-birth-type"
+                          className="w-full"
+                          aria-invalid={Boolean(errors.birth_type) || undefined}
+                          aria-describedby={errors.birth_type ? "create-birth-type-error" : undefined}
+                        >
                           <SelectValue placeholder="—" />
                         </SelectTrigger>
                         <SelectContent>
@@ -901,6 +919,9 @@ function CreateAnimalDialog({
                       </Select>
                     )}
                   />
+                  {errors.birth_type && (
+                    <p id="create-birth-type-error" role="alert" className="text-sm text-destructive">{errors.birth_type.message}</p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="birth_weight">{t("animals.create.birthWeight")}</Label>
@@ -909,10 +930,12 @@ function CreateAnimalDialog({
                     type="number"
                     step="0.01"
                     min="0.0005"
+                    aria-invalid={Boolean(errors.birth_weight) || undefined}
+                    aria-describedby={errors.birth_weight ? "create-birth-weight-error" : undefined}
                     {...register("birth_weight")}
                   />
                   {errors.birth_weight && (
-                    <p role="alert" className="text-sm text-destructive">{errors.birth_weight.message}</p>
+                    <p id="create-birth-weight-error" role="alert" className="text-sm text-destructive">{errors.birth_weight.message}</p>
                   )}
                 </div>
               </>
@@ -939,10 +962,12 @@ function CreateAnimalDialog({
                   id="weight_date"
                   type="date"
                   max={farmToday()}
+                  aria-invalid={Boolean(errors.weight_date) || undefined}
+                  aria-describedby={errors.weight_date ? "create-weight-date-error" : undefined}
                   {...register("weight_date")}
                 />
                 {errors.weight_date && (
-                  <p role="alert" className="text-sm text-destructive">{errors.weight_date.message}</p>
+                  <p id="create-weight-date-error" role="alert" className="text-sm text-destructive">{errors.weight_date.message}</p>
                 )}
               </div>
             )}
@@ -956,10 +981,12 @@ function CreateAnimalDialog({
                   id="purchase_date"
                   type="date"
                   max={farmToday()}
+                  aria-invalid={Boolean(errors.purchase_date) || undefined}
+                  aria-describedby={errors.purchase_date ? "create-purchase-date-error" : undefined}
                   {...register("purchase_date")}
                 />
                 {errors.purchase_date && (
-                  <p role="alert" className="text-sm text-destructive">{errors.purchase_date.message}</p>
+                  <p id="create-purchase-date-error" role="alert" className="text-sm text-destructive">{errors.purchase_date.message}</p>
                 )}
               </div>
               <div className="space-y-1.5">
@@ -969,10 +996,12 @@ function CreateAnimalDialog({
                   type="number"
                   step="0.01"
                   min="0"
+                  aria-invalid={Boolean(errors.purchase_price) || undefined}
+                  aria-describedby={errors.purchase_price ? "create-purchase-price-error" : undefined}
                   {...register("purchase_price")}
                 />
                 {errors.purchase_price && (
-                  <p role="alert" className="text-sm text-destructive">{errors.purchase_price.message}</p>
+                  <p id="create-purchase-price-error" role="alert" className="text-sm text-destructive">{errors.purchase_price.message}</p>
                 )}
               </div>
               <div className="col-span-2 space-y-1.5">
@@ -1000,9 +1029,10 @@ function CreateAnimalDialog({
               rows={2}
               maxLength={MAX_FREE_TEXT_LENGTH}
               aria-invalid={Boolean(errors.notes) || undefined}
+              aria-describedby={errors.notes ? "create-notes-error" : undefined}
               {...register("notes")}
             />
-            {errors.notes && <p className="text-sm text-destructive">{errors.notes.message}</p>}
+            {errors.notes && <p id="create-notes-error" role="alert" className="text-sm text-destructive">{errors.notes.message}</p>}
           </div>
 
           <p className="text-xs text-muted-foreground">{t("animals.create.requiredNote")}</p>
@@ -1608,7 +1638,9 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium" dir="auto">{a.tag_number}</span>
-                  <StatusBadge status={a.status} />
+                  <StatusBadge status={a.status}>
+                    {enumLabel("status", a.status, language)}
+                  </StatusBadge>
                 </div>
                 {a.name && <p className="text-sm text-muted-foreground">{a.name}</p>}
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -1671,7 +1703,9 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
                     <TableCell>{a.breed}</TableCell>
                     <TableCell>{enumLabel("bucket", a.current_bucket, language)}</TableCell>
                     <TableCell>
-                      <StatusBadge status={a.status} />
+                      <StatusBadge status={a.status}>
+                        {enumLabel("status", a.status, language)}
+                      </StatusBadge>
                     </TableCell>
                     <TableCell className="text-right">{a.age_months ?? "—"}</TableCell>
                     <TableCell className="text-right">

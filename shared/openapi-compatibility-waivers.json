@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "waivers": [
+    {
+      "baseline_sha256": "921f79c911abae32842b28e573ae91c5dbb8db2156c08115b23eb9ddaecd898b",
+      "candidate_sha256": "f10ed5392a591dedaf9b0a2f81dc93216d1ddb3017860202a82c348985ac2850",
+      "change_suffix": ".responses.415: response removed",
+      "expected_matches": 119,
+      "reason": "BAPI-05 removes globally advertised 415 responses from routes that never perform the auth JSON content-type check; the four actual auth JSON parsing endpoints retain and test their 415 contract. This waiver is valid only for these exact before/after OpenAPI bytes."
+    },
+    {
+      "baseline_sha256": "921f79c911abae32842b28e573ae91c5dbb8db2156c08115b23eb9ddaecd898b",
+      "candidate_sha256": "f10ed5392a591dedaf9b0a2f81dc93216d1ddb3017860202a82c348985ac2850",
+      "change_suffix": ": lower bound changed incompatibly",
+      "expected_matches": 23,
+      "reason": "BAPI-01 replaces non-standard `le` metadata with real JSON Schema numeric bounds and publishes the lower bounds already enforced by the request models. This exact contract correction was reviewed together with focused boundary tests."
+    },
+    {
+      "baseline_sha256": "921f79c911abae32842b28e573ae91c5dbb8db2156c08115b23eb9ddaecd898b",
+      "candidate_sha256": "f10ed5392a591dedaf9b0a2f81dc93216d1ddb3017860202a82c348985ac2850",
+      "change_suffix": ": upper bound changed incompatibly",
+      "expected_matches": 23,
+      "reason": "BAPI-01 replaces non-standard `le` metadata with standards-compliant `maximum` constraints matching the existing runtime request limits. This exact contract correction was reviewed together with focused boundary tests."
+    },
+    {
+      "baseline_sha256": "921f79c911abae32842b28e573ae91c5dbb8db2156c08115b23eb9ddaecd898b",
+      "candidate_sha256": "f10ed5392a591dedaf9b0a2f81dc93216d1ddb3017860202a82c348985ac2850",
+      "change_suffix": ": pattern changed incompatibly",
+      "expected_matches": 1,
+      "reason": "BAPI-04 deliberately makes the finance month filter an exact YYYY-MM contract instead of accepting malformed values that later fail ambiguously. The exact one-field tightening is covered by malformed-boundary tests."
+    }
+  ]
+}

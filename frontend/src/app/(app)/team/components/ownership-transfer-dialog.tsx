@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ApiError, authSessionEpochValue, currentRequestScope } from "@/lib/api-client";
+import { authSessionEpochValue, currentRequestScope } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useT } from "@/lib/i18n";
@@ -73,7 +73,7 @@ export function OwnershipTransferDialog({ memberships, isOwner, blocked, canStar
         router.replace("/farm-select");
       } catch (cause) {
         if (!farmScope() || sessionEpoch !== authSessionEpochValue()) return;
-        const detail = cause instanceof ApiError && cause.status === 409 ? cause.detail : mutationError(cause);
+        const detail = mutationError(cause);
         setError(detail); toast.error(detail);
       }
     });

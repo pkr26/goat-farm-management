@@ -1,9 +1,10 @@
 """The screening cycle: claim registered uploads, normalize, cascade.
 
-Cascade (Phase 3): a detection call splits multi-goat photos into
-per-goat crops; each crop (or the whole photo when detection finds nothing)
-runs gate → (if flagged) specialists + cross-check. Healthy verdicts stop
-the cascade per goat; findings land in the vet review queue.
+Cascade (Phase 3): a detection call proposes per-goat crops. The whole frame
+runs a safety cascade because detection completeness is uncertain, and each
+proposed crop runs its own gate → (if flagged) specialists + cross-check.
+Healthy verdicts stop the cascade per unit; findings land in the vet review
+queue.
 
 One cycle is bounded (``screening_max_images_per_cycle``) and idempotent.
 The API pre-registers every accepted object; raw-prefix listing is never an
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import hashlib
 import hmac
 import logging
 import re
@@ -29,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any, NamedTuple, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import Select, exists, func, literal, or_, select, union, update
+from sqlalchemy import Select, exists, func, literal, or_, select, true, union, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,7 +54,7 @@ from ...models.enums import (
     ScreeningRunStatus,
     ScreeningStage,
 )
-from ...models.screening import ScreeningDailyBudget
+from ...models.screening import HEALTHY_CONTROL_LABEL, ScreeningDailyBudget
 from ...schemas.screening import MAX_SCREENING_UPLOAD_BYTES
 from ...utils import DEFAULT_BUSINESS_TIMEZONE, today, utcnow
 from .budget import ScreeningBudgetExhausted, reserve_provider_attempt
@@ -74,6 +76,7 @@ from .images import (
 )
 from .providers import BudgetedProvider, ProviderError, VisionProvider
 from .providers import gate as run_gate
+from .raw_cleanup import RAW_UPLOAD_CLEANUP_SLACK
 from .rotation import GateExhaustedError, GateOutcome, ProviderRotation
 from .s3 import (
     POST_MULTIPART_OVERHEAD_BYTES,
@@ -98,9 +101,10 @@ logger = logging.getLogger(__name__)
 # B6 (2026-09-21 audit): tenant-facing error fields (ScreeningImage.error,
 # ScreeningRun.error) carry a fixed reason code, never raw exception text —
 # provider/S3 exceptions name endpoints, headers and HTTP topology, which is
-# operator detail a farm member has no need to see. The raw text stays in the
-# worker logs at each failure site. These strings are the complete set a
-# tenant can ever observe; they must stay free of interpolated values.
+# operator detail a farm member has no need to see. Logs likewise use stable
+# reason codes and row IDs, never object keys or provider response text. These
+# strings are the complete set a tenant can ever observe; they must stay free
+# of interpolated values.
 class ScreeningErrorReason:
     PROVIDER_ERROR = "PROVIDER_ERROR"
     DOWNLOAD_FAILED = "DOWNLOAD_FAILED"
@@ -165,16 +169,20 @@ ERROR_RETRY_AFTER = dt.timedelta(hours=1)
 # downloads up to the byte cap and re-bills gate/specialist calls.
 MAX_SCREENING_ATTEMPTS = 5
 
-# The farm-fair ranking window: only the globally oldest eligible rows are
-# ranked each cycle, bounding the sort/window work when a provider outage
-# leaves a large ERROR backlog.  With the attempt budget above, that backlog
-# is itself bounded, so the window only guards the transient peak.
+# A per-farm cap on fair-claim candidates. A deep queue in one tenant can
+# contribute no more than this many rows and therefore cannot exclude another
+# eligible farm before the rank-first merge.
 _CLAIM_CANDIDATE_WINDOW = 2_000
+
+# Review one stable tenth of whole-frame healthy verdicts. Sampling is based
+# on tenant + normalized content, not queue order, so retries and worker
+# replicas make the same decision without stored random state.
+HEALTHY_CONTROL_SAMPLE_DENOMINATOR = 10
 
 # Slack on top of the presign expiry before an un-PUT upload row is
 # terminalized: clock skew between the API host (row created_at) and the
 # database, plus a slow final S3 write, must not expire a live upload.
-PENDING_SWEEP_SLACK = dt.timedelta(hours=1)
+PENDING_SWEEP_SLACK = RAW_UPLOAD_CLEANUP_SLACK
 
 # Downloads are sized by HEAD before any byte is transferred: an object
 # larger than this is terminally SKIPPED (a misdirected video, a hostile
@@ -244,22 +252,32 @@ def parse_raw_key(key: str, prefix: str) -> ParsedRawKey | None:
         return None
 
 
-def normalized_derivative_key(farm_id: int, captured_date: dt.date, sha256: str) -> str:
-    """Deterministic key for the model-sized derivative of a raw upload."""
-    # The object is immutable by content address.  A short digest prefix is
-    # convenient for logs but is not an integrity boundary: a farm member who
-    # can upload photos could deliberately find a prefix collision and
-    # overwrite an earlier review derivative.  Keep the full digest in the
-    # key so the derivative referenced by a reviewed finding is genuinely
-    # content-addressed.
-    return f"screening/{farm_id}/{captured_date.isoformat()}/{sha256}.jpg"
+def normalized_derivative_key(
+    farm_id: int, captured_date: dt.date, image_id: int, sha256: str
+) -> str:
+    """Identity-scoped key for one image's immutable normalized derivative.
+
+    Older deployments used only farm/date/content and could make two database
+    chains share a key. Including the durable image id prevents a new upload
+    from racing a legacy retention purge and inheriting the object being
+    removed. The full digest still prevents ambiguous integrity references.
+    """
+    return f"screening/{farm_id}/{captured_date.isoformat()}/v2/images/{image_id}/{sha256}.jpg"
 
 
 def cropped_derivative_key(
-    farm_id: int, captured_date: dt.date, image_sha256: str, crop_index: int
+    farm_id: int,
+    captured_date: dt.date,
+    image_id: int,
+    crop_id: int,
+    image_sha256: str,
+    crop_index: int,
 ) -> str:
-    """Deterministic, full-digest key for one per-goat derivative."""
-    return f"screening/{farm_id}/{captured_date.isoformat()}/{image_sha256}-c{crop_index}.jpg"
+    """Identity-scoped, full-digest key for one per-goat derivative."""
+    return (
+        f"screening/{farm_id}/{captured_date.isoformat()}/v2/images/{image_id}/"
+        f"crops/{crop_id}/{image_sha256}-c{crop_index}.jpg"
+    )
 
 
 @dataclass
@@ -316,6 +334,7 @@ async def _expire_abandoned_uploads(
             ScreeningImage.status == ScreeningImageStatus.PENDING.value,
             ScreeningImage.upload_token.is_not(None),
             ScreeningImage.created_at < now - abandoned_after,
+            ScreeningImage.retention_tombstoned_at.is_(None),
         )
         .order_by(ScreeningImage.created_at, ScreeningImage.id)
         .limit(_EXPIRED_UPLOAD_BATCH_SIZE)
@@ -362,6 +381,7 @@ async def _terminate_budget_exhausted_processing(
             ScreeningImage.status == ScreeningImageStatus.PROCESSING.value,
             ScreeningImage.screening_attempts >= MAX_SCREENING_ATTEMPTS,
             ScreeningImage.updated_at < now - stale_after,
+            ScreeningImage.retention_tombstoned_at.is_(None),
         )
         .order_by(ScreeningImage.updated_at, ScreeningImage.id)
         .limit(_EXPIRED_UPLOAD_BATCH_SIZE)
@@ -505,6 +525,10 @@ async def _claim_retry_rows(
     eligible = (
         (ScreeningImage.screening_attempts < MAX_SCREENING_ATTEMPTS)
         & budget_ok
+        # A committed retention manifest is a logical tombstone. Never
+        # reclaim that image and create fresh derivatives after its exact-key
+        # deletion plan has become durable.
+        & ScreeningImage.retention_tombstoned_at.is_(None)
         & (
             (
                 (ScreeningImage.status == ScreeningImageStatus.PENDING.value)
@@ -536,34 +560,95 @@ async def _claim_retry_rows(
             )
         )
     )
-    # Global oldest-first claim order let one busy farm fill every worker
-    # cycle.  Rank candidates inside each farm first, then take rank 1 from
-    # every farm before rank 2.  The outer SELECT locks real image rows, not
-    # the window subquery, so PostgreSQL can still SKIP LOCKED safely.  The
-    # window is bounded by the globally oldest rows: ranking a provider-outage
-    # backlog larger than the window would sort the whole table every cycle
-    # for nothing, since the outer limit never reaches past it anyway.
-    ranked_candidates = (
+    # Build the bounded window *inside each farm*. A global oldest-N window
+    # lets one deep tenant backlog exclude every row from a newer farm before
+    # the partition rank even runs. The lateral slice admits up to ``limit``
+    # rows independently per selected farm (at most limit² candidates), then
+    # the rank-first merge takes each farm's oldest before its second-oldest.
+    eligible_farms = (
         select(
-            ScreeningImage.id.label("image_id"),
-            ScreeningImage.created_at.label("created_at"),
-            func.row_number()
-            .over(
-                partition_by=ScreeningImage.farm_id,
-                order_by=(ScreeningImage.created_at.asc(), ScreeningImage.id.asc()),
-            )
-            .label("farm_rank"),
+            ScreeningImage.farm_id.label("farm_id"),
+            func.min(ScreeningImage.created_at).label("farm_oldest"),
         )
         .where(eligible)
-        .order_by(ScreeningImage.created_at.asc(), ScreeningImage.id.asc())
-        .limit(_CLAIM_CANDIDATE_WINDOW)
-        .subquery()
+        .group_by(ScreeningImage.farm_id)
+        .subquery("screening_eligible_farms")
     )
+    # ``screening_attempts`` increments in the durable claim transaction.
+    # Its latest timestamp is therefore a persistent round-robin cursor per
+    # farm: never-claimed farms sort first, then the least recently served.
+    # Unlike queue age, this ordering cannot be pinned by another farm's
+    # arbitrarily deep backlog.
+    farm_claim_activity = (
+        select(
+            ScreeningImage.farm_id.label("farm_id"),
+            func.max(ScreeningImage.updated_at).label("last_claimed_at"),
+        )
+        .where(ScreeningImage.screening_attempts > 0)
+        .group_by(ScreeningImage.farm_id)
+        .subquery("screening_farm_claim_activity")
+    )
+    candidate_farms = (
+        select(
+            eligible_farms.c.farm_id,
+            eligible_farms.c.farm_oldest,
+            farm_claim_activity.c.last_claimed_at,
+        )
+        .outerjoin(
+            farm_claim_activity,
+            farm_claim_activity.c.farm_id == eligible_farms.c.farm_id,
+        )
+        .order_by(
+            farm_claim_activity.c.last_claimed_at.asc().nulls_first(),
+            eligible_farms.c.farm_oldest,
+            eligible_farms.c.farm_id,
+        )
+        .limit(min(limit, _CLAIM_CANDIDATE_WINDOW))
+        .subquery("screening_candidate_farms")
+    )
+    per_farm_candidates = (
+        select(
+            ScreeningImage.id.label("image_id"),
+            ScreeningImage.farm_id.label("farm_id"),
+            ScreeningImage.created_at.label("created_at"),
+        )
+        .where(ScreeningImage.farm_id == candidate_farms.c.farm_id, eligible)
+        .order_by(ScreeningImage.created_at, ScreeningImage.id)
+        .limit(min(limit, _CLAIM_CANDIDATE_WINDOW))
+        .correlate(candidate_farms)
+        .lateral("screening_per_farm_candidates")
+    )
+    bounded_candidates = (
+        select(
+            per_farm_candidates.c.image_id,
+            per_farm_candidates.c.farm_id,
+            per_farm_candidates.c.created_at,
+            candidate_farms.c.farm_oldest,
+        )
+        .select_from(candidate_farms)
+        .join(per_farm_candidates, true())
+        .subquery("screening_bounded_candidates")
+    )
+    ranked_candidates = select(
+        bounded_candidates.c.image_id,
+        bounded_candidates.c.created_at,
+        bounded_candidates.c.farm_oldest,
+        func.row_number()
+        .over(
+            partition_by=bounded_candidates.c.farm_id,
+            order_by=(
+                bounded_candidates.c.created_at.asc(),
+                bounded_candidates.c.image_id.asc(),
+            ),
+        )
+        .label("farm_rank"),
+    ).subquery("screening_ranked_candidates")
     result = await db.execute(
         select(ScreeningImage)
         .join(ranked_candidates, ranked_candidates.c.image_id == ScreeningImage.id)
         .order_by(
             ranked_candidates.c.farm_rank,
+            ranked_candidates.c.farm_oldest,
             ranked_candidates.c.created_at,
             ScreeningImage.id,
         )
@@ -718,7 +803,12 @@ async def run_screening_cycle(
             # refresh itself (dead connection), the instance is still
             # expired and reading image.id here would raise inside the
             # handler that exists to keep the cycle alive.
-            logger.exception("screening image %s failed unexpectedly", image_id)
+            logger.error(
+                "screening image failed image_id=%s code=UNEXPECTED_PIPELINE_FAILURE "
+                "exception_type=%s",
+                image_id,
+                type(exc).__name__,
+            )
             # A DB-level failure inside _process_image aborts the
             # transaction; roll back BEFORE mutating the ORM object, or the
             # commit below would raise PendingRollbackError and strand every
@@ -731,8 +821,9 @@ async def run_screening_cycle(
             await db.rollback()
             identities_expired = True
             image.status = ScreeningImageStatus.ERROR.value
-            # Tenant-safe code only; the logger.exception above keeps the raw
-            # traceback for the operator.
+            # Persist only the tenant-safe category. Logs likewise keep a
+            # stable code and exception class, never provider response text,
+            # object keys, endpoints, or exception payloads.
             image.error = _tenant_safe_error(exc)
             summary.errors += 1
         if (
@@ -747,7 +838,7 @@ async def run_screening_cycle(
             image.error = f"{image.error or 'screening failed'}; terminal after {attempts} attempts"
         try:
             await db.commit()
-        except Exception:
+        except Exception as exc:
             # The per-image boundary is deliberate: one uncommittable row
             # (constraint, connection loss) must not take the whole cycle
             # down. Roll back FIRST: after a flush-level failure the session
@@ -758,7 +849,12 @@ async def run_screening_cycle(
             # PROCESSING and the stale-claim reclaim retries it later.
             await db.rollback()
             identities_expired = True
-            logger.exception("committing screening image %s failed", image_id)
+            logger.error(
+                "screening image commit failed image_id=%s code=DATABASE_COMMIT_FAILED "
+                "exception_type=%s",
+                image_id,
+                type(exc).__name__,
+            )
 
     return summary
 
@@ -808,6 +904,7 @@ def _add_finding(
     severity: str | None = None,
     note: str | None,
     crop_id: int | None = None,
+    healthy_control: bool = False,
 ) -> ScreeningFinding:
     # The DB CHECK rejects blank-but-non-NULL notes; a model that answered
     # note: "" (or a client that sent whitespace) must become NULL here, not
@@ -815,6 +912,10 @@ def _add_finding(
     # loop.
     if note is not None and not note.strip():
         note = None
+    # The control type intentionally rides an existing bounded label column.
+    # Never let provider-authored text impersonate that server-owned marker.
+    if label == HEALTHY_CONTROL_LABEL and not healthy_control:
+        label = f"Model finding: {label}"
     return ScreeningFinding(
         farm_id=image.farm_id,
         run_id=run_id,
@@ -825,6 +926,57 @@ def _add_finding(
         severity=severity,
         note=note,
         status=ScreeningFindingStatus.PENDING_REVIEW.value,
+    )
+
+
+def _response_sha256(raw_text: str) -> str:
+    """Digest provider text without retaining provider payload or secrets."""
+    return hashlib.sha256(raw_text.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def _sample_healthy_control(image: ScreeningImage) -> bool:
+    """Stable farm-local 10% sample for healthy-verdict human review."""
+    identity = image.sha256 or str(image.id)
+    digest = hashlib.sha256(
+        f"healthy-control-v1:{image.farm_id}:{identity}".encode("ascii")
+    ).digest()
+    return int.from_bytes(digest[:8], "big") % HEALTHY_CONTROL_SAMPLE_DENOMINATOR == 0
+
+
+async def _enqueue_healthy_control(
+    db: AsyncSession,
+    image: ScreeningImage,
+    gate_run: ScreeningRun,
+) -> None:
+    """Add one neutral review item for a genuinely healthy image outcome."""
+    already_queued = (
+        await db.execute(
+            select(
+                exists().where(
+                    ScreeningFinding.farm_id == image.farm_id,
+                    ScreeningFinding.label == HEALTHY_CONTROL_LABEL,
+                    ScreeningFinding.run_id == ScreeningRun.id,
+                    ScreeningRun.farm_id == image.farm_id,
+                    ScreeningRun.image_id == image.id,
+                )
+            )
+        )
+    ).scalar_one()
+    if already_queued:
+        return
+    gate_run.detail = {**(gate_run.detail or {}), "healthy_control_sample": True}
+    await db.flush()
+    db.add(
+        _add_finding(
+            image,
+            gate_run.id,
+            region=None,
+            label=HEALTHY_CONTROL_LABEL,
+            confidence=(float(gate_run.confidence) if gate_run.confidence is not None else None),
+            note="Neutral review sample; assess the photo without a model-supplied label.",
+            crop_id=None,
+            healthy_control=True,
+        )
     )
 
 
@@ -874,6 +1026,10 @@ async def _detect_with_fallback(
                 latency_ms=answer.latency_ms,
                 detail={
                     "goats": len(boxes),
+                    "boxes_1000": [
+                        {"x": box.x, "y": box.y, "w": box.w, "h": box.h} for box in boxes
+                    ],
+                    "response_sha256": _response_sha256(answer.text),
                     "served_by": provider.name,
                     "fallbacks_failed": failures,
                 },
@@ -895,6 +1051,9 @@ async def _run_cascade(
     jpeg: bytes,
     summary: CycleSummary,
     business_today: dt.date,
+    *,
+    coverage_safety_pass: bool = False,
+    sample_healthy: bool = True,
 ) -> str:
     """Gate → (if flagged) specialists + cross-check over one photo or crop.
 
@@ -928,7 +1087,10 @@ async def _run_cascade(
     except GateExhaustedError as exc:
         for name in exc.failed_providers or (primary.name,):
             _record_failed_gate_attempt(name)
-        logger.warning("gate run failed for image %s: %s", image.id, exc)
+        logger.warning(
+            "screening gate failed image_id=%s code=GATE_PROVIDER_FAILURE",
+            image.id,
+        )
         return ScreeningImageStatus.ERROR.value
     for name in outcome.failed_providers:
         _record_failed_gate_attempt(name)
@@ -958,6 +1120,9 @@ async def _run_cascade(
             "fallbacks_failed": list(outcome.failed_providers),
             "quality_problem": gate_result.response.quality_problem,
             "observation_count": len(gate_result.response.observations),
+            "response": gate_result.response.model_dump(mode="json"),
+            "response_sha256": _response_sha256(gate_result.raw_text),
+            "coverage_safety_pass": coverage_safety_pass,
         },
         crop_id=crop_id,
     )
@@ -967,7 +1132,12 @@ async def _run_cascade(
         return ScreeningImageStatus.UNASSESSABLE.value
 
     if not gate_result.response.flagged:
-        # The cascade stops here: one call, filed as healthy.
+        # The cascade stops here. A deterministic tenth of whole-frame
+        # healthy verdicts enters a neutral, human-reviewed control queue so
+        # the product can measure false negatives instead of reporting only
+        # precision among the positives it chose to emit.
+        if sample_healthy and crop is None and _sample_healthy_control(image):
+            await _enqueue_healthy_control(db, image, gate_run)
         return ScreeningImageStatus.HEALTHY.value
 
     await db.flush()  # gate_run.id backs the cross-check provenance below
@@ -1030,7 +1200,12 @@ async def _run_cascade(
                     crop_id=crop_id,
                 )
             )
-            logger.warning("specialist %s failed for image %s: %s", kind.value, image.id, exc)
+            logger.warning(
+                "screening specialist failed image_id=%s specialist=%s "
+                "code=SPECIALIST_PROVIDER_FAILURE",
+                image.id,
+                kind.value,
+            )
             summary.notes.append(f"specialist {kind.value} failed for image {image.id}")
             # The crop aggregates to FLAGGED, which is terminal for retries,
             # so this is the only chance the missed region's gate observation
@@ -1044,7 +1219,11 @@ async def _run_cascade(
             model=specialist.model,
             prompt_version=specialist.prompt_version,
             latency_ms=specialist.latency_ms,
-            detail={"condition_count": len(specialist.response.conditions)},
+            detail={
+                "condition_count": len(specialist.response.conditions),
+                "conditions": specialist.response.model_dump(mode="json")["conditions"],
+                "response_sha256": _response_sha256(specialist.raw_text),
+            },
             crop_id=crop_id,
         )
         db.add(specialist_run)
@@ -1127,6 +1306,8 @@ async def _run_cascade(
                         "cross_check_of": gate_run.id,
                         "agrees": check.response.flagged and not check.response.quality_problem,
                         "quality_problem": check.response.quality_problem,
+                        "response": check.response.model_dump(mode="json"),
+                        "response_sha256": _response_sha256(check.raw_text),
                     },
                     crop_id=crop_id,
                 )
@@ -1147,7 +1328,10 @@ async def _run_cascade(
                     crop_id=crop_id,
                 )
             )
-            logger.warning("cross-check failed for image %s: %s", image.id, exc)
+            logger.warning(
+                "screening cross-check failed image_id=%s code=CROSS_CHECK_PROVIDER_FAILURE",
+                image.id,
+            )
 
     return ScreeningImageStatus.FLAGGED.value
 
@@ -1168,13 +1352,52 @@ def _aggregate_crop_statuses(statuses: list[str]) -> str:
     return ScreeningImageStatus.HEALTHY.value if statuses else ScreeningImageStatus.ERROR.value
 
 
+async def _prior_coverage_safety_status(db: AsyncSession, image: ScreeningImage) -> str | None:
+    """Reuse a completed whole-frame safety pass when only a crop retries."""
+    verdict = (
+        await db.execute(
+            select(ScreeningRun.verdict)
+            .where(
+                ScreeningRun.farm_id == image.farm_id,
+                ScreeningRun.image_id == image.id,
+                ScreeningRun.crop_id.is_(None),
+                ScreeningRun.stage == ScreeningStage.GATE.value,
+                ScreeningRun.run_status == ScreeningRunStatus.OK.value,
+                ScreeningRun.detail["coverage_safety_pass"].astext == "true",
+            )
+            .order_by(ScreeningRun.created_at.desc(), ScreeningRun.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if verdict is None:
+        return None
+    return {
+        "healthy": ScreeningImageStatus.HEALTHY.value,
+        "flagged": ScreeningImageStatus.FLAGGED.value,
+        "unassessable": ScreeningImageStatus.UNASSESSABLE.value,
+    }.get(verdict)
+
+
 async def _content_claim_owner(db: AsyncSession, farm_id: int, sha256: str) -> int | None:
-    """Return the image that durably owns a farm-local content digest."""
+    """Return the *live* image that owns a farm-local content digest.
+
+    A retention-fenced image is logically absent even while its relational
+    chain remains as retry evidence. Joining the same-row tombstone fence here
+    prevents that hidden image from making a fresh upload look like a
+    duplicate.
+    """
     return (
         await db.execute(
-            select(ScreeningContentClaim.image_id).where(
+            select(ScreeningContentClaim.image_id)
+            .join(
+                ScreeningImage,
+                (ScreeningImage.farm_id == ScreeningContentClaim.farm_id)
+                & (ScreeningImage.id == ScreeningContentClaim.image_id),
+            )
+            .where(
                 ScreeningContentClaim.farm_id == farm_id,
                 ScreeningContentClaim.sha256 == sha256,
+                ScreeningImage.retention_tombstoned_at.is_(None),
             )
         )
     ).scalar_one_or_none()
@@ -1201,22 +1424,29 @@ async def _resolve_content_claim_conflict(
       cannot have findings: any flagged crop would have kept its aggregate
       status FLAGGED, which is the first branch.)
     """
-    owner_status = (
+    owner = (
         await db.execute(
-            select(ScreeningImage.status).where(
+            select(ScreeningImage)
+            .where(
                 ScreeningImage.id == owner_id,
                 ScreeningImage.farm_id == image.farm_id,
             )
+            # Retention locks the same root row before setting its durable
+            # tombstone. If it won, this waiter sees the updated tuple; if we
+            # win, retention's SKIP LOCKED planner leaves the owner alone.
+            .with_for_update()
         )
     ).scalar_one_or_none()
-    if owner_status in (
+    owner_status = owner.status if owner is not None else None
+    owner_is_live = owner is not None and owner.retention_tombstoned_at is None
+    if owner_is_live and owner_status in (
         ScreeningImageStatus.HEALTHY.value,
         ScreeningImageStatus.UNASSESSABLE.value,
         ScreeningImageStatus.FLAGGED.value,
         ScreeningImageStatus.SKIPPED.value,
     ):
         return "duplicate: identical bytes already screened for this farm"
-    if owner_status == ScreeningImageStatus.PROCESSING.value:
+    if owner_is_live and owner_status == ScreeningImageStatus.PROCESSING.value:
         return "duplicate: identical bytes are currently being screened for this farm"
 
     claim = (
@@ -1229,19 +1459,23 @@ async def _resolve_content_claim_conflict(
             .with_for_update()
         )
     ).scalar_one_or_none()
-    owner = await db.get(ScreeningImage, owner_id)
-    if claim is None or owner is None or claim.image_id != owner_id:
+    if claim is None or claim.image_id != owner_id:
         # Raced with another takeover or a cascade delete; the caller's
         # duplicate pre-check and the unique constraints still bound this —
         # re-read the winner rather than guessing.
         winner = await _content_claim_owner(db, image.farm_id, sha256)
         if winner == image.id:
             return None
+        if winner is None:
+            winner = await _reserve_normalized_content(db, image, sha256)
+            if winner == image.id:
+                return None
         return "duplicate: identical bytes already screened for this farm"
     claim.image_id = image.id
-    owner.status = ScreeningImageStatus.SKIPPED.value
-    owner.error = "superseded by a newer upload of identical bytes"
-    owner.next_attempt_at = None
+    if owner_is_live and owner is not None:
+        owner.status = ScreeningImageStatus.SKIPPED.value
+        owner.error = "superseded by a newer upload of identical bytes"
+        owner.next_attempt_at = None
     await db.flush()
     return None
 
@@ -1285,6 +1519,39 @@ async def _reserve_normalized_content(
         owner_id = await _content_claim_owner(db, image.farm_id, sha256)
         if owner_id is not None:
             return owner_id
+        # The unique digest row can still belong to a now-tombstoned image.
+        # Lock and transfer that compact claim instead of treating logically
+        # deleted evidence as a canonical result. Retention's child delete is
+        # predicate-bound to the old image id, so it cannot remove the claim
+        # after this update becomes visible.
+        stale_claim = (
+            await db.execute(
+                select(ScreeningContentClaim)
+                .where(
+                    ScreeningContentClaim.farm_id == image.farm_id,
+                    ScreeningContentClaim.sha256 == sha256,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if stale_claim is not None:
+            stale_owner = await db.get(ScreeningImage, stale_claim.image_id)
+            if stale_owner is not None and stale_owner.retention_tombstoned_at is not None:
+                image_claim = (
+                    await db.execute(
+                        select(ScreeningContentClaim.id).where(
+                            ScreeningContentClaim.farm_id == image.farm_id,
+                            ScreeningContentClaim.image_id == image.id,
+                            ScreeningContentClaim.id != stale_claim.id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if image_claim is not None:
+                    return None
+                stale_claim.image_id = image.id
+                image.sha256 = sha256
+                await db.commit()
+                return image.id
         # The other unique key is (farm_id, image_id): a prior successful
         # reservation for this image must not be silently rebound to new
         # bytes after its raw object changed.
@@ -1337,7 +1604,7 @@ def _note_object_absent(image: ScreeningImage, summary: CycleSummary) -> None:
     image.status = ScreeningImageStatus.PENDING.value
     image.error = None
     image.next_attempt_at = utcnow() + PENDING_OBJECT_RETRY_AFTER
-    summary.notes.append(f"object not uploaded yet: {image.s3_key!r}")
+    summary.notes.append(f"image {image.id} object not uploaded yet")
 
 
 async def _touch_processing_lease(db: AsyncSession, image: ScreeningImage) -> None:
@@ -1379,12 +1646,26 @@ async def _process_image(
     image.next_attempt_at = None
     await db.flush()
 
+    # A retry resumes from the already-sanitized derivative. Provider work
+    # therefore never depends on retaining an EXIF-bearing raw upload after
+    # normalization has succeeded.
+    using_persisted_derivative = bool(image.normalized_key and image.sha256)
+    source_key = image.normalized_key if using_persisted_derivative else image.s3_key
+    if source_key is None:  # defensive; the bool above makes this unreachable
+        image.status = ScreeningImageStatus.ERROR.value
+        image.error = _reason_text(ScreeningErrorReason.DOWNLOAD_FAILED)
+        summary.errors += 1
+        return
+
     try:
-        object_info = await asyncio.to_thread(storage.object_info, image.s3_key)
+        object_info = await asyncio.to_thread(storage.object_info, source_key)
     except ScreeningStorageError as exc:
         # The size probe rides the same failure contract as the download.
         image.status = ScreeningImageStatus.ERROR.value
-        logger.warning("object_info failed for %s: %s", image.s3_key, exc)
+        logger.warning(
+            "screening object metadata failed image_id=%s code=OBJECT_INFO_FAILED",
+            image.id,
+        )
         image.error = _tenant_safe_error(exc)
         summary.errors += 1
         return
@@ -1404,8 +1685,8 @@ async def _process_image(
         # Tenant-facing field carries the fixed reason code (B6); the byte
         # counts stay in the worker log.
         logger.warning(
-            "object %s skipped at HEAD probe as too large: %d bytes > cap %d",
-            image.s3_key,
+            "screening object skipped image_id=%s code=OBJECT_TOO_LARGE size_bytes=%d cap_bytes=%d",
+            image.id,
             object_info.size,
             MAX_DOWNLOAD_BYTES,
         )
@@ -1413,7 +1694,7 @@ async def _process_image(
         image.error = _reason_text(ScreeningErrorReason.OBJECT_TOO_LARGE)
         summary.skipped += 1
         return
-    if image.upload_token is not None:
+    if image.upload_token is not None and not using_persisted_derivative:
         # New direct POSTs carry all three policy-bound facts.  A key alone
         # is never proof of tenant ownership: an out-of-band bucket writer
         # must not be able to inject an image by guessing a farm/key prefix.
@@ -1448,7 +1729,7 @@ async def _process_image(
     try:
         raw = await asyncio.to_thread(
             storage.download,
-            image.s3_key,
+            source_key,
             max_bytes=MAX_DOWNLOAD_BYTES,
             etag=object_info.etag,
             version_id=object_info.version_id,
@@ -1464,37 +1745,61 @@ async def _process_image(
         # snapshot later rather than ever decoding unverified content.
         _note_object_absent(image, summary)
         return
-    except ScreeningObjectTooLargeError as exc:
+    except ScreeningObjectTooLargeError:
         image.status = ScreeningImageStatus.SKIPPED.value
         # Tenant-facing field carries the fixed reason code (B6); the byte
         # counts stay in the worker log.
-        logger.warning("object %s skipped as too large: %s", image.s3_key, exc)
+        logger.warning(
+            "screening object skipped image_id=%s code=OBJECT_TOO_LARGE",
+            image.id,
+        )
         image.error = _reason_text(ScreeningErrorReason.OBJECT_TOO_LARGE)
         summary.skipped += 1
         return
     except ScreeningStorageError as exc:
         image.status = ScreeningImageStatus.ERROR.value
-        logger.warning("download failed for %s: %s", image.s3_key, exc)
+        logger.warning(
+            "screening object download failed image_id=%s code=OBJECT_DOWNLOAD_FAILED",
+            image.id,
+        )
         image.error = _tenant_safe_error(exc)
         summary.errors += 1
         return
 
-    try:
-        normalized: NormalizedImage = await asyncio.to_thread(
-            normalize_image,
-            raw,
-            settings.screening_image_max_edge_px,
-            image.upload_content_type,
+    if using_persisted_derivative:
+        derivative_sha256 = hashlib.sha256(raw).hexdigest()
+        if derivative_sha256 != image.sha256 or image.width is None or image.height is None:
+            image.status = ScreeningImageStatus.ERROR.value
+            image.error = "normalized screening derivative failed its integrity check"
+            summary.errors += 1
+            return
+        normalized = NormalizedImage(
+            data=raw,
+            width=image.width,
+            height=image.height,
+            sha256=derivative_sha256,
+            byte_size=len(raw),
         )
-    except ImageNormalizationError as exc:
-        # Corrupt/hostile bytes are immutable facts about this object.  A
-        # retry would repeatedly send the same parser bomb through the
-        # worker, so reject it terminally and require a new upload row.
-        image.status = ScreeningImageStatus.SKIPPED.value
-        logger.warning("normalization rejected image %s: %s", image.id, exc)
-        image.error = _tenant_safe_error(exc)
-        summary.skipped += 1
-        return
+    else:
+        try:
+            normalized = await asyncio.to_thread(
+                normalize_image,
+                raw,
+                settings.screening_image_max_edge_px,
+                image.upload_content_type,
+            )
+        except ImageNormalizationError as exc:
+            # Corrupt/hostile bytes are immutable facts about this object. A
+            # retry would repeatedly send the same parser bomb through the
+            # worker, so reject it terminally and require a new upload row.
+            image.status = ScreeningImageStatus.SKIPPED.value
+            logger.warning(
+                "screening normalization rejected image_id=%s code=NORMALIZATION_REJECTED",
+                image.id,
+            )
+            image.error = _tenant_safe_error(exc)
+            summary.skipped += 1
+            return
 
     # A raw-object overwrite after a prior successful reservation must not
     # turn one screening record into the canonical result for two byte
@@ -1515,6 +1820,7 @@ async def _process_image(
                 ScreeningImage.farm_id == image.farm_id,
                 ScreeningImage.sha256 == normalized.sha256,
                 ScreeningImage.id != image.id,
+                ScreeningImage.retention_tombstoned_at.is_(None),
                 ScreeningImage.status.in_(
                     [
                         ScreeningImageStatus.HEALTHY.value,
@@ -1551,14 +1857,17 @@ async def _process_image(
             return
 
     captured = image.captured_date or business_today
-    derivative_key = normalized_derivative_key(image.farm_id, captured, normalized.sha256)
+    derivative_key = normalized_derivative_key(image.farm_id, captured, image.id, normalized.sha256)
     try:
         await asyncio.to_thread(storage.upload, derivative_key, normalized.data, "image/jpeg")
     except ScreeningStorageError as exc:
         # The gate could still run on the raw bytes, but then the review UI
         # would have no bounded image to show; fail and retry the whole image.
         image.status = ScreeningImageStatus.ERROR.value
-        logger.warning("derivative upload failed for %s: %s", image.s3_key, exc)
+        logger.warning(
+            "screening derivative upload failed image_id=%s code=DERIVATIVE_UPLOAD_FAILED",
+            image.id,
+        )
         image.error = _tenant_safe_error(exc)
         summary.errors += 1
         return
@@ -1568,6 +1877,28 @@ async def _process_image(
     image.height = normalized.height
     image.byte_size = normalized.byte_size
     image.normalized_key = derivative_key
+
+    # Bind the database record durably to the sanitized derivative before
+    # removing raw bytes. If object-store deletion fails, a later claim uses
+    # the derivative above and retries deletion before any provider call.
+    await db.flush()
+    await db.commit()
+    try:
+        await asyncio.to_thread(storage.delete_permanently, [image.s3_key])
+    except ScreeningStorageError as exc:
+        image.status = ScreeningImageStatus.ERROR.value
+        image.error = _tenant_safe_error(exc)
+        logger.warning(
+            "raw screening photo deletion failed image_id=%s code=RAW_DELETE_FAILED",
+            image.id,
+        )
+        summary.errors += 1
+        return
+    if image.upload_token is not None:
+        image.upload_token = None
+        image.upload_content_type = None
+    await db.flush()
+    await db.commit()
 
     primary = rotation.primary_for(business_today)
 
@@ -1651,6 +1982,33 @@ async def _process_image(
             summary.errors += 1
         return
 
+    # Detector boxes are proposals, not proof of full-frame coverage. Run a
+    # whole-frame safety gate as well so an undetected goat or lesion outside
+    # every crop can prevent a false HEALTHY parent. A completed pass is
+    # reused on crop-only retry to avoid duplicate findings/provider spend.
+    coverage_status = await _prior_coverage_safety_status(db, image)
+    if coverage_status is None:
+        coverage_status = await _run_cascade(
+            db,
+            settings,
+            rotation,
+            image,
+            None,
+            normalized.data,
+            summary,
+            business_today,
+            coverage_safety_pass=True,
+            # A crop can still flag after this healthy whole-frame gate. Queue
+            # the control only after the aggregate outcome is known healthy,
+            # otherwise the simultaneous positive finding would unblind it.
+            sample_healthy=False,
+        )
+    if coverage_status == ScreeningImageStatus.ERROR.value:
+        image.status = ScreeningImageStatus.ERROR.value
+        image.error = _reason_text(ScreeningErrorReason.PROVIDER_ERROR)
+        summary.errors += 1
+        return
+
     crops = existing_crops or [
         ScreeningCrop(
             farm_id=image.farm_id,
@@ -1669,10 +2027,17 @@ async def _process_image(
             db.add(crop)
     await db.flush()
 
-    crop_statuses: list[str] = []
+    # The whole-frame pass participates in the parent verdict: flagged wins,
+    # then crop/provider errors, then unassessable, then healthy.
+    crop_statuses: list[str] = [coverage_status]
     for crop, box in zip(crops, boxes, strict=True):
         if crop.status not in (
             ScreeningImageStatus.PENDING.value,
+            # A daily-budget stop commits the parent ERROR and the in-flight
+            # crop PROCESSING so already-written whole-frame evidence is not
+            # lost. Once the parent is reclaimed, that crop is abandoned work
+            # owned by this new claim and must be screened again.
+            ScreeningImageStatus.PROCESSING.value,
             ScreeningImageStatus.ERROR.value,
         ):
             crop_statuses.append(crop.status)
@@ -1686,18 +2051,31 @@ async def _process_image(
             )
         except CropError as exc:
             crop.status = ScreeningImageStatus.ERROR.value
-            logger.warning("crop %s failed for image %s: %s", crop.crop_index, image.id, exc)
+            logger.warning(
+                "screening crop failed image_id=%s crop_index=%s code=CROP_PROCESSING_FAILED",
+                image.id,
+                crop.crop_index,
+            )
             crop.error = _tenant_safe_error(exc)
             crop_statuses.append(ScreeningImageStatus.ERROR.value)
             continue
         crop_derivative = cropped_derivative_key(
-            image.farm_id, captured, normalized.sha256, crop.crop_index
+            image.farm_id,
+            captured,
+            image.id,
+            crop.id,
+            normalized.sha256,
+            crop.crop_index,
         )
         try:
             await asyncio.to_thread(storage.upload, crop_derivative, cropped.data, "image/jpeg")
         except ScreeningStorageError as exc:
             crop.status = ScreeningImageStatus.ERROR.value
-            logger.warning("crop derivative upload failed for image %s: %s", image.id, exc)
+            logger.warning(
+                "screening crop derivative upload failed image_id=%s "
+                "code=CROP_DERIVATIVE_UPLOAD_FAILED",
+                image.id,
+            )
             crop.error = _tenant_safe_error(exc)
             crop_statuses.append(ScreeningImageStatus.ERROR.value)
             continue
@@ -1712,6 +2090,7 @@ async def _process_image(
             cropped.data,
             summary,
             business_today,
+            sample_healthy=False,
         )
         crop.status = status
         if status == ScreeningImageStatus.ERROR.value:
@@ -1724,6 +2103,24 @@ async def _process_image(
         await _touch_processing_lease(db, image)
 
     image.status = _aggregate_crop_statuses(crop_statuses)
+    if image.status == ScreeningImageStatus.HEALTHY.value and _sample_healthy_control(image):
+        coverage_gate_run = (
+            await db.execute(
+                select(ScreeningRun)
+                .where(
+                    ScreeningRun.farm_id == image.farm_id,
+                    ScreeningRun.image_id == image.id,
+                    ScreeningRun.crop_id.is_(None),
+                    ScreeningRun.stage == ScreeningStage.GATE.value,
+                    ScreeningRun.run_status == ScreeningRunStatus.OK.value,
+                    ScreeningRun.detail["coverage_safety_pass"].astext == "true",
+                )
+                .order_by(ScreeningRun.created_at.desc(), ScreeningRun.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if coverage_gate_run is not None:
+            await _enqueue_healthy_control(db, image, coverage_gate_run)
     if image.status == ScreeningImageStatus.FLAGGED.value:
         summary.flagged += 1
     elif image.status == ScreeningImageStatus.HEALTHY.value:

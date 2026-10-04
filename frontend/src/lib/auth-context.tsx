@@ -78,6 +78,10 @@ export interface AuthState {
 const AuthContext = createContext<AuthState | null>(null);
 // Stryker disable next-line StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the key is pinned verbatim by the persistence suite
 const FARM_STORAGE_KEY = "goatfarm.farmId";
+const AUTH_EVENT_STORAGE_KEY = "goatfarm.authEvent";
+const AUTH_BROADCAST_CHANNEL = "goatfarm.auth";
+const AUTH_LOGOUT_EVENT_PREFIX = "logout:";
+let authEventSequence = 0;
 // Stryker disable next-line ArrayDeclaration, StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the list is pinned by the redirect suite
 const PUBLIC_PATHS = ["/login", "/register", "/worker/login", "/worker/offline"];
 
@@ -120,6 +124,28 @@ function clearStoredFarmId(): void {
     safeStorage("local")?.removeItem(FARM_STORAGE_KEY);
   } catch {
     /* nothing was persisted to clear */
+  }
+}
+
+/** Publish session death independently of farm selection. Removing an
+ * already-absent farm key emits no storage event, so farmless accounts need
+ * their own always-changing signal. BroadcastChannel covers browsers where
+ * site storage is blocked; the storage event remains the broad fallback. */
+function publishCrossTabLogout(): void {
+  authEventSequence += 1;
+  const event = `${AUTH_LOGOUT_EVENT_PREFIX}${Date.now()}:${authEventSequence}`;
+  try {
+    safeStorage("local")?.setItem(AUTH_EVENT_STORAGE_KEY, event);
+  } catch {
+    /* BroadcastChannel below may still be available. */
+  }
+  try {
+    if (typeof BroadcastChannel === "undefined") return;
+    const channel = new BroadcastChannel(AUTH_BROADCAST_CHANNEL);
+    channel.postMessage(event);
+    channel.close();
+  } catch {
+    /* The visibility-validation fallback handles fully blocked environments. */
   }
 }
 
@@ -312,6 +338,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Suppress the generic signed-out redirect effect for this explicit
     // transition; signOut owns the one navigation below.
     forcedLogout.current = true;
+    publishCrossTabLogout();
     // Fire the revocation while the bearer token is still installed, but
     // never block local teardown on it. A request that neither resolves nor
     // rejects would otherwise leave a shared terminal signed in.
@@ -525,6 +552,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // them under a different actor (2026-10-01 audit, 07-H).
       if (forcedLogout.current) return;
       forcedLogout.current = true;
+      publishCrossTabLogout();
       clearSession();
       router.replace(forcedLogoutDestination(window.location.pathname));
     };
@@ -536,7 +564,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // sign-out in one tab previously left every other tab on the stale farm
   // (its next write targeted the previous tenant) or on a dead session.
   useEffect(() => {
+    const mirrorLogout = () => {
+      if (userRef.current === null || forcedLogout.current) return;
+      forcedLogout.current = true;
+      clearSession();
+      router.replace(forcedLogoutDestination(window.location.pathname));
+    };
     const onStorage = (event: StorageEvent) => {
+      if (
+        event.key === AUTH_EVENT_STORAGE_KEY &&
+        event.newValue?.startsWith(AUTH_LOGOUT_EVENT_PREFIX)
+      ) {
+        mirrorLogout();
+        return;
+      }
       if (event.key !== FARM_STORAGE_KEY) return;
       if (event.newValue === null) {
         // Another tab tore its session down (clearSession removes the key):
@@ -544,11 +585,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // 401 one by one against a revoked family. The queue-wipe decision
         // belongs to its original actor/farm; every form of session teardown
         // retains unresolved work, including this mirrored transition.
-        if (userRef.current === null) return;
-        if (forcedLogout.current) return;
-        forcedLogout.current = true;
-        clearSession();
-        router.replace(forcedLogoutDestination(window.location.pathname));
+        mirrorLogout();
         return;
       }
       const revokedId = revokedFarmIdFromStorage(event.newValue);
@@ -583,14 +620,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         selectFarm(stored);
       }
     };
+    let channel: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== "undefined") {
+        channel = new BroadcastChannel(AUTH_BROADCAST_CHANNEL);
+        channel.addEventListener("message", (event: MessageEvent<unknown>) => {
+          if (
+            typeof event.data === "string" &&
+            event.data.startsWith(AUTH_LOGOUT_EVENT_PREFIX)
+          ) {
+            mirrorLogout();
+          }
+        });
+      }
+    } catch {
+      channel = null;
+    }
+
+    let storageAvailable = false;
+    try {
+      const storage = safeStorage("local");
+      if (storage) {
+        const probeKey = `${AUTH_EVENT_STORAGE_KEY}.probe`;
+        storage.setItem(probeKey, "1");
+        storage.removeItem(probeKey);
+        storageAvailable = true;
+      }
+    } catch {
+      storageAvailable = false;
+    }
+    const validateVisibleSession = () => {
+      if (document.visibilityState !== "visible" || userRef.current === null) return;
+      void apiFetch<SessionUser>("/api/auth/me").catch(() => {
+        // Authoritative 401s invoke the registered auth-failure handler;
+        // transient/network failures deliberately preserve the session.
+      });
+    };
+    if (!storageAvailable && channel === null) {
+      document.addEventListener("visibilitychange", validateVisibleSession);
+    }
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", validateVisibleSession);
+      channel?.close();
+    };
   }, [clearSession, router, selectFarm, queryClient]);
 
   useEffect(() => {
     if (initialRefreshStarted.current) return;
     initialRefreshStarted.current = true;
     (async () => {
+      // The cached offline-shift route is deliberately useful without a
+      // server session. Release its render gate before touching the network:
+      // captive portals and black-holed Wi-Fi often report navigator.onLine
+      // as true, and three refresh timeouts must not hide committed duties.
+      const releaseOfflineGate = pathname === "/worker/offline";
+      if (releaseOfflineGate) setLoading(false);
       try {
         // Offline cached pages have no server authentication. Release the
         // loading gate immediately so the bounded shift can be recovered;
@@ -629,7 +715,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // loading settles in finally and the redirect effect sends /login.
       } finally {
         // setState after unmount is a React no-op; no mounted re-check needed.
-        setLoading(false);
+        if (!releaseOfflineGate) setLoading(false);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

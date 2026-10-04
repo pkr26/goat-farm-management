@@ -1,6 +1,7 @@
 {
   "name": "frontend",
   "version": "0.1.0",
+  "license": "UNLICENSED",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,6 +16,7 @@
     "orval": "orval --config orval.config.ts",
     "e2e": "playwright test",
     "verify:dependencies": "node scripts/verify-dependency-mitigations.mjs",
+    "check:route-js-budget": "node scripts/check-route-js-budget.mjs",
     "audit:verified": "node scripts/audit-dependencies.mjs"
   },
   "dependencies": {

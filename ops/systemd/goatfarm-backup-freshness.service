@@ -1,0 +1,15 @@
+[Unit]
+Description=Check Goat Farm backup freshness
+After=goatfarm-backup.service
+
+[Service]
+Type=oneshot
+User=goatfarm-backup
+Group=goatfarm-backup
+ExecStart=/opt/goatfarm/backend/.venv/bin/python /opt/goatfarm/backend/scripts/check_backup_freshness.py /var/backups/goatfarm --max-age-hours 26 --textfile /var/lib/node_exporter/textfile_collector/goatfarm_backup.prom
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/var/backups/goatfarm
+ReadWritePaths=/var/lib/node_exporter/textfile_collector

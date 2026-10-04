@@ -209,7 +209,7 @@ function AddPolicyDialog({
         onClose();
       } catch (err) {
         if (!farmScope()) return;
-        const message = err instanceof ApiError && err.status === 409 ? err.detail : mutationErrorMessage(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -490,7 +490,7 @@ function RenewPolicyDialog({
         onClose();
       } catch (err) {
         if (!farmScope()) return;
-        const message = err instanceof ApiError && err.status === 409 ? err.detail : mutationErrorMessage(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -604,7 +604,7 @@ function ClaimPolicyDialog({
         onClose();
       } catch (err) {
         if (!farmScope()) return;
-        const message = err instanceof ApiError && err.status === 409 ? err.detail : mutationErrorMessage(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }

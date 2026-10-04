@@ -32,11 +32,15 @@ EXACT_MONEY_PARENT_REVISION = "a4d9e6f2b701"
 
 
 async def _alembic(*args: str) -> None:
+    migration_env = os.environ.copy()
+    # The guarded pytest database has no uncontrolled writers while this
+    # helper replays historical revisions.
+    migration_env["GOATFARM_MIGRATION_WRITES_QUIESCED"] = "true"
     result = await asyncio.to_thread(
         subprocess.run,
         [sys.executable, "-m", "alembic", *args],
         cwd=BACKEND_DIR,
-        env=os.environ.copy(),
+        env=migration_env,
         check=False,
         capture_output=True,
         text=True,

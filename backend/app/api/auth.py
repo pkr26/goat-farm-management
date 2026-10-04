@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .. import metrics
-from ..audit import security_event
+from ..audit import note_transient_security_signal, security_event
 from ..core.config import get_settings
 from ..deps import (
     INVALID_ACCESS_TOKEN_SCOPE,
@@ -83,6 +83,7 @@ from ..schemas.auth import (
 )
 from ..schemas.common import (
     COMMON_ERROR_RESPONSES,
+    JSON_CONTENT_TYPE_ERROR_RESPONSE,
     MAX_INT32_ID,
     lifecycle_conflict,
     stale_state_conflict,
@@ -141,13 +142,7 @@ worker_roster_farm_limiter = SlidingWindowRateLimiter()
 
 
 def _register_email_probe_key(email: str) -> str:
-    """Bucket key for one probed address — a hash, never the raw address.
-
-    The key is logged verbatim on every throttle decision, so it must not
-    embed the email itself; hashing matches every other token-derived limiter
-    key (``_refresh_token_key``, ``deps.record_invalid_token_verification``).
-    The scope string in the log message already names the bucket.
-    """
+    """Bucket key for one probed address — a hash, never the raw address."""
     return hashlib.sha256(email.lower().encode("utf-8")).hexdigest()
 
 
@@ -285,16 +280,14 @@ def _login_key(request: Request, email: str) -> str:
 
 
 def _login_block_reason(request: Request, email: str) -> str | None:
-    """Which login throttle is tripped: ``"composite"``/``"ip"`` are hard
-    blocks; ``"email"`` is the distributed-brute-force ceiling.
+    """Return the first tripped login throttle.
 
-    The per-email ceiling is deliberately SOFT (RT-A-1): a request from a
-    blocked email still pays the full Argon2 verification and a *correct*
-    password logs in — only failed passwords get the 429. Without this,
-    three rotating source addresses could keep a victim's correct-password
-    logins locked out indefinitely with no self-service unlock, while the
-    attacker's guessing cost would be unchanged (every guess still pays
-    Argon2 and still fails).
+    All three scopes are temporary hard admission ceilings. In particular,
+    the IP-agnostic email bucket must stop verification itself: continuing to
+    verify and admitting a correct guess after the advertised ceiling leaves
+    rotating-source credential stuffing uncapped. The bounded window is the
+    recovery path; successful authentication before the ceiling still clears
+    the account-specific history.
     """
     s = get_settings()
     if not s.auth_rate_limit_enabled:
@@ -310,26 +303,20 @@ def _login_block_reason(request: Request, email: str) -> str | None:
         reason = "email"
     else:
         return None
-    if reason in ("composite", "ip"):
-        # Security audit trail: throttling must be observable — but the
-        # metric counts decisions to ANSWER 429, and only the hard scopes
-        # pre-empt that answer. The soft email scope trips on observations
-        # that may still end in a successful login; its 429s are counted
-        # where they are actually raised (in the failed-password branch).
-        logger.info("login throttled (ip=%s, scope=%s)", _client_key(request), reason)
-        metrics.record_auth_rate_limit_rejection("login")
+    metrics.record_auth_rate_limit_rejection("login")
     return reason
 
 
 def _login_hard_blocked(request: Request, email: str) -> bool:
-    return _login_block_reason(request, email) in ("composite", "ip")
+    return _login_block_reason(request, email) is not None
 
 
 def _login_email_locked(request: Request, email: str) -> bool:
     """Direct per-email bucket query — never derived from
     ``_login_block_reason``: when several scopes trip at once (e.g. low test
     ceilings), the reason function's composite-first ordering would shadow
-    the email scope and silently downgrade the soft block to a plain 401."""
+    the email scope and the threshold-crossing request would answer a plain
+    401 instead of announcing the new temporary account lock with 429."""
     s = get_settings()
     if not s.auth_rate_limit_enabled:
         return False
@@ -372,7 +359,6 @@ def _rate_limited(scope: str, key: str) -> bool:
         scope, key, s.auth_rate_limit_max_attempts, s.auth_rate_limit_window_seconds
     )
     if blocked:
-        logger.info("%s throttled (key=%s)", scope, key)
         metrics.record_auth_rate_limit_rejection(scope)
     return blocked
 
@@ -403,7 +389,6 @@ def _account_password_blocked(scope: str, account_scope: str, rate_key: str, use
         account_scope, str(user_id), attempts * EMAIL_LIMIT_MULTIPLIER, window
     )
     if blocked:
-        logger.info("%s throttled (user_id=%s)", scope, user_id)
         metrics.record_auth_rate_limit_rejection(scope)
     return blocked
 
@@ -606,7 +591,6 @@ def _check_refresh_preverification_budget(request: Request, token: str | None) -
         invalid_limit,
         window,
     ):
-        logger.info("refresh pre-verification throttled (repeatedly invalid cookie)")
         metrics.record_auth_rate_limit_rejection(REFRESH_PREVERIFY_SCOPE)
         raise _too_many_attempts()
 
@@ -799,6 +783,7 @@ def _raise_invalid_refresh(request: Request, token: str | None = None) -> NoRetu
 
     This mirrors ``deps.record_invalid_token_verification`` for access tokens.
     """
+    note_transient_security_signal("auth.refresh.invalid")
     settings = get_settings()
     if settings.auth_rate_limit_enabled:
         rate_key = _client_key(request)
@@ -811,7 +796,6 @@ def _raise_invalid_refresh(request: Request, token: str | None = None) -> NoRetu
         # request's outcome.
         if auth_limiter.is_blocked("refresh-invalid", rate_key, ip_limit, window):
             auth_limiter.record("refresh-invalid", rate_key, window, max_attempts=ip_limit)
-            logger.info("refresh-invalid throttled (key=%s)", rate_key)
             metrics.record_auth_rate_limit_rejection("refresh-invalid")
             raise _too_many_attempts()
         auth_limiter.record(
@@ -822,13 +806,17 @@ def _raise_invalid_refresh(request: Request, token: str | None = None) -> NoRetu
         )
         auth_limiter.record("refresh-invalid", rate_key, window, max_attempts=ip_limit)
         if auth_limiter.is_blocked("refresh-invalid", rate_key, ip_limit, window):
-            logger.info("refresh-invalid throttled (key=%s)", rate_key)
             metrics.record_auth_rate_limit_rejection("refresh-invalid")
             raise _too_many_attempts()
     raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
 
-@router.post("/register", status_code=201, dependencies=[Depends(_require_json_content_type)])
+@router.post(
+    "/register",
+    status_code=201,
+    dependencies=[Depends(_require_json_content_type)],
+    responses=JSON_CONTENT_TYPE_ERROR_RESPONSE,
+)
 async def register(
     payload: RegisterIn, request: Request, response: Response, db: DbSession
 ) -> TokenOut:
@@ -858,8 +846,8 @@ async def register(
     # 429 before the hash, and unregistered-address bursts could always
     # spend those same Argon2 slots ungated — so the gate bought no CPU
     # bound, only the registrant lockout the soft scope forbids.
-    # The probe key is a hash of the address, never the address itself: the
-    # key is logged verbatim on a throttle decision, and the raw email is PII.
+    # The probe key is a hash of the address, never the address itself. It is
+    # process-local limiter state and is never copied into logs.
     email_probe_key = _register_email_probe_key(payload.email)
     s_limits = get_settings()
 
@@ -888,7 +876,7 @@ async def register(
     existing = await db.execute(select(User).where(User.email == payload.email))
     if existing.scalar_one_or_none() is not None:
         if _probe_ceiling_tripped():
-            logger.info("register-email throttled (key=%s)", email_probe_key)
+            metrics.record_auth_rate_limit_rejection("register-email")
             raise _too_many_attempts()
         _charge_email_probe()
         raise HTTPException(status_code=400, detail=ALREADY_REGISTERED)
@@ -913,7 +901,11 @@ async def register(
     return out
 
 
-@router.post("/login", dependencies=[Depends(_require_json_content_type)])
+@router.post(
+    "/login",
+    dependencies=[Depends(_require_json_content_type)],
+    responses=JSON_CONTENT_TYPE_ERROR_RESPONSE,
+)
 async def login(payload: LoginIn, request: Request, response: Response, db: DbSession) -> LoginOut:
     if _login_hard_blocked(request, payload.email):
         raise _too_many_attempts()
@@ -925,8 +917,9 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
         # Re-check after the atomic admission reservation. A preceding request
         # may have recorded the threshold immediately before releasing its
         # slot; no expensive work starts from a stale limiter observation.
-        # Only the hard scopes pre-reject: a soft per-email block still pays
-        # the verification below (RT-A-1).
+        # Every scope pre-rejects, including the IP-agnostic account ceiling;
+        # no rotating-source request may keep spending Argon2 guesses after
+        # that account budget is exhausted.
         if _login_hard_blocked(request, payload.email):
             raise _too_many_attempts()
 
@@ -969,11 +962,9 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
                 )
             _record_login_failure(request, payload.email)
             if _login_email_locked(request, payload.email):
-                # Soft per-email ceiling (RT-A-1): the wrong password answers
-                # the block; the right one proceeds to success below. This is
-                # the only place the email scope becomes a 429, so its audit
-                # trail and rejection metric belong here.
-                logger.info("login throttled (ip=%s, scope=email)", _client_key(request))
+                # The request that reaches the per-email ceiling announces the
+                # temporary account lock immediately; subsequent requests are
+                # rejected before another expensive verification.
                 metrics.record_auth_rate_limit_rejection("login")
                 raise _too_many_attempts()
             raise invalid
@@ -1045,13 +1036,14 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
                 TOTP_CHALLENGE_TTL_SECONDS,
                 extra_claims={"ver": user.token_version, "tablet_setup": payload.tablet_setup},
             )
-            await db.commit()  # persist any legacy-hash upgrade above
-            _reset_login_failures(request, payload.email)
             security_event(
                 "auth.totp.challenge_issued",
                 "password accepted; TOTP challenge demanded",
+                session=db,
                 user_id=user.id,
             )
+            await db.commit()  # persist the hash upgrade and audit row atomically
+            _reset_login_failures(request, payload.email)
             return LoginOut(mfa_token=challenge)
         out = await _issue_tokens(db, user, response, transient=payload.tablet_setup)
         await db.commit()
@@ -1108,9 +1100,7 @@ async def worker_roster(
     ):
         # (2026-10-01 audit, 01-1) the per-farm ceiling is charged by the
         # farm id alone, never the source address, so this 429 fires however
-        # many addresses the probing rotated through. farm_id is a public
-        # URL parameter — safe to name in the log line.
-        logger.info("worker-roster-farm throttled (farm_id=%s)", farm_id)
+        # many addresses the probing rotated through.
         metrics.record_auth_rate_limit_rejection(WORKER_ROSTER_FARM_SCOPE)
         raise _too_many_attempts()
     if s.auth_rate_limit_enabled:
@@ -1170,7 +1160,11 @@ async def worker_roster(
     )
 
 
-@router.post("/worker-login", dependencies=[Depends(_require_json_content_type)])
+@router.post(
+    "/worker-login",
+    dependencies=[Depends(_require_json_content_type)],
+    responses=JSON_CONTENT_TYPE_ERROR_RESPONSE,
+)
 async def worker_login(
     payload: WorkerLoginIn,
     request: Request,
@@ -1193,15 +1187,12 @@ async def worker_login(
     s = get_settings()
     identity_key = f"{_client_key(request)}|{payload.farm_id}|{payload.membership_id}"
     # IP-agnostic per-membership budget: rotating source addresses cannot reset
-    # it (the login-email analogue). Soft like login's — it only ever answers a
-    # FAILED pin, so an attacker's burst can never lock out the worker's own
-    # correct PIN (2026-09-28 audit, H3).
+    # it. This is a bounded-window hard ceiling, so verification stops after
+    # the budget rather than accepting the eventual correct guess.
     account_key = f"{payload.farm_id}|{payload.membership_id}"
     spray_key = f"{_client_key(request)}|{payload.farm_id}"
 
     def _hard_blocked() -> bool:
-        # Only the hard scopes pre-reject (identity, spray); the soft
-        # per-membership account ceiling answers FAILED pins inside _failed.
         return bool(
             s.auth_rate_limit_enabled
             and (
@@ -1217,6 +1208,12 @@ async def worker_login(
                     10 * s.worker_pin_rate_limit_max_attempts,
                     s.worker_pin_rate_limit_window_seconds,
                 )
+                or auth_limiter.is_blocked(
+                    WORKER_PIN_ACCOUNT_SCOPE,
+                    account_key,
+                    s.worker_pin_rate_limit_max_attempts * WORKER_PIN_ACCOUNT_LIMIT_MULTIPLIER,
+                    s.worker_pin_rate_limit_window_seconds,
+                )
             )
         )
 
@@ -1226,7 +1223,7 @@ async def worker_login(
 
     generic = HTTPException(status_code=401, detail="Invalid PIN.")
 
-    def _charge_failure_ledgers() -> None:
+    async def _charge_failure_ledgers() -> None:
         """Record one failed attempt in all three scopes + the security
         event. Shared by the 401/429 answer and the cancellation accounting
         below (login's rule: a disconnect mid-verify is a failed attempt)."""
@@ -1250,12 +1247,11 @@ async def worker_login(
                 s.worker_pin_rate_limit_window_seconds,
                 max_attempts=10 * s.worker_pin_rate_limit_max_attempts,
             )
-        security_event(
-            "auth.worker_pin.login_failed",
-            "wrong or unknown worker PIN",
-            farm_id=payload.farm_id,
-            membership_id=payload.membership_id,
-        )
+        # Failure has no domain mutation to share, so release any credential
+        # read/lock transaction. The fixed-cardinality signal preserves a
+        # useful count without allowing guesses to force durable writes.
+        await db.rollback()
+        note_transient_security_signal("auth.worker_pin.login_failed")
 
     # Snapshot the credential scalars WITHOUT the row lock and end the read
     # transaction, so Argon2 never holds a row lock, transaction, or
@@ -1301,34 +1297,37 @@ async def worker_login(
         ok, _needs_rehash = await reservation.run(
             lambda: verify_password_async(payload.pin, stored_hash)
         )
+        # Existing short PIN hashes may predate a tightened deployment floor.
+        # Still spend the normal verification budget to preserve timing, but
+        # never let a below-policy credential establish a new session.
+        ok = ok and len(payload.pin) >= s.worker_pin_min_length
     except asyncio.CancelledError:
         # A disconnect mid-verify is a failed attempt: without this, paced
         # cancel/retry spends Argon2 work forever without ever reaching the
         # post-verification ledgers (login charges the same way).
         if pin_work_started and not pin_accepted:
-            _charge_failure_ledgers()
+            await _charge_failure_ledgers()
         raise
     finally:
         reservation.release_when_idle()
 
-    def _failed() -> NoReturn:
-        _charge_failure_ledgers()
+    async def _failed() -> NoReturn:
+        await _charge_failure_ledgers()
         if s.auth_rate_limit_enabled and auth_limiter.is_blocked(
             WORKER_PIN_ACCOUNT_SCOPE,
             account_key,
             s.worker_pin_rate_limit_max_attempts * WORKER_PIN_ACCOUNT_LIMIT_MULTIPLIER,
             s.worker_pin_rate_limit_window_seconds,
         ):
-            # Soft per-membership ceiling (the login-email analogue): the wrong
-            # PIN answers the block; the right one still proceeds below. This
-            # is the only place the account scope becomes a 429, so its
-            # rejection metric belongs here.
+            # The request that consumes the last allowance announces the
+            # temporary lock immediately; later requests are rejected before
+            # another expensive verification.
             metrics.record_auth_rate_limit_rejection(WORKER_PIN_ACCOUNT_SCOPE)
             raise _too_many_attempts(s.worker_pin_rate_limit_window_seconds)
         raise generic
 
     if membership_id is None or user_id is None or pin_hash is None or not ok:
-        _failed()
+        await _failed()
     # From this point cancellation is no longer free verification: the caller
     # proved the PIN, so a disconnect must not enter the failure ledgers
     # (login's credential_accepted rule).
@@ -1352,7 +1351,7 @@ async def worker_login(
         )
     ).scalar_one_or_none()
     if locked_membership is None:
-        _failed()
+        await _failed()
     row = (
         await db.execute(
             select(FarmMembership, User)
@@ -1365,7 +1364,7 @@ async def worker_login(
     if row is None:
         # Deactivated or deleted while the PIN was being verified: the pair
         # is unknown now, and the answer stays the generic failure.
-        _failed()
+        await _failed()
     user = row[1]
     live_role = (
         await db.execute(
@@ -1382,12 +1381,12 @@ async def worker_login(
         await db.execute(select(Farm.owner_id).where(Farm.id == payload.farm_id))
     ).scalar_one_or_none()
     if live_role is None or farm_owner_id == user.id:
-        _failed()
+        await _failed()
     if user.token_version != token_version:
         # Every PIN/password rotation and every deletion bumps token_version
         # under this same User lock, so the proven credential is stale — the
         # login reload-mismatch case, answered with the generic failure.
-        _failed()
+        await _failed()
     if user.totp_state == "ACTIVE":
         # The tablet is not an authenticator; a second-factor account must use
         # the password + TOTP flow.
@@ -1408,6 +1407,14 @@ async def worker_login(
     out = await _issue_tokens(
         db, user, response, scope=SessionScope("PIN", payload.farm_id, membership_id)
     )
+    security_event(
+        "auth.worker_pin.login_succeeded",
+        "worker signed in on the tablet by PIN",
+        session=db,
+        farm_id=payload.farm_id,
+        membership_id=payload.membership_id,
+        user_id=user.id,
+    )
     await db.commit()
     if s.auth_rate_limit_enabled:
         # A success clears only the failure counts of the membership that
@@ -1416,13 +1423,6 @@ async def worker_login(
         # cannot refresh an attacker's spray budget (2026-09-28 audit, H3).
         auth_limiter.reset(WORKER_PIN_SCOPE, identity_key)
         auth_limiter.reset(WORKER_PIN_ACCOUNT_SCOPE, account_key)
-    security_event(
-        "auth.worker_pin.login_succeeded",
-        "worker signed in on the tablet by PIN",
-        farm_id=payload.farm_id,
-        membership_id=payload.membership_id,
-        user_id=user.id,
-    )
     return LoginOut(access_token=out.access_token, token_type=out.token_type, user=out.user)
 
 
@@ -1516,20 +1516,26 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
         # have been compacted, but replay still revokes the bounded current
         # family rather than degrading to a harmless 401 for the attacker.
         if claims.family_id is not None:
-            await revoke_session_family(
+            revoked = await revoke_session_family(
                 db,
                 claims.family_id,
                 user_id=claims.user_id,
             )
-            await db.commit()
-            # DET-1: this is the platform's strongest theft signal — a
-            # signed, once-valid credential whose row is already gone.
-            security_event(
-                "auth.refresh.family_revoked",
-                "compacted refresh replay revoked the family",
-                user_id=claims.user_id,
-                family_id=claims.family_id,
-            )
+            if revoked:
+                # DET-1: this is the platform's strongest theft signal — a
+                # signed, once-valid credential whose row is already gone.
+                # Only the request that changes family state is durable;
+                # subsequent replays are bounded transient signals below.
+                security_event(
+                    "auth.refresh.family_revoked",
+                    "compacted refresh replay revoked the family",
+                    session=db,
+                    user_id=claims.user_id,
+                    family_id=claims.family_id,
+                )
+                await db.commit()
+            else:
+                await db.rollback()
         _raise_invalid_refresh(
             request,
             token,
@@ -1597,7 +1603,6 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
                 user=UserOut.model_validate(user),
             )
         await revoke_session_family(db, session.family_id, user_id=session.user_id)
-        await db.commit()
         logger.warning(
             "refresh-token reuse detected — revoked family %s (user_id=%s)",
             session.family_id,
@@ -1608,9 +1613,11 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
         security_event(
             "auth.refresh.family_revoked",
             "refresh-token reuse outside the rotation grace revoked the family",
+            session=db,
             user_id=session.user_id,
             family_id=session.family_id,
         )
+        await db.commit()
         _raise_invalid_refresh(request, token)
     session.consumed_at = now
     out = await _issue_tokens(
@@ -1639,8 +1646,14 @@ async def logout_session(request: Request, db: DbSession, user: CurrentUser) -> 
     if locked is None:
         raise HTTPException(status_code=401, detail="Account no longer exists")
     await _require_authenticated_generation(db, request, locked, expected_version)
-    await revoke_session_family(db, family_id, user_id=actor_id)
-    await db.commit()
+    revoked = await revoke_session_family(db, family_id, user_id=actor_id)
+    if revoked:
+        await db.commit()
+    else:
+        # The bearer can outlive an already-cancelled refresh family. Keep
+        # this idempotent endpoint from turning repeated valid requests into
+        # no-op WAL/commit traffic.
+        await db.rollback()
     return Response(status_code=204)
 
 
@@ -1693,6 +1706,7 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
         # not attacker input, and must not spend the invalid-token budget.
         and not _refresh_token_expired_but_genuine(token)
     ):
+        note_transient_security_signal("auth.refresh.invalid")
         refresh_ip_blocked = record_invalid_token_verification(
             request,
             INVALID_LOGOUT_REFRESH_TOKEN_SCOPE,
@@ -1704,6 +1718,7 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
         and access_claims is None
         and not (access_result is not None and access_result.expired)
     ):
+        note_transient_security_signal("auth.token.invalid")
         access_ip_blocked = record_invalid_token_verification(
             request,
             INVALID_ACCESS_TOKEN_SCOPE,
@@ -1719,6 +1734,14 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
     candidate_user_id = claims.user_id if claims is not None else None
     if candidate_user_id is None and access_claims is not None:
         candidate_user_id = access_claims.user_id
+    if candidate_user_id is None:
+        # A request containing only absent/invalid/expired credentials has no
+        # server-side state to mutate. Clear the browser cookie without even a
+        # read-only ORM commit: hostile logout traffic must not manufacture a
+        # transaction or an after-commit audit projection opportunity.
+        _delete_refresh_cookie(response)
+        response.status_code = 204
+        return response
     logged_out_user = (
         (
             await db.execute(
@@ -1732,6 +1755,7 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
         else None
     )
     cookie_confirmed = False
+    mutated = False
     if claims is not None and logged_out_user is not None:
         session = (
             await db.execute(
@@ -1754,13 +1778,14 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
             # If a concurrent refresh won the User lock first, its committed
             # successor is already in this family and is revoked by the same
             # UPDATE. It can never refresh successfully after this 204.
-            await revoke_session_family(
+            revoked = await revoke_session_family(
                 db,
                 session.family_id,
                 user_id=session.user_id,
             )
             candidate_user_id = session.user_id
-            cookie_confirmed = True
+            cookie_confirmed = revoked > 0
+            mutated = mutated or cookie_confirmed
         elif session is None and claims.family_id is not None and claims.expires_at > now:
             # Rotation compaction deliberately removes old consumed rows. A
             # still-live, correctly signed predecessor nevertheless identifies
@@ -1785,12 +1810,13 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
                 )
             ).scalar_one_or_none()
             if live_family_session is not None:
-                await revoke_session_family(
+                revoked = await revoke_session_family(
                     db,
                     claims.family_id,
                     user_id=claims.user_id,
                 )
-                cookie_confirmed = True
+                cookie_confirmed = revoked > 0
+                mutated = mutated or cookie_confirmed
     bearer_family_live = False
     if logged_out_user is not None and access_claims is not None:
         bearer_family_live = (
@@ -1827,7 +1853,10 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
         )
         if scope.origin == "PIN":
             if bearer_current and access_claims is not None and access_claims.family_id:
-                await revoke_session_family(db, access_claims.family_id, user_id=logged_out_user.id)
+                revoked = await revoke_session_family(
+                    db, access_claims.family_id, user_id=logged_out_user.id
+                )
+                mutated = mutated or revoked > 0
         elif cookie_confirmed or bearer_current:
             if bearer_current and not cookie_confirmed:
                 # With no valid cookie there is no provable family to target.
@@ -1837,7 +1866,11 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
                 # finite, so bearer-only logout means logout everywhere.
                 await revoke_user_sessions(db, logged_out_user.id)
             logged_out_user.token_version += 1
-    await db.commit()
+            mutated = True
+    if mutated:
+        await db.commit()
+    else:
+        await db.rollback()
     _delete_refresh_cookie(response)
     response.status_code = 204
     return response
@@ -1938,7 +1971,6 @@ async def change_password(
         locked_user.must_change_password = False
         await revoke_user_sessions(db, locked_user.id)
         out = await _issue_tokens(db, locked_user, response)  # new family, fresh session
-        await db.commit()
         # 2026-09-17 re-audit: a self-service credential change is the single
         # most security-relevant lifecycle event (every session died), yet it
         # emitted nothing an operator could alert on. ids only, no PII, same
@@ -1946,8 +1978,10 @@ async def change_password(
         security_event(
             "auth.password.changed",
             "Password changed (all sessions revoked)",
+            session=db,
             user_id=locked_user.id,
         )
+        await db.commit()
         # Only a completed change proves the caller knew the current password
         # AND consumed no further budget; clear it after the commit.
         _reset_account_password_attempts(*scopes)
@@ -2016,8 +2050,10 @@ async def export_account(response: Response, db: DbSession, user: CurrentUser) -
     security_event(
         "auth.account.exported",
         "account identity and tenant relationships exported",
+        session=db,
         user_id=user.id,
     )
+    await db.commit()
     return AccountExportOut(
         exported_at=utcnow(),
         account=AccountIdentityExport(
@@ -2151,15 +2187,16 @@ async def delete_account(
         locked_user.totp_state = None
         locked_user.totp_last_step = None
         locked_user.must_change_password = False
-        await db.commit()
         # 2026-09-17 re-audit: deletion is an irreversible identity event and
         # needs the same operator-visible trail as a password change (ids
         # only; the tombstoned email is deliberately never logged).
         security_event(
             "auth.account.deleted",
             "Account deleted",
+            session=db,
             user_id=locked_user.id,
         )
+        await db.commit()
         _reset_account_password_attempts(*scopes)
 
         _delete_refresh_cookie(response)
@@ -2315,7 +2352,6 @@ async def transfer_farm_ownership(
     farm.owner_id = successor.id
     successor.token_version += 1
     await revoke_user_sessions(db, successor.id)
-    await db.commit()
     _reset_account_password_attempts(
         ACCOUNT_DELETE_SCOPE,
         ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE,
@@ -2325,10 +2361,12 @@ async def transfer_farm_ownership(
     security_event(
         "auth.farm.ownership_transferred",
         "Farm ownership transferred",
+        session=db,
         farm_id=farm_id,
         user_id=actor_id,
         new_owner_id=successor.id,
     )
+    await db.commit()
     return FarmOut(
         id=farm.id, name=farm.name, location=farm.location, timezone=farm.timezone, role=None
     )
@@ -2477,9 +2515,6 @@ TOTP_SECRET_UNAVAILABLE_DETAIL = (
 async def _decrypt_totp_secret_or_unavailable(
     db: AsyncSession,
     encrypted: bytes,
-    *,
-    user_id: int,
-    operation: str,
 ) -> DecryptedTotpSecret:
     """Read TOTP material or return a deliberately non-diagnostic 503.
 
@@ -2493,12 +2528,7 @@ async def _decrypt_totp_secret_or_unavailable(
         return decrypt_totp_secret_with_metadata(encrypted)
     except TotpSecretUnavailableError:
         await db.rollback()
-        security_event(
-            "auth.totp.secret_unavailable",
-            "stored TOTP secret could not be authenticated",
-            user_id=user_id,
-            operation=operation,
-        )
+        note_transient_security_signal("auth.totp.secret_unavailable")
         raise HTTPException(status_code=503, detail=TOTP_SECRET_UNAVAILABLE_DETAIL) from None
 
 
@@ -2644,6 +2674,12 @@ async def totp_enroll(
     locked.totp_secret_enc = encrypt_totp_secret(secret)
     locked.totp_state = "PENDING"
     locked.totp_last_step = None
+    security_event(
+        "auth.totp.enroll_started",
+        "TOTP enrollment started (pending confirmation)",
+        session=db,
+        user_id=locked.id,
+    )
     await db.commit()
     # A completed enrollment proves the caller knew the current password —
     # the confirmation budget's own contract ("successful commits clear the
@@ -2657,26 +2693,26 @@ async def totp_enroll(
         f"{_client_key(request)}|{user_id}",
         user_id,
     )
-    security_event(
-        "auth.totp.enroll_started",
-        "TOTP enrollment started (pending confirmation)",
-        user_id=locked.id,
-    )
     return TotpEnrollOut(secret=secret, otpauth_uri=_otpauth_uri(secret, locked.email))
 
 
-async def _mint_totp_recovery_codes(db: AsyncSession, user: User) -> list[str]:
-    """Replace the user's recovery-code set; return the plaintexts once.
+async def _prepare_totp_recovery_codes() -> tuple[list[str], list[str]]:
+    """Generate and hash a recovery-code set without a DB transaction.
 
-    Called only where the caller has proven control of the account (enrollment
-    confirmation, regeneration with password + TOTP). Hashing runs in the
-    password-work pool so a 10-code mint never blocks the event loop."""
+    Ten Argon2 hashes are intentionally completed before acquiring the final
+    user row lock. The caller must then re-lock and revalidate every security-
+    relevant snapshot field before atomically replacing the stored set.
+    """
     codes = [generate_totp_recovery_code() for _ in range(TOTP_RECOVERY_CODE_COUNT)]
     hashes = await hash_totp_recovery_codes_async(codes)
-    await db.execute(delete(TotpRecoveryCode).where(TotpRecoveryCode.user_id == user.id))
+    return codes, hashes
+
+
+async def _replace_totp_recovery_codes(db: AsyncSession, user_id: int, hashes: list[str]) -> None:
+    """Atomically replace hashes inside the caller's final locked transaction."""
+    await db.execute(delete(TotpRecoveryCode).where(TotpRecoveryCode.user_id == user_id))
     for digest in hashes:
-        db.add(TotpRecoveryCode(user_id=user.id, code_hash=digest))
-    return codes
+        db.add(TotpRecoveryCode(user_id=user_id, code_hash=digest))
 
 
 @router.post("/totp/confirm")
@@ -2694,29 +2730,29 @@ async def totp_confirm(
     afterwards, so the client must present them for copy/print immediately."""
     user_id = user.id
     authenticated_token_version = user.token_version
-    locked = (
+    snapshot = (
         await db.execute(
-            select(User)
-            .where(User.id == user_id, User.deleted_at.is_(None))
-            .execution_options(populate_existing=True)
-            .with_for_update()
+            select(
+                User.token_version, User.totp_state, User.totp_secret_enc, User.totp_last_step
+            ).where(User.id == user_id, User.deleted_at.is_(None))
         )
-    ).scalar_one_or_none()
-    if locked is None:
+    ).one_or_none()
+    if snapshot is None:
         # Concurrently deleted account: scalar_one would raise NoResultFound
         # → 500 here (2026-09-17 re-audit).
         raise HTTPException(status_code=401, detail="Account no longer exists.")
-    await _require_authenticated_generation(db, request, locked, authenticated_token_version)
-    if locked.totp_state != "PENDING" or locked.totp_secret_enc is None:
+    if snapshot.token_version != authenticated_token_version:
+        raise HTTPException(status_code=401, detail="Session is no longer valid")
+    if snapshot.totp_state != "PENDING" or snapshot.totp_secret_enc is None:
         raise lifecycle_conflict(detail="Start enrollment first.")
     # Same guess budget as the login challenge: a stolen access token must
     # not get an unthrottled 6-digit oracle here either (2026-09-17 re-audit).
     s = get_settings()
-    composite_key = f"{_client_key(request)}|{user.id}"
+    composite_key = f"{_client_key(request)}|{user_id}"
     if s.auth_rate_limit_enabled and (
         auth_limiter.is_blocked(
             TOTP_CONFIRM_USER_SCOPE,
-            str(user.id),
+            str(user_id),
             TOTP_CHALLENGE_MAX_ATTEMPTS,
             s.auth_rate_limit_window_seconds,
         )
@@ -2727,21 +2763,16 @@ async def totp_confirm(
             s.auth_rate_limit_window_seconds,
         )
     ):
-        logger.info("totp confirm throttled (user_id=%s)", user.id)
         metrics.record_auth_rate_limit_rejection(TOTP_CONFIRM_USER_SCOPE)
         await db.rollback()
         raise _too_many_attempts()
-    encrypted = locked.totp_secret_enc
-    if encrypted is None:  # unreachable: the PENDING check above plus the pairing CHECK
-        raise lifecycle_conflict(detail="Start enrollment first.")
-    decrypted = await _decrypt_totp_secret_or_unavailable(
-        db, encrypted, user_id=locked.id, operation="confirm"
-    )
+    encrypted = snapshot.totp_secret_enc
+    decrypted = await _decrypt_totp_secret_or_unavailable(db, encrypted)
     matched = verify_totp_code(decrypted.secret, payload.code, at=utcnow(), last_used_step=None)
     if matched is None:
         auth_limiter.record(
             TOTP_CONFIRM_USER_SCOPE,
-            str(user.id),
+            str(user_id),
             s.auth_rate_limit_window_seconds,
             max_attempts=TOTP_CHALLENGE_MAX_ATTEMPTS,
         )
@@ -2753,20 +2784,43 @@ async def totp_confirm(
         )
         await db.rollback()
         raise HTTPException(status_code=400, detail="That code is not valid right now.")
+    # Release the read transaction and pool checkout before ten Argon2 hashes.
+    # The exact snapshot is revalidated under the final row lock below.
+    await db.rollback()
+    codes, hashes = await _prepare_totp_recovery_codes()
+    locked = (
+        await db.execute(
+            select(User)
+            .where(User.id == user_id, User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked is None:
+        raise HTTPException(status_code=401, detail="Account no longer exists.")
+    await _require_authenticated_generation(db, request, locked, authenticated_token_version)
+    if (
+        locked.totp_state != "PENDING"
+        or locked.totp_secret_enc != encrypted
+        or locked.totp_last_step != snapshot.totp_last_step
+    ):
+        await db.rollback()
+        raise stale_state_conflict(detail="Two-factor enrollment changed; try again.")
     locked.totp_state = "ACTIVE"
     locked.totp_last_step = matched
     if decrypted.needs_rewrap:
         locked.totp_secret_enc = encrypt_totp_secret(decrypted.secret)
-    codes = await _mint_totp_recovery_codes(db, locked)
-    await db.commit()
-    if s.auth_rate_limit_enabled:
-        auth_limiter.reset(TOTP_CONFIRM_USER_SCOPE, str(user.id))
-        auth_limiter.reset(TOTP_CONFIRM_USER_SCOPE, composite_key)
+    await _replace_totp_recovery_codes(db, locked.id, hashes)
     security_event(
         "auth.totp.enabled",
         "TOTP second factor activated; recovery codes minted",
+        session=db,
         user_id=locked.id,
     )
+    await db.commit()
+    if s.auth_rate_limit_enabled:
+        auth_limiter.reset(TOTP_CONFIRM_USER_SCOPE, str(user_id))
+        auth_limiter.reset(TOTP_CONFIRM_USER_SCOPE, composite_key)
     return TotpRecoveryCodesOut(codes=codes)
 
 
@@ -2841,13 +2895,10 @@ async def totp_disable(
                     s.auth_rate_limit_window_seconds,
                 )
             ):
-                logger.info("totp disable throttled (user_id=%s)", user_id)
                 metrics.record_auth_rate_limit_rejection(TOTP_DISABLE_USER_SCOPE)
                 await db.rollback()
                 raise _too_many_attempts()
-            decrypted = await _decrypt_totp_secret_or_unavailable(
-                db, encrypted, user_id=locked.id, operation="disable"
-            )
+            decrypted = await _decrypt_totp_secret_or_unavailable(db, encrypted)
             if (
                 verify_totp_code(
                     decrypted.secret,
@@ -2872,11 +2923,7 @@ async def totp_disable(
                     max_attempts=TOTP_CHALLENGE_MAX_ATTEMPTS,
                 )
                 await db.rollback()
-                security_event(
-                    "auth.totp.disable_failed",
-                    "wrong TOTP code on disable attempt",
-                    user_id=locked_id,
-                )
+                note_transient_security_signal("auth.totp.disable_failed")
                 raise HTTPException(status_code=400, detail="That code is not valid right now.")
         locked.totp_secret_enc = None
         locked.totp_state = None
@@ -2884,6 +2931,12 @@ async def totp_disable(
         # The recovery codes exist only to bypass the second factor; disabling
         # it must retire them (a later re-enrollment mints a fresh set).
         await db.execute(delete(TotpRecoveryCode).where(TotpRecoveryCode.user_id == user_id))
+        security_event(
+            "auth.totp.disabled",
+            "TOTP second factor removed",
+            session=db,
+            user_id=locked_id,
+        )
         await db.commit()
         # The password side of the proof succeeded and committed — clear the
         # confirmation budget like every other successful credential workflow
@@ -2900,11 +2953,6 @@ async def totp_disable(
             # its ledger the way a successful confirm does.
             auth_limiter.reset(TOTP_DISABLE_USER_SCOPE, str(user_id))
             auth_limiter.reset(TOTP_DISABLE_USER_SCOPE, composite_key)
-        security_event(
-            "auth.totp.disabled",
-            "TOTP second factor removed",
-            user_id=locked_id,
-        )
         return Response(status_code=204)
     # The state kept changing under the lock across the whole retry budget;
     # nothing was modified.
@@ -2935,20 +2983,21 @@ async def totp_recovery_regenerate(
         user,
         scope=TOTP_RECOVERY_REGEN_SCOPE,
     )
-    # Proof 2 — a live TOTP code, under the account lock, with the same guess
-    # budget as disable: this check is a 6-digit oracle too.
-    locked = (
+    # Proof 2 — snapshot and verify a live TOTP code with the same guess
+    # budget as disable. Expensive recovery-code hashing happens after the
+    # read transaction is released; a final lock revalidates this snapshot.
+    snapshot = (
         await db.execute(
-            select(User)
-            .where(User.id == user_id, User.deleted_at.is_(None))
-            .execution_options(populate_existing=True)
-            .with_for_update()
+            select(
+                User.token_version, User.totp_state, User.totp_secret_enc, User.totp_last_step
+            ).where(User.id == user_id, User.deleted_at.is_(None))
         )
-    ).scalar_one_or_none()
-    if locked is None:
+    ).one_or_none()
+    if snapshot is None:
         raise HTTPException(status_code=401, detail="Account no longer exists.")
-    await _require_authenticated_generation(db, request, locked, authenticated_token_version)
-    if locked.totp_state != "ACTIVE" or locked.totp_secret_enc is None:
+    if snapshot.token_version != authenticated_token_version:
+        raise HTTPException(status_code=401, detail="Session is no longer valid")
+    if snapshot.totp_state != "ACTIVE" or snapshot.totp_secret_enc is None:
         await db.rollback()
         raise lifecycle_conflict(detail="Two-factor is not active.")
     s = get_settings()
@@ -2970,11 +3019,9 @@ async def totp_recovery_regenerate(
         metrics.record_auth_rate_limit_rejection(TOTP_RECOVERY_REGEN_SCOPE)
         await db.rollback()
         raise _too_many_attempts()
-    decrypted = await _decrypt_totp_secret_or_unavailable(
-        db, locked.totp_secret_enc, user_id=user_id, operation="recovery-regenerate"
-    )
+    decrypted = await _decrypt_totp_secret_or_unavailable(db, snapshot.totp_secret_enc)
     matched = verify_totp_code(
-        decrypted.secret, payload.code, at=utcnow(), last_used_step=locked.totp_last_step
+        decrypted.secret, payload.code, at=utcnow(), last_used_step=snapshot.totp_last_step
     )
     if matched is None:
         auth_limiter.record(
@@ -2991,10 +3038,36 @@ async def totp_recovery_regenerate(
         )
         await db.rollback()
         raise HTTPException(status_code=400, detail="That code is not valid right now.")
+    await db.rollback()
+    codes, hashes = await _prepare_totp_recovery_codes()
+    locked = (
+        await db.execute(
+            select(User)
+            .where(User.id == user_id, User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked is None:
+        raise HTTPException(status_code=401, detail="Account no longer exists.")
+    await _require_authenticated_generation(db, request, locked, authenticated_token_version)
+    if (
+        locked.totp_state != "ACTIVE"
+        or locked.totp_secret_enc != snapshot.totp_secret_enc
+        or locked.totp_last_step != snapshot.totp_last_step
+    ):
+        await db.rollback()
+        raise stale_state_conflict(detail="Two-factor state changed; try again.")
     locked.totp_last_step = matched
     if decrypted.needs_rewrap:
         locked.totp_secret_enc = encrypt_totp_secret(decrypted.secret)
-    codes = await _mint_totp_recovery_codes(db, locked)
+    await _replace_totp_recovery_codes(db, locked.id, hashes)
+    security_event(
+        "auth.totp.recovery_codes_regenerated",
+        "recovery-code set revoked and re-minted",
+        session=db,
+        user_id=user_id,
+    )
     await db.commit()
     # Password proof committed successfully — clear the confirmation budget
     # like change_password/delete_account do (2026-09-29 audit, L3).
@@ -3007,11 +3080,6 @@ async def totp_recovery_regenerate(
     if s.auth_rate_limit_enabled:
         auth_limiter.reset(TOTP_RECOVERY_REGEN_SCOPE, str(user_id))
         auth_limiter.reset(TOTP_RECOVERY_REGEN_SCOPE, composite_key)
-    security_event(
-        "auth.totp.recovery_codes_regenerated",
-        "recovery-code set revoked and re-minted",
-        user_id=user_id,
-    )
     return TotpRecoveryCodesOut(codes=codes)
 
 
@@ -3043,12 +3111,13 @@ def _check_mfa_preverification_budget(token: str) -> None:
         invalid_limit,
         window,
     ):
-        logger.info("mfa challenge pre-verification throttled (repeatedly invalid token)")
         metrics.record_auth_rate_limit_rejection(TOTP_CHALLENGE_PREVERIFY_SCOPE)
         raise _too_many_attempts()
 
 
-def _raise_invalid_mfa_challenge(request: Request, token: str, generic: HTTPException) -> NoReturn:
+async def _raise_invalid_mfa_challenge(
+    request: Request, token: str, generic: HTTPException
+) -> NoReturn:
     """Record one classified-invalid challenge token and reject it.
 
     Both ledgers are written only once the presented token has actually
@@ -3062,12 +3131,9 @@ def _raise_invalid_mfa_challenge(request: Request, token: str, generic: HTTPExce
       the same address is never judged by a neighbour's history.
 
     This mirrors ``_raise_invalid_refresh``; like the access-token path in
-    ``deps.current_user``, the failure is also emitted as a security event.
+    ``deps.current_user``, the failure is aggregated without a durable write.
     """
-    security_event(
-        "auth.totp.challenge_failed",
-        "challenge token failed verification",
-    )
+    note_transient_security_signal("auth.totp.challenge_failed")
     settings = get_settings()
     if settings.auth_rate_limit_enabled:
         rate_key = _client_key(request)
@@ -3082,7 +3148,6 @@ def _raise_invalid_mfa_challenge(request: Request, token: str, generic: HTTPExce
             auth_limiter.record(
                 TOTP_CHALLENGE_INVALID_SCOPE, rate_key, window, max_attempts=ip_limit
             )
-            logger.info("totp-challenge-invalid throttled (key=%s)", rate_key)
             metrics.record_auth_rate_limit_rejection(TOTP_CHALLENGE_INVALID_SCOPE)
             raise _too_many_attempts()
         auth_limiter.record(
@@ -3093,13 +3158,16 @@ def _raise_invalid_mfa_challenge(request: Request, token: str, generic: HTTPExce
         )
         auth_limiter.record(TOTP_CHALLENGE_INVALID_SCOPE, rate_key, window, max_attempts=ip_limit)
         if auth_limiter.is_blocked(TOTP_CHALLENGE_INVALID_SCOPE, rate_key, ip_limit, window):
-            logger.info("totp-challenge-invalid throttled (key=%s)", rate_key)
             metrics.record_auth_rate_limit_rejection(TOTP_CHALLENGE_INVALID_SCOPE)
             raise _too_many_attempts()
     raise generic
 
 
-@router.post("/totp/challenge", dependencies=[Depends(_require_json_content_type)])
+@router.post(
+    "/totp/challenge",
+    dependencies=[Depends(_require_json_content_type)],
+    responses=JSON_CONTENT_TYPE_ERROR_RESPONSE,
+)
 async def totp_challenge(
     payload: TotpChallengeIn,
     request: Request,
@@ -3116,7 +3184,7 @@ async def totp_challenge(
         # but expired challenge (body present, expired=True) is a returning
         # client, not probing — the same exemption ``_refresh_token_expired_but_genuine``
         # gives the refresh path.
-        _raise_invalid_mfa_challenge(request, payload.mfa_token, generic)
+        await _raise_invalid_mfa_challenge(request, payload.mfa_token, generic)
     try:
         challenge_user_id = int(body["sub"])
         challenge_ver = body["ver"]
@@ -3139,11 +3207,8 @@ async def totp_challenge(
     ).scalar_one_or_none()
     user_id = user.id if user is not None else challenge_user_id
     if user is None or user.token_version != challenge_ver:
-        security_event(
-            "auth.totp.challenge_failed",
-            "challenge token predates a credential change",
-            user_id=challenge_user_id,
-        )
+        await db.rollback()
+        note_transient_security_signal("auth.totp.challenge_failed")
         raise generic
     if user.totp_state != "ACTIVE" or user.totp_secret_enc is None:
         # Second factor disabled after the challenge was issued: the password
@@ -3167,14 +3232,11 @@ async def totp_challenge(
             s.auth_rate_limit_window_seconds,
         )
     ):
-        logger.info("totp challenge throttled (user_id=%s)", user.id)
         metrics.record_auth_rate_limit_rejection(TOTP_CHALLENGE_USER_SCOPE)
         await db.rollback()
         raise _too_many_attempts()
 
-    decrypted = await _decrypt_totp_secret_or_unavailable(
-        db, user.totp_secret_enc, user_id=user.id, operation="challenge"
-    )
+    decrypted = await _decrypt_totp_secret_or_unavailable(db, user.totp_secret_enc)
     matched = verify_totp_code(
         decrypted.secret, payload.code, at=utcnow(), last_used_step=user.totp_last_step
     )
@@ -3248,11 +3310,7 @@ async def totp_challenge(
                 or user.totp_secret_enc is None
             ):
                 await db.rollback()
-                security_event(
-                    "auth.totp.challenge_failed",
-                    "account changed while a recovery code was being verified",
-                    user_id=challenge_user_id,
-                )
+                note_transient_security_signal("auth.totp.challenge_failed")
                 raise generic
             claimed = cast(
                 CursorResult[Any],
@@ -3285,11 +3343,7 @@ async def totp_challenge(
         # No 429 metric here: this answer is a 401, and the periodic summary
         # counts only actual throttle decisions (2026-09-17 re-audit).
         await db.rollback()
-        security_event(
-            "auth.totp.challenge_failed",
-            "wrong TOTP or recovery code at challenge",
-            user_id=user_id,
-        )
+        note_transient_security_signal("auth.totp.challenge_failed")
         raise generic
     if matched is not None:
         user.totp_last_step = matched
@@ -3299,6 +3353,7 @@ async def totp_challenge(
         security_event(
             "auth.totp.recovery_code_used",
             "login completed with a single-use recovery code",
+            session=db,
             user_id=user_id,
         )
     # Single-use means single SUCCESS: a wrong code leaves the challenge
@@ -3308,11 +3363,7 @@ async def totp_challenge(
     # reopens the window.
     if not await _consume_mfa_jti(db, str(jti), _mfa_token_expiry(payload.mfa_token, generic)):
         await db.rollback()
-        security_event(
-            "auth.totp.challenge_failed",
-            "challenge token already consumed",
-            user_id=user_id,
-        )
+        note_transient_security_signal("auth.totp.challenge_failed")
         raise generic
     if decrypted.needs_rewrap:
         user.totp_secret_enc = encrypt_totp_secret(decrypted.secret)

@@ -73,7 +73,7 @@ describe("resolveTaskTitle", () => {
   });
 
   it("renders every final contract key from the catalog", () => {
-    // The 40-key contract (task_title_keys.md): no key may fall back.
+    // The 41-key contract: no key may fall back.
     const keys = [
       "pregnancy_check",
       "return_to_heat_watch",
@@ -92,6 +92,7 @@ describe("resolveTaskTitle", () => {
       "rebreed",
       "insurance_renewal",
       "fmd_vaccination_round",
+      "ppr_vaccination_round",
       "et_hs_premonsoon_round",
       "goat_pox_round",
       "ccpp_round",
@@ -116,7 +117,7 @@ describe("resolveTaskTitle", () => {
       "quarantine_fmd_vaccine",
       "quarantine_release",
     ];
-    expect(keys).toHaveLength(40);
+    expect(keys).toHaveLength(41);
     for (const key of keys) {
       for (const language of ["en", "te"] as const) {
         const rendered = resolveTaskTitle(

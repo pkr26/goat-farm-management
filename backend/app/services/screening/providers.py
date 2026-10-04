@@ -315,7 +315,11 @@ async def gate(provider: VisionProvider, image_jpeg: bytes) -> GateCallResult:
         model=answer.model,
         prompt_version=instruction.prompt_version,
         latency_ms=answer.latency_ms,
-        raw_text=answer.text[:2000],
+        # The pipeline persists only a digest plus the validated bounded
+        # structure. Keep the complete answer in memory long enough to hash
+        # it; truncating here made the audit digest unable to identify the
+        # actual provider response.
+        raw_text=answer.text,
     )
 
 

@@ -42,11 +42,15 @@ async def _purge_idempotency_for_migration() -> None:
 
 
 async def _alembic(*args: str, succeeds: bool = True) -> subprocess.CompletedProcess[str]:
+    migration_env = os.environ.copy()
+    # This helper only walks the session's guarded throwaway database while
+    # the test owns application access to it.
+    migration_env["GOATFARM_MIGRATION_WRITES_QUIESCED"] = "true"
     result = await asyncio.to_thread(
         subprocess.run,
         [sys.executable, "-m", "alembic", *args],
         cwd=BACKEND_DIR,
-        env=os.environ.copy(),
+        env=migration_env,
         check=False,
         capture_output=True,
         text=True,

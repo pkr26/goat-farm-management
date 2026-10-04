@@ -568,7 +568,9 @@ describe("FeedingPage mutation hardening 2", () => {
       expect(await screen.findByText("Lactating 60/40")).toBeInTheDocument();
 
       expect(screen.getByText("20 heads · 1 kg/head · 20.0 kg/day")).toBeInTheDocument();
-      expect(screen.getByText("Recorded 20.0 / 20.0 kg · Done")).toBeInTheDocument();
+      expect(
+        screen.getByText("Shared allocation recorded 20.0 / 20.0 kg · Done"),
+      ).toBeInTheDocument();
     });
 
     it("withholds Done from an incomplete card even when one shift is fully met", async () => {
@@ -590,8 +592,12 @@ describe("FeedingPage mutation hardening 2", () => {
       expect(await screen.findByText("Lactating 60/40")).toBeInTheDocument();
 
       // Morning is met (8/8) but the card as a whole is not done.
-      expect(screen.getByText("Recorded 8.0 / 20.0 kg")).toBeInTheDocument();
-      expect(screen.queryByText("Recorded 8.0 / 20.0 kg · Done")).toBeNull();
+      expect(
+        screen.getByText("Shared allocation recorded 8.0 / 20.0 kg"),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText("Shared allocation recorded 8.0 / 20.0 kg · Done"),
+      ).toBeNull();
       expect(screen.queryByText(/Stryker was here/)).toBeNull();
     });
 
@@ -604,7 +610,9 @@ describe("FeedingPage mutation hardening 2", () => {
       renderWithProviders(<FeedingPage />);
       expect(await screen.findByText("Lactating 60/40")).toBeInTheDocument();
 
-      expect(screen.getByText("Recorded 0.0 / 20.0 kg")).toBeInTheDocument();
+      expect(
+        screen.getByText("Shared allocation recorded 0.0 / 20.0 kg"),
+      ).toBeInTheDocument();
       expect(screen.queryByText(/ · Done/)).toBeNull();
     });
 

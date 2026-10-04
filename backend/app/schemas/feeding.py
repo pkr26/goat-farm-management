@@ -153,6 +153,13 @@ class RecipeListOut(BaseModel):
 
 
 class PlanLineOut(BaseModel):
+    # ``line_id`` is the stable React/export identity of this exact
+    # sex/age-band segment. ``allocation_id`` names the physical ration that
+    # dispensing can actually identify (bucket + recipe), so progress is
+    # aggregated once across every segment sharing it.
+    line_id: str
+    allocation_id: str
+    segment: Literal["ALL", "FEMALE", "MALE", "CREEP_BAND"]
     bucket: str
     recipe_code: str
     recipe_name: str

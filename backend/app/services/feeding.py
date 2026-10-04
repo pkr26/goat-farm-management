@@ -477,8 +477,24 @@ async def feeding_plan(
             )
         )
         shift_quantities = _shift_quantities(daily_kg)
+        if bucket_code == Bucket.BREEDING.value and sex == Sex.F.value:
+            segment = "FEMALE"
+            segment_identity = "sex:F"
+        elif bucket_code == Bucket.BREEDING.value and sex == Sex.M.value:
+            segment = "MALE"
+            segment_identity = "sex:M"
+        elif recipe_code == "CREEP":
+            segment = "CREEP_BAND"
+            segment_identity = f"creep:{band}"
+        else:
+            segment = "ALL"
+            segment_identity = "all"
+        allocation_id = f"{bucket_code}:{recipe_code}"
         lines.append(
             {
+                "line_id": f"{allocation_id}:{segment_identity}",
+                "allocation_id": allocation_id,
+                "segment": segment,
                 "bucket": bucket_code,
                 "recipe_code": recipe_code,
                 "recipe_name": RECIPE_DISPLAY.get(recipe_code, recipe_code),

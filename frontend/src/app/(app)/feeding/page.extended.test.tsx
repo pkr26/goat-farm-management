@@ -160,6 +160,55 @@ describe("FeedingPage plan table", () => {
     expect(cells[4]).toHaveTextContent("20"); // daily kg
   });
 
+  it("uses stable segment keys and shared allocation progress for split breeding lines", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const female = {
+      ...LINE_BREEDING,
+      line_id: "BREEDING:LACTATING_60_40:sex:F",
+      allocation_id: "BREEDING:LACTATING_60_40",
+      segment: "FEMALE",
+      heads: 12,
+      daily_kg: 12,
+      shifts: [
+        { shift: "MORNING", pct: 40, kg: 4.8, time: "6:30 AM" },
+        { shift: "AFTERNOON", pct: 20, kg: 2.4, time: "1:30 PM" },
+        { shift: "NIGHT", pct: 40, kg: 4.8, time: "7:30 PM" },
+      ],
+    };
+    const male = {
+      ...LINE_BREEDING,
+      line_id: "BREEDING:LACTATING_60_40:sex:M",
+      allocation_id: "BREEDING:LACTATING_60_40",
+      segment: "MALE",
+      heads: 4,
+      daily_kg: 8,
+      shifts: [
+        { shift: "MORNING", pct: 40, kg: 3.2, time: "6:30 AM" },
+        { shift: "AFTERNOON", pct: 20, kg: 1.6, time: "1:30 PM" },
+        { shift: "NIGHT", pct: 40, kg: 3.2, time: "7:30 PM" },
+      ],
+    };
+    server.use(
+      planHandler({
+        lines: [female, male],
+        records: [],
+        dispensed_totals: [
+          { bucket: "BREEDING", recipe_code: "LACTATING_60_40", shift: "MORNING", qty_kg: 4.8 },
+          { bucket: "BREEDING", recipe_code: "LACTATING_60_40", shift: "AFTERNOON", qty_kg: 2.4 },
+          { bucket: "BREEDING", recipe_code: "LACTATING_60_40", shift: "NIGHT", qty_kg: 4.8 },
+        ],
+      }),
+    );
+
+    renderWithProviders(<FeedingPage />);
+    expect(await screen.findAllByText(/shared across 2 segments/i)).not.toHaveLength(0);
+    expect(screen.queryByText("Done")).not.toBeInTheDocument();
+    expect(
+      consoleError.mock.calls.some((call) => String(call[0]).includes("same key")),
+    ).toBe(false);
+    consoleError.mockRestore();
+  });
+
   it("labels the creep band and the weight-basis hint with the recipe", async () => {
     server.use(
       planHandler({

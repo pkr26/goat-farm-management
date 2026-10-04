@@ -37,6 +37,9 @@ const {
   drainQueueMock,
   readOutboxMock,
   clearAcceptedMock,
+  confirmDraftMock,
+  discardDraftMock,
+  resolveReviewMock,
   toastSuccessMock,
   toastErrorMock,
   swRegistration,
@@ -62,6 +65,9 @@ const {
   drainQueueMock: vi.fn(),
   readOutboxMock: vi.fn(),
   clearAcceptedMock: vi.fn(),
+  confirmDraftMock: vi.fn(),
+  discardDraftMock: vi.fn(),
+  resolveReviewMock: vi.fn(),
   toastSuccessMock: vi.fn(),
   toastErrorMock: vi.fn(),
   swRegistration: { update: vi.fn<() => Promise<void>>(() => Promise.resolve()) },
@@ -106,6 +112,9 @@ vi.mock("@/lib/worker-outbox", async (importOriginal) => ({
   startWorkerOutbox: startWorkersMock,
   readWorkerOutbox: readOutboxMock,
   clearAcceptedWorkerReceipts: clearAcceptedMock,
+  confirmOfflineWorkerDraft: confirmDraftMock,
+  discardOfflineWorkerDraft: discardDraftMock,
+  resolveWorkerReviewReceipt: resolveReviewMock,
 }));
 vi.mock("sonner", async (importOriginal) => {
   const original = await importOriginal<typeof import("sonner")>();
@@ -151,6 +160,9 @@ beforeEach(() => {
   });
   readOutboxMock.mockReset().mockImplementation(async () => pendingRecords(queueDepthMock()));
   clearAcceptedMock.mockReset().mockResolvedValue(2);
+  confirmDraftMock.mockReset().mockResolvedValue(true);
+  discardDraftMock.mockReset().mockResolvedValue(true);
+  resolveReviewMock.mockReset().mockResolvedValue(true);
   toastSuccessMock.mockClear(); toastErrorMock.mockClear();
   drainQueueMock.mockClear();
   swRegistration.update.mockClear();
@@ -260,6 +272,111 @@ describe("WorkerShell accepted receipt cleanup", () => {
   });
 });
 
+describe("WorkerShell offline draft confirmation", () => {
+  it("requires an explicit same-session confirmation before an offline action becomes pending", async () => {
+    const draft: WorkerOperation = {
+      ...pendingRecords(1)[0]!, id: "offline-draft-1", state: "review",
+      reason: "offline-untrusted",
+    };
+    startWorkersMock.mockImplementation((_getScope: unknown, onChange: (items: WorkerOperation[]) => void) => {
+      onChange([draft]); return vi.fn();
+    });
+    const user = userEvent.setup(); renderShell();
+    await user.click(await screen.findByText("Saved duties and delivery receipts"));
+    const confirm = screen.getByTestId("worker-confirm-offline-offline-draft-1");
+    expect(confirmDraftMock).not.toHaveBeenCalled();
+    await user.click(confirm);
+    await waitFor(() => expect(confirmDraftMock).toHaveBeenCalledWith(
+      currentRequestScope(), "offline-draft-1",
+    ));
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      "Offline action confirmed. It will send when connected.",
+    );
+    expect(screen.getByTestId("worker-receipts")).toHaveTextContent("Waiting to send");
+    expect(screen.queryByTestId("worker-confirm-offline-offline-draft-1")).toBeNull();
+  });
+
+  it("lets the same signed-in worker reject an offline draft without sending it", async () => {
+    const draft: WorkerOperation = {
+      ...pendingRecords(1)[0]!, id: "offline-draft-2", state: "review",
+      reason: "offline-untrusted",
+    };
+    startWorkersMock.mockImplementation((_getScope: unknown, onChange: (items: WorkerOperation[]) => void) => {
+      onChange([draft]); return vi.fn();
+    });
+    const user = userEvent.setup(); renderShell();
+    await user.click(await screen.findByText("Saved duties and delivery receipts"));
+    await user.click(screen.getByTestId("worker-discard-offline-offline-draft-2"));
+    await waitFor(() => expect(discardDraftMock).toHaveBeenCalledWith(
+      currentRequestScope(), "offline-draft-2",
+    ));
+    expect(confirmDraftMock).not.toHaveBeenCalled();
+    expect(toastSuccessMock).toHaveBeenCalledWith("Offline draft discarded.");
+    expect(screen.queryByText("Duty 1")).toBeNull();
+  });
+});
+
+describe("WorkerShell review receipt resolution", () => {
+  function showReviewReceipt(): WorkerOperation {
+    const record: WorkerOperation = {
+      ...pendingRecords(1)[0]!,
+      id: "review-receipt-1",
+      state: "review",
+      reason: "conflict",
+      status: 409,
+      settledAt: Date.now(),
+    };
+    startWorkersMock.mockImplementation((_getScope: unknown, onChange: (items: WorkerOperation[]) => void) => {
+      onChange([record]); return vi.fn();
+    });
+    return record;
+  }
+
+  it("lets the current worker retry a reviewed action without replacing its receipt", async () => {
+    showReviewReceipt();
+    const user = userEvent.setup(); renderShell();
+    await user.click(await screen.findByText("Saved duties and delivery receipts"));
+    expect(screen.getByText(/Check what happened with your manager/)).toBeVisible();
+    await user.click(screen.getByTestId("worker-retry-review-review-receipt-1"));
+    await waitFor(() => expect(resolveReviewMock).toHaveBeenCalledWith(
+      currentRequestScope(), "review-receipt-1", "retry",
+    ));
+    expect(toastSuccessMock).toHaveBeenCalledWith("Saved action is ready to send again.");
+    expect(screen.getByTestId("worker-receipts")).toHaveTextContent("Waiting to send");
+    expect(screen.queryByTestId("worker-retry-review-review-receipt-1")).toBeNull();
+  });
+
+  it("requires confirmation before dismissing a review receipt", async () => {
+    showReviewReceipt();
+    const user = userEvent.setup(); renderShell();
+    await user.click(await screen.findByText("Saved duties and delivery receipts"));
+    await user.click(screen.getByTestId("worker-dismiss-review-review-receipt-1"));
+    const dialog = screen.getByRole("alertdialog", { name: "Dismiss this review receipt?" });
+    expect(within(dialog).getByText(/Duty 1 will be removed/)).toBeVisible();
+    expect(resolveReviewMock).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByTestId("worker-dismiss-review-cancel"));
+    expect(resolveReviewMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId("worker-dismiss-review-review-receipt-1"));
+    await user.click(screen.getByTestId("worker-dismiss-review-confirm"));
+    await waitFor(() => expect(resolveReviewMock).toHaveBeenCalledWith(
+      currentRequestScope(), "review-receipt-1", "dismiss",
+    ));
+    expect(toastSuccessMock).toHaveBeenCalledWith("Review receipt dismissed.");
+    expect(screen.queryByText("Duty 1")).toBeNull();
+  });
+
+  it("cannot dismiss through a confirmation opened by a stale session", async () => {
+    showReviewReceipt();
+    const user = userEvent.setup(); renderShell();
+    await user.click(await screen.findByText("Saved duties and delivery receipts"));
+    await user.click(screen.getByTestId("worker-dismiss-review-review-receipt-1"));
+    setAccessToken("replacement-worker", 8);
+    fireEvent.click(screen.getByTestId("worker-dismiss-review-confirm"));
+    expect(resolveReviewMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("WorkerShell chrome", () => {
   it("keeps account password actions unavailable for ordinary PIN workers", async () => {
     renderShell();
@@ -302,6 +419,8 @@ describe("WorkerShell chrome", () => {
     expect(await screen.findByText("Tablet Farm")).toBeInTheDocument();
     expect(screen.getByTestId("worker-identity")).toHaveTextContent("Pin Worker");
     expect(screen.getByText("duty board")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "EN" })).toHaveClass("h-11");
+    expect(screen.getByRole("button", { name: "తెలుగు" })).toHaveClass("h-11");
   });
 
   it("starts the drain workers scoped to the signed-in worker and farm", async () => {
@@ -534,6 +653,8 @@ describe("WorkerShell session gate", () => {
     expect(input).toHaveValue("manager@farm.in");
     expect(screen.queryByTestId("worker-identity")).not.toBeInTheDocument();
     expect(screen.queryByTestId("end-shift")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "EN" })).toHaveClass("h-11");
+    expect(screen.getByRole("button", { name: "తెలుగు" })).toHaveClass("h-11");
     expect(signOutMock).not.toHaveBeenCalled();
   });
 

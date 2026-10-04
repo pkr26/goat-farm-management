@@ -32,11 +32,15 @@ JSONB_PARENT = "b6d8f0a2c4e6"
 
 
 async def _alembic(*args: str, succeeds: bool = True) -> subprocess.CompletedProcess[str]:
+    migration_env = os.environ.copy()
+    # This helper runs only against conftest's guarded, exclusively controlled
+    # throwaway database.
+    migration_env["GOATFARM_MIGRATION_WRITES_QUIESCED"] = "true"
     result = await asyncio.to_thread(
         subprocess.run,
         [sys.executable, "-m", "alembic", *args],
         cwd=BACKEND_DIR,
-        env=os.environ.copy(),
+        env=migration_env,
         check=False,
         capture_output=True,
         text=True,

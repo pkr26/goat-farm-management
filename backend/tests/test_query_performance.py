@@ -29,6 +29,7 @@ from app.models import (
     Bucket,
     BucketDefinition,
     BucketMove,
+    Farm,
     FeedingRecord,
     FeedingShift,
     HealthEvent,
@@ -560,6 +561,106 @@ async def test_completed_tab_survives_unverified_cleaning_flood(
     assert tabs["awaiting_total"] == 105  # CLEANING filter applied in SQL
 
 
+async def test_task_board_fetches_only_requested_rows_with_bounded_queries(
+    client: httpx.AsyncClient,
+) -> None:
+    """08-1: one count statement plus only the requested enriched page(s)."""
+
+    owner = await owner_with_farm(client, email="task-query-budget@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    animal = await make_animal(client, owner, "TASK-QUERY-ANIMAL")
+    team = await client.get("/api/team", headers=owner)
+    assert team.status_code == 200, team.text
+    role_id = json_int(team.json()["roles"][0]["id"])
+    worker = await client.post(
+        "/api/team/workers",
+        json={
+            "name": "Query budget worker",
+            "email": "task-query-worker@farm.in",
+            "password": "query-budget-pass-123",
+            "role_id": role_id,
+        },
+        headers=owner,
+    )
+    assert worker.status_code == 201, worker.text
+    worker_id = json_int(worker.json()["user_id"])
+    instant = utcnow()
+    async with get_sessionmaker()() as db:
+        farm = await db.get(Farm, farm_id)
+        assert farm is not None
+        common = {
+            "farm_id": farm_id,
+            "animal_id": json_int(animal["id"]),
+            "assigned_role_id": role_id,
+            "assigned_user_id": worker_id,
+            "category": TaskCategory.OTHER.value,
+        }
+        db.add_all(
+            [
+                Task(title="Today", due_date=today(), **common),
+                Task(title="Overdue", due_date=today() - timedelta(days=1), **common),
+                Task(title="Upcoming", due_date=today() + timedelta(days=1), **common),
+                Task(
+                    title="Awaiting",
+                    due_date=today(),
+                    status=TaskStatus.DONE.value,
+                    category=TaskCategory.CLEANING.value,
+                    completed_at=instant,
+                    completed_by_id=farm.owner_id,
+                    **{key: value for key, value in common.items() if key != "category"},
+                ),
+                Task(
+                    title="Completed",
+                    due_date=today(),
+                    status=TaskStatus.DONE.value,
+                    completed_at=instant - timedelta(minutes=1),
+                    completed_by_id=farm.owner_id,
+                    **common,
+                ),
+            ]
+        )
+        await db.commit()
+
+    async def captured(view: str) -> tuple[httpx.Response, list[str]]:
+        statements: list[str] = []
+
+        def capture_statement(
+            _conn: object,
+            _cursor: object,
+            statement: str,
+            _parameters: object,
+            _context: object,
+            _executemany: object,
+        ) -> None:
+            statements.append(statement)
+
+        engine = get_engine().sync_engine
+        event.listen(engine, "before_cursor_execute", capture_statement)
+        try:
+            response = await client.get("/api/tasks", params={"view": view}, headers=owner)
+        finally:
+            event.remove(engine, "before_cursor_execute", capture_statement)
+        aggregate_index = next(
+            index
+            for index, statement in enumerate(statements)
+            if "today_total" in statement and "overdue_total" in statement
+        )
+        return response, statements[aggregate_index:]
+
+    selected, selected_statements = await captured("today")
+    worker, worker_statements = await captured("worker")
+    legacy, legacy_statements = await captured("all")
+    assert selected.status_code == worker.status_code == legacy.status_code == 200
+    selected_body = selected.json()
+    assert [row["title"] for row in selected_body["today"]] == ["Today"]
+    assert all(selected_body[key] == [] for key in ("overdue", "upcoming", "awaiting", "completed"))
+    assert [row["title"] for row in worker.json()["today"]] == ["Today"]
+    assert [row["title"] for row in worker.json()["overdue"]] == ["Overdue"]
+    assert len(selected_statements) == 5  # aggregate + row + 3 selectin enrichments
+    assert len(worker_statements) == 9  # aggregate + 2 rows + 6 enrichments
+    assert len(legacy_statements) == 21  # compatibility mode: aggregate + all 5 pages
+
+
 # ---------------------------------------------------------------------------
 # 5-M4 / 5-L3 — hot-path indexes exist after `alembic upgrade head`
 # ---------------------------------------------------------------------------
@@ -579,7 +680,8 @@ async def test_query_performance_indexes_exist(client: httpx.AsyncClient) -> Non
                     "'ix_breeding_records_farm_confirmed_doe_date_id', "
                     "'ix_breeding_records_farm_confirmed_due_id', "
                     "'ix_tasks_farm_pending_due_id', "
-                    "'ix_tasks_farm_pending_category_due_id')"
+                    "'ix_tasks_farm_pending_category_due_id', "
+                    "'ix_tasks_farm_terminal_finished_id')"
                 )
             )
         ).all()
@@ -598,7 +700,58 @@ async def test_query_performance_indexes_exist(client: httpx.AsyncClient) -> Non
         ("breeding_records", "ix_breeding_records_farm_confirmed_due_id"),
         ("tasks", "ix_tasks_farm_pending_due_id"),
         ("tasks", "ix_tasks_farm_pending_category_due_id"),
+        ("tasks", "ix_tasks_farm_terminal_finished_id"),
     }
+
+
+async def test_terminal_task_history_plan_uses_finished_time_index(
+    client: httpx.AsyncClient,
+) -> None:
+    """08-1: production-shaped history ordering is served by the new index."""
+
+    owner = await owner_with_farm(client, email="task-history-plan@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    instant = utcnow()
+    async with get_sessionmaker()() as db:
+        db.add_all(
+            [
+                Task(
+                    farm_id=farm_id,
+                    title=f"Historical duty {index}",
+                    due_date=today() - timedelta(days=index % 365),
+                    status=TaskStatus.DONE.value,
+                    category=TaskCategory.OTHER.value,
+                    completed_at=instant - timedelta(minutes=index),
+                )
+                for index in range(1_200)
+            ]
+        )
+        await db.commit()
+        await db.execute(text("ANALYZE tasks"))
+        plan = (
+            await db.execute(
+                text(
+                    "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
+                    "SELECT id FROM tasks "
+                    "WHERE farm_id = :farm_id "
+                    "AND status IN ('DONE', 'VERIFIED', 'SKIPPED') "
+                    "ORDER BY (CASE WHEN status::text = 'SKIPPED'::text "
+                    "THEN skipped_at ELSE completed_at END) DESC, id DESC "
+                    "LIMIT 100"
+                ),
+                {"farm_id": farm_id},
+            )
+        ).scalar_one()
+
+    def nodes(node: dict[str, Any]) -> list[dict[str, Any]]:
+        descendants = [child for plan_child in node.get("Plans", []) for child in nodes(plan_child)]
+        return [node, *descendants]
+
+    plan_nodes = nodes(plan[0]["Plan"])
+    assert any(
+        node.get("Index Name") == "ix_tasks_farm_terminal_finished_id" for node in plan_nodes
+    ), plan
+    assert any("Shared Hit Blocks" in node for node in plan_nodes), plan
 
 
 # ---------------------------------------------------------------------------

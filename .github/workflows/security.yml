@@ -52,6 +52,10 @@ jobs:
         working-directory: frontend
         run: |
           corepack enable
+          # The verified audit executes behavioral checks against the exact
+          # locally patched dependency chain when an accepted advisory is
+          # present. A clean scheduled runner therefore needs a frozen install.
+          pnpm install --frozen-lockfile --ignore-scripts
           pnpm audit:verified
 
   codeql:
@@ -136,13 +140,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      # Keep these digest-pinned references in lockstep with docker-compose:
-      # the database and edge are deployed images, not mere build dependencies.
+      # Keep this digest-pinned reference in lockstep with docker-compose.
+      # The edge is a first-party source build below so fixes do not wait for
+      # an upstream nginx image rebuild.
       COMPOSE_POSTGRES_IMAGE: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
-      COMPOSE_NGINX_IMAGE: nginx:1.30-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.37.2
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
       - name: Build local image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -159,10 +166,16 @@ jobs:
           push: false
           load: true
           tags: goatfarm-frontend:security
-      - name: Pull exact Compose infrastructure images
-        run: |
-          docker pull "${COMPOSE_POSTGRES_IMAGE}"
-          docker pull "${COMPOSE_NGINX_IMAGE}"
+      - name: Build hardened edge image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/edge/Dockerfile
+          push: false
+          load: true
+          tags: goatfarm-edge:security
+      - name: Pull exact Compose PostgreSQL image
+        run: docker pull "${COMPOSE_POSTGRES_IMAGE}"
       - name: Generate backend SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
@@ -187,13 +200,13 @@ jobs:
           output-file: compose-postgres-sbom.spdx.json
           artifact-name: goatfarm-compose-postgres-sbom
           upload-artifact-retention: 30
-      - name: Generate Compose nginx SPDX SBOM
+      - name: Generate edge SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
-          image: ${{ env.COMPOSE_NGINX_IMAGE }}
+          image: goatfarm-edge:security
           format: spdx-json
-          output-file: compose-nginx-sbom.spdx.json
-          artifact-name: goatfarm-compose-nginx-sbom
+          output-file: edge-sbom.spdx.json
+          artifact-name: goatfarm-edge-sbom
           upload-artifact-retention: 30
       - name: Scan backend image for fixable high/critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -222,18 +235,17 @@ jobs:
           # Third-party compose images have no build step where a package
           # upgrade could apply upstream fixes; the ignore file documents
           # each residual (fix published upstream, image not yet rebuilt)
-          # and its refresh policy. Scoped to these two steps only.
+          # and its refresh policy. It is scoped to this PostgreSQL scan only.
           trivyignores: .trivyignore.compose-images
           # Debian's ssl-cert package ships a build-time-generated self-signed
           # "snakeoil" key pair at this path on every install — public
           # placeholder material, not a deployment secret.
           skip-files: /etc/ssl/private/ssl-cert-snakeoil.key
-      - name: Scan Compose nginx image for fixable high/critical vulnerabilities
+      - name: Scan edge image for fixable high/critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.COMPOSE_NGINX_IMAGE }}
+          image-ref: goatfarm-edge:security
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-          trivyignores: .trivyignore.compose-images

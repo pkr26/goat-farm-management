@@ -1,5 +1,14 @@
 Frontend mutation reports checked in before the 2026-10-03 harness repair are historical, untrusted measurements. No new full campaign score is claimed by this repair.
 
+`.github/workflows/mutation.yml` now exercises real application mutants on
+relevant pull requests and weekly. It rebuilds the complete per-test coverage
+map, selects up to 25 sites across changed production files (or a bounded
+repository sample when only tests/harness inputs changed), runs every coverer
+for each selected site, rejects incomplete/infrastructure outcomes, and
+requires an 80% assertion-kill score. Its plan, coverage provenance,
+manifest, raw attempts, and report remain available as 30-day artifacts; the
+bounded result is deliberately not described as a whole-manifest campaign.
+
 From `frontend`, prepare current inputs in this order:
 
 ```sh

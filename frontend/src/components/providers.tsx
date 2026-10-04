@@ -7,9 +7,18 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { AuthProvider } from "@/lib/auth-context";
-import { LanguageProvider } from "@/lib/i18n";
+import { LanguageProvider, type Language } from "@/lib/i18n";
+import { DocumentTitleSync } from "@/components/document-title-sync";
 
-export function Providers({ children, nonce }: { children: ReactNode; nonce?: string }) {
+export function Providers({
+  children,
+  nonce,
+  initialLanguage,
+}: {
+  children: ReactNode;
+  nonce?: string;
+  initialLanguage?: Language | null;
+}) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -31,7 +40,8 @@ export function Providers({ children, nonce }: { children: ReactNode; nonce?: st
         nonce={nonce}
       >
         <AuthProvider>
-          <LanguageProvider>
+          <LanguageProvider initialLanguage={initialLanguage}>
+            <DocumentTitleSync />
             <TooltipProvider>
               {children}
               {/* top-center: on phones the top-right corner is the least

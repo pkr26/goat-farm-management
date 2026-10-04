@@ -41,6 +41,7 @@ from .core import (
     ConsumedMfaChallenge,
     Farm,
     FarmMembership,
+    FarmOwnerHistory,
     RefreshSession,
     Role,
     TotpRecoveryCode,
@@ -112,8 +113,10 @@ from .screening import (
     ScreeningFinding,
     ScreeningFindingReview,
     ScreeningImage,
+    ScreeningRetentionDeletion,
     ScreeningRun,
 )
+from .security_events import SecurityEvent
 from .simulation import SimulationScenario
 from .species import GOAT, GOAT_PROFILE, SpeciesProfile
 from .tasks import Task
@@ -173,6 +176,7 @@ __all__ = [
     "DisposalMethod",
     "Farm",
     "FarmMembership",
+    "FarmOwnerHistory",
     "FeedFinishedStock",
     "FeedInventory",
     "FeedRecipe",
@@ -214,10 +218,12 @@ __all__ = [
     "ScreeningFindingStatus",
     "ScreeningImage",
     "ScreeningImageStatus",
+    "ScreeningRetentionDeletion",
     "ScreeningRun",
     "ScreeningRunStatus",
     "ScreeningSeverity",
     "ScreeningStage",
+    "SecurityEvent",
     "Sex",
     "SimulationScenario",
     "SpeciesProfile",

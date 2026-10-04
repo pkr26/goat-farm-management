@@ -2,7 +2,6 @@
 and the RBAC authorization layer (membership, permissions, require_perm)."""
 
 import hashlib
-import logging
 import re
 from collections.abc import Awaitable, Callable
 from typing import Annotated
@@ -14,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from . import metrics
-from .audit import security_event
+from .audit import note_transient_security_signal
 from .core.config import get_settings
 from .db import get_db
 from .models import Farm, FarmMembership, RefreshSession, Role, User
@@ -28,8 +27,6 @@ from .utils import utcnow
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
-logger = logging.getLogger("goatfarm.deps")
-
 INVALID_ACCESS_TOKEN_SCOPE = "access-token-invalid"
 INVALID_LOGOUT_REFRESH_TOKEN_SCOPE = "logout-refresh-token-invalid"
 INVALID_TOKEN_IP_LIMIT_MULTIPLIER = 10
@@ -40,7 +37,11 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def _unauthenticated(detail: str = "Not authenticated") -> HTTPException:
-    return HTTPException(status_code=401, detail=detail)
+    return HTTPException(
+        status_code=401,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def single_bearer_token(request: Request) -> str | None:
@@ -92,10 +93,8 @@ def guard_invalid_token_verification_budget(
     raise invalid_token_rate_error(request, scope)
 
 
-def invalid_token_rate_error(request: Request, scope: str) -> HTTPException:
+def invalid_token_rate_error(_request: Request, scope: str) -> HTTPException:
     settings = get_settings()
-    ip_key = request.client.host if request.client else "unknown"
-    logger.info("%s throttled (ip=%s)", scope, ip_key)
     metrics.record_auth_rate_limit_rejection(scope)
     return HTTPException(
         status_code=429,
@@ -122,6 +121,19 @@ def record_invalid_token_verification(
     attempts = settings.auth_rate_limit_max_attempts
     ip_attempts = attempts * INVALID_TOKEN_IP_LIMIT_MULTIPLIER
     window = settings.auth_rate_limit_window_seconds
+    # Once the shared-IP bucket is full, another unique attacker token cannot
+    # change this request's outcome. Preserve the saturated bucket without
+    # allocating/churning a per-token key (the MFA/refresh invalid paths use
+    # the same ordering). A future valid token is still decoded because the
+    # pre-verification guard consults only that token's own classified history.
+    if auth_limiter.is_blocked(scope + "-ip", ip_key, ip_attempts, window):
+        auth_limiter.record(
+            scope + "-ip",
+            ip_key,
+            window,
+            max_attempts=ip_attempts,
+        )
+        return True
     auth_limiter.record(
         scope + "-token",
         token_key,
@@ -158,14 +170,12 @@ async def current_user(
     claims = decoded.claims
     if claims is None:
         if not decoded.expired:
-            # DET-2: tampered/malformed signature attempts are a distinct,
-            # alertable signal from ordinary expiry (which is not logged —
-            # every expiring session would drown the stream).
-            security_event(
-                "auth.token.invalid",
-                "access token failed verification (not merely expired)",
-                expired=False,
-            )
+            # Tampered/malformed signature attempts are distinct from normal
+            # expiry, but the credential is fully attacker-controlled. Keep a
+            # fixed-cardinality process counter plus a bounded periodic audit
+            # projection: one append-only DB row (and commit) per novel token
+            # would itself be a remote disk-write denial of service.
+            note_transient_security_signal("auth.token.invalid")
             if record_invalid_token_verification(
                 request,
                 INVALID_ACCESS_TOKEN_SCOPE,
@@ -181,12 +191,11 @@ async def current_user(
         # DET-2: a signature-valid token from a revoked generation — password
         # change/reset, account deletion, or bearer logout. Reuse after those
         # events is exactly the thief/forgotten-tab pattern worth alerting on.
-        security_event(
-            "auth.token.version_mismatch",
-            "revoked-generation access token presented",
-            user_id=user.id,
-            token_version=claims.token_version,
-        )
+        # A stolen or forgotten client can replay this token without bound.
+        # Keep that hostile failure traffic in the fixed-cardinality counter;
+        # the credential change that revoked it already has a durable event.
+        await db.rollback()
+        note_transient_security_signal("auth.token.version_mismatch")
         raise _unauthenticated("Session has been revoked")
     # The first lookup is deliberately lock-free. Unsafe tenant routes pin
     # their complete authorization bundle later, once CurrentFarm identifies
@@ -348,18 +357,26 @@ async def revoke_user_sessions(db: AsyncSession, user_id: int) -> None:
 
 async def revoke_session_family(
     db: AsyncSession, family_id: str, *, user_id: int | None = None
-) -> None:
+) -> int:
     """Revoke a whole rotation family: a consumed/revoked jti was presented
     again, i.e. a rotated-away refresh token was replayed (theft signal per
     RFC 6819 §5.2.2.3) — every descendant of the stolen token must die. The
-    caller commits."""
+    caller commits. Return the number of rows whose state actually changed so
+    replay callers can avoid manufacturing duplicate append-only events for a
+    family that was already revoked."""
     filters = [
         RefreshSession.family_id == family_id,
         RefreshSession.revoked_at.is_(None),
     ]
     if user_id is not None:
         filters.append(RefreshSession.user_id == user_id)
-    await db.execute(update(RefreshSession).where(*filters).values(revoked_at=utcnow()))
+    result = await db.execute(
+        update(RefreshSession)
+        .where(*filters)
+        .values(revoked_at=utcnow())
+        .returning(RefreshSession.id)
+    )
+    return len(result.scalars().all())
 
 
 async def purge_expired_refresh_sessions(
@@ -823,22 +840,19 @@ async def current_perms(
 CurrentPerms = Annotated[set[str], Depends(current_perms)]
 
 
-def require_perm(code: str) -> Callable[[set[str], User, Farm], Awaitable[set[str]]]:
+def require_perm(code: str) -> Callable[..., Awaitable[set[str]]]:
     """Dependency factory: 403 unless the user holds `code` on this farm."""
 
-    async def dependency(perms: CurrentPerms, user: CurrentUser, farm: CurrentFarm) -> set[str]:
+    async def dependency(
+        perms: CurrentPerms, user: CurrentUser, farm: CurrentFarm, db: DbSession
+    ) -> set[str]:
         if code not in perms:
-            # Security audit trail: denials must be observable (DET-2). The
-            # structured event names the principal and tenant so a probing
-            # worker or stolen low-priv token surfaces as a pattern, while
-            # ids keep PII out of the stream.
-            security_event(
-                "rbac.denied",
-                "authenticated request missing a required permission",
-                user_id=user.id,
-                farm_id=farm.id,
-                permission=code,
-            )
+            # Denials are attacker-repeatable and can otherwise grow the
+            # append-only event table one row (and transaction) per request.
+            # Their event-name cardinality is fixed; successful permission or
+            # membership mutations retain their durable audit records.
+            await db.rollback()
+            note_transient_security_signal("rbac.denied")
             raise HTTPException(status_code=403, detail=f"Missing permission: {code}")
         return perms
 

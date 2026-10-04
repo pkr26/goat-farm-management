@@ -22,6 +22,7 @@ RAW_TARGET_URL="${GOATFARM_RESTORE_DATABASE_URL}"
 unset GOATFARM_RESTORE_DATABASE_URL GOATFARM_DATABASE_URL
 unset GOATFARM_MIGRATION_DATABASE_URL PGPASSWORD PGSERVICE PGSERVICEFILE PGSSLROOTCERT
 EXPECTED_SIGNER="${GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT:-}"
+RECOVERY_INVENTORY_MAX_AGE_HOURS="${GOATFARM_RECOVERY_INVENTORY_RESTORE_MAX_AGE_HOURS:-744}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PYTHON_BIN="python3"
 if [[ -x "${SCRIPT_DIR}/../.venv/bin/python" ]]; then
@@ -125,6 +126,10 @@ if [[ ! -f "${BACKUP_SOURCE}.sha256" || -L "${BACKUP_SOURCE}.sha256" ]]; then
     echo "Refusing restore: checksum is missing or not a regular file: ${BACKUP_SOURCE}.sha256" >&2
     exit 2
 fi
+if [[ ! "${RECOVERY_INVENTORY_MAX_AGE_HOURS}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "GOATFARM_RECOVERY_INVENTORY_RESTORE_MAX_AGE_HOURS must be a positive integer" >&2
+    exit 2
+fi
 if [[ "${ENVIRONMENT}" == "production" && "${BACKUP_SOURCE}" != *.gpg ]]; then
     echo "Production restores require an authenticated GPG backup" >&2
     exit 2
@@ -138,6 +143,13 @@ if [[ "${BACKUP_SOURCE}" == *.gpg ]]; then
         echo "GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT must be a 40- or 64-hex fingerprint" >&2
         exit 2
     fi
+fi
+RECOVERY_INVENTORY_SOURCE="${BACKUP_SOURCE}.recovery.json"
+if [[ "${ENVIRONMENT}" == "production" \
+    && ( ! -f "${RECOVERY_INVENTORY_SOURCE}" \
+        || -L "${RECOVERY_INVENTORY_SOURCE}" ) ]]; then
+    echo "Production restores require a bound .recovery.json inventory sidecar" >&2
+    exit 2
 fi
 
 if [[ ! -d "${TMP_ROOT}" ]]; then
@@ -162,7 +174,22 @@ BACKUP_PATH="${SOURCE_DIR}/${BACKUP_SOURCE##*/}"
     "${BACKUP_SOURCE}" "${BACKUP_PATH}"
 "${PYTHON_BIN}" "${SCRIPT_DIR}/pinned_copy.py" \
     "${BACKUP_SOURCE}.sha256" "${BACKUP_PATH}.sha256"
+RECOVERY_INVENTORY_PRESENT=0
+# Production always attempts the descriptor-pinned copy, even after the
+# friendly existence check above. If the sidecar is removed or replaced in
+# between, pinned_copy fails closed instead of silently downgrading the
+# production restore to a database-only recovery.
+if [[ "${ENVIRONMENT}" == "production" \
+    || -e "${RECOVERY_INVENTORY_SOURCE}" \
+    || -L "${RECOVERY_INVENTORY_SOURCE}" ]]; then
+    "${PYTHON_BIN}" "${SCRIPT_DIR}/pinned_copy.py" \
+        "${RECOVERY_INVENTORY_SOURCE}" "${BACKUP_PATH}.recovery.json"
+    RECOVERY_INVENTORY_PRESENT=1
+fi
 chmod 0600 "${BACKUP_PATH}" "${BACKUP_PATH}.sha256"
+if (( RECOVERY_INVENTORY_PRESENT == 1 )); then
+    chmod 0600 "${BACKUP_PATH}.recovery.json"
+fi
 
 # The URL travels over stdin to keep its password out of helper and libpq-tool
 # arguments.  Also remove any application URL inherited from the caller before
@@ -182,6 +209,12 @@ if [[ "${GOATFARM_RESTORE_CONFIRM:-}" != "${TARGET_DB}" ]]; then
 fi
 
 verify_checksum "${BACKUP_PATH}"
+if (( RECOVERY_INVENTORY_PRESENT == 1 )); then
+    "${PYTHON_BIN}" "${SCRIPT_DIR}/recovery_inventory.py" verify \
+        --inventory "${BACKUP_PATH}.recovery.json" \
+        --archive "${BACKUP_PATH}" \
+        --max-age-hours "${RECOVERY_INVENTORY_MAX_AGE_HOURS}"
+fi
 
 RESTORE_ARCHIVE="${BACKUP_PATH}"
 if [[ "${BACKUP_PATH}" == *.gpg ]]; then

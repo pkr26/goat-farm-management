@@ -1,7 +1,7 @@
 """Pydantic schemas for the purchases module."""
 
 import datetime as dt
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -9,7 +9,6 @@ from ..models import MAX_AGE_MONTHS, MAX_BATCH_COUNT  # single source
 from .animals import AnimalOut
 from .common import (
     MAX_FREE_TEXT_LENGTH,
-    NonNegativeFloat,
     NonNegativeMoneyFloat,
     NonNegativeWeightKgFloat,
     PastOrTodayDate,
@@ -39,7 +38,13 @@ class PurchaseBatchIn(StrictInputModel):
     )
     count: StrictInt = Field(ge=1, le=MAX_BATCH_COUNT)
     sex: Literal["M", "F"] = "F"  # stub-animal sex (a bought buck is not a doe)
-    avg_age_months: NonNegativeFloat | None = Field(default=None, le=MAX_AGE_MONTHS)
+    avg_age_months: (
+        Annotated[
+            float,
+            Field(strict=True, ge=0, le=MAX_AGE_MONTHS, allow_inf_nan=False),
+        ]
+        | None
+    ) = None
     avg_weight_kg: NonNegativeWeightKgFloat | None = None
     # Optional per-animal arrival weights. When present, one weight per head
     # (exactly `count` values, each within the same bounds as a recorded

@@ -118,6 +118,8 @@ services:
       # Deliberately do not expose the long-running API credential to this
       # one-shot DDL job. Production should give this URL a migrator identity.
       GOATFARM_MIGRATION_DATABASE_URL: '${GOATFARM_MIGRATION_DATABASE_URL:?copy .env.example to .env and set the full migration URL}'
+      GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS: ${GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS:-900000}
+      GOATFARM_MIGRATION_WRITES_QUIESCED: ${GOATFARM_MIGRATION_WRITES_QUIESCED:-false}
       # Alembic consumes a migration-only settings projection: this enables
       # the production verify-full gate without injecting API cookie/JWT/HMAC
       # configuration into the privileged one-shot container.
@@ -182,9 +184,9 @@ services:
       GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS: '${GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS:-[]}'
       GOATFARM_MAX_REQUEST_BODY_BYTES: ${GOATFARM_MAX_REQUEST_BODY_BYTES:-1048576}
       GOATFARM_MAX_REQUEST_TARGET_BYTES: ${GOATFARM_MAX_REQUEST_TARGET_BYTES:-8192}
-      # Set false to close the unauthenticated worker roster (enumeration
-      # oracle by documented design) on deployments without shared tablets.
-      GOATFARM_WORKER_ROSTER_ENABLED: ${GOATFARM_WORKER_ROSTER_ENABLED:-true}
+      # Privacy-safe default: explicitly opt in only for a provisioned shared
+      # tablet. The unauthenticated roster is an enumeration oracle by design.
+      GOATFARM_WORKER_ROSTER_ENABLED: ${GOATFARM_WORKER_ROSTER_ENABLED:-false}
       # Defaults to exactly the edge container's configurable address (see the
       # `goatfarm_app` network below) — never the whole bridge range, which would
       # also cover other containers and let them spoof X-Forwarded-For. The
@@ -212,6 +214,9 @@ services:
       GOATFARM_S3_SECRET_ACCESS_KEY: ${GOATFARM_S3_SECRET_ACCESS_KEY:-}
       GOATFARM_SCREENING_S3_PREFIX: ${GOATFARM_SCREENING_S3_PREFIX:-raw}
       GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS: ${GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS:-900}
+      GOATFARM_SCREENING_RAW_CLEANUP_INTERVAL_SECONDS: ${GOATFARM_SCREENING_RAW_CLEANUP_INTERVAL_SECONDS:-60}
+      GOATFARM_SCREENING_RAW_CLEANUP_BATCH_SIZE: ${GOATFARM_SCREENING_RAW_CLEANUP_BATCH_SIZE:-25}
+      GOATFARM_SCREENING_RAW_CLEANUP_MAX_BATCHES: ${GOATFARM_SCREENING_RAW_CLEANUP_MAX_BATCHES:-4}
       GOATFARM_SCREENING_PROVIDER: ${GOATFARM_SCREENING_PROVIDER:-anthropic}
       GOATFARM_SCREENING_PROVIDER_ROTATION: '${GOATFARM_SCREENING_PROVIDER_ROTATION:-[]}'
       GOATFARM_SCREENING_ANTHROPIC_BASE_URL: ${GOATFARM_SCREENING_ANTHROPIC_BASE_URL:-https://api.anthropic.com}
@@ -230,7 +235,7 @@ services:
       # and tablet-PIN tuning is exercisable locally (2026-09-28 audit, F7).
       # Fallbacks are the Settings defaults (today's local behavior when
       # unset); production deliberately pins MAX_FARMS_PER_USER=25 and
-      # WORKER_PIN_MIN_LENGTH=6.
+      # WORKER_PIN_MIN_LENGTH=12.
       GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM: ${GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM:-400}
       GOATFARM_MAX_FARMS_PER_USER: ${GOATFARM_MAX_FARMS_PER_USER:-10}
       GOATFARM_NOTIFICATIONS_ENABLED: ${GOATFARM_NOTIFICATIONS_ENABLED:-false}
@@ -246,9 +251,18 @@ services:
       GOATFARM_NOTIFICATIONS_SEND_RETRY_ATTEMPTS: ${GOATFARM_NOTIFICATIONS_SEND_RETRY_ATTEMPTS:-2}
       GOATFARM_NOTIFICATIONS_SEND_RETRY_BACKOFF_SECONDS: ${GOATFARM_NOTIFICATIONS_SEND_RETRY_BACKOFF_SECONDS:-2.0}
       GOATFARM_NOTIFICATIONS_LOOP_BATCH_SIZE: ${GOATFARM_NOTIFICATIONS_LOOP_BATCH_SIZE:-100}
+      GOATFARM_NOTIFICATIONS_DELIVERY_CONCURRENCY: ${GOATFARM_NOTIFICATIONS_DELIVERY_CONCURRENCY:-8}
+      GOATFARM_NOTIFICATIONS_PER_FARM_DELIVERY_CONCURRENCY: ${GOATFARM_NOTIFICATIONS_PER_FARM_DELIVERY_CONCURRENCY:-2}
       GOATFARM_WORKER_PIN_MIN_LENGTH: ${GOATFARM_WORKER_PIN_MIN_LENGTH:-4}
       GOATFARM_WORKER_PIN_RATE_LIMIT_MAX_ATTEMPTS: ${GOATFARM_WORKER_PIN_RATE_LIMIT_MAX_ATTEMPTS:-10}
       GOATFARM_WORKER_PIN_RATE_LIMIT_WINDOW_SECONDS: ${GOATFARM_WORKER_PIN_RATE_LIMIT_WINDOW_SECONDS:-300}
+      GOATFARM_RETENTION_SWEEP_ENABLED: ${GOATFARM_RETENTION_SWEEP_ENABLED:-true}
+      GOATFARM_RETENTION_SWEEP_INTERVAL_SECONDS: ${GOATFARM_RETENTION_SWEEP_INTERVAL_SECONDS:-86400}
+      GOATFARM_RETENTION_SCREENING_DAYS: ${GOATFARM_RETENTION_SCREENING_DAYS:-180}
+      GOATFARM_RETENTION_SCREENING_BATCH_DAYS: ${GOATFARM_RETENTION_SCREENING_BATCH_DAYS:-365}
+      GOATFARM_RETENTION_SCREENING_BUDGET_DAYS: ${GOATFARM_RETENTION_SCREENING_BUDGET_DAYS:-90}
+      GOATFARM_RETENTION_NOTIFICATION_DAYS: ${GOATFARM_RETENTION_NOTIFICATION_DAYS:-400}
+      GOATFARM_RETENTION_TERMINAL_TASK_DAYS: ${GOATFARM_RETENTION_TERMINAL_TASK_DAYS:-365}
     volumes:
       - jwtkeys:/app/keys
     # Internal only: the edge below is the sole host-published listener.
@@ -378,7 +392,10 @@ services:
       - goatfarm_app
 
   edge:
-    image: nginx:1.30-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c
+    image: goatfarm-edge:local
+    build:
+      context: .
+      dockerfile: docker/edge/Dockerfile
     restart: unless-stopped
     # Read-only root filesystem: nginx writes only its temp dirs and pid file,
     # both redirected to size-capped tmpfs. The official image's master runs as

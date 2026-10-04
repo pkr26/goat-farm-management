@@ -31,6 +31,7 @@ def summarize(
     ]
     killed = sum(r["status"] == "KILLED" for r in complete)
     return {
+        "campaign_id": campaign_id,
         "total": len(manifest),
         "executed": len(latest),
         "missing": len(manifest) - len(latest),

@@ -1686,6 +1686,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     // silently — while its button flipped back as though it had applied — so
     // the new breed's head counts got merged into the OLD breed's economics.
     const epoch = ++editorEpochRef.current;
+    const contentEpoch = editorContentEpochRef.current;
     const farmScope = captureFarmScope();
     try {
       const res = await snapshotQuery.refetch();
@@ -1694,11 +1695,14 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         toast.error(errorMessage(t, res.error, t("simulation.error.herdSnapshot")));
         return;
       }
-      if (editorEpochRef.current !== epoch) {
-        // A different loader replaced the editor while this snapshot was in
-        // flight; applying it now would overwrite that scenario's saved head
-        // counts and silently detach the scenario binding. Never fail
-        // silently — say so, so the operator can click again.
+      if (
+        editorEpochRef.current !== epoch ||
+        editorContentEpochRef.current !== contentEpoch
+      ) {
+        // A different loader replaced the editor, or the operator edited it,
+        // while this snapshot was in flight. Applying it now would silently
+        // overwrite newer work. Never fail silently — say so, so the
+        // operator can deliberately request the replacement again.
         toast.error(t("simulation.error.herdSnapshotStale"));
         return;
       }
@@ -1742,6 +1746,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     // fallback; if a NEW defaults click happens, it increments this epoch and
     // makes the calibration continuation stale.
     const epoch = ++editorEpochRef.current;
+    const contentEpoch = editorContentEpochRef.current;
     const paramsGeneration = calibrationParamsGeneration.current;
     try {
       const res = await calibrationQuery.refetch();
@@ -1752,6 +1757,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       }
       if (
         editorEpochRef.current !== epoch ||
+        editorContentEpochRef.current !== contentEpoch ||
         calibrationParamsGeneration.current !== paramsGeneration
       ) {
         toast.error(t("simulation.error.calibrationStale"));

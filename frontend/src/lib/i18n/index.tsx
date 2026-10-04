@@ -18,6 +18,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -26,13 +27,47 @@ import { setActiveLanguage } from "@/lib/active-language";
 import { safeStorage } from "@/lib/safe-storage";
 
 import en, { type MessageKey } from "./en";
-import te from "./te";
+import {
+  LANGUAGES,
+  LANGUAGE_COOKIE_KEY,
+  LANGUAGE_STORAGE_KEY,
+  type Language,
+} from "./config";
 
-export const LANGUAGES = ["en", "te"] as const;
-export type Language = (typeof LANGUAGES)[number];
-/** Namespaced so a shared origin / embedded webview never collides. */
-// Stryker disable next-line StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the key is pinned verbatim by the persistence tests
-export const LANGUAGE_STORAGE_KEY = "herdly.language";
+type MessageCatalog = Partial<Record<MessageKey, string>>;
+export { LANGUAGES, LANGUAGE_COOKIE_KEY, LANGUAGE_STORAGE_KEY };
+export type { Language };
+
+let teluguCatalog: MessageCatalog | undefined;
+let teluguCatalogPromise: Promise<MessageCatalog> | undefined;
+
+/** Install a catalog that has already been fetched. Exported so the test
+ * harness can keep pure translation tests synchronous without putting the
+ * Telugu table back into production's shared route graph. */
+export function installLanguageCatalog(language: Language, catalog: MessageCatalog): void {
+  if (language === "te") teluguCatalog = catalog;
+}
+
+export function languageCatalogIsLoaded(language: Language): boolean {
+  return language === "en" || teluguCatalog !== undefined;
+}
+
+/** The explicit import expression is a bundler split point. A failed offline
+ * first-load remains retryable; once fetched, the service worker's existing
+ * immutable-chunk cache keeps the locale available offline. */
+export async function loadLanguageCatalog(language: Language): Promise<void> {
+  if (language === "en" || teluguCatalog) return;
+  teluguCatalogPromise ??= import("./te")
+    .then((module) => {
+      teluguCatalog = module.default;
+      return module.default;
+    })
+    .catch((error: unknown) => {
+      teluguCatalogPromise = undefined;
+      throw error;
+    });
+  await teluguCatalogPromise;
+}
 
 /** Interpolates `{name}` tokens; unknown tokens are left verbatim so a
  * missing variable is visible in review instead of silently swallowed. */
@@ -50,7 +85,7 @@ export function translate(
   key: MessageKey,
   vars?: Record<string, string | number>,
 ): string {
-  const template = language === "te" ? (te[key] ?? en[key]) : en[key];
+  const template = language === "te" ? (teluguCatalog?.[key] ?? en[key]) : en[key];
   return interpolate(template ?? key, vars);
 }
 
@@ -75,51 +110,99 @@ const LanguageContext = createContext<LanguageContextValue>(defaultContextValue)
 /** Reads the persisted language without React — for the route-state
  * boundaries (error/404/loading) that must render even when the provider
  * tree has crashed (2026-09-28 audit, I3). */
-export function readStoredLanguage(): Language {
+function readStoredLanguageChoice(): Language | null {
   try {
     const stored = safeStorage("local")?.getItem(LANGUAGE_STORAGE_KEY);
-    return stored === "te" ? "te" : "en";
+    return stored === "en" || stored === "te" ? stored : null;
   } catch {
-    // Private-mode webviews can throw on storage access; English is the
-    // safe default and the toggle still works for the live session.
-    return "en";
+    return null;
   }
 }
 
-export function LanguageProvider({ children }: { children: ReactNode }) {
-  // Starts as English on both server and first client render (no hydration
-  // mismatch); the stored choice is adopted in the effect below.
-  const [language, setLanguageState] = useState<Language>("en");
+export function readStoredLanguage(): Language {
+  // Private-mode webviews can throw on storage access; English is the safe
+  // default and the toggle still works for the live session.
+  return readStoredLanguageChoice() ?? "en";
+}
 
-  // The stored choice is an external store that only exists client-side;
-  // adopting it after mount (not during render) keeps SSR output English and
-  // the first client render hydration-safe.
+function persistLanguage(language: Language): void {
+  try {
+    safeStorage("local")?.setItem(LANGUAGE_STORAGE_KEY, language);
+  } catch {
+    // Storage unavailable (private mode): keep the in-memory switch.
+  }
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${LANGUAGE_COOKIE_KEY}=${language}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+}
+
+export function LanguageProvider({
+  children,
+  initialLanguage,
+}: {
+  children: ReactNode;
+  /** `null` means the server found no valid cookie and the client must
+   * reconcile legacy localStorage before exposing localized UI. Omitted is
+   * retained for standalone/test mounts and starts in English immediately. */
+  initialLanguage?: Language | null;
+}) {
+  const initial = initialLanguage ?? "en";
+  const [language, setLanguageState] = useState<Language>(initial);
+  const [catalogReady, setCatalogReady] = useState(
+    () => initialLanguage !== null && languageCatalogIsLoaded(initial),
+  );
+  const switchVersion = useRef(0);
+
   useEffect(() => {
-    const stored = readStoredLanguage();
-    // Stryker disable next-line ConditionalExpression, StringLiteral: readStoredLanguage only yields "en"/"te", so re-applying "en" is a no-op and the empty-string comparison never differs
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (stored !== "en") setLanguageState(stored);
-  // Stryker disable next-line ArrayDeclaration: a constant string dep never changes, so the effect still runs exactly once
-  }, []);
+    const version = ++switchVersion.current;
+    // localStorage repairs a stale cached worker shell while offline; in the
+    // normal online path it matches the cookie written by persistLanguage.
+    const desired = readStoredLanguageChoice() ?? initialLanguage ?? "en";
+    void loadLanguageCatalog(desired)
+      .then(() => {
+        if (version !== switchVersion.current) return;
+        setLanguageState(desired);
+        setCatalogReady(true);
+        if (initialLanguage === null) persistLanguage(desired);
+      })
+      .catch(() => {
+        // A first-ever offline Telugu request cannot fetch the chunk. Keep a
+        // neutral loading surface and retry after a user choice or reload;
+        // never flash English while claiming Telugu is active.
+      });
+  }, [initialLanguage]);
 
   // Stryker disable ArrayDeclaration: a constant string dep never changes, so the effect still runs exactly once
   // Keep <html lang> truthful for screen readers and Telugu keyboard hints,
   // and mirror the choice into the module store so pure helpers (format.ts
   // date rendering, enum-labels defaults) follow the same language.
   useEffect(() => {
+    if (!catalogReady) return;
     document.documentElement.lang = language;
     setActiveLanguage(language);
-  }, [language]);
+  }, [catalogReady, language]);
   // Stryker restore ArrayDeclaration
 
   // Stryker disable ArrayDeclaration: setLanguageState is stable and the body reads no reactive values, so a constant dep list cannot change it
   const setLanguage = useCallback((next: Language) => {
-    setLanguageState(next);
-    try {
-      safeStorage("local")?.setItem(LANGUAGE_STORAGE_KEY, next);
-    } catch {
-      // Storage unavailable (private mode): keep the in-memory switch.
+    const version = ++switchVersion.current;
+    if (languageCatalogIsLoaded(next)) {
+      setLanguageState(next);
+      setCatalogReady(true);
+      persistLanguage(next);
+      return;
     }
+    void loadLanguageCatalog(next)
+      .then(() => {
+        if (version !== switchVersion.current) return;
+        setLanguageState(next);
+        setCatalogReady(true);
+        persistLanguage(next);
+      })
+      .catch(() => {
+        // Preserve the currently rendered language and stored choice. This
+        // matters on a cold offline visit where the Telugu chunk is not yet
+        // in the service worker cache.
+      });
   // Stryker restore ArrayDeclaration
   }, []);
 
@@ -128,6 +211,9 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     [language, setLanguage],
   );
 
+  if (!catalogReady) {
+    return <div className="min-h-screen bg-background" aria-busy="true" />;
+  }
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
 }
 

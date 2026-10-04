@@ -53,12 +53,11 @@ export default defineConfig({
   // Locally, Chromium remains the fast default; set E2E_BROWSER explicitly
   // to reproduce a Firefox or WebKit failure.
   //
-  // The mobile project runs the phone worker journey under device emulation
-  // (the field device for this product). It is Chromium-only — a second
-  // emulation of the same engine adds no signal in the Firefox/WebKit CI
-  // jobs — and it runs ONLY the mobile spec, while the desktop project
-  // skips it (the md:hidden card lists it asserts are display:none at a
-  // desktop viewport).
+  // Worker journeys get three deliberately small device gates: the primary
+  // Android phone, an actual tablet breakpoint in landscape, and Mobile
+  // Safari/WebKit for service-worker + IndexedDB engine coverage. Desktop
+  // projects skip those files because their md:hidden card assertions are
+  // intentionally false at desktop geometry.
   projects: [
     {
       name: browserName,
@@ -71,6 +70,20 @@ export default defineConfig({
             name: "Mobile Chrome",
             use: { ...devices["Pixel 7"] },
             testMatch: /mobile-worker-journey\.spec\.ts|worker-tablet-journey\.spec\.ts/,
+          },
+          {
+            name: "Tablet Chrome landscape",
+            use: { ...devices["Galaxy Tab S9 landscape"] },
+            testMatch: /worker-tablet-journey\.spec\.ts/,
+          },
+        ]
+      : []),
+    ...(browserName === "webkit"
+      ? [
+          {
+            name: "Mobile Safari",
+            use: { ...devices["iPhone 13"] },
+            testMatch: /worker-tablet-journey\.spec\.ts/,
           },
         ]
       : []),

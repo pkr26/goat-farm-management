@@ -98,11 +98,11 @@ def test_sarif_gate_allows_lower_severity_findings_and_rejects_missing_output(
     assert "No SARIF files found" in missing.stderr
 
 
-def test_security_workflow_gates_private_codeql_and_scans_exact_compose_images() -> None:
+def test_security_workflow_gates_private_codeql_and_scans_deployed_images() -> None:
     workflow = SECURITY_WORKFLOW.read_text()
     compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
     db_image = compose["services"]["db"]["image"]
-    edge_image = compose["services"]["edge"]["image"]
+    edge = compose["services"]["edge"]
 
     assert "upload: never" in workflow
     assert 'python3 .github/scripts/gate_sarif.py "${SARIF_OUTPUT}"' in workflow
@@ -111,45 +111,84 @@ def test_security_workflow_gates_private_codeql_and_scans_exact_compose_images()
         "name: Fail on CodeQL error or high-severity findings"
     )
     assert f"COMPOSE_POSTGRES_IMAGE: {db_image}" in workflow
-    assert f"COMPOSE_NGINX_IMAGE: {edge_image}" in workflow
-    for image_name in ("${{ env.COMPOSE_POSTGRES_IMAGE }}", "${{ env.COMPOSE_NGINX_IMAGE }}"):
-        assert workflow.count(f"image: {image_name}") >= 1
-        assert workflow.count(f"image-ref: {image_name}") >= 1
+    assert workflow.count("image: ${{ env.COMPOSE_POSTGRES_IMAGE }}") >= 1
+    assert workflow.count("image-ref: ${{ env.COMPOSE_POSTGRES_IMAGE }}") >= 1
+
+    # The edge is now a first-party hardened image.  Security must build the
+    # same Dockerfile as local Compose, generate its SBOM, and scan it without
+    # the third-party PostgreSQL ignore list masking findings.
+    assert edge["image"] == "goatfarm-edge:local"
+    assert edge["build"] == {"context": ".", "dockerfile": "docker/edge/Dockerfile"}
+    assert f"file: {edge['build']['dockerfile']}" in workflow
+    assert "tags: goatfarm-edge:security" in workflow
+    assert "image: goatfarm-edge:security" in workflow
+    assert "image-ref: goatfarm-edge:security" in workflow
+    assert workflow.count("trivyignores: .trivyignore.compose-images") == 1
+    assert "COMPOSE_NGINX_IMAGE" not in workflow
 
 
-def test_security_workflow_scans_the_production_compose_edge_digest() -> None:
-    """The digest lockstep must cover docker-compose.production.yml too.
-
-    The production manifest pins its nginx edge with a literal digest that no
-    interpolation touches, so the dev-compose assertion above could not see a
-    production-only drift: an operator refreshing only the production digest
-    would deploy an image the weekly Trivy scans (and the scoped
-    .trivyignore.compose-images rationale) never examined (2026-10-01 audit,
-    09-3). The production file has no db service, so its only third-party
-    image is the edge.
-    """
+def test_security_and_release_workflows_cover_digest_pinned_production_edge() -> None:
+    """The built-and-scanned edge must be the signed production artifact."""
     workflow = SECURITY_WORKFLOW.read_text()
+    release = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
     production = yaml.safe_load((REPO_ROOT / "docker-compose.production.yml").read_text())
     dev_compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
 
-    production_edge_image = production["services"]["edge"]["image"]
-    dev_edge_image = dev_compose["services"]["edge"]["image"]
-    # Every production service image that is not an interpolated
-    # own-registry reference ("${...}@${...}") is a literal third-party
-    # reference; today that must be exactly the edge nginx digest.
-    literal_images = {
-        name: service["image"]
-        for name, service in production["services"].items()
-        if not service["image"].startswith("${")
-    }
-    assert set(literal_images) == {"edge"}
-    assert literal_images["edge"] == production_edge_image
-    # The scanned image and both deployed manifests must be the same digest.
-    assert production_edge_image == dev_edge_image
-    assert f"COMPOSE_NGINX_IMAGE: {production_edge_image}" in workflow
-    # The ignore file's per-image rationale headers name the same digests the
-    # scans use, keeping the freshness-marker refresh honest about which
-    # pinned images it evaluated.
+    production_edge = production["services"]["edge"]
+    production_edge_image = production_edge["image"]
+    assert production_edge_image == (
+        "${GOATFARM_EDGE_IMAGE_REPOSITORY:?set the edge registry repository}"
+        "@${GOATFARM_EDGE_IMAGE_DIGEST:?set its sha256 digest}"
+    )
+    assert "build" not in production_edge
+    assert dev_compose["services"]["edge"]["build"]["dockerfile"] == "docker/edge/Dockerfile"
+
+    assert "file: docker/edge/Dockerfile" in workflow
+    assert "image-ref: goatfarm-edge:security" in workflow
+    assert release.count("file: docker/edge/Dockerfile") == 4
+    assert 'cosign sign --yes "${EDGE_IMAGE}@${EDGE_DIGEST}"' in release
+    assert "edge_digest=${edge_digest}" in release
+
+    # The scoped ignore list remains only for the exact third-party database;
+    # first-party edge findings cannot be waived by this file.
     trivyignore = (REPO_ROOT / ".trivyignore.compose-images").read_text()
-    for image in (production_edge_image, dev_compose["services"]["db"]["image"]):
-        assert image in trivyignore
+    assert dev_compose["services"]["db"]["image"] in trivyignore
+    assert "nginx:" not in trivyignore
+
+
+def test_privileged_qemu_and_buildkit_toolchain_are_immutable() -> None:
+    """Action SHAs must not conceal mutable privileged helper images."""
+    workflows = [
+        yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+        for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
+    ]
+    buildx_steps = [
+        step
+        for workflow in workflows
+        for job in workflow.get("jobs", {}).values()
+        for step in job.get("steps", [])
+        if str(step.get("uses", "")).startswith("docker/setup-buildx-action@")
+    ]
+    assert len(buildx_steps) == 3
+    for step in buildx_steps:
+        inputs = step["with"]
+        assert inputs["version"] == "v0.37.2"
+        assert inputs["driver-opts"] == (
+            "image=moby/buildkit:v0.33.1@sha256:"
+            "cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea"
+        )
+
+    qemu_steps = [
+        step
+        for workflow in workflows
+        for job in workflow.get("jobs", {}).values()
+        for step in job.get("steps", [])
+        if str(step.get("uses", "")).startswith("docker/setup-qemu-action@")
+    ]
+    assert len(qemu_steps) == 1
+    qemu_inputs = qemu_steps[0]["with"]
+    assert qemu_inputs["image"] == (
+        "docker.io/tonistiigi/binfmt:qemu-v10.2.3-68@sha256:"
+        "400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0"
+    )
+    assert qemu_inputs["platforms"] == "arm64"

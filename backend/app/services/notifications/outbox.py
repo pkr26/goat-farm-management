@@ -7,6 +7,7 @@ they are never blindly retried, since a timeout cannot prove non-delivery.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -21,7 +22,12 @@ from ...models import Farm, FarmMembership, NotificationRecipient, User
 from ...models.notifications import NotificationOutbox
 from ...utils import utcnow
 from .providers import NotificationProvider
-from .service import _in_quiet_hours, send_notification
+from .service import (
+    SendOutcome,
+    _in_quiet_hours,
+    _send_notification_admitted,
+    delivery_slot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,10 +125,10 @@ async def dispatch_outbox_event(
             )
             .exists()
         )
-        recipients = list(
+        recipient_ids = list(
             (
                 await db.execute(
-                    select(NotificationRecipient)
+                    select(NotificationRecipient.id)
                     .join(FarmMembership, FarmMembership.id == NotificationRecipient.membership_id)
                     .join(User, User.id == FarmMembership.user_id)
                     .where(
@@ -138,26 +144,49 @@ async def dispatch_outbox_event(
                 )
             ).scalars()
         )
-        sent = 0
-        capped = False
-        for recipient in recipients[: settings.notifications_loop_batch_size]:
-            outcome = await send_notification(
-                db,
-                settings,
-                provider,
-                farm=farm,
-                recipient=recipient,
-                alert_class=event.alert_class,
-                message=event.message,
-                payload=event.event_key,
-                now_local=now,
-                outbox_id=event.id,
-            )
-            sent += int(outcome.status == "SENT" and outcome.fresh)
-            capped |= outcome.status == "SKIPPED_CAP"
+        farm_id = farm.id
+        event_alert_class = event.alert_class
+        event_message = event.message
+        event_key = event.event_key
+        await db.commit()
+
+        async def send_one(recipient_id: int) -> SendOutcome | None:
+            async with delivery_slot(settings, farm_id), get_sessionmaker()() as delivery_db:
+                delivery_farm = await delivery_db.get(Farm, farm_id)
+                recipient = await delivery_db.get(NotificationRecipient, recipient_id)
+                if delivery_farm is None or recipient is None:
+                    return None
+                return await _send_notification_admitted(
+                    delivery_db,
+                    settings,
+                    provider,
+                    farm=delivery_farm,
+                    recipient=recipient,
+                    alert_class=event_alert_class,
+                    message=event_message,
+                    payload=event_key,
+                    now_local=now,
+                    outbox_id=event_id,
+                )
+
+        results = await asyncio.gather(
+            *(
+                send_one(recipient_id)
+                for recipient_id in recipient_ids[: settings.notifications_loop_batch_size]
+            ),
+            return_exceptions=True,
+        )
+        first_error = next(
+            (result for result in results if isinstance(result, BaseException)), None
+        )
+        if first_error is not None:
+            raise first_error
+        outcomes = [result for result in results if isinstance(result, SendOutcome)]
+        sent = sum(int(outcome.status == "SENT" and outcome.fresh) for outcome in outcomes)
+        capped = any(outcome.status == "SKIPPED_CAP" for outcome in outcomes)
         if capped:
             event.due_at = _next_allowed(settings, now, capped=True)
-        elif len(recipients) <= settings.notifications_loop_batch_size:
+        elif len(recipient_ids) <= settings.notifications_loop_batch_size:
             event.completed_at = instant
         else:
             event.due_at = instant  # yield to the next bounded dispatcher tick
@@ -181,11 +210,18 @@ async def dispatch_pending_alerts(settings: Settings, provider: NotificationProv
                 )
             ).scalars()
         )
-    sent = 0
-    for event_id in ids:
+    slots = asyncio.BoundedSemaphore(settings.notifications_delivery_concurrency)
+
+    async def dispatch_one(event_id: int) -> int:
+        async with slots:
+            return await dispatch_outbox_event(event_id, settings, provider, now_utc=now)
+
+    async def isolate(event_id: int) -> int:
         try:
-            sent += await dispatch_outbox_event(event_id, settings, provider, now_utc=now)
+            return await dispatch_one(event_id)
         except Exception:
             # The durable lease expires; later events still get their turn.
             logger.exception("notification outbox event %s failed", event_id)
-    return sent
+            return 0
+
+    return sum(await asyncio.gather(*(isolate(event_id) for event_id in ids)))

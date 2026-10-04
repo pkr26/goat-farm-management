@@ -152,23 +152,39 @@ PostgresText = Annotated[str, AfterValidator(_postgres_text)]
 # GET /api/finance on JSON serialization. Caps are far past anything the
 # domain can legitimately reach: ₹1e9 (100 crore) for money, 1e6 kg for feed
 # quantities, 1000 kg for a single animal's weight.
+# Keep every JSON-Schema-producing constraint in the same Field metadata as
+# the primitive type. Appending ``Field(le=...)`` after an AfterValidator makes
+# Pydantic enforce the ceiling at runtime but emit the non-standard key ``le``
+# instead of OpenAPI's ``maximum``. These aliases intentionally repeat the
+# primitive constraints so the wire contract and runtime validator agree.
 MoneyFloat = Annotated[
-    PositiveFloat,
-    Field(le=1_000_000_000),
+    float,
+    Field(strict=True, gt=0, le=1_000_000_000),
+    AfterValidator(_finite),
     AfterValidator(_money_precision),
 ]
 NonNegativeMoneyFloat = Annotated[
-    NonNegativeFloat,
-    Field(le=1_000_000_000),
+    float,
+    Field(strict=True, ge=0, le=1_000_000_000),
+    AfterValidator(_finite),
     AfterValidator(_money_precision),
 ]
 QuantityKgFloat = Annotated[
-    PositiveFloat,
-    Field(le=1_000_000),
+    float,
+    Field(strict=True, gt=0, le=1_000_000),
+    AfterValidator(_finite),
     AfterValidator(_quantity_kg_precision),
 ]
-WeightKgFloat = Annotated[PositiveFloat, Field(le=1000)]
-NonNegativeWeightKgFloat = Annotated[NonNegativeFloat, Field(le=1000)]
+WeightKgFloat = Annotated[
+    float,
+    Field(strict=True, gt=0, le=1000),
+    AfterValidator(_finite),
+]
+NonNegativeWeightKgFloat = Annotated[
+    float,
+    Field(strict=True, ge=0, le=1000),
+    AfterValidator(_finite),
+]
 
 
 # Machine-readable error codes for the highest-stakes failure classes
@@ -280,7 +296,6 @@ COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     },
     413: {"model": ErrorOut, "description": "Request body is too large"},
     414: {"model": ErrorOut, "description": "Request target is too long"},
-    415: {"model": ErrorOut, "description": "Unsupported media type"},
     422: {
         "description": "Input validation failed or a business rule was rejected",
         "content": {
@@ -300,4 +315,11 @@ COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     },
     500: {"model": ErrorOut, "description": "Internal server error"},
     503: {"model": ErrorOut, "description": "Temporarily unavailable"},
+}
+
+# Only the credential-entry operations guarded by `_require_json_content_type`
+# can emit 415. Keeping this separate prevents every ordinary GET and
+# authenticated JSON route from advertising an impossible response branch.
+JSON_CONTENT_TYPE_ERROR_RESPONSE: dict[int | str, dict[str, Any]] = {
+    415: {"model": ErrorOut, "description": "Unsupported media type"},
 }

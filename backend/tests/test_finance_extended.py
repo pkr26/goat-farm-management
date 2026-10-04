@@ -2085,20 +2085,18 @@ async def test_month_filter_year_boundary(client: httpx.AsyncClient) -> None:
 
 
 @pytest.mark.parametrize("garbage", ["abc", "2025-13", "2025-00", "2025/03", "99999-01", " "])
-async def test_month_filter_garbage_matches_nothing(
-    client: httpx.AsyncClient, garbage: str
-) -> None:
+async def test_month_filter_garbage_is_rejected(client: httpx.AsyncClient, garbage: str) -> None:
     owner = await owner_with_farm(client)
     await add_txn(client, owner)
-    data = await get_finance(client, owner, month=garbage)
-    assert data["transactions"] == []
+    response = await client.get("/api/finance", params={"month": garbage}, headers=owner)
+    assert response.status_code == 422, response.text
 
 
-async def test_month_filter_unpadded_month_matches(client: httpx.AsyncClient) -> None:
+async def test_month_filter_unpadded_month_is_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    txn = await add_txn(client, owner, date="2025-03-15")
-    data = await get_finance(client, owner, month="2025-3")  # strptime is lenient
-    assert [t["id"] for t in data["transactions"]] == [txn["id"]]
+    await add_txn(client, owner, date="2025-03-15")
+    response = await client.get("/api/finance", params={"month": "2025-3"}, headers=owner)
+    assert response.status_code == 422, response.text
 
 
 async def test_type_filter(client: httpx.AsyncClient) -> None:

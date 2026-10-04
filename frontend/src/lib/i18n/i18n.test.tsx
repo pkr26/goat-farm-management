@@ -15,6 +15,7 @@ import te from "@/lib/i18n/te";
 import {
   interpolate,
   LANGUAGES,
+  LANGUAGE_COOKIE_KEY,
   LANGUAGE_STORAGE_KEY,
   LanguageProvider,
   translate,
@@ -91,10 +92,12 @@ function LanguageProbe() {
 describe("LanguageProvider", () => {
   beforeEach(() => {
     localStorage.clear();
+    document.cookie = `${LANGUAGE_COOKIE_KEY}=; Path=/; Max-Age=0`;
     document.documentElement.lang = "en";
   });
   afterEach(() => {
     localStorage.clear();
+    document.cookie = `${LANGUAGE_COOKIE_KEY}=; Path=/; Max-Age=0`;
     document.documentElement.lang = "en";
   });
 
@@ -115,6 +118,7 @@ describe("LanguageProvider", () => {
     expect(screen.getByTestId("title")).toHaveTextContent("పనులు");
     expect(document.documentElement.lang).toBe("te");
     expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("te");
+    expect(document.cookie).toContain(`${LANGUAGE_COOKIE_KEY}=te`);
   });
 
   it("adopts a persisted Telugu choice on mount", async () => {
@@ -123,6 +127,31 @@ describe("LanguageProvider", () => {
 
     await waitFor(() => expect(screen.getByTestId("language")).toHaveTextContent("te"));
     expect(screen.getByTestId("title")).toHaveTextContent("పనులు");
+  });
+
+  it("shows no English copy while reconciling a missing server cookie", async () => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    render(
+      <LanguageProvider initialLanguage={null}>
+        <LanguageProbe />
+      </LanguageProvider>,
+    );
+
+    expect(screen.queryByText("Tasks")).not.toBeInTheDocument();
+    expect(document.querySelector('[aria-busy="true"]')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("title")).toHaveTextContent("పనులు"));
+    expect(document.cookie).toContain(`${LANGUAGE_COOKIE_KEY}=te`);
+  });
+
+  it("uses a server-selected Telugu catalog on the first visible render", () => {
+    render(
+      <LanguageProvider initialLanguage="te">
+        <LanguageProbe />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByTestId("title")).toHaveTextContent("పనులు");
+    expect(screen.queryByText("Tasks")).not.toBeInTheDocument();
   });
 
   it("ignores a corrupted stored value (anything but 'te' is English)", async () => {

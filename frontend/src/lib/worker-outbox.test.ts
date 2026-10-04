@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { currentRequestScope, setAccessToken, setCurrentFarmId } from "@/lib/api-client";
 import { OFFLINE_QUEUE_STORAGE_KEY } from "@/lib/offline-queue";
 import {
-  clearAcceptedWorkerReceipts, clearWorkerOutboxBackoff, drainWorkerOutbox, persistWorkerOperation,
-  readWorkerOutbox, settleWorkerOperation, WORKER_OUTBOX_DB, type WorkerOperation,
-  startWorkerOutbox,
+  clearAcceptedWorkerReceipts, clearWorkerOutboxBackoff, confirmOfflineWorkerDraft,
+  discardOfflineWorkerDraft, drainWorkerOutbox, persistOfflineWorkerDraft, persistWorkerOperation,
+  readLegacyQueueQuarantine, readWorkerOutbox, resolveWorkerReviewReceipt,
+  settleWorkerOperation, WORKER_OUTBOX_DB, type WorkerOperation, startWorkerOutbox,
 } from "@/lib/worker-outbox";
 
 const scopes = { actorScope: "7", farmScope: "42" };
@@ -103,6 +104,21 @@ describe("durable worker actions", () => {
     expect(records.find((item) => item.id === "receipt-20001")?.state).toBe("review");
   });
 
+  it("isolates active capacity by actor and farm while enforcing the current scope's cap", async () => {
+    const foreign = Array.from({ length: 100 }, (_, index) => receipt(
+      index + 1,
+      "review",
+      { actorScope: "8", farmScope: "99" },
+    ));
+    await seedOperations(foreign);
+    await expect(persistWorkerOperation("/api/tasks/1001/complete", undefined, scopes))
+      .resolves.toMatchObject({ state: "pending", actorScope: "7", farmScope: "42" });
+
+    const current = Array.from({ length: 99 }, (_, index) => receipt(index + 2_000, "review"));
+    await seedOperations(current);
+    await expect(persistWorkerOperation("/api/tasks/1002/complete", undefined, scopes)).rejects.toThrow();
+  });
+
   it("clears only confirmed accepted receipts in the current actor/farm and keeps all active work", async () => {
     const records = [receipt(1), receipt(2, "pending"), receipt(3, "review"),
       receipt(4, "sent", { ...scopes, actorScope: "8" }), receipt(5, "sent", { ...scopes, farmScope: "43" }), receipt(6)];
@@ -161,7 +177,7 @@ describe("durable worker actions", () => {
       headers: { "Idempotency-Key": existing.idempotencyKey }, queuedAt: 1, v: 1,
     }]));
     expect(await clearAcceptedWorkerReceipts(currentRequestScope()!, [existing.id])).toBe(1);
-    expect(localStorage.getItem(OFFLINE_QUEUE_STORAGE_KEY)).toContain(existing.id);
+    expect(localStorage.getItem(OFFLINE_QUEUE_STORAGE_KEY)).toBeNull();
     expect(await readWorkerOutbox(scopes)).toEqual([]);
     const send = vi.fn();
     await drainWorkerOutbox(scopes, () => scopes, send);
@@ -178,6 +194,75 @@ describe("durable worker actions", () => {
     expect(send).not.toHaveBeenCalled();
     expect(await readWorkerOutbox(scopes)).toEqual([]);
     expect(await readWorkerOutbox({ actorScope: "8", farmScope: "42" })).toHaveLength(1);
+  });
+
+  it("never auto-sends an offline draft until the original worker explicitly confirms it", async () => {
+    const draft = await persistOfflineWorkerDraft(
+      "/api/tasks/1/complete", undefined, scopes,
+    );
+    expect(draft).toMatchObject({ state: "review", reason: "offline-untrusted" });
+    const send = vi.fn().mockResolvedValue({ status: "DONE" });
+    await drainWorkerOutbox(scopes, () => scopes, send);
+    expect(send).not.toHaveBeenCalled();
+
+    expect(await confirmOfflineWorkerDraft(currentRequestScope()!, draft.id)).toBe(true);
+    const confirmed = (await readWorkerOutbox(scopes))[0]!;
+    expect(confirmed.state).toBe("pending");
+    expect(confirmed).not.toHaveProperty("reason");
+    await drainWorkerOutbox(scopes, () => scopes, send);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect((await readWorkerOutbox(scopes))[0].state).toBe("sent");
+  });
+
+  it("cannot approve a server-rejected review receipt as an offline draft", async () => {
+    const operation = await persistWorkerOperation("/api/tasks/1/complete", undefined, scopes);
+    await settleWorkerOperation(operation.id, "review", "conflict", 409);
+    expect(await confirmOfflineWorkerDraft(currentRequestScope()!, operation.id)).toBe(false);
+    expect(await discardOfflineWorkerDraft(currentRequestScope()!, operation.id)).toBe(false);
+    expect((await readWorkerOutbox(scopes))[0]).toMatchObject({
+      state: "review", reason: "conflict", status: 409,
+    });
+  });
+
+  it("retries a review receipt with its original request and idempotency key", async () => {
+    const operation = await persistWorkerOperation(
+      "/api/tasks/1/skip", '{"reason":"field note"}', scopes, "original-review-key",
+    );
+    await settleWorkerOperation(operation.id, "review", "conflict", 409);
+    expect(await resolveWorkerReviewReceipt(currentRequestScope()!, operation.id, "retry")).toBe(true);
+    expect((await readWorkerOutbox(scopes))[0]).toMatchObject({
+      state: "pending",
+      body: '{"reason":"field note"}',
+      idempotencyKey: "original-review-key",
+    });
+    const send = vi.fn().mockResolvedValue({ status: "SKIPPED" });
+    await drainWorkerOutbox(scopes, () => scopes, send);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ id: operation.id, idempotencyKey: "original-review-key" }),
+      expect.anything(),
+    );
+    expect((await readWorkerOutbox(scopes))[0]).toMatchObject({ state: "sent" });
+  });
+
+  it("dismisses only a review receipt in the live actor/farm scope", async () => {
+    const operation = await persistWorkerOperation("/api/tasks/1/complete", undefined, scopes);
+    await settleWorkerOperation(operation.id, "review", "rejected", 422);
+    const staleScope = currentRequestScope()!;
+    setCurrentFarmId("43"); setCurrentFarmId("42");
+    await expect(resolveWorkerReviewReceipt(staleScope, operation.id, "dismiss"))
+      .rejects.toMatchObject({ name: "AbortError" });
+    expect(await resolveWorkerReviewReceipt(currentRequestScope()!, operation.id, "dismiss")).toBe(true);
+    expect(await readWorkerOutbox(scopes)).toEqual([]);
+  });
+
+  it("lets only the original worker discard an untrusted offline draft", async () => {
+    const draft = await persistOfflineWorkerDraft("/api/tasks/1/complete", undefined, scopes);
+    setAccessToken("other-worker", 8);
+    expect(await discardOfflineWorkerDraft(currentRequestScope()!, draft.id)).toBe(false);
+    expect(await readWorkerOutbox(scopes)).toHaveLength(1);
+    setAccessToken("worker-token", 7);
+    expect(await discardOfflineWorkerDraft(currentRequestScope()!, draft.id)).toBe(true);
+    expect(await readWorkerOutbox(scopes)).toEqual([]);
   });
 
   it("retains a conflict and validation rejection as review receipts", async () => {
@@ -245,7 +330,37 @@ describe("durable worker actions", () => {
     expect(JSON.stringify(await readWorkerOutbox(scopes))).not.toContain("secret");
     await settleWorkerOperation("legacy-id", "sent");
     expect((await readWorkerOutbox(scopes))[0].state).toBe("sent");
-    expect(localStorage.getItem(OFFLINE_QUEUE_STORAGE_KEY)).toContain("old note");
+    expect(localStorage.getItem(OFFLINE_QUEUE_STORAGE_KEY)).toBeNull();
+    expect(await readLegacyQueueQuarantine()).toEqual([]);
+  });
+
+  it("imports valid legacy records, quarantines malformed evidence, and unwedges new writes", async () => {
+    const raw = JSON.stringify([{
+      ...scopes, id: "recoverable-legacy", path: "/api/tasks/1/complete", method: "POST", body: null,
+      headers: { "Idempotency-Key": "recoverable-key" }, queuedAt: 1, v: 1,
+    }, { v: 1, id: "malformed-without-fields" }]);
+    localStorage.setItem(OFFLINE_QUEUE_STORAGE_KEY, raw);
+
+    expect(await readWorkerOutbox(scopes)).toEqual([
+      expect.objectContaining({ id: "recoverable-legacy", idempotencyKey: "recoverable-key" }),
+    ]);
+    expect(localStorage.getItem(OFFLINE_QUEUE_STORAGE_KEY)).toBeNull();
+    expect(await readLegacyQueueQuarantine()).toEqual([
+      expect.objectContaining({ raw, malformedRecords: 1 }),
+    ]);
+    await expect(persistWorkerOperation("/api/tasks/2/complete", undefined, scopes)).resolves.toBeDefined();
+    expect(await readWorkerOutbox(scopes)).toHaveLength(2);
+  });
+
+  it("quarantines malformed legacy JSON without hiding a healthy IndexedDB outbox", async () => {
+    const raw = "{not-json";
+    localStorage.setItem(OFFLINE_QUEUE_STORAGE_KEY, raw);
+    expect(await readWorkerOutbox(scopes)).toEqual([]);
+    expect(await readLegacyQueueQuarantine()).toEqual([
+      expect.objectContaining({ raw, malformedRecords: 1 }),
+    ]);
+    expect(localStorage.getItem(OFFLINE_QUEUE_STORAGE_KEY)).toBeNull();
+    await expect(persistWorkerOperation("/api/tasks/3/complete", undefined, scopes)).resolves.toBeDefined();
   });
 
   it("fences same-actor leave-and-return before fetch executes", async () => {

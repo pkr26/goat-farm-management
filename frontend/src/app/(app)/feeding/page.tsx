@@ -91,6 +91,27 @@ function allocationShiftKey(bucket: string, recipe: string, shift: string): stri
   return `${bucket}\u0000${recipe}\u0000${shift}`;
 }
 
+function planAllocationId(line: PlanLineOut): string {
+  return line.allocation_id ?? `${line.bucket}:${line.recipe_code}`;
+}
+
+function planLineId(line: PlanLineOut): string {
+  return (
+    line.line_id ??
+    `${planAllocationId(line)}:${line.segment ?? line.creep_band ?? line.note ?? line.heads}`
+  );
+}
+
+function segmentLabel(line: PlanLineOut, language: "en" | "te", t: TFn): string {
+  if (line.segment === "FEMALE") return enumLabel("sex", "F", language);
+  if (line.segment === "MALE") return enumLabel("sex", "M", language);
+  if (line.segment === "CREEP_BAND") {
+    return line.creep_band ?? t("feeding.plan.segmentAll");
+  }
+  if (line.creep_band) return line.creep_band;
+  return t("feeding.plan.segmentAll");
+}
+
 /** Quantities are stored to 3 decimals; tolerate floating-point addition at
  * half of the smallest persisted unit when comparing actual with planned. */
 function meetsPlannedQuantity(actual: number, planned: number): boolean {
@@ -543,24 +564,48 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
     );
   }
   const plannedByBucket = new Map<string, number>();
+  const plannedByAllocationShift = new Map<string, number>();
+  const plannedByAllocation = new Map<string, number>();
+  const allocationLineCounts = new Map<string, number>();
+  for (const line of payload.lines) {
+    const allocationId = planAllocationId(line);
+    plannedByAllocation.set(
+      allocationId,
+      (plannedByAllocation.get(allocationId) ?? 0) + line.daily_kg,
+    );
+    allocationLineCounts.set(
+      allocationId,
+      (allocationLineCounts.get(allocationId) ?? 0) + 1,
+    );
+    for (const shift of line.shifts.map(toShiftCell)) {
+      const key = allocationShiftKey(line.bucket, line.recipe_code, shift.shift);
+      plannedByAllocationShift.set(key, (plannedByAllocationShift.get(key) ?? 0) + shift.kg);
+    }
+  }
   const bucketAllocationState = new Map<string, { complete: number; total: number }>();
+  const countedAllocations = new Set<string>();
   for (const l of payload.lines) {
     plannedByBucket.set(l.bucket, (plannedByBucket.get(l.bucket) ?? 0) + l.daily_kg);
+    const allocationId = planAllocationId(l);
+    if (countedAllocations.has(allocationId)) continue;
+    countedAllocations.add(allocationId);
     const shifts = l.shifts.map(toShiftCell);
-    const lineComplete =
+    const allocationComplete =
       shifts.length > 0 &&
       shifts.every(
-        (shift) =>
+        (shift) => {
+          const key = allocationShiftKey(l.bucket, l.recipe_code, shift.shift);
+          return (
           meetsPlannedQuantity(
-            dispensedByAllocationShift.get(
-              allocationShiftKey(l.bucket, l.recipe_code, shift.shift),
-            ) ?? 0,
-            shift.kg,
-          ),
+              dispensedByAllocationShift.get(key) ?? 0,
+              plannedByAllocationShift.get(key) ?? 0,
+            )
+          );
+        },
       );
     const current = bucketAllocationState.get(l.bucket) ?? { complete: 0, total: 0 };
     bucketAllocationState.set(l.bucket, {
-      complete: current.complete + (lineComplete ? 1 : 0),
+      complete: current.complete + (allocationComplete ? 1 : 0),
       total: current.total + 1,
     });
   }
@@ -687,28 +732,29 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
               {payload.lines.map((line) => {
                 const shifts = line.shifts.map(toShiftCell);
                 let dispensed = 0;
-                let lineComplete = shifts.length > 0;
+                let allocationComplete = shifts.length > 0;
                 for (const shift of shifts) {
+                  const key = allocationShiftKey(line.bucket, line.recipe_code, shift.shift);
                   const recorded =
-                    dispensedByAllocationShift.get(
-                      allocationShiftKey(line.bucket, line.recipe_code, shift.shift),
-                    ) ?? 0;
+                    dispensedByAllocationShift.get(key) ?? 0;
                   dispensed += recorded;
-                  lineComplete = lineComplete && meetsPlannedQuantity(recorded, shift.kg);
+                  allocationComplete =
+                    allocationComplete &&
+                    meetsPlannedQuantity(recorded, plannedByAllocationShift.get(key) ?? 0);
                 }
+                const allocationId = planAllocationId(line);
+                const allocationPlanned = plannedByAllocation.get(allocationId) ?? 0;
+                const allocationSegments = allocationLineCounts.get(allocationId) ?? 1;
                 return (
                   <div
-                    key={`${line.bucket}:${line.recipe_code}`}
+                    key={planLineId(line)}
                     className="rounded-xl border bg-card p-3 shadow-xs"
                   >
                     <p className="font-medium">
                       {enumLabel("bucket", line.bucket, language)} — {line.recipe_name}
-                      {line.creep_band && (
-                        <span className="font-normal text-muted-foreground">
-                          {" "}
-                          ({line.creep_band})
-                        </span>
-                      )}
+                      <span className="font-normal text-muted-foreground">
+                        {" "}({segmentLabel(line, language, t)})
+                      </span>
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground tabular-nums">
                       {t("feeding.plan.lineMeta", {
@@ -723,11 +769,14 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                       </p>
                     ))}
                     <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-                      {t("feeding.plan.recordedLine", {
+                      {t("feeding.plan.recordedAllocation", {
                         dispensed: formatPersistedKg(dispensed),
-                        daily: formatPersistedKg(line.daily_kg),
+                        daily: formatPersistedKg(allocationPlanned),
                       })}
-                      {lineComplete ? t("feeding.plan.doneSuffix") : ""}
+                      {allocationSegments > 1
+                        ? ` · ${t("feeding.plan.sharedSegments", { count: allocationSegments })}`
+                        : ""}
+                      {allocationComplete ? t("feeding.plan.doneSuffix") : ""}
                     </p>
                     {/* kg/head is the phone-side management action too — a
                      * feeding.manage user must not need a desktop to adjust
@@ -761,29 +810,37 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                 const shifts = line.shifts.map(toShiftCell);
                 const shiftProgress = shifts.map((shift) => ({
                   ...shift,
+                  planned:
+                    plannedByAllocationShift.get(
+                      allocationShiftKey(line.bucket, line.recipe_code, shift.shift),
+                    ) ?? 0,
                   dispensed:
                     dispensedByAllocationShift.get(
                       allocationShiftKey(line.bucket, line.recipe_code, shift.shift),
                     ) ?? 0,
                 }));
                 const dispensed = shiftProgress.reduce((sum, shift) => sum + shift.dispensed, 0);
-                const lineComplete =
+                const allocationComplete =
                   shiftProgress.length > 0 &&
                   shiftProgress.every((shift) =>
-                    meetsPlannedQuantity(shift.dispensed, shift.kg),
+                    meetsPlannedQuantity(shift.dispensed, shift.planned),
                   );
+                const allocationId = planAllocationId(line);
+                const allocationPlanned = plannedByAllocation.get(allocationId) ?? 0;
+                const allocationSegments = allocationLineCounts.get(allocationId) ?? 1;
                 return (
-                  // One bucket can appear on several lines (split by recipe).
-                  <TableRow key={`${line.bucket}:${line.recipe_code}`}>
+                  <TableRow key={planLineId(line)}>
                     <TableCell className="font-medium">
                       {enumLabel("bucket", line.bucket, language)}
                     </TableCell>
                     <TableCell>
                       {line.recipe_name}
-                      {line.creep_band && (
-                        <span className="text-xs text-muted-foreground">
-                          {" "}
-                          ({line.creep_band})
+                      <span className="text-xs text-muted-foreground">
+                        {" "}({segmentLabel(line, language, t)})
+                      </span>
+                      {allocationSegments > 1 && (
+                        <span className="block text-xs text-muted-foreground">
+                          {t("feeding.plan.sharedSegments", { count: allocationSegments })}
                         </span>
                       )}
                       {planLineNotes(line, t).map((note) => (
@@ -804,12 +861,12 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                         title={`${s.shift} ${s.time}`}
                         className="text-right tabular-nums"
                       >
-                        {formatPersistedKg(s.dispensed)} / {formatPersistedKg(s.kg)} kg
+                        {formatPersistedKg(s.dispensed)} / {formatPersistedKg(s.planned)} kg
                       </TableCell>
                     ))}
                     <TableCell className="text-right tabular-nums">
-                      {formatPersistedKg(dispensed)} / {formatPersistedKg(line.daily_kg)} kg
-                      {lineComplete && (
+                      {formatPersistedKg(dispensed)} / {formatPersistedKg(allocationPlanned)} kg
+                      {allocationComplete && (
                         <Badge variant="success" className="ml-2">
                           <Check aria-hidden="true" />
                           {t("feeding.plan.done")}

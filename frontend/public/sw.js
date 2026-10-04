@@ -13,6 +13,7 @@
  */
 const CACHE = "herdly-worker-v3";
 const SHELL = ["/worker", "/worker/login", "/worker/offline", "/manifest.webmanifest"];
+const ASSET_STATE_KEY = "/__herdly_worker_asset_state_v1__";
 /** Upper bound on a shell navigation's network wait before falling back to
  * the cached copy — a captive portal or stalled 2G link must not blank the
  * board while a perfectly good shell sits in the cache. */
@@ -30,14 +31,80 @@ async function shellAssets(response) {
   return assets;
 }
 
+function isStaticAsset(value) {
+  try {
+    const url = new URL(value, self.location.origin);
+    return url.origin === self.location.origin && url.pathname.startsWith("/_next/static/");
+  } catch {
+    return false;
+  }
+}
+
+async function readAssetState(cache) {
+  try {
+    const response = await cache.match(ASSET_STATE_KEY);
+    if (!response) return { current: [], previous: [] };
+    const value = await response.json();
+    if (!value || !Array.isArray(value.current) || !Array.isArray(value.previous)) {
+      return { current: [], previous: [] };
+    }
+    return {
+      current: value.current.filter(isStaticAsset),
+      previous: value.previous.filter(isStaticAsset),
+    };
+  } catch {
+    return { current: [], previous: [] };
+  }
+}
+
+async function cachedShellAssets(cache) {
+  const assets = new Set();
+  for (const path of SHELL.filter((value) => value.startsWith("/worker"))) {
+    const response = await cache.match(path);
+    if (!response) continue;
+    for (const asset of await shellAssets(response)) assets.add(asset);
+  }
+  return assets;
+}
+
+async function publishAssetGeneration(cache, currentAssets, fallbackPrevious = new Set()) {
+  const state = await readAssetState(cache);
+  const current = [...new Set([...currentAssets].filter(isStaticAsset))];
+  // On the first upgrade from the legacy unbounded cache there is no state
+  // record. Retain assets referenced by its old complete shell as the one
+  // previous generation so already-open clients are not stranded.
+  const previous = [...new Set((state.current.length ? state.current : [...fallbackPrevious])
+    .filter(isStaticAsset))];
+  await cache.put(ASSET_STATE_KEY, new Response(JSON.stringify({ current, previous }), {
+    headers: { "Content-Type": "application/json" },
+  }));
+  const retained = new Set([...current, ...previous]);
+  for (const request of await cache.keys()) {
+    const href = new URL(request.url, self.location.origin).href;
+    if (isStaticAsset(href) && !retained.has(href)) await cache.delete(request);
+  }
+}
+
+async function recordRuntimeAsset(cache, asset) {
+  if (!isStaticAsset(asset)) return;
+  const state = await readAssetState(cache);
+  const current = [...new Set([...state.current, new URL(asset, self.location.origin).href])];
+  await cache.put(ASSET_STATE_KEY, new Response(JSON.stringify({
+    current,
+    previous: state.previous,
+  }), { headers: { "Content-Type": "application/json" } }));
+}
+
 async function cacheCompleteShell(request, response) {
   const cache = await caches.open(CACHE);
+  const previousShellAssets = await cachedShellAssets(cache);
   if (new URL(request.url, self.location.origin).pathname.startsWith("/worker")) {
     // Publish fallback HTML only after its build's dependencies are durable.
     // A late navigation response may never execute in a client at all.
     await cache.addAll([...await shellAssets(response)]);
   }
   await cache.put(request, response.clone());
+  await publishAssetGeneration(cache, await cachedShellAssets(cache), previousShellAssets);
 }
 
 self.addEventListener("install", (event) => {
@@ -47,6 +114,7 @@ self.addEventListener("install", (event) => {
     caches
       .open(CACHE)
       .then(async (cache) => {
+        const previousShellAssets = await cachedShellAssets(cache);
         const responses = await Promise.all(SHELL.map(async (path) => {
           const response = await fetch(path, { cache: "reload" });
           if (!response.ok) throw new Error("Offline shell could not be fetched.");
@@ -68,6 +136,7 @@ self.addEventListener("install", (event) => {
         // Keep the previously complete shared cache usable if this install
         // fails before all new-build assets are available.
         await Promise.all(responses.map(({ path, response }) => cache.put(path, response)));
+        await publishAssetGeneration(cache, assets, previousShellAssets);
       })
       .then(() => self.skipWaiting()),
   );
@@ -101,7 +170,10 @@ self.addEventListener("fetch", (event) => {
     const response = caches.match(request).then((cached) => cached ?? fetch(request).then((response) => {
       if (response.ok) {
         const copy = response.clone();
-        cacheWrite = caches.open(CACHE).then((cache) => cache.put(request, copy));
+        cacheWrite = caches.open(CACHE).then(async (cache) => {
+          await cache.put(request, copy);
+          await recordRuntimeAsset(cache, request.url);
+        });
       }
       return response;
     }));
@@ -123,7 +195,15 @@ self.addEventListener("fetch", (event) => {
       Promise.race([
         network,
         new Promise((resolve) => setTimeout(() => resolve(undefined), NAV_TIMEOUT_MS)),
-      ]).then((response) => response ?? caches.match(request).then((cached) => cached ?? Response.error())),
+      ]).then(async (response) => {
+        // A reachable proxy is not necessarily a usable application. Prefer
+        // the last complete shell when the network answers quickly with an
+        // error; return that error only when no offline shell exists so the
+        // true outage remains observable rather than becoming a blank page.
+        if (response?.ok) return response;
+        const cached = await caches.match(request);
+        return cached ?? response ?? Response.error();
+      }),
     );
   }
 });

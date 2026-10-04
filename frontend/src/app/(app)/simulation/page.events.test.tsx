@@ -1063,7 +1063,7 @@ describe("SimulationPage use current herd", () => {
     releaseSnapshot();
     await waitFor(() =>
       expect(toastMocks.error).toHaveBeenCalledWith(
-        expect.stringMatching(/editor was reloaded while the herd snapshot was loading/i),
+        expect.stringMatching(/editor changed while the herd snapshot was loading/i),
       ),
     );
     expect(screen.getByLabelText("Does")).toHaveValue(99);

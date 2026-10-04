@@ -515,10 +515,12 @@ async def plan_dpr(
     security_event(
         "planner.dpr.download",
         "DPR loan document downloaded",
+        session=db,
         user_id=user_id,
         farm_id=farm_id,
         plan_id=plan_id,
     )
+    await db.commit()
     return Response(
         content=markdown,
         media_type="text/markdown",

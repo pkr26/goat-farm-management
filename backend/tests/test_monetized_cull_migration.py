@@ -38,8 +38,11 @@ async def _alembic(
     succeeds: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    env["GOATFARM_DATABASE_URL"] = f"postgresql+asyncpg://localhost:5432/{database}"
-    env.pop("GOATFARM_MIGRATION_DATABASE_URL", None)
+    target_url = f"postgresql+asyncpg://localhost:5432/{database}"
+    env["GOATFARM_DATABASE_URL"] = target_url
+    env["GOATFARM_MIGRATION_DATABASE_URL"] = target_url
+    # _throwaway_name() is created and exclusively controlled by this test.
+    env["GOATFARM_MIGRATION_WRITES_QUIESCED"] = "true"
     result = await asyncio.to_thread(
         subprocess.run,
         [sys.executable, "-m", "alembic", *args],

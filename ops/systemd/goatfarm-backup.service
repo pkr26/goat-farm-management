@@ -1,0 +1,26 @@
+[Unit]
+Description=Goat Farm authenticated whole-system backup
+Documentation=file:///opt/goatfarm/ops/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=goatfarm-backup
+Group=goatfarm-backup
+EnvironmentFile=/etc/goatfarm/backup.env
+Environment=GNUPGHOME=/var/lib/goatfarm-backup/gnupg
+WorkingDirectory=/opt/goatfarm
+ExecStart=/opt/goatfarm/backend/scripts/backup.sh /var/backups/goatfarm
+UMask=0077
+StateDirectory=goatfarm-backup
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/goatfarm
+ReadWritePaths=/var/backups/goatfarm /var/lib/goatfarm-backup
+
+[Install]
+WantedBy=multi-user.target

@@ -219,59 +219,39 @@ async def test_private_metrics_authentication_and_collection_are_independent(
         get_settings.cache_clear()
 
 
-def test_release_rerun_replaces_exact_digest_section_and_keeps_authored_notes(
-    tmp_path: Path,
-) -> None:
+def test_release_rerun_refuses_to_replace_an_immutable_version(tmp_path: Path) -> None:
     workflow = yaml.safe_load((REPO / ".github/workflows/release.yml").read_text())
     step = next(
         step
         for step in workflow["jobs"]["release"]["steps"]
-        if step["name"] == "Create or update release with SBOM assets"
-    )
-    body = tmp_path / "published.md"
-    body.write_text(
-        "Intro mentions Published image digests in prose.\n\n"
-        "### Published image digests\n\n- stale-backend-digest\n- stale-frontend-digest\n\n"
-        "### Operator notes\n\nKeep this authored note.\n"
+        if step["name"] == "Create signed checksums and immutable release"
     )
     bindir = tmp_path / "bin"
     bindir.mkdir()
     gh = bindir / "gh"
     gh.write_text(
-        f"#!{sys.executable}\n"
-        "import sys\nfrom pathlib import Path\n"
-        "if sys.argv[1:3] == ['release', 'view'] and '--json' in sys.argv:\n"
-        "    print(Path('published.md').read_text())\n"
-        "elif sys.argv[1:3] == ['release', 'edit']:\n"
-        "    Path('published.md').write_text(Path('release-body.md').read_text())\n"
+        f"#!{sys.executable}\nimport sys\n"
+        "raise SystemExit(0 if sys.argv[1:3] == ['release', 'view'] else 91)\n"
     )
     gh.chmod(0o700)
-    assets = tmp_path / "release-assets"
-    assets.mkdir()
-    for component in ("backend", "frontend"):
-        for arch in ("amd64", "arm64"):
-            (assets / f"{component}-sbom-linux-{arch}.spdx.json").write_text("{}")
     env = {
         **os.environ,
         "PATH": f"{bindir}:{os.environ['PATH']}",
         "GITHUB_REF_NAME": "v1.2.3",
-        "BACKEND_IMAGE": "example/backend",
-        "FRONTEND_IMAGE": "example/frontend",
-        "BACKEND_DIGEST": "sha256:new-backend",
-        "FRONTEND_DIGEST": "sha256:new-frontend",
     }
-    subprocess.run(["bash", "-eu", "-c", step["run"]], cwd=tmp_path, env=env, check=True)
-    first = body.read_text()
-    assert "stale-" not in first
-    assert "Keep this authored note." in first
-    assert "Intro mentions Published image digests in prose." in first
-    assert first.count("### Published image digests") == 1
-    assert first.count(".spdx.json") == 4
-    env["BACKEND_DIGEST"] = "sha256:rerun-backend"
-    subprocess.run(["bash", "-eu", "-c", step["run"]], cwd=tmp_path, env=env, check=True)
-    assert "sha256:new-backend" not in body.read_text()
-    assert "sha256:rerun-backend" in body.read_text()
-    assert body.read_text().count("### Published image digests") == 1
+    result = subprocess.run(
+        ["bash", "-eu", "-c", step["run"]],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "Release v1.2.3 already exists and is immutable" in result.stdout
+    assert "release upload" not in step["run"]
+    assert "release edit" not in step["run"]
+    assert "--clobber" not in step["run"]
 
 
 async def test_retention_pages_distinct_farms_without_draining_one_tenant(

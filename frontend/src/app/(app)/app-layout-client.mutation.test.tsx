@@ -82,7 +82,7 @@ describe("AppLayout — document titles", () => {
   it("falls back to the generic product title off the known routes", async () => {
     navState.pathname = "/not-a-route";
     await renderShell();
-    expect(document.title).toBe(`${APP_NAME} — Livestock farm management`);
+    expect(document.title).toBe(`Livestock farm management · ${APP_NAME}`);
   });
 
   it("localizes the tab title when the worker switched to Telugu", async () => {
@@ -117,6 +117,8 @@ describe("AppLayout — farm switcher", () => {
     expect(switcher).toHaveTextContent("Test Goat Farm");
     // The pill styling: bounded width, hover affordance and a focus ring.
     expect(switcher.className).toContain("group/farm");
+    expect(switcher.className).toContain("min-w-24");
+    expect(switcher.className).toContain("flex-1");
     expect(switcher.className).toContain("max-w-96");
     expect(switcher.className).toContain("hover:border-primary/40");
     expect(switcher.className).toContain("focus-visible:ring-2");
@@ -130,6 +132,23 @@ describe("AppLayout — farm switcher", () => {
     navState.pathname = "/reports";
     rendered.rerender(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await waitFor(() => expect(document.title).toBe(`Reports · ${APP_NAME}`));
+  });
+
+  it("moves focus to the labelled main landmark after sidebar navigation", async () => {
+    navState.pathname = "/dashboard";
+    const user = userEvent.setup();
+    const rendered = await renderShell();
+
+    const animalsLink = screen.getByRole("link", { name: "Animals" });
+    await user.click(animalsLink);
+    expect(animalsLink).toHaveFocus();
+
+    navState.pathname = "/animals";
+    rendered.rerender(<AppLayout defaultOpen={true}><h1>Animals</h1></AppLayout>);
+
+    const main = document.getElementById("main-content");
+    await waitFor(() => expect(main).toHaveFocus());
+    expect(main).toHaveAttribute("aria-label", "Animals");
   });
 
   it("keeps the current route and query in the switch-farm return state", async () => {

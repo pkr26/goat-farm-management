@@ -99,6 +99,11 @@ RESTORE_ALLOWED_REVISIONS=(
     "f7d1e5f9b4c2"
     "f8e2f6a0c5d3"
     "f9a3b7c1d5e2"
+    "fa1b2c3d4e5f"
+    "fb2c3d4e5f6a"
+    "fc3d4e5f6a7b"
+    "fd4e5f6a7b8c"
+    "fe5f6a7b8c9d"
 )
 
 revision="${1:-}"
@@ -130,7 +135,8 @@ if ! is_allowed; then
     echo "head ${restore_head_revision})." >&2
     echo "Either the backup predates ${RESTORE_FLOOR_REVISION} (it still carries" >&2
     echo "unkeyed idempotency password fingerprints — restore it to a scratch" >&2
-    echo "database, run alembic upgrade head to re-purge, then dump/restore" >&2
+    echo "database, set GOATFARM_MIGRATION_DATABASE_URL to that scratch target," >&2
+    echo "run alembic upgrade head to re-purge, then dump/restore" >&2
     echo "that) or it is newer than these scripts (update" >&2
     echo "backend/scripts/restore_floor.sh from the current migration chain)." >&2
     exit 1

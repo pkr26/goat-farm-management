@@ -70,9 +70,13 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
 const TODAY_TASK = makeTask({ id: 1, title: "Morning feed count" });
 const OVERDUE_TASK = makeTask({ id: 2, title: "Trim hooves", due_date: THREE_DAYS_AGO });
 
-function tasksHandler(tasks: TaskOut[] = [TODAY_TASK, OVERDUE_TASK]) {
-  return http.get("/api/tasks", () =>
-    HttpResponse.json({
+function tasksHandler(
+  tasks: TaskOut[] = [TODAY_TASK, OVERDUE_TASK],
+  onRequest?: (url: URL) => void,
+) {
+  return http.get("/api/tasks", ({ request }) => {
+    onRequest?.(new URL(request.url));
+    return HttpResponse.json({
       today: [TODAY_TASK],
       overdue: [OVERDUE_TASK],
       upcoming: [],
@@ -90,8 +94,8 @@ function tasksHandler(tasks: TaskOut[] = [TODAY_TASK, OVERDUE_TASK]) {
       completed_total: 0,
       completed_limit: 50,
       completed_offset: 0,
-    }),
-  );
+    });
+  });
 }
 
 /** Row-content queries scope to the table: the below-md card list
@@ -114,6 +118,12 @@ describe("TasksPage ?tab= deep links (7-1)", () => {
 
   it("opens the tab named in ?tab= (the dashboard links to /tasks?tab=overdue)", async () => {
     navState.search = "?tab=overdue";
+    let requestedView: string | null = null;
+    server.use(
+      tasksHandler([TODAY_TASK, OVERDUE_TASK], (url) => {
+        requestedView = url.searchParams.get("view");
+      }),
+    );
     renderWithProviders(<TasksPage />);
 
     // The overdue tab's content is shown, not Today's.
@@ -123,6 +133,7 @@ describe("TasksPage ?tab= deep links (7-1)", () => {
       "aria-selected",
       "true",
     );
+    expect(requestedView).toBe("overdue");
   });
 
   it("honours ?tab=today explicitly", async () => {

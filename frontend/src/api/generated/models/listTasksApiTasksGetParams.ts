@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { ListTasksApiTasksGetView } from './listTasksApiTasksGetView';
 
 export type ListTasksApiTasksGetParams = {
 /**
@@ -41,4 +42,8 @@ completed_limit?: number;
  * @maximum 10000
  */
 completed_offset?: number;
+/**
+ * Rows to return. Counts for every tab are always included; worker returns only today and overdue. 'all' is the legacy compatibility mode.
+ */
+view?: ListTasksApiTasksGetView;
 };

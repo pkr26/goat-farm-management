@@ -151,16 +151,6 @@
               }
             }
           },
-          "415": {
-            "description": "Unsupported media type",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
           "422": {
             "description": "Input validation failed or a business rule was rejected",
             "content": {
@@ -200,6 +190,16 @@
           },
           "503": {
             "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -309,16 +309,6 @@
               }
             }
           },
-          "415": {
-            "description": "Unsupported media type",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
           "422": {
             "description": "Input validation failed or a business rule was rejected",
             "content": {
@@ -358,6 +348,16 @@
           },
           "503": {
             "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -487,16 +487,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -654,16 +644,6 @@
               }
             }
           },
-          "415": {
-            "description": "Unsupported media type",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
           "422": {
             "description": "Input validation failed or a business rule was rejected",
             "content": {
@@ -703,6 +683,16 @@
           },
           "503": {
             "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -802,16 +792,6 @@
               }
             }
           },
-          "415": {
-            "description": "Unsupported media type",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
           "422": {
             "description": "Input validation failed or a business rule was rejected",
             "content": {
@@ -892,6 +872,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -936,16 +925,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -1090,16 +1069,6 @@
               }
             }
           },
-          "415": {
-            "description": "Unsupported media type",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
           "422": {
             "description": "Input validation failed or a business rule was rejected",
             "content": {
@@ -1197,6 +1166,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -1241,16 +1219,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -1350,6 +1318,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -1394,16 +1371,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -1504,6 +1471,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -1548,16 +1524,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -1661,6 +1627,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -1705,16 +1680,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -1830,6 +1795,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -1874,16 +1848,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -1987,6 +1951,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -2031,16 +2004,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -2161,6 +2124,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -2205,16 +2177,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -2336,6 +2298,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -2380,16 +2351,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -2495,6 +2456,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -2539,16 +2509,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -2659,6 +2619,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -2703,16 +2672,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -2816,6 +2775,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -2860,16 +2828,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -2980,6 +2938,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -3024,16 +2991,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -3196,16 +3153,6 @@
               }
             }
           },
-          "415": {
-            "description": "Unsupported media type",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
           "422": {
             "description": "Input validation failed or a business rule was rejected",
             "content": {
@@ -3245,6 +3192,16 @@
           },
           "503": {
             "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -3430,6 +3387,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -3474,16 +3440,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -3622,6 +3578,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -3666,16 +3631,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -3806,6 +3761,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -3850,16 +3814,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -4049,6 +4003,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -4093,16 +4056,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -4232,6 +4185,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -4276,16 +4238,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -4434,6 +4386,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -4478,16 +4439,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -4636,6 +4587,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -4680,16 +4640,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -4805,6 +4755,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -4849,16 +4808,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -4993,6 +4942,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -5037,16 +4995,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -5184,6 +5132,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -5228,16 +5185,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -5403,6 +5350,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -5447,16 +5403,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -5576,6 +5522,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -5620,16 +5575,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -5759,6 +5704,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -5803,16 +5757,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -5942,6 +5886,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -5986,16 +5939,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -6178,6 +6121,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -6222,16 +6174,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -6369,6 +6311,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -6413,16 +6364,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -6543,6 +6484,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -6587,16 +6537,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -6741,6 +6681,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -6785,16 +6734,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -6914,6 +6853,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -6958,16 +6906,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -7097,6 +7035,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -7141,16 +7088,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -7280,6 +7217,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -7324,16 +7270,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -7445,6 +7381,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -7489,16 +7434,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -7651,6 +7586,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -7695,16 +7639,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -7857,6 +7791,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -7901,16 +7844,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -8054,6 +7987,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -8098,16 +8040,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -8231,6 +8163,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -8275,16 +8216,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -8420,6 +8351,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -8464,16 +8404,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -8612,6 +8542,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -8656,16 +8595,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -8787,6 +8716,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -8831,16 +8769,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -8961,6 +8889,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -9005,16 +8942,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -9079,7 +9006,7 @@
           "tasks"
         ],
         "summary": "List Tasks",
-        "description": "All five v1 tabs as deterministic, independently pageable lists.\n\nRead-only: recurring husbandry duties are materialized by the background\ncadence sweep (main.py), never on this hot read path.",
+        "description": "All tab counts plus only the requested deterministic row page(s).\n\nRead-only: recurring husbandry duties are materialized by the background\ncadence sweep (main.py), never on this hot read path. ``all`` preserves\nthe pre-2026-10-04 wire behavior for older clients; interactive clients\nuse one selected tab, while the worker board uses the two-row-page\n``worker`` view.",
         "operationId": "list_tasks_api_tasks_get",
         "security": [
           {
@@ -9172,6 +9099,27 @@
             }
           },
           {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "today",
+                "overdue",
+                "upcoming",
+                "awaiting",
+                "completed",
+                "worker"
+              ],
+              "type": "string",
+              "description": "Rows to return. Counts for every tab are always included; worker returns only today and overdue. 'all' is the legacy compatibility mode.",
+              "default": "all",
+              "title": "View"
+            },
+            "description": "Rows to return. Counts for every tab are always included; worker returns only today and overdue. 'all' is the legacy compatibility mode."
+          },
+          {
             "name": "x-farm-id",
             "in": "header",
             "required": true,
@@ -9208,6 +9156,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
                 }
               }
             }
@@ -9254,16 +9211,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -9402,6 +9349,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -9446,16 +9402,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -9576,6 +9522,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -9620,16 +9575,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -9768,6 +9713,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -9812,16 +9766,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -9970,6 +9914,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -10014,16 +9967,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -10162,6 +10105,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -10206,16 +10158,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -10364,6 +10306,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -10408,16 +10359,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -10529,6 +10470,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -10573,16 +10523,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -10697,6 +10637,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -10741,16 +10690,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -10883,6 +10822,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -10927,16 +10875,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -11106,6 +11044,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -11150,16 +11097,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -11271,6 +11208,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -11315,16 +11261,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -11440,6 +11376,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -11484,16 +11429,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -11626,6 +11561,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -11670,16 +11614,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -11795,6 +11729,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -11839,16 +11782,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -11990,6 +11923,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -12034,16 +11976,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -12123,7 +12055,8 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])$"
                 },
                 {
                   "type": "null"
@@ -12242,6 +12175,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -12286,16 +12228,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -12428,6 +12360,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -12472,16 +12413,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -12631,6 +12562,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -12675,16 +12615,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -12859,6 +12789,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -12903,16 +12842,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -13032,6 +12961,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -13076,16 +13014,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -13235,6 +13163,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -13279,16 +13216,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -13419,6 +13346,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -13463,16 +13399,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -13617,6 +13543,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -13661,16 +13596,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -13791,6 +13716,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -13835,16 +13769,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -13997,6 +13921,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -14041,16 +13974,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -14183,6 +14106,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -14227,16 +14159,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -14381,6 +14303,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -14425,16 +14356,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -14546,6 +14467,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -14590,16 +14520,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -14711,6 +14631,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -14755,16 +14684,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -14875,6 +14794,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -14919,16 +14847,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -15069,6 +14987,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -15113,16 +15040,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -15252,6 +15169,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -15296,16 +15222,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -15435,6 +15351,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -15479,16 +15404,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -15638,6 +15553,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -15682,16 +15606,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -15841,6 +15755,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -15885,16 +15808,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -16023,6 +15936,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -16067,16 +15989,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -16205,6 +16117,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -16249,16 +16170,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -16379,6 +16290,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -16423,16 +16343,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -16562,6 +16472,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -16606,16 +16525,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -16726,6 +16635,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -16770,16 +16688,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -16875,6 +16783,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -16919,16 +16836,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -17060,6 +16967,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -17104,16 +17020,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -17235,6 +17141,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -17279,16 +17194,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -17436,6 +17341,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -17480,16 +17394,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -17611,6 +17515,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -17655,16 +17568,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -17804,6 +17707,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -17848,16 +17760,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -17990,6 +17892,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -18034,16 +17945,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -18165,6 +18066,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -18209,16 +18119,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -18338,6 +18238,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -18382,16 +18291,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -18519,6 +18418,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -18563,16 +18471,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -18695,6 +18593,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -18739,16 +18646,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -18899,6 +18796,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -18943,16 +18849,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -19074,6 +18970,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -19118,16 +19023,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -19267,6 +19162,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -19311,16 +19215,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -19453,6 +19347,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -19497,16 +19400,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -19626,6 +19519,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -19670,16 +19572,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -19807,6 +19699,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -19851,16 +19752,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -19983,6 +19874,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -20027,16 +19927,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -20155,6 +20045,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -20199,16 +20098,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -20330,6 +20219,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -20374,16 +20272,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -20572,6 +20460,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -20616,16 +20513,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -20746,6 +20633,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -20790,16 +20686,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -20930,6 +20816,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -20974,16 +20869,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -21127,6 +21012,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -21171,16 +21065,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -21245,7 +21129,7 @@
           "screening"
         ],
         "summary": "Provider Stats",
-        "description": "The rotation scoreboard: call volume, verdict behavior, vet-labeled\nprecision and cross-check agreement per provider over the window.\n\nThis is the feedback loop that turns the round-robin from vendor\ninsurance into a measured comparison on your own photos.",
+        "description": "The rotation scoreboard: call volume, verdict behavior, conditional\npositive precision, sampled healthy false-negative rate, and cross-check\nagreement per provider over the window.\n\nThis is the feedback loop that turns the round-robin from vendor\ninsurance into a measured comparison on your own photos. The positive\nmetric is conditional on emitted findings; the healthy metric covers the\ndeterministic quality-control sample and is not full-population\nsensitivity or specificity.",
         "operationId": "provider_stats_api_screening_stats_get",
         "security": [
           {
@@ -21304,6 +21188,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -21348,16 +21241,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -21422,7 +21305,7 @@
           "screening"
         ],
         "summary": "Export Dataset",
-        "description": "The fine-tuning corpus: findings with image/crop references and the\nvet verdict that makes each label trustworthy. Defaults to every\nfinding INCLUDING the pending review queue (each record carries\n``vet_status`` so consumers can filter); pass vet_status=CONFIRMED or\nREJECTED for reviewed-only exports.",
+        "description": "The fine-tuning corpus: findings with image/crop references and the\nvet verdict that makes each label trustworthy. Defaults to every\nfinding INCLUDING the pending review queue (each record carries\n``vet_status`` so consumers can filter); pass vet_status=CONFIRMED or\nREJECTED for reviewed-only exports. Healthy-control records use CONFIRMED\nfor no visible abnormality and REJECTED when the reviewer found one.",
         "operationId": "export_dataset_api_screening_export_get",
         "security": [
           {
@@ -21496,6 +21379,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -21540,16 +21432,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -21680,6 +21562,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -21724,16 +21615,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -21867,6 +21748,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -21911,16 +21801,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -22041,6 +21921,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -22085,16 +21974,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -22235,6 +22114,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -22279,16 +22167,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -22384,6 +22262,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -22428,16 +22315,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -22557,6 +22434,15 @@
                   "$ref": "#/components/schemas/ErrorOut"
                 }
               }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer authentication challenge",
+                "schema": {
+                  "type": "string",
+                  "example": "Bearer"
+                }
+              }
             }
           },
           "403": {
@@ -22601,16 +22487,6 @@
           },
           "414": {
             "description": "Request target is too long",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {
@@ -22936,7 +22812,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000
+                "maximum": 1000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -22960,7 +22837,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000000000
+                "maximum": 1000000000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -22984,7 +22862,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000
+                "maximum": 1000.0,
+                "exclusiveMinimum": 0.0
               },
               {
                 "type": "null"
@@ -26263,8 +26142,9 @@
           },
           "qty_kg": {
             "type": "number",
-            "title": "Qty Kg",
-            "le": 1000000
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Qty Kg"
           },
           "date": {
             "anyOf": [
@@ -28102,7 +27982,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000000000
+                "maximum": 1000000000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -29374,13 +29255,15 @@
           },
           "sum_insured": {
             "type": "number",
-            "title": "Sum Insured",
-            "le": 1000000000
+            "maximum": 1000000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Sum Insured"
           },
           "premium": {
             "type": "number",
-            "title": "Premium",
-            "le": 1000000000
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Premium"
           },
           "start_date": {
             "type": "string",
@@ -29635,7 +29518,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000000000
+                "maximum": 1000000000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -29830,7 +29714,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000
+                "maximum": 1000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -30471,8 +30356,9 @@
           },
           "batch_kg": {
             "type": "number",
-            "title": "Batch Kg",
-            "le": 1000000
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Batch Kg"
           }
         },
         "additionalProperties": false,
@@ -32160,6 +32046,24 @@
       },
       "PlanLineOut": {
         "properties": {
+          "line_id": {
+            "type": "string",
+            "title": "Line Id"
+          },
+          "allocation_id": {
+            "type": "string",
+            "title": "Allocation Id"
+          },
+          "segment": {
+            "type": "string",
+            "enum": [
+              "ALL",
+              "FEMALE",
+              "MALE",
+              "CREEP_BAND"
+            ],
+            "title": "Segment"
+          },
           "bucket": {
             "type": "string",
             "title": "Bucket"
@@ -32237,6 +32141,9 @@
         },
         "type": "object",
         "required": [
+          "line_id",
+          "allocation_id",
+          "segment",
           "bucket",
           "recipe_code",
           "recipe_name",
@@ -33020,7 +32927,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 240
+                "maximum": 240.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -33032,7 +32940,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000
+                "maximum": 1000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -33045,7 +32954,8 @@
               {
                 "items": {
                   "type": "number",
-                  "le": 1000
+                  "maximum": 1000.0,
+                  "minimum": 0.0
                 },
                 "type": "array"
               },
@@ -33059,7 +32969,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000000000
+                "maximum": 1000000000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -34970,6 +34881,34 @@
             "type": "integer",
             "title": "Finding Id"
           },
+          "example_kind": {
+            "type": "string",
+            "enum": [
+              "POSITIVE_FINDING",
+              "HEALTHY_CONTROL"
+            ],
+            "title": "Example Kind"
+          },
+          "model_verdict": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "healthy",
+                  "flagged",
+                  "unassessable"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Verdict"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
           "vet_status": {
             "type": "string",
             "enum": [
@@ -35105,6 +35044,9 @@
         "type": "object",
         "required": [
           "finding_id",
+          "example_kind",
+          "model_verdict",
+          "prompt_version",
           "vet_status",
           "label",
           "confidence",
@@ -35120,7 +35062,7 @@
           "reviewed_at"
         ],
         "title": "ScreeningDatasetRecordOut",
-        "description": "One training example: immutable normalized image + optional crop box,\nmodel label, and the vet verdict that makes the label trustworthy.\n\n``image_s3_key`` intentionally identifies the normalized derivative that\nwas actually sent to the model, not the short-lived browser-upload raw\nkey. A presigned raw POST may be replayed before expiry; the derivative is\nworker-owned and its bytes match ``image_sha256``."
+        "description": "One training example: immutable normalized image + optional crop box,\nmodel label, and the vet verdict that makes the label trustworthy.\n\n``image_s3_key`` intentionally identifies the normalized derivative that\nwas actually sent to the model, not the short-lived browser-upload raw\nkey. A presigned raw POST may be replayed before expiry; the derivative is\nworker-owned and its bytes match ``image_sha256``. For\n``HEALTHY_CONTROL`` examples, ``CONFIRMED`` means the reviewer also saw no\nabnormality; ``REJECTED`` is a hard negative where the reviewer found one."
       },
       "ScreeningFindingOut": {
         "properties": {
@@ -35157,6 +35099,14 @@
           "label": {
             "type": "string",
             "title": "Label"
+          },
+          "evaluation_kind": {
+            "type": "string",
+            "enum": [
+              "POSITIVE_FINDING",
+              "HEALTHY_CONTROL"
+            ],
+            "title": "Evaluation Kind"
           },
           "confidence": {
             "anyOf": [
@@ -35256,6 +35206,7 @@
           "run_id",
           "region",
           "label",
+          "evaluation_kind",
           "confidence",
           "severity",
           "note",
@@ -35823,6 +35774,11 @@
             "type": "integer",
             "title": "Pending Findings",
             "default": 0
+          },
+          "pending_healthy_controls": {
+            "type": "integer",
+            "title": "Pending Healthy Controls",
+            "default": 0
           }
         },
         "type": "object",
@@ -35909,6 +35865,98 @@
           "findings_pending": {
             "type": "integer",
             "title": "Findings Pending"
+          },
+          "positive_precision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Positive Precision"
+          },
+          "positive_precision_ci_low": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Positive Precision Ci Low"
+          },
+          "positive_precision_ci_high": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Positive Precision Ci High"
+          },
+          "healthy_controls_confirmed": {
+            "type": "integer",
+            "title": "Healthy Controls Confirmed",
+            "default": 0
+          },
+          "healthy_controls_rejected": {
+            "type": "integer",
+            "title": "Healthy Controls Rejected",
+            "default": 0
+          },
+          "healthy_controls_pending": {
+            "type": "integer",
+            "title": "Healthy Controls Pending",
+            "default": 0
+          },
+          "healthy_controls_reviewed": {
+            "type": "integer",
+            "title": "Healthy Controls Reviewed",
+            "default": 0
+          },
+          "healthy_false_negative_rate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Healthy False Negative Rate"
+          },
+          "healthy_false_negative_ci_low": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Healthy False Negative Ci Low"
+          },
+          "healthy_false_negative_ci_high": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Healthy False Negative Ci High"
           }
         },
         "type": "object",
@@ -35927,7 +35975,7 @@
           "findings_pending"
         ],
         "title": "ScreeningProviderStatsOut",
-        "description": "Rotation-provider scoreboard over the requested window: call volume,\nverdict behavior, vet-labeled precision, and cross-check agreement."
+        "description": "Rotation-provider scoreboard over the requested window: call volume,\nconditional reviewed-positive precision, sampled healthy-verdict misses,\nand cross-check agreement. It is not full sensitivity/specificity."
       },
       "ScreeningRunOut": {
         "properties": {
@@ -36649,7 +36697,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000000000
+                "maximum": 1000000000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -36673,7 +36722,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000
+                "maximum": 1000.0,
+                "exclusiveMinimum": 0.0
               },
               {
                 "type": "null"
@@ -36685,7 +36735,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000000000
+                "maximum": 1000000000.0,
+                "exclusiveMinimum": 0.0
               },
               {
                 "type": "null"
@@ -36847,14 +36898,16 @@
         "properties": {
           "qty_kg": {
             "type": "number",
-            "title": "Qty Kg",
-            "le": 1000000
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Qty Kg"
           },
           "price_per_kg": {
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000000000
+                "maximum": 1000000000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -37839,8 +37892,9 @@
           },
           "amount": {
             "type": "number",
-            "title": "Amount",
-            "le": 1000000000
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Amount"
           },
           "notes": {
             "anyOf": [
@@ -37871,7 +37925,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "le": 1000000
+                "maximum": 1000000.0,
+                "exclusiveMinimum": 0.0
               },
               {
                 "type": "null"
@@ -37930,8 +37985,9 @@
           },
           "amount": {
             "type": "number",
-            "title": "Amount",
-            "le": 1000000000
+            "maximum": 1000000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Amount"
           },
           "notes": {
             "anyOf": [
@@ -38498,8 +38554,9 @@
           },
           "weight_kg": {
             "type": "number",
-            "title": "Weight Kg",
-            "le": 1000
+            "maximum": 1000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Weight Kg"
           },
           "bcs": {
             "anyOf": [

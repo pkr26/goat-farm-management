@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { createAnimal, E2E_FARM_NAME, signIn, uniqueTag } from "./helpers";
+import { createAnimal, e2eCredentials, signIn, uniqueTag } from "./helpers";
 
 /** Owner nav, mirrored from auth.spec — the e2e user owns both farms. */
 const OWNER_NAV = [
@@ -23,16 +23,23 @@ test.describe("farm switching", () => {
     page,
   }) => {
     test.setTimeout(120_000);
+    const { farmName } = e2eCredentials();
 
     // Farm A: the farm provisioned by globalSetup, plus one uniquely tagged animal.
     await signIn(page);
-    await expect(page.getByText(E2E_FARM_NAME, { exact: true })).toBeVisible({
+    await expect(page.getByText(farmName, { exact: true })).toBeVisible({
       timeout: 20_000,
     });
     const tagA = uniqueTag("E2E-A");
     await createAnimal(page, {
       tag: tagA,
       historicalImportReason: "E2E farm-isolation fixture",
+    });
+    // Sonner pauses its dismissal timer while the pointer is over a toast.
+    // Wait for the success acknowledgement to leave before clicking the
+    // header link it can temporarily cover in WebKit.
+    await expect(page.getByText("Animal added.", { exact: true })).toBeHidden({
+      timeout: 15_000,
     });
 
     // Create farm B through the picker; creating selects it immediately.
@@ -49,7 +56,7 @@ test.describe("farm switching", () => {
     await expect(page.getByText(farmB, { exact: true })).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.getByText(E2E_FARM_NAME, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(farmName, { exact: true })).toHaveCount(0);
 
     // Nav reflects farm B's freshly loaded permissions (owner → full nav).
     const nav = page.locator("nav");
@@ -68,9 +75,9 @@ test.describe("farm switching", () => {
     await expect(page).toHaveURL(/\/farm-select\?returnTo=%2Fanimals$/, {
       timeout: 15_000,
     });
-    await page.getByRole("button", { name: E2E_FARM_NAME }).click();
+    await page.getByRole("button", { name: farmName }).click();
     await expect(page).toHaveURL(/\/animals$/, { timeout: 20_000 });
-    await expect(page.getByText(E2E_FARM_NAME, { exact: true })).toBeVisible({
+    await expect(page.getByText(farmName, { exact: true })).toBeVisible({
       timeout: 20_000,
     });
     await page.getByPlaceholder("Search by tag…").fill(tagA);

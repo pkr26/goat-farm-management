@@ -337,7 +337,9 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
             />
             <SummaryRow
               label={t("reports.mortality.kidsBorn")}
-              value={mortality.total_kids_born}
+              value={
+                !healthWithheld ? mortality.total_kids_born : <Withheld permission="health" />
+              }
             />
             <SummaryRow
               label={t("reports.mortality.stillborn")}

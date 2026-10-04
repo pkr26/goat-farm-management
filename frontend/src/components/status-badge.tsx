@@ -8,7 +8,9 @@ import { cn } from "@/lib/utils";
  *
  * Tints come from the semantic tokens (success / warning / info /
  * destructive) so light and dark themes stay correct by construction.
- * Labels are Title Case; unknown values fall back to a neutral badge.
+ * The caller must provide the visible, localized label. Keeping presentation
+ * and translation separate makes it impossible for this shared component to
+ * silently leak an English Title Case fallback into a Telugu screen.
  */
 
 export type StatusTone = "success" | "warning" | "info" | "destructive";
@@ -86,14 +88,6 @@ function normalize(status: string) {
   return status.trim().toUpperCase().replace(/[\s-]+/g, "_");
 }
 
-function humanize(status: string) {
-  return normalize(status)
-    .toLowerCase()
-    .replace(/(^|_)(\w)/g, (_, sep: string, c: string) =>
-      (sep === "_" ? " " : "") + c.toUpperCase(),
-    );
-}
-
 export function StatusBadge({
   status,
   className,
@@ -101,7 +95,7 @@ export function StatusBadge({
   ...props
 }: {
   status: string;
-  children?: React.ReactNode;
+  children: React.ReactNode;
 } & Omit<React.ComponentProps<typeof Badge>, "children" | "variant">) {
   const tone = statusTone(status);
   return (
@@ -114,7 +108,7 @@ export function StatusBadge({
         aria-hidden="true"
         className="size-1.5 shrink-0 rounded-full bg-current opacity-70"
       />
-      {children ?? humanize(status)}
+      {children}
     </Badge>
   );
 }

@@ -36,7 +36,7 @@ from ..models.enums import (
     ScreeningRunStatus,
     ScreeningStage,
 )
-from ..models.screening import ScreeningFindingReview
+from ..models.screening import HEALTHY_CONTROL_LABEL, ScreeningFindingReview
 from ..schemas.common import (
     COMMON_ERROR_RESPONSES,
     MAX_INT32_ID,
@@ -74,6 +74,7 @@ from ..schemas.screening import (
 )
 from ..services.idempotency import IdempotencyKey, execute_idempotent
 from ..services.screening import ScreeningStorageError, storage_for_settings
+from ..services.screening.raw_cleanup import raw_cleanup_deadline
 from ..utils import today, utcnow
 from ._shared import sms_safe_text
 
@@ -112,6 +113,17 @@ _IN_FLIGHT_SCREENING_STATUSES = (
 SCREENING_INTAKE_LOCK_NAMESPACE = 4716
 
 
+def _has_live_screening_image(farm_id: Any, image_id: Any) -> ColumnElement[bool]:
+    """Correlate a child row to an image outside the retention fence."""
+    return exists(
+        select(ScreeningImage.id).where(
+            ScreeningImage.farm_id == farm_id,
+            ScreeningImage.id == image_id,
+            ScreeningImage.retention_tombstoned_at.is_(None),
+        )
+    )
+
+
 async def _lock_farm_intake(db: AsyncSession, farm_id: int) -> None:
     """Serialize farm-level intake checks without locking the Farm row."""
     await db.execute(
@@ -140,11 +152,15 @@ async def _latest_runs_by_image(
 
 async def _pending_finding_counts(
     db: AsyncSession, farm_id: int, image_ids: list[int]
-) -> dict[int, int]:
+) -> dict[int, tuple[int, int]]:
     if not image_ids:
         return {}
     result = await db.execute(
-        select(ScreeningRun.image_id, func.count(ScreeningFinding.id))
+        select(
+            ScreeningRun.image_id,
+            func.count(ScreeningFinding.id),
+            func.count(ScreeningFinding.id).filter(ScreeningFinding.label == HEALTHY_CONTROL_LABEL),
+        )
         .join(
             ScreeningFinding,
             (ScreeningFinding.run_id == ScreeningRun.id)
@@ -157,7 +173,10 @@ async def _pending_finding_counts(
         )
         .group_by(ScreeningRun.image_id)
     )
-    return {int(image_id): int(count) for image_id, count in result.all()}
+    return {
+        int(image_id): (int(count), int(healthy_controls))
+        for image_id, count, healthy_controls in result.all()
+    }
 
 
 @router.get("/images")
@@ -173,7 +192,10 @@ async def list_images(
     """A page of screening images, newest first, with each image's latest
     gate verdict and pending-review finding count."""
     effective_status = _effective_image_status()
-    filters = [ScreeningImage.farm_id == farm.id]
+    filters = [
+        ScreeningImage.farm_id == farm.id,
+        ScreeningImage.retention_tombstoned_at.is_(None),
+    ]
     if status is not None:
         filters.append(effective_status == status)
     if bucket is not None:
@@ -215,7 +237,8 @@ async def list_images(
             latest_run=(
                 ScreeningRunOut.model_validate(latest[image.id]) if image.id in latest else None
             ),
-            pending_findings=pending.get(image.id, 0),
+            pending_findings=pending.get(image.id, (0, 0))[0],
+            pending_healthy_controls=pending.get(image.id, (0, 0))[1],
         )
         for image, status_value in images
     ]
@@ -242,10 +265,18 @@ async def get_image(
                 selectinload(ScreeningImage.runs).selectinload(ScreeningRun.findings),
                 selectinload(ScreeningImage.crops),
             )
-            .where(ScreeningImage.farm_id == farm.id, ScreeningImage.id == image_id)
+            .where(
+                ScreeningImage.farm_id == farm.id,
+                ScreeningImage.id == image_id,
+            )
+            # Keep the exact row live until presigned derivative URLs are
+            # assembled. Retention's FOR UPDATE SKIP LOCKED planner will leave
+            # a concurrently viewed image for the next pass instead of
+            # tombstoning/deleting its object midway through this response.
+            .with_for_update(read=True, of=ScreeningImage)
         )
     ).scalar_one_or_none()
-    if image is None:
+    if image is None or image.retention_tombstoned_at is not None:
         raise HTTPException(status_code=404, detail="Screening image not found")
 
     settings = get_settings()
@@ -334,14 +365,48 @@ async def review_finding(
     # ceiling bounds the id guard now, like the image_id guard above.
     if not 1 <= finding_id <= 9_223_372_036_854_775_807:
         raise HTTPException(status_code=404, detail="Screening finding not found")
-    finding = (
+    image_id_for_finding = (
         await db.execute(
-            select(ScreeningFinding)
+            select(ScreeningRun.image_id)
+            .join(
+                ScreeningFinding,
+                (ScreeningFinding.farm_id == ScreeningRun.farm_id)
+                & (ScreeningFinding.run_id == ScreeningRun.id),
+            )
             .where(
                 ScreeningFinding.farm_id == farm.id,
                 ScreeningFinding.id == finding_id,
             )
-            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if image_id_for_finding is None:
+        raise HTTPException(status_code=404, detail="Screening finding not found")
+    image = (
+        await db.execute(
+            select(ScreeningImage)
+            .where(
+                ScreeningImage.farm_id == farm.id,
+                ScreeningImage.id == image_id_for_finding,
+            )
+            .with_for_update(read=True)
+        )
+    ).scalar_one_or_none()
+    if image is None or image.retention_tombstoned_at is not None:
+        raise HTTPException(status_code=404, detail="Screening finding not found")
+    finding = (
+        await db.execute(
+            select(ScreeningFinding)
+            .join(
+                ScreeningRun,
+                (ScreeningRun.farm_id == ScreeningFinding.farm_id)
+                & (ScreeningRun.id == ScreeningFinding.run_id),
+            )
+            .where(
+                ScreeningFinding.farm_id == farm.id,
+                ScreeningFinding.id == finding_id,
+                ScreeningRun.image_id == image.id,
+            )
+            .with_for_update(of=ScreeningFinding)
         )
     ).scalar_one_or_none()
     if finding is None:
@@ -393,20 +458,34 @@ async def review_finding(
     finding.reviewed_at = reviewed_at
     finding.review_note = payload.review_note
     finding.review_revision = revision
-    if payload.status == "CONFIRMED":
+    is_healthy_control = finding.label == HEALTHY_CONTROL_LABEL
+    alertable_review = (
+        payload.status == "REJECTED" if is_healthy_control else payload.status == "CONFIRMED"
+    )
+    if is_healthy_control:
+        alert_message = (
+            f"Herdly: healthy-verdict quality-control review #{finding.id} "
+            "found a visible abnormality."
+        )
+    else:
+        alert_message = (
+            f"Herdly: screening finding #{finding.id} "
+            f"({sms_safe_text(finding.label)}) was CONFIRMED by the vet."
+        )
+    alert_event_key = f"finding:{finding.id}:review:{revision}:{payload.status}"
+    if alertable_review:
         from ..services.notifications.outbox import enqueue_alert
 
         await enqueue_alert(
             db,
             farm.id,
             "SCREENING_FLAG",
-            f"Herdly: screening finding #{finding.id} "
-            f"({sms_safe_text(finding.label)}) was CONFIRMED by the vet.",
-            f"finding:{finding.id}:review:{revision}:CONFIRMED",
+            alert_message,
+            alert_event_key,
         )
     await db.commit()
     await db.refresh(finding)
-    if payload.status == "CONFIRMED":
+    if alertable_review:
         # ITEM 4 alert hook: a vet-confirmed screening finding is the
         # same-day signal the owner opted into. Best-effort, own session.
         # (2026-10-01 audit, 01-4) the model-authored label is free text
@@ -417,9 +496,8 @@ async def review_finding(
         await emit_alert(
             farm.id,
             "SCREENING_FLAG",
-            f"Herdly: screening finding #{finding.id} "
-            f"({sms_safe_text(finding.label)}) was CONFIRMED by the vet.",
-            f"finding:{finding.id}:review:{revision}:CONFIRMED",
+            alert_message,
+            alert_event_key,
         )
     return ScreeningFindingReviewOut.model_validate(finding)
 
@@ -435,11 +513,46 @@ async def finding_review_history(
 ) -> ScreeningFindingReviewHistoryListOut:
     if not 1 <= finding_id <= 9_223_372_036_854_775_807:
         raise HTTPException(status_code=404, detail="Screening finding not found")
+    image_id_for_finding = (
+        await db.execute(
+            select(ScreeningRun.image_id)
+            .join(
+                ScreeningFinding,
+                (ScreeningFinding.farm_id == ScreeningRun.farm_id)
+                & (ScreeningFinding.run_id == ScreeningRun.id),
+            )
+            .where(
+                ScreeningFinding.farm_id == farm.id,
+                ScreeningFinding.id == finding_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if image_id_for_finding is None:
+        raise HTTPException(status_code=404, detail="Screening finding not found")
+    image = (
+        await db.execute(
+            select(ScreeningImage)
+            .where(
+                ScreeningImage.farm_id == farm.id,
+                ScreeningImage.id == image_id_for_finding,
+            )
+            .with_for_update(read=True)
+        )
+    ).scalar_one_or_none()
+    if image is None or image.retention_tombstoned_at is not None:
+        raise HTTPException(status_code=404, detail="Screening finding not found")
     finding = (
         await db.execute(
-            select(ScreeningFinding).where(
+            select(ScreeningFinding)
+            .join(
+                ScreeningRun,
+                (ScreeningRun.farm_id == ScreeningFinding.farm_id)
+                & (ScreeningRun.id == ScreeningFinding.run_id),
+            )
+            .where(
                 ScreeningFinding.id == finding_id,
                 ScreeningFinding.farm_id == farm.id,
+                ScreeningRun.image_id == image.id,
             )
         )
     ).scalar_one_or_none()
@@ -483,6 +596,25 @@ SCREENING_STATS_MAX_DAYS = 365
 SCREENING_EXPORT_MAX_RECORDS = 5_000
 
 
+def _wilson_interval(successes: int, total: int) -> tuple[Decimal, Decimal] | None:
+    """95% Wilson score interval, rounded to the API's three-decimal precision."""
+    if total <= 0:
+        return None
+    z = 1.959963984540054
+    proportion = successes / total
+    denominator = 1 + (z * z / total)
+    centre = (proportion + z * z / (2 * total)) / denominator
+    margin = (
+        z
+        * ((proportion * (1 - proportion) / total + z * z / (4 * total * total)) ** 0.5)
+        / denominator
+    )
+    return (
+        Decimal(str(max(0.0, centre - margin))).quantize(Decimal("0.001")),
+        Decimal(str(min(1.0, centre + margin))).quantize(Decimal("0.001")),
+    )
+
+
 @router.get("/stats")
 async def provider_stats(
     db: DbSession,
@@ -490,14 +622,22 @@ async def provider_stats(
     _perms: VIEW,
     days: Annotated[int, Query(ge=1, le=SCREENING_STATS_MAX_DAYS)] = 30,
 ) -> ScreeningStatsOut:
-    """The rotation scoreboard: call volume, verdict behavior, vet-labeled
-    precision and cross-check agreement per provider over the window.
+    """The rotation scoreboard: call volume, verdict behavior, conditional
+    positive precision, sampled healthy false-negative rate, and cross-check
+    agreement per provider over the window.
 
     This is the feedback loop that turns the round-robin from vendor
-    insurance into a measured comparison on your own photos.
+    insurance into a measured comparison on your own photos. The positive
+    metric is conditional on emitted findings; the healthy metric covers the
+    deterministic quality-control sample and is not full-population
+    sensitivity or specificity.
     """
     window_start = utcnow() - dt.timedelta(days=days)
-    run_window = (ScreeningRun.farm_id == farm.id) & (ScreeningRun.created_at >= window_start)
+    run_window = (
+        (ScreeningRun.farm_id == farm.id)
+        & (ScreeningRun.created_at >= window_start)
+        & _has_live_screening_image(ScreeningRun.farm_id, ScreeningRun.image_id)
+    )
     gate_rows = (
         await db.execute(
             select(
@@ -543,22 +683,70 @@ async def provider_stats(
                 ScreeningRun.model,
                 func.sum(
                     case(
-                        (ScreeningFinding.status == ScreeningFindingStatus.CONFIRMED.value, 1),
+                        (
+                            (ScreeningFinding.label != HEALTHY_CONTROL_LABEL)
+                            & (ScreeningFinding.status == ScreeningFindingStatus.CONFIRMED.value),
+                            1,
+                        ),
                         else_=0,
                     )
                 ).label("confirmed"),
                 func.sum(
                     case(
-                        (ScreeningFinding.status == ScreeningFindingStatus.REJECTED.value, 1),
+                        (
+                            (ScreeningFinding.label != HEALTHY_CONTROL_LABEL)
+                            & (ScreeningFinding.status == ScreeningFindingStatus.REJECTED.value),
+                            1,
+                        ),
                         else_=0,
                     )
                 ).label("rejected"),
                 func.sum(
                     case(
-                        (ScreeningFinding.status == ScreeningFindingStatus.PENDING_REVIEW.value, 1),
+                        (
+                            (ScreeningFinding.label != HEALTHY_CONTROL_LABEL)
+                            & (
+                                ScreeningFinding.status
+                                == ScreeningFindingStatus.PENDING_REVIEW.value
+                            ),
+                            1,
+                        ),
                         else_=0,
                     )
                 ).label("pending"),
+                func.sum(
+                    case(
+                        (
+                            (ScreeningFinding.label == HEALTHY_CONTROL_LABEL)
+                            & (ScreeningFinding.status == ScreeningFindingStatus.CONFIRMED.value),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("healthy_confirmed"),
+                func.sum(
+                    case(
+                        (
+                            (ScreeningFinding.label == HEALTHY_CONTROL_LABEL)
+                            & (ScreeningFinding.status == ScreeningFindingStatus.REJECTED.value),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("healthy_rejected"),
+                func.sum(
+                    case(
+                        (
+                            (ScreeningFinding.label == HEALTHY_CONTROL_LABEL)
+                            & (
+                                ScreeningFinding.status
+                                == ScreeningFindingStatus.PENDING_REVIEW.value
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("healthy_pending"),
             )
             .join(
                 ScreeningFinding,
@@ -587,6 +775,16 @@ async def provider_stats(
                 "findings_confirmed": 0,
                 "findings_rejected": 0,
                 "findings_pending": 0,
+                "positive_precision": None,
+                "positive_precision_ci_low": None,
+                "positive_precision_ci_high": None,
+                "healthy_controls_confirmed": 0,
+                "healthy_controls_rejected": 0,
+                "healthy_controls_pending": 0,
+                "healthy_controls_reviewed": 0,
+                "healthy_false_negative_rate": None,
+                "healthy_false_negative_ci_low": None,
+                "healthy_false_negative_ci_high": None,
             },
         )
 
@@ -615,11 +813,51 @@ async def provider_stats(
         slot = _slot(provider, model)
         slot["cross_checks"] = int(checks or 0)
         slot["cross_check_agreements"] = int(agreements or 0)
-    for provider, model, confirmed, rejected, pending in finding_rows:
+    for (
+        provider,
+        model,
+        confirmed,
+        rejected,
+        pending,
+        healthy_confirmed,
+        healthy_rejected,
+        healthy_pending,
+    ) in finding_rows:
         slot = _slot(provider, model)
         slot["findings_confirmed"] = int(confirmed or 0)
         slot["findings_rejected"] = int(rejected or 0)
         slot["findings_pending"] = int(pending or 0)
+        slot["healthy_controls_confirmed"] = int(healthy_confirmed or 0)
+        slot["healthy_controls_rejected"] = int(healthy_rejected or 0)
+        slot["healthy_controls_pending"] = int(healthy_pending or 0)
+
+    for slot in merged.values():
+        positive_reviewed = int(slot["findings_confirmed"] or 0) + int(
+            slot["findings_rejected"] or 0
+        )
+        if positive_reviewed:
+            confirmed = int(slot["findings_confirmed"] or 0)
+            slot["positive_precision"] = (Decimal(confirmed) / Decimal(positive_reviewed)).quantize(
+                Decimal("0.001")
+            )
+            interval = _wilson_interval(confirmed, positive_reviewed)
+            if interval is not None:
+                slot["positive_precision_ci_low"], slot["positive_precision_ci_high"] = interval
+        healthy_reviewed = int(slot["healthy_controls_confirmed"] or 0) + int(
+            slot["healthy_controls_rejected"] or 0
+        )
+        slot["healthy_controls_reviewed"] = healthy_reviewed
+        if healthy_reviewed:
+            false_negatives = int(slot["healthy_controls_rejected"] or 0)
+            slot["healthy_false_negative_rate"] = (
+                Decimal(false_negatives) / Decimal(healthy_reviewed)
+            ).quantize(Decimal("0.001"))
+            interval = _wilson_interval(false_negatives, healthy_reviewed)
+            if interval is not None:
+                (
+                    slot["healthy_false_negative_ci_low"],
+                    slot["healthy_false_negative_ci_high"],
+                ) = interval
 
     def _sort_key(
         item: tuple[tuple[str, str], dict[str, int | Decimal | None]],
@@ -651,7 +889,8 @@ async def export_dataset(
     vet verdict that makes each label trustworthy. Defaults to every
     finding INCLUDING the pending review queue (each record carries
     ``vet_status`` so consumers can filter); pass vet_status=CONFIRMED or
-    REJECTED for reviewed-only exports."""
+    REJECTED for reviewed-only exports. Healthy-control records use CONFIRMED
+    for no visible abnormality and REJECTED when the reviewer found one."""
     filters = [ScreeningFinding.farm_id == farm.id]
     if vet_status != "ALL":
         filters.append(ScreeningFinding.status == vet_status)
@@ -673,7 +912,10 @@ async def export_dataset(
                 (ScreeningCrop.id == ScreeningFinding.crop_id)
                 & (ScreeningCrop.farm_id == ScreeningFinding.farm_id),
             )
-            .where(*filters)
+            .where(
+                *filters,
+                ScreeningImage.retention_tombstoned_at.is_(None),
+            )
             .order_by(ScreeningFinding.id)
             .limit(limit)
         )
@@ -681,6 +923,18 @@ async def export_dataset(
     records = [
         ScreeningDatasetRecordOut(
             finding_id=finding.id,
+            example_kind=cast(
+                Literal["POSITIVE_FINDING", "HEALTHY_CONTROL"], finding.evaluation_kind
+            ),
+            model_verdict=cast(
+                Literal["healthy", "flagged", "unassessable"] | None,
+                (
+                    "healthy"
+                    if finding.evaluation_kind == "HEALTHY_CONTROL"
+                    else run.verdict or "flagged"
+                ),
+            ),
+            prompt_version=run.prompt_version,
             vet_status=cast(ScreeningFindingStatusStr, finding.status),
             label=finding.label,
             confidence=finding.confidence,
@@ -770,6 +1024,7 @@ async def _batch_progress(
             .where(
                 ScreeningImage.farm_id == farm_id,
                 ScreeningImage.batch_id.in_(batch_ids),
+                ScreeningImage.retention_tombstoned_at.is_(None),
             )
             .group_by(ScreeningImage.batch_id, ScreeningImage.bucket, effective_status)
         )
@@ -997,6 +1252,7 @@ async def submit_batch(
             .where(
                 ScreeningImage.farm_id == farm.id,
                 ScreeningImage.batch_id == batch.id,
+                ScreeningImage.retention_tombstoned_at.is_(None),
             )
         )
     ).scalar_one()
@@ -1069,6 +1325,7 @@ async def request_upload(
                 .where(
                     ScreeningImage.farm_id == farm.id,
                     ScreeningImage.batch_id == batch.id,
+                    ScreeningImage.retention_tombstoned_at.is_(None),
                 )
             )
         ).scalar_one()
@@ -1087,6 +1344,7 @@ async def request_upload(
                 .where(
                     ScreeningImage.farm_id == farm.id,
                     ScreeningImage.status.in_(_IN_FLIGHT_SCREENING_STATUSES),
+                    ScreeningImage.retention_tombstoned_at.is_(None),
                 )
             )
         ).scalar_one()
@@ -1107,6 +1365,16 @@ async def request_upload(
             f"{payload.bucket}/{batch.id}-{uuid.uuid4().hex[:12]}{extension}"
         )
         upload_token = secrets.token_urlsafe(32)
+        # Capture issuance immediately before local SigV4 generation.  The
+        # durable final-purge deadline includes the exact configured form
+        # lifetime plus clock/final-write slack; eager deletion by the worker
+        # never clears this independent obligation because the same form can
+        # recreate the raw key until it expires.
+        upload_issued_at = utcnow()
+        cleanup_after = raw_cleanup_deadline(
+            upload_issued_at,
+            settings.screening_presign_expiry_seconds,
+        )
         image = ScreeningImage(
             farm_id=farm.id,
             bucket=payload.bucket,
@@ -1117,6 +1385,8 @@ async def request_upload(
             upload_token=upload_token,
             captured_date=captured_date,
             status=ScreeningImageStatus.PENDING.value,
+            raw_cleanup_after=cleanup_after,
+            raw_cleanup_next_attempt_at=cleanup_after,
         )
         db.add(image)
         # Obtain an id before signing so the form can be bound to this durable

@@ -566,6 +566,7 @@ def test_production_refuses_insecure_cookie() -> None:
     with pytest.raises(ValidationError, match="GOATFARM_COOKIE_SECURE"):
         Settings(
             environment="production",
+            auth_rate_limit_enabled=True,
             cookie_secure=False,
             cors_origins=["https://app.example.com"],
             db_sslmode="verify-full",
@@ -577,6 +578,7 @@ def test_production_refuses_localhost_cors() -> None:
     with pytest.raises(ValidationError, match="exact non-loopback HTTPS origins"):
         Settings(
             environment="production",
+            auth_rate_limit_enabled=True,
             cookie_secure=True,
             cors_origins=["http://localhost:3000"],
             db_sslmode="verify-full",
@@ -588,6 +590,7 @@ def test_production_refuses_empty_cors() -> None:
     with pytest.raises(ValidationError, match="must not be empty"):
         Settings(
             environment="production",
+            auth_rate_limit_enabled=True,
             cookie_secure=True,
             cors_origins=[],
             db_sslmode="verify-full",
@@ -600,6 +603,7 @@ def test_production_refuses_db_sslmode_without_hostname_verification(sslmode: Db
     with pytest.raises(ValidationError, match="GOATFARM_DB_SSLMODE"):
         Settings(
             environment="production",
+            auth_rate_limit_enabled=True,
             cookie_secure=True,
             cors_origins=["https://app.example.com"],
             db_sslmode=sslmode,
@@ -626,10 +630,18 @@ def test_production_migration_accepts_tls_without_api_secrets() -> None:
     assert settings.environment == "production"
 
 
-def test_production_migration_requires_the_dedicated_ddl_url() -> None:
+def test_production_migration_requires_the_dedicated_ddl_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Production Alembic must never fall back to the API database identity."""
+    # The suite needs this variable to migrate its disposable database before
+    # collection. Remove it only for this constructor boundary so the missing
+    # production DDL identity remains the condition under test.
+    monkeypatch.delenv("GOATFARM_MIGRATION_DATABASE_URL")
     with pytest.raises(ValidationError, match="GOATFARM_MIGRATION_DATABASE_URL is required"):
-        MigrationSettings(
+        settings_from_input(
+            MigrationSettings,
+            env_file=None,
             environment="production",
             database_url="postgresql+asyncpg://api@db.example.test:5432/goatfarm",
             db_sslmode="verify-full",
@@ -873,6 +885,7 @@ def test_production_refuses_non_exact_https_cors(origin: str) -> None:
     with pytest.raises(ValidationError, match="exact non-loopback HTTPS origins"):
         Settings(
             environment="production",
+            auth_rate_limit_enabled=True,
             cookie_secure=True,
             cors_origins=[origin],
             db_sslmode="verify-full",
@@ -884,6 +897,7 @@ def test_production_requires_twelve_character_password_minimum() -> None:
     with pytest.raises(ValidationError, match="MIN_PASSWORD_LENGTH"):
         Settings(
             environment="production",
+            auth_rate_limit_enabled=True,
             cookie_secure=True,
             cors_origins=["https://app.example.com"],
             db_sslmode="verify-full",
@@ -909,6 +923,7 @@ def test_production_refuses_weak_argon2_profile(
             Settings,
             {field: value},
             environment="production",
+            auth_rate_limit_enabled=True,
             cookie_secure=True,
             cors_origins=["https://app.example.com"],
             allowed_hosts=["api.example.com"],
@@ -920,6 +935,7 @@ def test_production_refuses_weak_argon2_profile(
 def test_production_accepts_valid_config() -> None:
     settings = Settings(
         environment="production",
+        auth_rate_limit_enabled=True,
         cookie_secure=True,
         cors_origins=["https://app.example.com"],
         allowed_hosts=["api.example.com"],
@@ -938,6 +954,7 @@ def test_production_accepts_valid_config() -> None:
 def _valid_production_totp_kwargs() -> dict[str, object]:
     return {
         "environment": "production",
+        "auth_rate_limit_enabled": True,
         "cookie_secure": True,
         "cors_origins": ["https://app.example.com"],
         "allowed_hosts": ["api.example.com"],
@@ -989,11 +1006,26 @@ def test_totp_encryption_previous_keyring_is_bounded_and_needs_a_current_key() -
 # --- File-delivered secrets (2026-10-01 audit, 09-1) ---------------------------
 
 
-def test_secret_file_delivery_overrides_the_plain_environment_value(tmp_path: Path) -> None:
+def test_secret_file_delivery_is_exclusive_and_trims_the_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     secret_file = tmp_path / "idempotency_request_hmac_secret"
     secret_file.write_text(f"  {VALID_IDEMPOTENCY_HMAC_SECRET}  \n")
-    settings = Settings(
-        idempotency_request_hmac_secret=SecretStr("plain-env-secret-that-must-lose-000001"),
+    monkeypatch.delenv("GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET", raising=False)
+
+    with pytest.raises(ValidationError, match="both set; deliver exactly one"):
+        settings_from_input(
+            Settings,
+            env_file=None,
+            idempotency_request_hmac_secret=SecretStr(
+                "plain-env-secret-that-must-not-coexist-000001"
+            ),
+            idempotency_request_hmac_secret_file=secret_file,
+        )
+
+    settings = settings_from_input(
+        Settings,
+        env_file=None,
         idempotency_request_hmac_secret_file=secret_file,
     )
     assert settings.idempotency_request_hmac_secret.get_secret_value() == (
@@ -1086,11 +1118,24 @@ def test_blank_secret_file_fails_closed(tmp_path: Path) -> None:
         Settings(s3_secret_access_key_file=blank_file)
 
 
-def test_file_delivered_database_url_replaces_and_normalizes(tmp_path: Path) -> None:
+def test_file_delivered_database_url_is_exclusive_and_normalized(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     url_file = tmp_path / "database_url"
     url_file.write_text("postgresql+asyncpg://api:filepw@db.example.com:5432/goatfarm\n")
-    settings = Settings(
-        database_url="postgresql+asyncpg://plain:plainpw@other.example.com:5432/goatfarm",
+    monkeypatch.delenv("GOATFARM_DATABASE_URL")
+
+    with pytest.raises(ValidationError, match="both set; deliver exactly one"):
+        settings_from_input(
+            Settings,
+            env_file=None,
+            database_url="postgresql+asyncpg://plain:plainpw@other.example.com:5432/goatfarm",
+            database_url_file=url_file,
+        )
+
+    settings = settings_from_input(
+        Settings,
+        env_file=None,
         database_url_file=url_file,
     )
     assert settings.database_url == "postgresql+asyncpg://api:filepw@db.example.com:5432/goatfarm"
@@ -1099,23 +1144,35 @@ def test_file_delivered_database_url_replaces_and_normalizes(tmp_path: Path) -> 
     broken_file = tmp_path / "broken_database_url"
     broken_file.write_text("postgres://nope\n")
     with pytest.raises(ValidationError, match="GOATFARM_DATABASE_URL"):
-        Settings(database_url_file=broken_file)
+        settings_from_input(Settings, env_file=None, database_url_file=broken_file)
 
 
-def test_migration_and_worker_projections_read_file_delivered_secrets(tmp_path: Path) -> None:
+def test_migration_and_worker_projections_read_file_delivered_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # conftest supplies the plain URLs so Alembic and app fixtures target the
+    # disposable database. File-delivery tests must isolate those plain routes
+    # or they would correctly trip the dual-delivery production guard.
+    monkeypatch.delenv("GOATFARM_MIGRATION_DATABASE_URL")
     migration_url_file = tmp_path / "migration_database_url"
     migration_url_file.write_text("postgresql+asyncpg://mig:filepw@db:5432/goatfarm\n")
-    migration = MigrationSettings(migration_database_url_file=migration_url_file)
+    migration = settings_from_input(
+        MigrationSettings,
+        env_file=None,
+        migration_database_url_file=migration_url_file,
+    )
     assert migration.migration_database_url == "postgresql+asyncpg://mig:filepw@db:5432/goatfarm"
 
+    monkeypatch.delenv("GOATFARM_DATABASE_URL")
+    monkeypatch.delenv("GOATFARM_S3_SECRET_ACCESS_KEY", raising=False)
     worker_url_file = tmp_path / "worker_database_url"
     worker_url_file.write_text("postgresql+asyncpg://worker:filepw@db:5432/goatfarm\n")
     s3_key_file = tmp_path / "s3_secret_access_key"
     s3_key_file.write_text("worker-s3-secret\n")
-    worker = ScreeningWorkerSettings(
-        database_url="postgresql+asyncpg://plain:plainpw@db:5432/goatfarm",
+    worker = settings_from_input(
+        ScreeningWorkerSettings,
+        env_file=None,
         database_url_file=worker_url_file,
-        s3_secret_access_key=SecretStr("plain-s3-secret"),
         s3_secret_access_key_file=s3_key_file,
     )
     assert worker.database_url == "postgresql+asyncpg://worker:filepw@db:5432/goatfarm"
@@ -1127,6 +1184,7 @@ def test_production_rejects_refresh_cookie_without_host_prefix() -> None:
     with pytest.raises(ValidationError, match="GOATFARM_REFRESH_COOKIE_NAME"):
         Settings(
             environment="production",
+            auth_rate_limit_enabled=True,
             cookie_secure=True,
             refresh_cookie_name="legacy_refresh",
             cors_origins=["https://app.example.com"],
@@ -1177,6 +1235,7 @@ def test_production_rejects_invalid_idempotency_hmac_keyring(
 ) -> None:
     kwargs: dict[str, object] = {
         "environment": "production",
+        "auth_rate_limit_enabled": True,
         "cookie_secure": True,
         "cors_origins": ["https://app.example.com"],
         "allowed_hosts": ["api.example.com"],
@@ -1204,6 +1263,7 @@ def test_production_refuses_unsafe_allowed_hosts(host: list[str]) -> None:
     with pytest.raises(ValidationError, match="GOATFARM_ALLOWED_HOSTS"):
         Settings(
             environment="production",
+            auth_rate_limit_enabled=True,
             cookie_secure=True,
             cors_origins=["https://app.example.com"],
             allowed_hosts=host,
@@ -1250,6 +1310,7 @@ def test_pending_manual_task_limit_must_be_positive() -> None:
 
 def test_docs_gated_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GOATFARM_ENVIRONMENT", "production")
+    monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_ENABLED", "true")
     monkeypatch.setenv("GOATFARM_COOKIE_SECURE", "true")
     monkeypatch.setenv("GOATFARM_CORS_ORIGINS", '["https://app.example.com"]')
     monkeypatch.setenv("GOATFARM_ALLOWED_HOSTS", '["api.example.com"]')
@@ -1289,6 +1350,7 @@ def _write_rsa_pair(private_path: Path, public_path: Path) -> None:
 
 def _production_key_env(monkeypatch: pytest.MonkeyPatch, private: Path, public: Path) -> None:
     monkeypatch.setenv("GOATFARM_ENVIRONMENT", "production")
+    monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_ENABLED", "true")
     monkeypatch.setenv("GOATFARM_COOKIE_SECURE", "true")
     monkeypatch.setenv("GOATFARM_CORS_ORIGINS", '["https://app.example.com"]')
     monkeypatch.setenv("GOATFARM_ALLOWED_HOSTS", '["api.example.com"]')

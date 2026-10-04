@@ -16,6 +16,7 @@ import httpx
 import pytest
 from sqlalchemy import func, select
 
+from app.audit import drain_transient_security_signals, emit_transient_security_signal_summary
 from app.db import get_sessionmaker
 from app.models import Animal, BreedingRecord, BucketMove, HealthEvent, Role, Task, User
 from app.permissions import preset_codes
@@ -328,38 +329,33 @@ async def test_cleaner_dashboard_hides_the_breeding_programme(client: httpx.Asyn
     assert owner_dash["total_active"] is not None
 
 
-async def test_rbac_denial_emits_an_identifiable_audit_log_record(
+async def test_rbac_denial_emits_one_bounded_aggregate_signal(
     client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Denials must stay observable: exactly one structured security_event per
-    denial on the goatfarm.audit logger (DET-2, 2026-09-16), naming the
-    principal, the tenant and the exact missing permission code.
-
-    Pins the audit event against regressions that keep the 403 identical
-    while dropping the permission code, the structured prefix, or the record
-    itself.
-    """
+    """Denials stay observable without one log/DB write per hostile request."""
     owner = await owner_with_farm(client)
-    mover, mover_id = await worker_headers(client, owner, "MOVER", "auditlog@farm.in")
+    mover, _mover_id = await worker_headers(client, owner, "MOVER", "auditlog@farm.in")
 
+    drain_transient_security_signals()
     caplog.clear()
     with caplog.at_level(logging.INFO, logger="goatfarm.audit"):
         resp = await client.get("/api/finance", headers=mover)
+        summary = emit_transient_security_signal_summary(300)
     assert resp.status_code == 403
     assert resp.json()["detail"] == "Missing permission: finance.view"
+    assert summary == {"rbac.denied": 1}
 
     records = [
         record
         for record in caplog.records
-        if record.name == "goatfarm.audit" and record.getMessage().startswith("security_event")
+        if record.name == "goatfarm.audit" and record.getMessage().startswith("security_signal_")
     ]
-    assert len(records) == 1, [record.getMessage() for record in records]
-    assert records[0].levelno == logging.INFO
-    message = records[0].getMessage()
-    assert "event='rbac.denied'" in message
-    assert "permission='finance.view'" in message
-    assert f"user_id={mover_id}" in message
-    assert f"farm_id={int(owner['X-Farm-Id'])}" in message
+    assert len(records) == 2, [record.getMessage() for record in records]
+    assert all(record.levelno == logging.WARNING for record in records)
+    messages = [record.getMessage() for record in records]
+    assert all("event='rbac.denied'" in message for message in messages)
+    assert "count=1" in messages[-1]
+    assert "finance.view" not in " ".join(messages)
 
 
 # ---------------------------------------------------------------------------

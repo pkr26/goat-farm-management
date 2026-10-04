@@ -1015,7 +1015,7 @@ function OpsSimulationPageContent() {
                 (selectedRecord.exits?.length ?? 0) > 0) && (
                 <div className="grid gap-2 sm:grid-cols-2">
                   {selectedRecord.births?.map((birth) => (
-                    <p key={birth.dam_tag} className="text-sm">
+                    <p key={`birth-${birth.dam_tag}`} className="text-sm">
                       <Baby className="mr-1 inline size-4 text-primary" />
                       <span className="font-medium">{birth.dam_tag}</span>
                       {t("opsSim.kiddedSummary", {
@@ -1028,7 +1028,7 @@ function OpsSimulationPageContent() {
                     </p>
                   ))}
                   {selectedRecord.exits?.map((exit) => (
-                    <p key={exit.tag} className="text-sm">
+                    <p key={`exit-${exit.tag}`} className="text-sm">
                       <Banknote className="mr-1 inline size-4 text-muted-foreground" />
                       <span className="font-medium">{exit.tag}</span> — {exit.kind}: {exit.reason}
                     </p>

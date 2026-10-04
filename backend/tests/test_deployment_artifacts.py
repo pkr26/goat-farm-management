@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -43,7 +44,7 @@ from scripts import (
 )
 
 from .conftest import _admin_sql
-from .type_helpers import json_object
+from .type_helpers import json_object, json_objects, json_string
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKUP = REPO_ROOT / "backend" / "scripts" / "backup.sh"
@@ -53,6 +54,8 @@ DOTENV_HELPER = REPO_ROOT / "backend" / "scripts" / "dotenv_value.py"
 FLOCK_HELPER = REPO_ROOT / "backend" / "scripts" / "backup_flock.py"
 LEGACY_LOCK_HELPER = REPO_ROOT / "backend" / "scripts" / "backup_legacy_lock.py"
 PINNED_COPY_HELPER = REPO_ROOT / "backend" / "scripts" / "pinned_copy.py"
+RECOVERY_HELPER = REPO_ROOT / "backend" / "scripts" / "recovery_inventory.py"
+BACKUP_FRESHNESS_HELPER = REPO_ROOT / "backend" / "scripts" / "check_backup_freshness.py"
 ENV_LIB = REPO_ROOT / "backend" / "scripts" / "backup_env.sh"
 SIGNER_A = "A" * 40
 SIGNER_B = "B" * 40
@@ -233,6 +236,12 @@ if (
     and any(argument.endswith(".sha256") for argument in sys.argv)
 ):
     raise SystemExit(4)
+if (
+    os.environ.get("MOCK_AWS_FAIL_ARCHIVE") == "1"
+    and "cp" in sys.argv
+    and any(argument.endswith((".dump", ".dump.gpg")) for argument in sys.argv)
+):
+    raise SystemExit(5)
 if os.environ.get("MOCK_AWS_FAIL_RM") == "1" and "rm" in sys.argv:
     raise SystemExit(6)
 """,
@@ -270,9 +279,17 @@ def _base_env(tmp_path: Path, mock_bin: Path) -> dict[str, str]:
 
 
 def _run_backup(destination: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    run_env = env.copy()
+    if (
+        run_env.get("GOATFARM_ENVIRONMENT") == "production"
+        and "GOATFARM_RECOVERY_INVENTORY_FILE" not in run_env
+    ):
+        inventory = destination.parent / "recovery-unbound.json"
+        _write_recovery_inventory(inventory)
+        run_env["GOATFARM_RECOVERY_INVENTORY_FILE"] = str(inventory)
     return subprocess.run(
         ["bash", str(BACKUP), str(destination)],
-        env=env,
+        env=run_env,
         capture_output=True,
         text=True,
         check=False,
@@ -293,6 +310,40 @@ def _write_checksum(
     archive.with_name(f"{archive.name}.sha256").write_text(content)
 
 
+def _write_recovery_inventory(path: Path, archive: Path | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {"sha256": "a" * 64, "escrow_receipt": "vault-receipt-1"}
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "screening_objects": {
+            "bucket": "goatfarm-screening",
+            "prefix": "raw",
+            "versioning": "Enabled",
+            "recovery_point": "replica-snapshot-1",
+            "restore_receipt": "quarterly-drill-1",
+            "manifest": {"name": "inventory.csv", "bytes": 10, "sha256": "b" * 64},
+        },
+        "key_material": {
+            name: entry.copy()
+            for name in (
+                "jwt_private",
+                "jwt_public",
+                "totp_encryption",
+                "idempotency_hmac",
+                "database_ca",
+                "backup_gpg",
+            )
+        },
+    }
+    if archive is not None:
+        payload["database_artifact"] = {
+            "name": archive.name,
+            "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+        }
+    path.write_text(json.dumps(payload))
+
+
 def _run_restore(
     archive: Path,
     env: dict[str, str],
@@ -304,6 +355,13 @@ def _run_restore(
     restore_env = env.copy()
     restore_env["GOATFARM_RESTORE_CONFIRM"] = "goatfarm_restore_test"
     restore_env["GOATFARM_RESTORE_DATABASE_URL"] = target_url
+    if (
+        restore_env.get("GOATFARM_ENVIRONMENT") == "production"
+        and not archive.with_name(f"{archive.name}.recovery.json").exists()
+    ):
+        _write_recovery_inventory(
+            archive.with_name(f"{archive.name}.recovery.json"), archive=archive
+        )
     tmp_root = archive.parent / "restore-tmp"
     tmp_root.mkdir(exist_ok=True)
     restore_env["TMPDIR"] = str(tmp_root)
@@ -1158,7 +1216,7 @@ def test_health_compliance_migration_renders_safe_offline_preflight_and_validati
     assert "VALIDATE CONSTRAINT ck_health_events_compliance_requires_suspicion" in result.stdout
 
 
-def test_failed_second_offsite_upload_removes_remote_partial_only(
+def test_failed_first_offsite_sidecar_upload_leaves_no_remote_partial(
     tmp_path: Path,
 ) -> None:
     mock_bin = _install_mock_tools(tmp_path)
@@ -1178,8 +1236,10 @@ def test_failed_second_offsite_upload_removes_remote_partial_only(
     assert result.returncode != 0
     assert len(list(destination.glob("goatfarm-*.dump.gpg"))) == 1
     log = _log_text(env)
-    assert log.count('"tool": "aws"') == 4
-    assert '"rm"' in log
+    # Collision check + failed checksum upload. The archive is the remote
+    # commit marker and is uploaded last, so there is nothing to remove.
+    assert log.count('"tool": "aws"') == 2
+    assert '"rm"' not in log
     assert not (destination / ".goatfarm-backup.lock").exists()
 
 
@@ -1197,7 +1257,7 @@ def test_failed_offsite_cleanup_names_the_orphaned_object_keys(
             "GOATFARM_BACKUP_GPG_RECIPIENT": SIGNER_B,
             "GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT": SIGNER_A,
             "GOATFARM_BACKUP_S3_URI": "s3://example/goatfarm",
-            "MOCK_AWS_FAIL_CHECKSUM": "1",
+            "MOCK_AWS_FAIL_ARCHIVE": "1",
             "MOCK_AWS_FAIL_RM": "1",
         }
     )
@@ -1206,11 +1266,11 @@ def test_failed_offsite_cleanup_names_the_orphaned_object_keys(
     result = _run_backup(destination, env)
 
     assert result.returncode != 0
-    # The archive upload succeeded before the checksum upload failed, so the
-    # orphaned object is the remote archive key; it must be named on stderr.
+    # The checksum sidecar succeeded before the final archive/commit-marker
+    # upload failed. A cleanup failure must name that orphaned sidecar.
     assert "failed to remove partially published remote object" in result.stderr
     assert "s3://example/goatfarm/goatfarm-" in result.stderr
-    assert ".dump.gpg" in result.stderr
+    assert ".dump.gpg.sha256" in result.stderr
 
 
 def test_offsite_backup_refuses_remote_key_collision_without_deleting(
@@ -2104,6 +2164,8 @@ def _stage_scripts(tmp_path: Path, env_file: str | None) -> Path:
         FLOCK_HELPER,
         LEGACY_LOCK_HELPER,
         PINNED_COPY_HELPER,
+        RECOVERY_HELPER,
+        BACKUP_FRESHNESS_HELPER,
         ENV_LIB,
     ):
         shutil.copy(source, staged / source.name)
@@ -2776,6 +2838,322 @@ def test_ci_cancels_only_superseded_pull_requests() -> None:
         assert "cancel-in-progress: true" not in workflow
 
 
+def test_ci_migrations_use_explicit_disposable_database_targets() -> None:
+    workflow = json_object(
+        yaml.load(
+            (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(),
+            Loader=yaml.BaseLoader,
+        )
+    )
+    jobs = json_object(workflow["jobs"])
+
+    backend = json_object(jobs["backend"])
+    backend_steps = json_objects(backend["steps"])
+    create_role = next(
+        step for step in backend_steps if step.get("name") == "Create runner Postgres role"
+    )
+    migration = next(
+        step
+        for step in backend_steps
+        if step.get("name") == "Migration round-trip and metadata drift check"
+    )
+    migration_env = json_object(migration["env"])
+    application_url = json_string(migration_env["GOATFARM_DATABASE_URL"])
+    assert application_url.endswith("/goatfarm_ci_migration_test")
+    assert migration_env["GOATFARM_MIGRATION_DATABASE_URL"] == application_url
+    assert "CREATE DATABASE goatfarm_ci_migration_test OWNER runner" in json_string(
+        create_role["run"]
+    )
+
+    e2e = json_object(jobs["e2e"])
+    e2e_env = json_object(e2e["env"])
+    assert e2e_env["GOATFARM_MIGRATION_DATABASE_URL"] == e2e_env["GOATFARM_DATABASE_URL"]
+    e2e_steps = json_objects(e2e["steps"])
+    assert any(step.get("name") == "Apply migrations" for step in e2e_steps)
+
+    docker = json_object(jobs["docker"])
+    docker_steps = json_objects(docker["steps"])
+    image_smoke = next(
+        step
+        for step in docker_steps
+        if step.get("name") == "Exercise authentication in the built image"
+    )
+    image_smoke_command = json_string(image_smoke["run"])
+    application_assignment = (
+        "-e GOATFARM_DATABASE_URL=postgresql+asyncpg://postgres@localhost:5432/postgres"
+    )
+    migration_assignment = (
+        "-e GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://postgres@localhost:5432/postgres"
+    )
+    assert application_assignment in image_smoke_command
+    assert migration_assignment in image_smoke_command
+
+    readme = (REPO_ROOT / "README.md").read_text()
+    quick_start = readme.split("## Quick start", 1)[1].split("## ", 1)[0]
+    assert (
+        "GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://localhost:5432/goatfarm"
+        in quick_start
+    )
+    assert "  ./.venv/bin/alembic upgrade head" in quick_start
+
+
+def test_worker_roster_requires_an_explicit_deployment_opt_in() -> None:
+    for compose_name in ("docker-compose.yml", "docker-compose.production.yml"):
+        services = yaml.safe_load((REPO_ROOT / compose_name).read_text())["services"]
+        assert services["backend"]["environment"]["GOATFARM_WORKER_ROSTER_ENABLED"] == (
+            "${GOATFARM_WORKER_ROSTER_ENABLED:-false}"
+        )
+
+    root_example = (REPO_ROOT / ".env.example").read_text()
+    backend_example = (REPO_ROOT / "backend" / ".env.example").read_text()
+    assert "GOATFARM_WORKER_ROSTER_ENABLED=false" in root_example
+    assert "GOATFARM_WORKER_ROSTER_ENABLED=false" in backend_example
+
+    workflow = yaml.load(
+        (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    e2e = json_object(json_object(workflow)["jobs"])["e2e"]
+    assert json_object(json_object(e2e)["env"])["GOATFARM_WORKER_ROSTER_ENABLED"] == "true"
+
+
+def test_changed_coverage_filters_assets_but_still_enforces_source_code(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "coverage-repository"
+    source = repository / "frontend" / "src"
+    source.mkdir(parents=True)
+    (source / "code.ts").write_text("export const original = 1;\n")
+    (source / "styles.css").write_text(".original { color: black; }\n")
+    (source / "copy.json").write_text('{"original": true}\n')
+    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "ci@example.invalid"], cwd=repository, check=True
+    )
+    subprocess.run(["git", "config", "user.name", "CI"], cwd=repository, check=True)
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=repository, check=True)
+    base = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    (source / "code.ts").write_text("export const original = 1;\nexport const added = 2;\n")
+    (source / "styles.css").write_text(".changed { color: green; }\n")
+    (source / "copy.json").write_text('{"changed": true}\n')
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-qm", "change"], cwd=repository, check=True)
+
+    coverage_path = repository / "coverage.json"
+    coverage: dict[str, Any] = {
+        str(source / "code.ts"): {
+            "statementMap": {
+                "0": {
+                    "start": {"line": 1, "column": 0},
+                    "end": {"line": 1, "column": 26},
+                },
+                "1": {
+                    "start": {"line": 2, "column": 0},
+                    "end": {"line": 2, "column": 23},
+                },
+            },
+            "s": {"0": 1, "1": 1},
+        }
+    }
+    coverage_path.write_text(json.dumps(coverage))
+    command = [
+        sys.executable,
+        str(REPO_ROOT / ".github" / "scripts" / "check_changed_coverage.py"),
+        "--base",
+        base,
+        "--coverage",
+        str(coverage_path),
+        "--format",
+        "istanbul",
+        "--source-root",
+        "frontend",
+        "--root",
+        "frontend/src",
+        "--include-suffix",
+        ".ts",
+        "--include-suffix",
+        ".tsx",
+        "--changed-lines-min",
+        "85",
+        "--changed-file-min",
+        "60",
+    ]
+    accepted = subprocess.run(command, cwd=repository, capture_output=True, text=True, check=False)
+    assert accepted.returncode == 0, accepted.stderr
+
+    coverage[str(source / "code.ts")]["s"]["1"] = 0
+    coverage_path.write_text(json.dumps(coverage))
+    rejected = subprocess.run(command, cwd=repository, capture_output=True, text=True, check=False)
+    assert rejected.returncode == 1
+    assert "changed executable-line coverage 0.00%" in rejected.stderr
+
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert "--include-suffix .py" in workflow
+    assert "--include-suffix .ts" in workflow
+    assert "--include-suffix .tsx" in workflow
+
+
+def test_changed_backend_coverage_maps_app_relative_cobertura_paths(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "cobertura-repository"
+    source = repository / "backend" / "app"
+    source.mkdir(parents=True)
+    (source / "code.py").write_text("original = 1\n")
+    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "ci@example.invalid"], cwd=repository, check=True
+    )
+    subprocess.run(["git", "config", "user.name", "CI"], cwd=repository, check=True)
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=repository, check=True)
+    base = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (source / "code.py").write_text("original = 1\nadded = 2\n")
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-qm", "change"], cwd=repository, check=True)
+
+    coverage_path = repository / "coverage.xml"
+
+    def write_coverage(hits: int) -> None:
+        coverage_path.write_text(
+            "<?xml version='1.0'?>"
+            "<coverage><packages><package><classes>"
+            "<class filename='code.py'><lines>"
+            "<line number='1' hits='1'/>"
+            f"<line number='2' hits='{hits}'/>"
+            "</lines></class>"
+            "</classes></package></packages></coverage>"
+        )
+
+    command = [
+        sys.executable,
+        str(REPO_ROOT / ".github" / "scripts" / "check_changed_coverage.py"),
+        "--base",
+        base,
+        "--coverage",
+        str(coverage_path),
+        "--format",
+        "cobertura",
+        "--source-root",
+        "backend/app",
+        "--root",
+        "backend/app",
+        "--include-suffix",
+        ".py",
+        "--changed-lines-min",
+        "85",
+        "--changed-file-min",
+        "60",
+    ]
+    write_coverage(0)
+    rejected = subprocess.run(command, cwd=repository, capture_output=True, text=True, check=False)
+    assert rejected.returncode == 1
+    assert "changed executable-line coverage 0.00%" in rejected.stderr
+    assert "absent from the coverage report" not in rejected.stderr
+
+    write_coverage(1)
+    accepted = subprocess.run(command, cwd=repository, capture_output=True, text=True, check=False)
+    assert accepted.returncode == 0, accepted.stderr
+
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert "--source-root backend/app" in workflow
+
+
+def test_changed_coverage_enforces_file_floor_without_statement_line_overlap(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "multiline-coverage-repository"
+    source = repository / "frontend" / "src"
+    source.mkdir(parents=True)
+    code_path = source / "code.ts"
+    code_path.write_text(
+        "const config = {\n  enabled: false,\n};\nexport const uncovered = () => 1;\n"
+    )
+    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "ci@example.invalid"],
+        cwd=repository,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "CI"], cwd=repository, check=True)
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=repository, check=True)
+    base = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    code_path.write_text(
+        "const config = {\n  enabled: true,\n};\nexport const uncovered = () => 1;\n"
+    )
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-qm", "change"], cwd=repository, check=True)
+
+    coverage_path = repository / "coverage.json"
+    coverage: dict[str, Any] = {
+        str(code_path): {
+            "statementMap": {
+                "0": {
+                    "start": {"line": 1, "column": 0},
+                    "end": {"line": 3, "column": 2},
+                },
+                "1": {
+                    "start": {"line": 4, "column": 0},
+                    "end": {"line": 4, "column": 33},
+                },
+            },
+            "s": {"0": 1, "1": 0},
+        }
+    }
+    coverage_path.write_text(json.dumps(coverage))
+    command = [
+        sys.executable,
+        str(REPO_ROOT / ".github" / "scripts" / "check_changed_coverage.py"),
+        "--base",
+        base,
+        "--coverage",
+        str(coverage_path),
+        "--format",
+        "istanbul",
+        "--source-root",
+        "frontend",
+        "--root",
+        "frontend/src",
+        "--include-suffix",
+        ".ts",
+        "--changed-lines-min",
+        "85",
+        "--changed-file-min",
+        "60",
+    ]
+    rejected = subprocess.run(command, cwd=repository, capture_output=True, text=True, check=False)
+    assert rejected.returncode == 1
+    assert "whole-file executable-line coverage 50.00%" in rejected.stderr
+    assert '"changed_executable": 0' in rejected.stdout
+
+    coverage[str(code_path)]["s"]["1"] = 1
+    coverage_path.write_text(json.dumps(coverage))
+    accepted = subprocess.run(command, cwd=repository, capture_output=True, text=True, check=False)
+    assert accepted.returncode == 0, accepted.stderr
+
+
 def test_bootstrap_tools_are_hash_pinned() -> None:
     """The tooling bootstraps that resolve from a registry at run time — uv
     before uv.lock exists, pip-audit's own environment, pnpm via Corepack —
@@ -2863,15 +3241,16 @@ def test_breakglass_runbook_targets_the_migration_service_not_a_missing_db() -> 
     assert "!backend/scripts/totp_breakglass.py" in (REPO_ROOT / ".dockerignore").read_text()
 
 
-def test_release_requires_green_ci_for_a_tagged_main_commit() -> None:
-    """A protected tag alone must not publish bits that CI never tested."""
+def test_release_requires_green_ci_and_security_for_a_tagged_main_commit() -> None:
+    """A protected tag alone must not publish bits mandatory gates rejected."""
     workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
 
     assert "fetch-depth: 0" in workflow
     assert "actions: read" in workflow
-    assert "Require successful CI for the tagged main commit" in workflow
+    assert "Require successful CI and Security for the tagged main commit" in workflow
     assert 'git merge-base --is-ancestor "$TAGGED_SHA" origin/main' in workflow
     assert "actions/workflows/ci.yml/runs?head_sha=${TAGGED_SHA}&status=completed" in workflow
+    assert "actions/workflows/security.yml/runs?head_sha=${TAGGED_SHA}&status=completed" in workflow
     assert '.conclusion == "success" and .event == "push"' in workflow
 
 
@@ -2887,6 +3266,24 @@ def test_private_repository_codeql_keeps_results_without_unavailable_upload() ->
     assert "name: codeql-${{ matrix.language }}-sarif" in workflow
     assert "path: ${{ steps.codeql-analyze.outputs.sarif-output }}" in workflow
     assert "if-no-files-found: error" in workflow
+
+
+def test_scheduled_frontend_audit_installs_the_patched_dependency_chain() -> None:
+    workflow = yaml.load(
+        (REPO_ROOT / ".github" / "workflows" / "security.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    jobs = json_object(json_object(workflow)["jobs"])
+    dependency_audit = json_object(jobs["dependency-audit"])
+    steps = json_objects(dependency_audit["steps"])
+    frontend_audit = next(
+        step for step in steps if step.get("name") == "pnpm audit (frontend, lockfile)"
+    )
+    command = json_string(frontend_audit["run"])
+    install = "pnpm install --frozen-lockfile --ignore-scripts"
+    audit = "pnpm audit:verified"
+    assert install in command
+    assert command.index(install) < command.index(audit)
 
 
 def test_compose_keeps_api_and_migration_credentials_separate_and_url_safe() -> None:
@@ -3387,6 +3784,12 @@ def test_production_compose_forwards_every_new_playbook_knob() -> None:
             settings.notifications_send_retry_backoff_seconds
         ),
         "GOATFARM_NOTIFICATIONS_LOOP_BATCH_SIZE": settings.notifications_loop_batch_size,
+        "GOATFARM_NOTIFICATIONS_DELIVERY_CONCURRENCY": (
+            settings.notifications_delivery_concurrency
+        ),
+        "GOATFARM_NOTIFICATIONS_PER_FARM_DELIVERY_CONCURRENCY": (
+            settings.notifications_per_farm_delivery_concurrency
+        ),
         "GOATFARM_WORKER_PIN_RATE_LIMIT_MAX_ATTEMPTS": (
             settings.worker_pin_rate_limit_max_attempts
         ),
@@ -3572,20 +3975,27 @@ def test_compose_env_guard_enforces_exactly_one_delivery_route(tmp_path: Path) -
     )
     assert shell_only_plain.returncode == 0
 
-    totp_both = _run(
-        _write_env(
-            "totp_both.env",
-            {
-                **plain,
-                "GOATFARM_TOTP_ENCRYPTION_KEY": "VFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFQ",
-                "GOATFARM_TOTP_ENCRYPTION_KEY_FILE": "/run/secrets/app/totp_encryption_key",
-            },
+    for optional_name in (
+        "GOATFARM_TOTP_ENCRYPTION_KEY",
+        "GOATFARM_METRICS_BEARER_TOKEN",
+        "GOATFARM_S3_ACCESS_KEY_ID",
+        "GOATFARM_S3_SECRET_ACCESS_KEY",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY",
+        "GOATFARM_SCREENING_OPENAI_API_KEY",
+        "GOATFARM_MSG91_AUTH_KEY",
+    ):
+        optional_both = _run(
+            _write_env(
+                f"{optional_name.lower()}_both.env",
+                {
+                    **plain,
+                    optional_name: "stale-plain-secret-value",
+                    f"{optional_name}_FILE": f"/run/secrets/app/{optional_name.lower()}",
+                },
+            )
         )
-    )
-    assert totp_both.returncode == 2
-    assert "GOATFARM_TOTP_ENCRYPTION_KEY and GOATFARM_TOTP_ENCRYPTION_KEY_FILE are both set" in (
-        totp_both.stderr
-    )
+        assert optional_both.returncode == 2, optional_name
+        assert f"{optional_name} and {optional_name}_FILE are both set" in (optional_both.stderr)
 
 
 def test_compose_env_guard_imports_app_without_an_installed_project(
@@ -3953,7 +4363,7 @@ def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: 
     longer than a request may, aborting the release job — and CONCURRENTLY
     builds wait for concurrent transactions to drain, so even a small table
     trips it."""
-    assert Settings().migration_statement_timeout_ms == 0
+    assert Settings().migration_statement_timeout_ms == 900_000
     alembic_env = (REPO_ROOT / "backend" / "alembic" / "env.py").read_text()
     assert "get_migration_settings" in alembic_env
     assert "get_settings" not in alembic_env
@@ -3963,7 +4373,9 @@ def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: 
     _admin_sql(f'CREATE DATABASE "{database}"')
     try:
         env = os.environ.copy()
-        env["GOATFARM_DATABASE_URL"] = f"postgresql+asyncpg://localhost:5432/{database}"
+        target_url = f"postgresql+asyncpg://localhost:5432/{database}"
+        env["GOATFARM_DATABASE_URL"] = target_url
+        env["GOATFARM_MIGRATION_DATABASE_URL"] = target_url
         env["GOATFARM_DB_STATEMENT_TIMEOUT_MS"] = "1"
         allowed = subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "ed5efe13a516"],
@@ -3978,6 +4390,7 @@ def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: 
 
         # ...and the migration-specific knob really is the one in force.
         env["GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS"] = "1"
+        env["GOATFARM_MIGRATION_WRITES_QUIESCED"] = "true"
         capped = subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
             cwd=REPO_ROOT / "backend",

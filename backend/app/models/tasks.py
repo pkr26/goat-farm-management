@@ -251,6 +251,18 @@ Index(
     postgresql_where=text("status = 'PENDING' AND animal_id IS NOT NULL"),
 )
 Index(
+    "ix_tasks_farm_terminal_finished_id",
+    Task.farm_id,
+    text(
+        "(\nCASE\n"
+        "    WHEN status::text = 'SKIPPED'::text THEN skipped_at\n"
+        "    ELSE completed_at\n"
+        "END) DESC"
+    ),
+    Task.id.desc(),
+    postgresql_where=text("status IN ('DONE', 'VERIFIED', 'SKIPPED')"),
+)
+Index(
     "ix_tasks_pending_farm_role",
     Task.farm_id,
     Task.assigned_role_id,

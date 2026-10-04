@@ -38,6 +38,7 @@ import { useAuth } from "@/lib/auth-context";
 import { firstPermittedPath } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
 import { cn } from "@/lib/utils";
+import { routeTitleKey, useDocumentTitle } from "@/components/document-title-sync";
 
 type NavItem = {
   href: string;
@@ -138,45 +139,6 @@ const NAV_GROUPS: { labelKey: MessageKey; items: NavItem[] }[] = [
   },
 ];
 
-/** Route → document.title suffix; keeps browser tabs identifiable. */
-const ROUTE_TITLES: [RegExp, MessageKey][] = [
-  [/^\/dashboard/, "doc.title.dashboard"],
-  [/^\/animals\/new/, "doc.title.addAnimal"],
-  [/^\/animals\/\d+/, "doc.title.animal"],
-  [/^\/animals/, "doc.title.animals"],
-  [/^\/buckets/, "doc.title.buckets"],
-  [/^\/breeding\/[^/]+\/ultrasound/, "doc.title.ultrasound"],
-  [/^\/breeding/, "doc.title.breeding"],
-  [/^\/kidding\/new/, "doc.title.recordBirth"],
-  [/^\/kidding/, "doc.title.births"],
-  [/^\/health\/new/, "doc.title.addHealthEvent"],
-  [/^\/health\/schedule/, "doc.title.vaccinationSchedule"],
-  [/^\/health/, "doc.title.health"],
-  [/^\/screening/, "doc.title.screening"],
-  [/^\/feeding\/inventory/, "doc.title.feedInventory"],
-  [/^\/feeding\/recipes/, "doc.title.feedRecipes"],
-  [/^\/feeding/, "doc.title.feeding"],
-  [/^\/purchases/, "doc.title.purchases"],
-  [/^\/tasks/, "doc.title.tasks"],
-  [/^\/finance/, "doc.title.finance"],
-  [/^\/planner/, "doc.title.planner"],
-  [/^\/simulation/, "doc.title.simulation"],
-  [/^\/ops-simulation/, "doc.title.opsSimulation"],
-  [/^\/reports/, "doc.title.reports"],
-  [/^\/team/, "doc.title.team"],
-  [/^\/no-access/, "doc.title.noAccess"],
-];
-
-function useDocumentTitle(pathname: string) {
-  const t = useT();
-  useEffect(() => {
-    const match = ROUTE_TITLES.find(([pattern]) => pattern.test(pathname));
-    document.title = match
-      ? `${t(match[1])} · ${APP_NAME}`
-      : `${APP_NAME} — Livestock farm management`;
-  }, [pathname, t]);
-}
-
 /** Match a module root or one of its nested routes, without treating a
  * similarly prefixed sibling (for example `/animals-archive`) as active. */
 function isActiveRoute(pathname: string, href: string): boolean {
@@ -195,6 +157,7 @@ function AppSidebar({
   landingLabel,
   permsError,
   permsRefetch,
+  onNavigate,
 }: {
   groups: { labelKey: MessageKey; items: NavItem[] }[];
   permsRefetch: () => void;
@@ -202,10 +165,12 @@ function AppSidebar({
   landingHref: string | null;
   landingLabel: string;
   permsError: boolean;
+  onNavigate: (href: string) => void;
 }) {
   const { isMobile, setOpenMobile } = useSidebar();
   const t = useT();
-  const closeOnMobile = () => {
+  const beginNavigation = (href: string) => {
+    onNavigate(href);
     // Stryker disable next-line ConditionalExpression: the effect runs on mount (sheet already closed) and on isMobile transitions only, which jsdom cannot deliver
     if (isMobile) setOpenMobile(false);
   };
@@ -217,7 +182,7 @@ function AppSidebar({
           <Link
             href={landingHref}
             aria-label={`${APP_NAME} — go to ${landingLabel}`}
-            onClick={closeOnMobile}
+            onClick={() => beginNavigation(landingHref)}
           >
             <Logo />
           </Link>
@@ -241,7 +206,7 @@ function AppSidebar({
                       render={<Link href={item.href} />}
                       isActive={isActiveRoute(pathname, item.href)}
                       tooltip={t(item.labelKey)}
-                      onClick={closeOnMobile}
+                      onClick={() => beginNavigation(item.href)}
                     >
                       <item.icon aria-hidden="true" />
                       <span>{t(item.labelKey)}</span>
@@ -273,20 +238,24 @@ function FarmSwitcher({
   farmName,
   typeLabel,
   href,
+  onNavigate,
 }: {
   farmName: string;
   typeLabel: string;
   href: string;
+  onNavigate: (href: string) => void;
 }) {
   const t = useT();
   return (
     <Link
       href={href}
+      onClick={() => onNavigate(href)}
       aria-label={t("nav.farmSwitcherLabel", { farm: farmName })}
       className={cn(
-        // Wide enough that real farm names don't truncate at laptop widths;
-        // the type chip is the first thing to yield (hidden below sm).
-        "group/farm flex h-9 min-w-0 max-w-96 items-center gap-2 rounded-lg border bg-card px-2.5 text-sm font-medium shadow-xs transition-colors",
+        // A real 96px floor keeps the farm identity usable on supported
+        // phones. Lower-priority controls leave this row below sm instead of
+        // implicitly squeezing the switcher to a sliver.
+        "group/farm flex h-9 min-w-24 max-w-96 flex-1 items-center gap-2 rounded-lg border bg-card px-2.5 text-sm font-medium shadow-xs transition-colors",
         "hover:border-primary/40 hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none",
       )}
     >
@@ -331,7 +300,25 @@ function AppLayoutContent({
   // with role === null.
   const ownsAnyFarm = farms.some((f) => f.role === null);
   const farmRedirectIntent = useRef<string | null>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const pendingMainFocusPath = useRef<string | null>(null);
   useDocumentTitle(pathname);
+
+  useEffect(() => {
+    const pendingPath = pendingMainFocusPath.current;
+    if (pendingPath === null) return;
+    pendingMainFocusPath.current = null;
+    if (pendingPath !== pathname) return;
+
+    // Let the destination page commit its content before announcing the
+    // labelled landmark. This is intentionally scoped to shell-link
+    // navigation; query-only updates and focus placed by forms/dialogs are
+    // not disturbed.
+    const frame = window.requestAnimationFrame(() => {
+      mainRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pathname]);
 
   useEffect(() => {
     const shouldRedirect = !loading && Boolean(user) && !farmId;
@@ -381,6 +368,11 @@ function AppLayoutContent({
   const search = searchParams.toString();
   const returnTo = `${pathname}${search ? `?${search}` : ""}`;
   const farmSelectHref = `/farm-select?returnTo=${encodeURIComponent(returnTo)}`;
+  const currentTitleKey = routeTitleKey(pathname);
+  const requestMainFocus = (href: string) => {
+    const targetPath = href.split(/[?#]/u, 1)[0] ?? href;
+    pendingMainFocusPath.current = targetPath === pathname ? null : targetPath;
+  };
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
@@ -400,26 +392,30 @@ function AppLayoutContent({
         landingLabel={landingLabel}
         permsError={permsError}
         permsRefetch={() => void permsRefetch()}
+        onNavigate={requestMainFocus}
       />
       <SidebarInset>
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur-md">
+        <header className="sticky top-0 z-30 flex h-14 min-w-0 shrink-0 items-center gap-1 border-b bg-background/85 px-2 backdrop-blur-md sm:gap-2 sm:px-4">
           <SidebarTrigger />
           {farm && (
             <FarmSwitcher
               farmName={farm.name}
               typeLabel={t("common.farmType")}
               href={farmSelectHref}
+              onNavigate={requestMainFocus}
             />
           )}
-          <div className="ml-auto flex items-center gap-1.5">
-            <LanguageToggle />
-            <ThemeToggle />
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <div className="hidden items-center gap-1.5 sm:flex">
+              <LanguageToggle />
+              <ThemeToggle />
+            </div>
             <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
             <AccountDialog name={user.name ?? null} email={user.email} />
             <Button
               variant="ghost"
               size="sm"
-              className="text-muted-foreground"
+              className="hidden text-muted-foreground sm:inline-flex"
               aria-label={t("common.logout")}
               onClick={() => void signOut()}
             >
@@ -441,7 +437,9 @@ function AppLayoutContent({
           <main
             id="main-content"
             key={farmId}
+            ref={mainRef}
             tabIndex={-1}
+            aria-label={currentTitleKey ? t(currentTitleKey) : APP_NAME}
             className="mx-auto w-full max-w-7xl px-4 py-6 outline-none md:px-6"
           >
             {children}

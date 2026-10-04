@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { ScreeningFindingOutEvaluationKind } from './screeningFindingOutEvaluationKind';
 import type { ScreeningFindingOutSeverity } from './screeningFindingOutSeverity';
 import type { ScreeningFindingOutStatus } from './screeningFindingOutStatus';
 
@@ -13,6 +14,7 @@ export interface ScreeningFindingOut {
   crop_id?: number | null;
   region: string | null;
   label: string;
+  evaluation_kind: ScreeningFindingOutEvaluationKind;
   confidence: string | null;
   severity: ScreeningFindingOutSeverity;
   note: string | null;

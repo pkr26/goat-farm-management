@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import main
 from app.core.config import Settings, get_settings
 from app.db import get_sessionmaker
-from app.models import Farm, FeedInventory, NotificationLog, Task
+from app.models import Farm, FeedInventory, NotificationLog, NotificationRecipient, Task
 from app.models.notifications import NotificationOutbox
 from app.services.notifications import service
 from app.services.notifications.outbox import dispatch_outbox_event, enqueue_alert
@@ -26,7 +26,7 @@ from app.services.notifications.providers import (
 from app.utils import today
 
 from .conftest import owner_with_farm
-from .test_notifications import RecordingProvider, _membership_id, _recipient
+from .test_notifications import RecordingProvider, _farm, _membership_id, _recipient, midday
 
 
 async def test_alert_headlines_and_dedupe_use_exact_large_counts(
@@ -131,7 +131,140 @@ async def test_bounded_alert_sweep_isolates_a_poisoned_farm(
         settings, RecordingProvider(), cursor
     )
     assert count == 1 and cursor == ids[2] and exhausted
-    assert visited == ids
+    # Farms within each bounded page run concurrently, so completion order is
+    # intentionally unspecified; the cursor still advances in id order.
+    assert sorted(visited) == ids
+
+
+async def test_delivery_concurrency_is_bounded_per_farm_and_releases_caller_sessions(
+    client: httpx.AsyncClient,
+) -> None:
+    """Slow provider work overlaps across farms but owns no caller DB checkout."""
+
+    deliveries: list[tuple[int, int, str, datetime]] = []
+    session_by_phone: dict[str, AsyncSession] = {}
+    farm_by_phone: dict[str, int] = {}
+    for farm_index in range(2):
+        owner = await owner_with_farm(
+            client, email=f"notification-concurrency-{farm_index}@test.in"
+        )
+        farm_id = int(owner["X-Farm-Id"])
+        for recipient_index in range(2):
+            membership_id = await _membership_id(client, owner)
+            phone = f"+919811{farm_index:02d}{recipient_index:06d}"
+            async with get_sessionmaker()() as db:
+                recipient = await _recipient(db, farm_id, membership_id, phone=phone)
+                farm = await db.get(Farm, farm_id)
+                assert farm is not None
+                deliveries.append((farm_id, recipient.id, phone, midday(farm)))
+
+    class SlowProvider(RecordingProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.active = 0
+            self.max_active = 0
+            self.active_by_farm: dict[int, int] = {}
+            self.two_farms_active = asyncio.Event()
+
+        async def send_sms(self, phone: str, message: str) -> DeliveryResult:
+            caller_db = session_by_phone[phone]
+            assert not caller_db.in_transaction(), "provider I/O retained the caller transaction"
+            farm_id = farm_by_phone[phone]
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            self.active_by_farm[farm_id] = self.active_by_farm.get(farm_id, 0) + 1
+            assert self.active_by_farm[farm_id] == 1
+            if sum(count > 0 for count in self.active_by_farm.values()) == 2:
+                self.two_farms_active.set()
+            try:
+                await asyncio.wait_for(self.two_farms_active.wait(), timeout=0.5)
+                await asyncio.sleep(0.03)
+                return await super().send_sms(phone, message)
+            finally:
+                self.active -= 1
+                self.active_by_farm[farm_id] -= 1
+
+    provider = SlowProvider()
+    settings = Settings(
+        environment="development",
+        notifications_enabled=True,
+        notifications_delivery_concurrency=2,
+        notifications_per_farm_delivery_concurrency=1,
+    )
+
+    async def deliver(
+        farm_id: int, recipient_id: int, phone: str, local_now: datetime
+    ) -> service.SendOutcome:
+        async with get_sessionmaker()() as db:
+            farm = await _farm(db, farm_id)
+            recipient = await db.get(NotificationRecipient, recipient_id)
+            assert recipient is not None
+            session_by_phone[phone] = db
+            farm_by_phone[phone] = farm_id
+            return await service.send_notification(
+                db,
+                settings,
+                provider,
+                farm=farm,
+                recipient=recipient,
+                alert_class="SCREENING_FLAG",
+                message="bounded",
+                payload=f"bounded:{recipient_id}",
+                now_local=local_now,
+            )
+
+    started = asyncio.get_running_loop().time()
+    outcomes = await asyncio.gather(*(deliver(*delivery) for delivery in deliveries))
+    elapsed = asyncio.get_running_loop().time() - started
+    assert all(outcome.status == "SENT" for outcome in outcomes)
+    assert provider.max_active == 2
+    assert elapsed < 0.3, "four 30ms sends should run in two cross-farm waves, not serially"
+
+
+async def test_notification_classes_are_scheduled_independently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A blocked outbox class cannot hold the digest or periodic alert class."""
+
+    outbox_started = asyncio.Event()
+    never_release = asyncio.Event()
+    digest_ran = asyncio.Event()
+    alerts_ran = asyncio.Event()
+
+    async def blocked_outbox(_settings: Settings, _provider: NotificationProvider) -> int:
+        outbox_started.set()
+        await never_release.wait()
+        return 0
+
+    async def ready_digests(_db: AsyncSession, _settings: Settings, _now: datetime) -> list[Farm]:
+        digest_ran.set()
+        return []
+
+    async def alert_page(
+        _settings: Settings, _provider: NotificationProvider, _hour: datetime
+    ) -> None:
+        alerts_ran.set()
+
+    import app.services.notifications as notifications
+    import app.services.notifications.outbox as outbox
+
+    monkeypatch.setattr(outbox, "dispatch_pending_alerts", blocked_outbox)
+    monkeypatch.setattr(notifications, "farms_ready_for_digest", ready_digests)
+    monkeypatch.setattr(main, "_notification_alert_maintenance_page", alert_page)
+    settings = Settings(environment="development", notifications_enabled=True)
+    provider = RecordingProvider()
+    tasks = [
+        asyncio.create_task(main._notification_outbox_loop(settings, provider)),
+        asyncio.create_task(main._notification_digest_loop(settings, provider)),
+        asyncio.create_task(main._notification_periodic_alert_loop(settings, provider)),
+    ]
+    try:
+        await asyncio.wait_for(outbox_started.wait(), timeout=0.5)
+        await asyncio.wait_for(asyncio.gather(digest_ran.wait(), alerts_ran.wait()), timeout=0.5)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def _queued_alert(

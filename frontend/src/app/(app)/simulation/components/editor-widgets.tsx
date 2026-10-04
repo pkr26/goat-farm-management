@@ -76,7 +76,7 @@ export function FieldHelpButton({
         event.stopPropagation();
         onClick();
       }}
-      className="inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent"
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-xs font-semibold leading-none text-muted-foreground hover:bg-accent"
     >
       {/* The accessible name is content-based (not an aria-label): an
           aria-label containing the field name collides with getByLabelText

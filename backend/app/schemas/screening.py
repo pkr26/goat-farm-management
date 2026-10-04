@@ -66,6 +66,7 @@ class ScreeningFindingOut(BaseModel):
     crop_id: int | None = None
     region: str | None
     label: str
+    evaluation_kind: Literal["POSITIVE_FINDING", "HEALTHY_CONTROL"]
     confidence: Decimal | None
     severity: ScreeningSeverityStr | None
     note: str | None
@@ -194,6 +195,7 @@ class ScreeningImageRowOut(BaseModel):
     created_at: datetime
     latest_run: ScreeningRunOut | None = None
     pending_findings: int = 0
+    pending_healthy_controls: int = 0
 
 
 class ScreeningImageListOut(BaseModel):
@@ -229,7 +231,8 @@ class ScreeningImageDetailOut(BaseModel):
 
 class ScreeningProviderStatsOut(BaseModel):
     """Rotation-provider scoreboard over the requested window: call volume,
-    verdict behavior, vet-labeled precision, and cross-check agreement."""
+    conditional reviewed-positive precision, sampled healthy-verdict misses,
+    and cross-check agreement. It is not full sensitivity/specificity."""
 
     provider: str
     model: str
@@ -244,6 +247,19 @@ class ScreeningProviderStatsOut(BaseModel):
     findings_confirmed: int
     findings_rejected: int
     findings_pending: int
+    # Positive precision is conditional on the model having emitted a
+    # finding. Healthy-control false-negative rate comes from a deterministic
+    # sample of healthy verdicts; neither field claims full sensitivity.
+    positive_precision: Decimal | None = None
+    positive_precision_ci_low: Decimal | None = None
+    positive_precision_ci_high: Decimal | None = None
+    healthy_controls_confirmed: int = 0
+    healthy_controls_rejected: int = 0
+    healthy_controls_pending: int = 0
+    healthy_controls_reviewed: int = 0
+    healthy_false_negative_rate: Decimal | None = None
+    healthy_false_negative_ci_low: Decimal | None = None
+    healthy_false_negative_ci_high: Decimal | None = None
 
 
 class ScreeningStatsOut(BaseModel):
@@ -258,10 +274,15 @@ class ScreeningDatasetRecordOut(BaseModel):
     ``image_s3_key`` intentionally identifies the normalized derivative that
     was actually sent to the model, not the short-lived browser-upload raw
     key. A presigned raw POST may be replayed before expiry; the derivative is
-    worker-owned and its bytes match ``image_sha256``.
+    worker-owned and its bytes match ``image_sha256``. For
+    ``HEALTHY_CONTROL`` examples, ``CONFIRMED`` means the reviewer also saw no
+    abnormality; ``REJECTED`` is a hard negative where the reviewer found one.
     """
 
     finding_id: int
+    example_kind: Literal["POSITIVE_FINDING", "HEALTHY_CONTROL"]
+    model_verdict: Literal["healthy", "flagged", "unassessable"] | None
+    prompt_version: str
     vet_status: ScreeningFindingStatusStr
     label: str
     confidence: Decimal | None

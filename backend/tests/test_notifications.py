@@ -1239,6 +1239,7 @@ def test_production_notifications_config_fails_closed() -> None:
     with pytest.raises(ValueError, match="NOTIFICATIONS"):
         Settings(
             environment="production",
+            auth_rate_limit_enabled=True,
             cookie_secure=True,
             notifications_enabled=True,
             notifications_provider="console",
@@ -1395,6 +1396,7 @@ async def test_screening_confirm_hook_fires_the_alert(client: httpx.AsyncClient)
             image_id=image.id,
             stage="GATE",
             run_status="OK",
+            verdict="flagged",
             provider="fake",
             model="fake",
             prompt_version="v1",
@@ -1890,6 +1892,7 @@ async def test_screening_confirm_alert_neutralizes_urlish_label(
             image_id=image.id,
             stage="GATE",
             run_status="OK",
+            verdict="flagged",
             provider="fake",
             model="fake",
             prompt_version="v1",

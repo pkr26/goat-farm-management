@@ -12,16 +12,19 @@ from __future__ import annotations
 import asyncio
 import base64
 import datetime as dt
+import hashlib
 import io
 import json
 import logging
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
+from botocore.exceptions import ClientError
 from PIL import Image
 from pydantic import SecretStr
 from sqlalchemy import select, update
@@ -36,6 +39,7 @@ from app.core.config import (
 from app.db import get_sessionmaker
 from app.models import (
     Farm,
+    NotificationOutbox,
     ScreeningBatch,
     ScreeningContentClaim,
     ScreeningCrop,
@@ -63,6 +67,7 @@ from app.services.screening.pipeline import (
     ERROR_RETRY_AFTER,
     MAX_DOWNLOAD_BYTES,
     MAX_SCREENING_ATTEMPTS,
+    _add_finding,
     cropped_derivative_key,
     normalized_derivative_key,
     parse_raw_key,
@@ -82,6 +87,10 @@ from app.services.screening.providers import (
 from app.services.screening.rotation import GateExhaustedError, ProviderRotation
 from app.services.screening.s3 import (
     _S3_CONNECT_TIMEOUT_SECONDS,
+    _S3_DELETE_CONNECT_TIMEOUT_SECONDS,
+    _S3_DELETE_READ_TIMEOUT_SECONDS,
+    _S3_PERMANENT_DELETE_MAX_NETWORK_CALLS,
+    _S3_PERMANENT_DELETE_TIMEOUT_BUDGET_SECONDS,
     _S3_READ_TIMEOUT_SECONDS,
     _S3_TOTAL_MAX_ATTEMPTS,
     POST_MULTIPART_OVERHEAD_BYTES,
@@ -458,6 +467,26 @@ def test_normalize_strips_exif_metadata() -> None:
     assert b"Exif" not in normalized.data
 
 
+def test_provider_label_cannot_impersonate_server_owned_healthy_control() -> None:
+    image = ScreeningImage(
+        farm_id=1,
+        s3_bucket="test-bucket",
+        s3_key="raw/1/2026-10-04/photo.jpg",
+        status="PENDING",
+    )
+    finding = _add_finding(
+        image,
+        1,
+        region=None,
+        label="Routine quality-control review",
+        confidence=0.5,
+        note=None,
+    )
+
+    assert finding.label == "Model finding: Routine quality-control review"
+    assert finding.evaluation_kind == "POSITIVE_FINDING"
+
+
 def test_normalize_rejects_non_image() -> None:
     with pytest.raises(ImageNormalizationError):
         normalize_image(b"definitely not a jpeg", max_edge=1568)
@@ -755,23 +784,58 @@ def test_s3_client_bounds_sync_network_waits_for_worker_shutdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``to_thread`` work must not inherit botocore's minute-long defaults."""
-    captured: dict[str, object] = {}
+    captured: list[dict[str, object]] = []
     sentinel = object()
 
+    class DeleteClient:
+        def __init__(self) -> None:
+            self.versioning_calls = 0
+            self.head_calls = 0
+
+        def get_bucket_versioning(self, **_params: object) -> dict[str, str]:
+            self.versioning_calls += 1
+            return {}
+
+        def head_object(self, **_params: object) -> dict[str, object]:
+            self.head_calls += 1
+            raise ClientError(
+                {"Error": {"Code": "NoSuchKey", "Message": "missing"}},
+                "HeadObject",
+            )
+
+    delete_client = DeleteClient()
+
     def fake_client(*args: object, **kwargs: object) -> object:
-        captured["args"] = args
-        captured.update(kwargs)
-        return sentinel
+        call = {"args": args, **kwargs}
+        captured.append(call)
+        config: Any = kwargs["config"]
+        return (
+            delete_client
+            if config.connect_timeout == _S3_DELETE_CONNECT_TIMEOUT_SECONDS
+            else sentinel
+        )
 
     monkeypatch.setattr("app.services.screening.s3.boto3.client", fake_client)
     storage = ScreeningStorage(_cycle_settings())
     assert storage._ensure_client() is sentinel
-    config: Any = captured["config"]
-    assert config.connect_timeout == _S3_CONNECT_TIMEOUT_SECONDS
-    assert config.read_timeout == _S3_READ_TIMEOUT_SECONDS
-    assert config.retries["total_max_attempts"] == _S3_TOTAL_MAX_ATTEMPTS
-    assert config.s3["addressing_style"] == "virtual"
-    assert config.s3["us_east_1_regional_endpoint"] == "regional"
+    normal_config: Any = captured[0]["config"]
+    assert normal_config.connect_timeout == _S3_CONNECT_TIMEOUT_SECONDS
+    assert normal_config.read_timeout == _S3_READ_TIMEOUT_SECONDS
+    assert normal_config.retries["total_max_attempts"] == _S3_TOTAL_MAX_ATTEMPTS
+    assert normal_config.s3["addressing_style"] == "virtual"
+    assert normal_config.s3["us_east_1_regional_endpoint"] == "regional"
+
+    # Exercise the public primitive, not only its helper: this proves
+    # permanent deletion selects the stricter client in production.
+    storage.delete_permanently(["raw/1/already-absent.jpg"])
+    delete_config: Any = captured[1]["config"]
+    assert delete_config.connect_timeout == _S3_DELETE_CONNECT_TIMEOUT_SECONDS
+    assert delete_config.read_timeout == _S3_DELETE_READ_TIMEOUT_SECONDS
+    assert delete_config.retries["total_max_attempts"] == _S3_TOTAL_MAX_ATTEMPTS
+    assert delete_client.versioning_calls == 1
+    assert delete_client.head_calls == 2
+    assert _S3_PERMANENT_DELETE_MAX_NETWORK_CALLS == 7
+    assert _S3_PERMANENT_DELETE_TIMEOUT_BUDGET_SECONDS < 40
 
 
 def test_download_uses_conditional_snapshot_and_hard_stream_cap() -> None:
@@ -809,6 +873,191 @@ def test_download_uses_conditional_snapshot_and_hard_stream_cap() -> None:
     assert client.params["IfMatch"] == '"stable-etag"'
     assert body.read_sizes == [4]
     assert body.closed is True
+
+
+def test_permanent_delete_removes_versions_and_delete_markers() -> None:
+    class Client:
+        def __init__(self) -> None:
+            self.deleted: list[dict[str, str]] = []
+            self.current_key_deletes: list[str] = []
+            self.purged = False
+
+        def get_bucket_versioning(self, **_params: object) -> dict[str, str]:
+            return {"Status": "Enabled"}
+
+        def list_object_versions(self, **params: object) -> dict[str, object]:
+            key = cast(str, params["Prefix"])
+            if self.purged:
+                return {"IsTruncated": False, "Versions": [], "DeleteMarkers": []}
+            return {
+                "IsTruncated": False,
+                "Versions": [
+                    {"Key": key, "VersionId": "v2"},
+                    {"Key": key, "VersionId": "v1"},
+                    {"Key": f"{key}.other", "VersionId": "not-this-key"},
+                ],
+                "DeleteMarkers": [{"Key": key, "VersionId": "marker"}],
+            }
+
+        def delete_object(self, **params: object) -> None:
+            self.current_key_deletes.append(cast(str, params["Key"]))
+
+        def delete_objects(self, **params: object) -> dict[str, object]:
+            payload = cast(dict[str, object], params["Delete"])
+            self.deleted.extend(cast(list[dict[str, str]], payload["Objects"]))
+            self.purged = True
+            return {}
+
+        def head_object(self, **params: object) -> dict[str, object]:
+            if not self.current_key_deletes:
+                return {"ContentLength": 1}
+            raise ClientError(
+                {"Error": {"Code": "NoSuchKey", "Message": "missing"}},
+                "HeadObject",
+            )
+
+    storage = ScreeningStorage(_cycle_settings())
+    client = Client()
+    storage._delete_client = client  # type: ignore[assignment]
+    storage.delete_permanently(["raw/1/photo.jpg"])
+    assert client.current_key_deletes == ["raw/1/photo.jpg"]
+    assert client.deleted == [
+        {"Key": "raw/1/photo.jpg", "VersionId": "v2"},
+        {"Key": "raw/1/photo.jpg", "VersionId": "v1"},
+        {"Key": "raw/1/photo.jpg", "VersionId": "marker"},
+    ]
+
+
+def test_permanent_delete_fails_closed_when_object_still_exists() -> None:
+    class Client:
+        def get_bucket_versioning(self, **_params: object) -> dict[str, str]:
+            return {}
+
+        def delete_object(self, **_params: object) -> None:
+            return None
+
+        def head_object(self, **_params: object) -> dict[str, object]:
+            return {"ContentLength": 1}
+
+    storage = ScreeningStorage(_cycle_settings())
+    storage._delete_client = Client()  # type: ignore[assignment]
+    with pytest.raises(ScreeningStorageError, match="could not verify absence"):
+        storage.delete_permanently(["raw/1/photo.jpg"])
+
+
+def test_permanent_delete_makes_bounded_page_progress_and_resumes() -> None:
+    key = "raw/1/many-versions.jpg"
+
+    class Client:
+        def __init__(self) -> None:
+            self.versions = [f"v{index}" for index in range(4_500)]
+            self.batch_sizes: list[int] = []
+
+        def get_bucket_versioning(self, **_params: object) -> dict[str, str]:
+            return {"Status": "Enabled"}
+
+        def delete_object(self, **_params: object) -> None:
+            return None
+
+        def list_object_versions(self, **params: object) -> dict[str, object]:
+            assert params["MaxKeys"] == 1_000
+            page = self.versions[:1_000]
+            return {
+                "IsTruncated": len(self.versions) > len(page),
+                "Versions": [{"Key": key, "VersionId": version} for version in page],
+                "DeleteMarkers": [],
+            }
+
+        def delete_objects(self, **params: object) -> dict[str, object]:
+            payload = cast(dict[str, object], params["Delete"])
+            objects = cast(list[dict[str, str]], payload["Objects"])
+            self.batch_sizes.append(len(objects))
+            deleted = {item["VersionId"] for item in objects}
+            self.versions = [version for version in self.versions if version not in deleted]
+            return {}
+
+        def head_object(self, **_params: object) -> dict[str, object]:
+            if self.versions:
+                return {"ContentLength": 1}
+            raise ClientError(
+                {"Error": {"Code": "NoSuchKey", "Message": "missing"}},
+                "HeadObject",
+            )
+
+    storage = ScreeningStorage(_cycle_settings())
+    client = Client()
+    storage._delete_client = client  # type: ignore[assignment]
+
+    for expected_remaining in (3_500, 2_500, 1_500, 500):
+        with pytest.raises(ScreeningStorageError, match="bounded progress"):
+            storage.delete_permanently([key])
+        assert len(client.versions) == expected_remaining
+    storage.delete_permanently([key])
+    assert client.versions == []
+    assert max(client.batch_sizes) <= 1_000
+
+
+def test_permanent_delete_is_idempotent_across_single_key_retries() -> None:
+    first_key = "raw/1/first.jpg"
+    second_key = "raw/1/second.jpg"
+
+    class Client:
+        def __init__(self) -> None:
+            self.present = {first_key, second_key}
+            self.fail_second_once = True
+            self.deletes: list[str] = []
+
+        def get_bucket_versioning(self, **_params: object) -> dict[str, str]:
+            return {}
+
+        def delete_object(self, **params: object) -> None:
+            key = cast(str, params["Key"])
+            self.deletes.append(key)
+            if key == second_key and self.fail_second_once:
+                self.fail_second_once = False
+                raise ClientError(
+                    {"Error": {"Code": "ServiceUnavailable", "Message": "retry"}},
+                    "DeleteObject",
+                )
+            self.present.discard(key)
+
+        def head_object(self, **params: object) -> dict[str, object]:
+            key = cast(str, params["Key"])
+            if key in self.present:
+                return {"ContentLength": 1}
+            raise ClientError(
+                {"Error": {"Code": "NoSuchKey", "Message": "missing"}},
+                "HeadObject",
+            )
+
+    storage = ScreeningStorage(_cycle_settings())
+    client = Client()
+    storage._delete_client = client  # type: ignore[assignment]
+
+    storage.delete_permanently([first_key])
+    with pytest.raises(ScreeningStorageError, match="permanent delete failed"):
+        storage.delete_permanently([second_key])
+    assert client.present == {second_key}
+
+    # Re-probing a durable earlier checkpoint is harmless and does not create
+    # a redundant current-key deletion/delete marker.
+    storage.delete_permanently([first_key])
+    storage.delete_permanently([second_key])
+    assert client.present == set()
+    # The retry probes the already-cleared first key and does not recreate a
+    # versioned delete marker / repeat an unnecessary current-key delete.
+    assert client.deletes == [first_key, second_key, second_key]
+
+
+def test_permanent_delete_rejects_unbounded_multi_key_call_before_s3() -> None:
+    class Client:
+        def get_bucket_versioning(self, **_params: object) -> dict[str, str]:
+            raise AssertionError("key-count validation must precede S3")
+
+    storage = ScreeningStorage(_cycle_settings())
+    storage._client = Client()  # type: ignore[assignment]
+    with pytest.raises(ScreeningStorageError, match="at most 1 exact keys"):
+        storage.delete_permanently(["raw/1/first.jpg", "raw/1/second.jpg"])
 
 
 def test_screening_settings_require_full_config_when_enabled() -> None:
@@ -900,20 +1149,25 @@ def test_screening_settings_accept_stale_horizon_at_worst_cascade_boundary(
     assert settings.screening_stale_processing_after_seconds == 600
 
 
-def test_derivative_keys_use_the_full_content_digest() -> None:
-    """A shared 64-bit digest prefix must never select the same S3 object."""
+def test_derivative_keys_use_full_digest_and_database_identity() -> None:
+    """New chains cannot race retention by sharing a derivative key."""
     captured = dt.date(2026, 9, 17)
     first = "a" * 16 + "1" * 48
     second = "a" * 16 + "2" * 48
-    first_image_key = normalized_derivative_key(7, captured, first)
-    second_image_key = normalized_derivative_key(7, captured, second)
-    first_crop_key = cropped_derivative_key(7, captured, first, 0)
-    second_crop_key = cropped_derivative_key(7, captured, second, 0)
+    first_image_key = normalized_derivative_key(7, captured, 101, first)
+    second_image_key = normalized_derivative_key(7, captured, 101, second)
+    other_image_key = normalized_derivative_key(7, captured, 102, first)
+    first_crop_key = cropped_derivative_key(7, captured, 101, 501, first, 0)
+    second_crop_key = cropped_derivative_key(7, captured, 101, 501, second, 0)
+    other_crop_key = cropped_derivative_key(7, captured, 101, 502, first, 0)
 
     assert first_image_key != second_image_key
+    assert first_image_key != other_image_key
     assert first_crop_key != second_crop_key
+    assert first_crop_key != other_crop_key
     assert first_image_key.endswith(f"/{first}.jpg")
-    assert first_crop_key.endswith(f"/{first}-c0.jpg")
+    assert "/images/101/" in first_image_key
+    assert first_crop_key.endswith(f"/501/{first}-c0.jpg")
 
 
 # --------------------------------------------------------------------------
@@ -1044,6 +1298,8 @@ class FakeStorage(ScreeningStorage):
     # Simulates an overwrite between the worker's HEAD and conditional GET.
     changed_before_download: set[str] = field(default_factory=set)
     download_attempts: list[str] = field(default_factory=list)
+    deleted_permanently: list[str] = field(default_factory=list)
+    delete_failures_remaining: int = 0
 
     def __post_init__(self) -> None:
         super().__init__(_cycle_settings())
@@ -1096,6 +1352,16 @@ class FakeStorage(ScreeningStorage):
 
     def upload(self, key: str, data: bytes, content_type: str) -> None:
         self.uploaded[key] = data
+        self.objects[key] = data
+
+    def delete_permanently(self, keys: Sequence[str]) -> None:
+        if self.delete_failures_remaining > 0:
+            self.delete_failures_remaining -= 1
+            raise ScreeningStorageError("simulated permanent-delete failure")
+        for key in keys:
+            self.deleted_permanently.append(key)
+            self.objects.pop(key, None)
+            self.sizes.pop(key, None)
 
     def presign_get(self, key: str) -> str:
         return f"https://fake-local/{self.bucket}/{key}"
@@ -1200,6 +1466,85 @@ async def test_full_cycle_screens_flags_and_dedupes(client: httpx.AsyncClient) -
     assert findings[0].region == "mouth"
 
 
+async def test_raw_photo_is_deleted_after_derivative_and_retry_resumes_from_derivative(
+    client: httpx.AsyncClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    headers = await owner_with_farm(client, email="screening-privacy@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = dt.date.today().isoformat()
+    key = f"raw/{farm_id}/{capture_day}/BREEDING/privacy.jpg"
+    token = "p" * 32
+    raw_image = Image.new("RGB", (1000, 2000), color=(120, 80, 40))
+    raw_exif = Image.Exif()
+    raw_exif[0x010F] = "Location-capable camera"
+    raw_buffer = io.BytesIO()
+    raw_image.save(raw_buffer, format="JPEG", exif=raw_exif)
+    raw_bytes = raw_buffer.getvalue()
+    assert b"Exif" in raw_bytes
+    storage = FakeStorage(
+        objects={key: raw_bytes},
+        content_types={key: "image/jpeg"},
+        metadata={key: {"screening-token": token}},
+        delete_failures_remaining=1,
+    )
+    provider = CountingProvider(name="privacy-provider")
+    caplog.set_level(logging.WARNING, logger="app.services.screening.pipeline")
+    async with get_sessionmaker()() as db:
+        image = ScreeningImage(
+            farm_id=farm_id,
+            bucket="BREEDING",
+            s3_bucket=storage.bucket,
+            s3_key=key,
+            captured_date=dt.date.today(),
+            upload_content_type="image/jpeg",
+            upload_token=token,
+            status="PENDING",
+        )
+        db.add(image)
+        await db.commit()
+        image_id = image.id
+        first = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([provider])
+        )
+
+    assert first.errors == 1
+    assert provider.calls == 0  # deletion precedes any provider disclosure
+    async with get_sessionmaker()() as db:
+        failed_image = await db.get(ScreeningImage, image_id)
+        assert failed_image is not None
+        assert failed_image.status == "ERROR"
+        derivative_key = failed_image.normalized_key
+        assert derivative_key is not None
+        assert derivative_key in storage.objects
+        assert failed_image.sha256 is not None
+        await db.execute(
+            update(ScreeningImage)
+            .where(ScreeningImage.id == image_id)
+            .values(updated_at=utcnow() - ERROR_RETRY_AFTER - dt.timedelta(seconds=1))
+        )
+        await db.commit()
+        second = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([provider])
+        )
+
+    assert second.healthy == 1
+    assert provider.calls == 1
+    assert key not in storage.objects
+    assert key in storage.deleted_permanently
+    assert derivative_key in storage.objects
+    assert b"Exif" not in storage.objects[derivative_key]
+    async with get_sessionmaker()() as db:
+        healthy_image = await db.get(ScreeningImage, image_id)
+        assert healthy_image is not None
+        assert healthy_image.status == "HEALTHY"
+        assert healthy_image.upload_token is None
+        assert healthy_image.upload_content_type is None
+    assert key not in caplog.text
+    assert "simulated permanent-delete failure" not in caplog.text
+    assert "code=RAW_DELETE_FAILED" in caplog.text
+
+
 async def test_rotation_cascade_runs_cross_check_and_specialists(
     client: httpx.AsyncClient,
 ) -> None:
@@ -1234,11 +1579,35 @@ async def test_rotation_cascade_runs_cross_check_and_specialists(
     assert all(run.provider == primary.name for run in gate_runs)
     assert len(specialists) == 1
     assert specialists[0].provider == primary.name
+    assert specialists[0].detail is not None
+    assert specialists[0].detail["conditions"] == [
+        {
+            "disease": "ORF",
+            "confidence": 0.72,
+            "severity": "moderate",
+            "note": "raised crusty lesions on the lips",
+        }
+    ]
+    assert (
+        specialists[0].detail["response_sha256"] == hashlib.sha256(SKIN_ANSWER.encode()).hexdigest()
+    )
     assert len(cross_checks) == 1
     assert cross_checks[0].provider == secondary.name
     assert cross_checks[0].verdict == "flagged"  # landscape → agrees
     assert cross_checks[0].detail is not None
     assert cross_checks[0].detail.get("agrees") is True
+    assert cross_checks[0].detail["response"]["observations"][0]["region"] == "mouth"
+    assert (
+        cross_checks[0].detail["response_sha256"]
+        == hashlib.sha256(FLAGGED_ANSWER.encode()).hexdigest()
+    )
+    flagged_gate = next(run for run in gate_runs if run.verdict == "flagged")
+    assert flagged_gate.detail is not None
+    assert flagged_gate.detail["response"]["observations"][0]["label"] == ("crusty scabs near lips")
+    assert (
+        flagged_gate.detail["response_sha256"]
+        == hashlib.sha256(FLAGGED_ANSWER.encode()).hexdigest()
+    )
 
 
 async def test_rotation_primary_failure_falls_back_mid_cycle(
@@ -1603,15 +1972,26 @@ async def test_fallback_chain_failures_are_billed_as_run_rows(
     async with get_sessionmaker()() as db:
         runs = list((await db.execute(select(ScreeningRun))).scalars())
 
-    for stage in ("DETECT", "GATE"):
-        stage_runs = [run for run in runs if run.stage == stage]
-        outcomes = sorted((run.provider, run.run_status) for run in stage_runs)
-        assert outcomes == [("chain-backup", "OK"), ("chain-down", "ERROR")], (stage, outcomes)
+    detect_runs = [run for run in runs if run.stage == "DETECT"]
+    assert sorted((run.provider, run.run_status) for run in detect_runs) == [
+        ("chain-backup", "OK"),
+        ("chain-down", "ERROR"),
+    ]
+    gate_runs = [run for run in runs if run.stage == "GATE"]
+    # D3 screens both the whole frame and the detected crop. Each fallback
+    # attempt must remain independently visible and billable at both scopes.
+    assert sorted((run.provider, run.run_status) for run in gate_runs) == [
+        ("chain-backup", "OK"),
+        ("chain-backup", "OK"),
+        ("chain-down", "ERROR"),
+        ("chain-down", "ERROR"),
+    ]
+    assert {run.crop_id is None for run in gate_runs} == {False, True}
     failed_rows = [run for run in runs if run.run_status == "ERROR"]
     assert {run.error for run in failed_rows} == {"screening provider call failed (PROVIDER_ERROR)"}
     # Every paid attempt reached a provider exactly once per chain stage.
-    assert failing.calls == 2
-    assert backup.calls == 3  # detect + gate + the flagged crop's skin specialist
+    assert failing.calls == 3  # detect + whole-frame gate + crop gate
+    assert backup.calls == 5  # same successful fallbacks + two skin specialists
 
 
 async def test_review_detail_never_presigns_the_mutable_raw_key(
@@ -1778,13 +2158,126 @@ async def test_multi_goat_photo_screens_each_crop(client: httpx.AsyncClient) -> 
     assert crops[0].normalized_key in storage.uploaded
     stages = [run.stage for run in runs]
     assert stages.count("DETECT") == 1
-    assert stages.count("GATE") == 2  # one per goat
-    assert "SPECIALIST_SKIN" in stages  # only the flagged goat earned it
+    assert stages.count("GATE") == 3  # whole-frame safety pass + one per goat
+    assert stages.count("SPECIALIST_SKIN") == 2
+    assert len(findings) == 2
+    assert {finding.crop_id for finding in findings} == {None, crops[0].id}
+    assert {finding.label for finding in findings} == {"ORF"}
+    detection = next(run for run in runs if run.stage == "DETECT")
+    assert detection.detail is not None
+    assert detection.detail["boxes_1000"] == [
+        {"x": 100, "y": 100, "w": 600, "h": 300},
+        {"x": 700, "y": 100, "w": 250, "h": 600},
+    ]
+    assert len(cast(str, detection.detail["response_sha256"])) == 64
+    safety_gate = next(
+        run
+        for run in runs
+        if run.stage == "GATE"
+        and run.crop_id is None
+        and run.detail is not None
+        and run.detail.get("coverage_safety_pass") is True
+    )
+    assert safety_gate.verdict == "flagged"
+    # Detect + whole-frame gate/specialist + two crop gates + one crop
+    # specialist = six model calls, one photo.
+    assert provider.calls == 6
+
+
+async def test_partial_detector_miss_cannot_finish_photo_healthy(
+    client: httpx.AsyncClient,
+) -> None:
+    """A healthy detected crop cannot mask an abnormality in the full frame."""
+    headers = await owner_with_farm(client, email="coverage-safety@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    key = f"raw/{farm_id}/{capture_day}/BREEDING/partial-detection.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(2000, 1000)})
+    # The provider's full landscape frame flags, while the detector proposes
+    # only one portrait crop and that crop clears. This models a detector
+    # omitting the abnormal goat elsewhere in the photo.
+    provider = CountingProvider(name="coverage", detect_boxes=[[700, 100, 250, 600]])
+
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(crop_detection=True),
+            storage,
+            ProviderRotation([provider]),
+        )
+        image = (await db.execute(select(ScreeningImage))).scalar_one()
+        crop = (await db.execute(select(ScreeningCrop))).scalar_one()
+        runs = list((await db.execute(select(ScreeningRun))).scalars())
+        findings = list((await db.execute(select(ScreeningFinding))).scalars())
+
+    assert summary.flagged == 1
+    assert image.status == "FLAGGED"
+    assert crop.status == "HEALTHY"
     assert len(findings) == 1
-    assert findings[0].crop_id == crops[0].id
-    assert findings[0].label == "ORF"
-    # Detect + two gates + one specialist = four model calls, one photo.
+    assert findings[0].crop_id is None
+    safety = next(
+        run
+        for run in runs
+        if run.stage == "GATE"
+        and run.crop_id is None
+        and run.detail is not None
+        and run.detail.get("coverage_safety_pass") is True
+    )
+    assert safety.verdict == "flagged"
     assert provider.calls == 4
+
+
+async def test_budget_deferred_processing_crop_is_retried_not_treated_as_healthy(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client, email="crop-budget-resume@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    key = f"raw/{farm_id}/{capture_day}/BREEDING/budget-resume.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(1000, 2000)})
+    provider = CountingProvider(name="budget-resume")
+    limited = _cycle_settings(crop_detection=True)
+    limited.screening_daily_call_budget_per_farm = 2
+
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        first = await run_screening_cycle(
+            db,
+            limited,
+            storage,
+            ProviderRotation([provider]),
+        )
+        image = (await db.execute(select(ScreeningImage))).scalar_one()
+        crop = (await db.execute(select(ScreeningCrop))).scalar_one()
+
+    # Detect + whole-frame safety gate consumed the two-call cap. The crop
+    # was durably in flight when admission stopped, so the parent waits.
+    assert first.budget_deferred == 1
+    assert image.status == "ERROR"
+    assert crop.status == "PROCESSING"
+    assert provider.calls == 2
+
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            update(ScreeningImage)
+            .where(ScreeningImage.id == image.id)
+            .values(updated_at=utcnow() - ERROR_RETRY_AFTER - dt.timedelta(seconds=1))
+        )
+        await db.commit()
+        second = await run_screening_cycle(
+            db,
+            _cycle_settings(crop_detection=True),
+            storage,
+            ProviderRotation([provider]),
+        )
+        resumed_image = await db.get(ScreeningImage, image.id)
+        resumed_crop = await db.get(ScreeningCrop, crop.id)
+
+    assert second.healthy == 1
+    assert resumed_image is not None and resumed_image.status == "HEALTHY"
+    assert resumed_crop is not None and resumed_crop.status == "HEALTHY"
+    assert provider.calls == 3  # the previously in-flight crop really ran
 
 
 async def test_flagged_parent_retries_its_errored_crop(client: httpx.AsyncClient) -> None:
@@ -1857,7 +2350,9 @@ async def test_flagged_parent_retries_its_errored_crop(client: httpx.AsyncClient
     assert summary.retried_flagged == 1
     assert refreshed.status == "FLAGGED"
     assert [crop.status for crop in crops] == ["FLAGGED", "HEALTHY"]
-    assert provider.calls == 1  # only the previously errored crop re-ran
+    # Legacy rows without a recorded whole-frame coverage gate earn that
+    # safety pass before only the previously errored crop is retried.
+    assert provider.calls == 3
 
 
 async def test_detection_with_no_goats_falls_back_to_whole_photo(
@@ -1919,6 +2414,108 @@ async def test_stats_endpoint_scores_providers(client: httpx.AsyncClient) -> Non
     assert by_name[primary]["findings_pending"] == 1
 
 
+async def test_sampled_healthy_control_is_reviewable_scored_and_exported(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.services.screening.pipeline as screening_pipeline
+
+    monkeypatch.setattr(screening_pipeline, "_sample_healthy_control", lambda _image: True)
+    monkeypatch.setattr(get_settings(), "notifications_enabled", True)
+
+    async def no_delivery(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr("app.services.notifications.emit_alert", no_delivery)
+    headers = await owner_with_farm(client, email="healthy-control@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    key = f"raw/{farm_id}/{capture_day}/BREEDING/healthy-control.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(1000, 2000)})
+
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(crop_detection=False),
+            storage,
+            ProviderRotation([CountingProvider(name="control-provider")]),
+        )
+
+    assert summary.healthy == 1
+    listing = await client.get("/api/screening/images", headers=headers)
+    assert listing.status_code == 200, listing.text
+    row = listing.json()["images"][0]
+    assert row["status"] == "HEALTHY"
+    assert row["pending_findings"] == 1
+    assert row["pending_healthy_controls"] == 1
+
+    detail_response = await client.get(f"/api/screening/images/{row['id']}", headers=headers)
+    assert detail_response.status_code == 200, detail_response.text
+    detail = detail_response.json()
+    assert len(detail["findings"]) == 1
+    control = detail["findings"][0]
+    assert control["evaluation_kind"] == "HEALTHY_CONTROL"
+    assert control["label"] == "Routine quality-control review"
+    assert detail["runs"][0]["detail"]["healthy_control_sample"] is True
+
+    # For a healthy control, REJECTED means the model's healthy verdict was
+    # wrong because the reviewer found a visible abnormality.
+    reviewed = await client.post(
+        f"/api/screening/findings/{control['id']}/review",
+        json={
+            "status": "REJECTED",
+            "expected_status": "PENDING_REVIEW",
+            "expected_revision": 0,
+        },
+        headers=headers,
+    )
+    assert reviewed.status_code == 200, reviewed.text
+
+    stats = await client.get("/api/screening/stats", headers=headers)
+    assert stats.status_code == 200, stats.text
+    provider = stats.json()["providers"][0]
+    assert provider["findings_confirmed"] == 0
+    assert provider["findings_rejected"] == 0
+    assert provider["positive_precision"] is None
+    assert provider["healthy_controls_reviewed"] == 1
+    assert provider["healthy_controls_rejected"] == 1
+    assert provider["healthy_false_negative_rate"] == "1.000"
+    assert provider["healthy_false_negative_ci_low"] is not None
+    assert provider["healthy_false_negative_ci_high"] is not None
+
+    exported = await client.get("/api/screening/export", headers=headers)
+    assert exported.status_code == 200, exported.text
+    record = exported.json()["records"][0]
+    assert record["example_kind"] == "HEALTHY_CONTROL"
+    assert record["model_verdict"] == "healthy"
+    assert record["prompt_version"] == "gate-2026-09.1"
+    assert record["vet_status"] == "REJECTED"
+
+    async with get_sessionmaker()() as db:
+        alerts = list((await db.execute(select(NotificationOutbox))).scalars())
+    assert len(alerts) == 1
+    assert alerts[0].event_key.endswith(":REJECTED")
+    assert "found a visible abnormality" in alerts[0].message
+
+    # CONFIRMED has the inverse meaning for a healthy control (the reviewer
+    # saw no abnormality), so changing that projection must not emit a false
+    # clinical alert.
+    no_abnormality = await client.post(
+        f"/api/screening/findings/{control['id']}/review",
+        json={
+            "status": "CONFIRMED",
+            "expected_status": "REJECTED",
+            "expected_revision": 1,
+        },
+        headers=headers,
+    )
+    assert no_abnormality.status_code == 200, no_abnormality.text
+    async with get_sessionmaker()() as db:
+        alerts_after = list((await db.execute(select(NotificationOutbox))).scalars())
+    assert len(alerts_after) == 1
+
+
 async def test_export_endpoint_returns_training_corpus(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client, email="export-owner@farm.in")
     farm_id = int(headers["X-Farm-Id"])
@@ -1951,6 +2548,9 @@ async def test_export_endpoint_returns_training_corpus(client: httpx.AsyncClient
     assert len(records) == 1
     record = records[0]
     assert record["label"] == "ORF"
+    assert record["example_kind"] == "POSITIVE_FINDING"
+    assert record["model_verdict"] == "flagged"
+    assert record["prompt_version"] == "spec-skin-26.09.1"
     assert record["vet_status"] == "PENDING_REVIEW"
     # Export the immutable normalized model input, not the browser's raw POST
     # target (which can legally be replayed while its short-lived policy is
@@ -2464,16 +3064,19 @@ async def test_daily_call_budget_reservation_parks_a_farm_near_the_cap(
 
 async def test_tenant_facing_errors_carry_reason_codes_not_raw_text(
     client: httpx.AsyncClient,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """B6 (2026-09-21 audit): provider/storage exception text names endpoints
-    and HTTP topology. ScreeningImage.error and ScreeningRun.error must carry
-    a fixed reason code instead; the raw text belongs to the worker logs."""
+    and HTTP topology. Database fields and logs carry fixed reason codes, not
+    raw exception payloads."""
     headers = await owner_with_farm(client, email="error-leak@farm.in")
     farm_id = int(headers["X-Farm-Id"])
     storage = FakeStorage()
     storage.objects[f"raw/{farm_id}/{dt.date.today().isoformat()}/leak.jpg"] = _jpeg_bytes(
         2000, 1000
     )
+    secret_key = next(iter(storage.objects))
+    caplog.set_level(logging.WARNING, logger="app.services.screening.pipeline")
     async with get_sessionmaker()() as db:
         await _register_fake_objects(db, farm_id, storage)
         leaking = CountingProvider(name="secret-endpoint-provider", fail=True)
@@ -2493,6 +3096,10 @@ async def test_tenant_facing_errors_carry_reason_codes_not_raw_text(
     assert "outage" not in (row.error or "")
     assert "secret-endpoint-provider" not in (run.error or "")
     assert "outage" not in (run.error or "")
+    assert "secret-endpoint-provider" not in caplog.text
+    assert "outage" not in caplog.text
+    assert secret_key not in caplog.text
+    assert "code=GATE_PROVIDER_FAILURE" in caplog.text
 
 
 class UnreachableStorage(FakeStorage):
@@ -3049,44 +3656,60 @@ async def test_old_tokenless_pending_upload_can_drain_after_direct_post_migratio
     assert image.status == "HEALTHY"
 
 
-async def test_claiming_is_fair_across_farms(client: httpx.AsyncClient) -> None:
-    """One noisy farm cannot consume every slot in a small worker cycle."""
+async def test_claiming_is_fair_across_farms(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every farm is admitted within bounded cycles despite deeper queues."""
+    import app.services.screening.pipeline as screening_pipeline
+
+    # Scale the production guard down to three. Two farms each have more old
+    # work than that bound while the worker can serve only two farms per cycle.
+    # The third farm must still enter the next cycle; ordering only by oldest
+    # queue age would keep selecting the two deep farms indefinitely.
+    monkeypatch.setattr(screening_pipeline, "_CLAIM_CANDIDATE_WINDOW", 3)
     first_headers = await owner_with_farm(client, email="fair-first@farm.in", farm_name="First")
     second_headers = await owner_with_farm(client, email="fair-second@farm.in", farm_name="Second")
+    target_headers = await owner_with_farm(client, email="fair-target@farm.in", farm_name="Target")
     first_farm = int(first_headers["X-Farm-Id"])
     second_farm = int(second_headers["X-Farm-Id"])
+    target_farm = int(target_headers["X-Farm-Id"])
     capture_day = today().isoformat()
     storage = FakeStorage()
     old = utcnow() - dt.timedelta(minutes=10)
     later = utcnow() - dt.timedelta(minutes=5)
     first_keys = [
-        f"raw/{first_farm}/{capture_day}/BREEDING/noisy-{index}.jpg" for index in range(3)
+        f"raw/{first_farm}/{capture_day}/BREEDING/noisy-{index}.jpg" for index in range(4)
     ]
-    second_key = f"raw/{second_farm}/{capture_day}/BREEDING/fair.jpg"
-    for key in first_keys:
+    second_keys = [
+        f"raw/{second_farm}/{capture_day}/BREEDING/noisy-{index}.jpg" for index in range(4)
+    ]
+    target_key = f"raw/{target_farm}/{capture_day}/BREEDING/fair.jpg"
+    for key in [*first_keys, *second_keys]:
         storage.objects[key] = _jpeg_bytes(1000, 2000)
-    storage.objects[second_key] = _jpeg_bytes(2000, 1000)
+    storage.objects[target_key] = _jpeg_bytes(2000, 1000)
 
     async with get_sessionmaker()() as db:
-        for key in first_keys:
-            db.add(
-                ScreeningImage(
-                    farm_id=first_farm,
-                    bucket="BREEDING",
-                    s3_bucket=storage.bucket,
-                    s3_key=key,
-                    captured_date=dt.date.fromisoformat(capture_day),
-                    status="PENDING",
-                    created_at=old,
-                    updated_at=old,
+        for farm_id, keys in ((first_farm, first_keys), (second_farm, second_keys)):
+            for key in keys:
+                db.add(
+                    ScreeningImage(
+                        farm_id=farm_id,
+                        bucket="BREEDING",
+                        s3_bucket=storage.bucket,
+                        s3_key=key,
+                        captured_date=dt.date.fromisoformat(capture_day),
+                        status="PENDING",
+                        created_at=old,
+                        updated_at=old,
+                    )
                 )
-            )
         db.add(
             ScreeningImage(
-                farm_id=second_farm,
+                farm_id=target_farm,
                 bucket="BREEDING",
                 s3_bucket=storage.bucket,
-                s3_key=second_key,
+                s3_key=target_key,
                 captured_date=dt.date.fromisoformat(capture_day),
                 status="PENDING",
                 created_at=later,
@@ -3094,7 +3717,20 @@ async def test_claiming_is_fair_across_farms(client: httpx.AsyncClient) -> None:
             )
         )
         await db.commit()
-        summary = await run_screening_cycle(
+        first_summary = await run_screening_cycle(
+            db,
+            _cycle_settings(max_images_per_cycle=2),
+            storage,
+            ProviderRotation([CountingProvider(name="fake")]),
+        )
+        first_cycle_rows = list((await db.execute(select(ScreeningImage))).scalars())
+        first_cycle_by_farm = {
+            farm_id: sum(
+                row.status != "PENDING" for row in first_cycle_rows if row.farm_id == farm_id
+            )
+            for farm_id in (first_farm, second_farm, target_farm)
+        }
+        second_summary = await run_screening_cycle(
             db,
             _cycle_settings(max_images_per_cycle=2),
             storage,
@@ -3102,13 +3738,10 @@ async def test_claiming_is_fair_across_farms(client: httpx.AsyncClient) -> None:
         )
         rows = list((await db.execute(select(ScreeningImage))).scalars())
 
-    assert summary.claimed == 2
-    first_processed = [row for row in rows if row.farm_id == first_farm and row.status != "PENDING"]
-    second_processed = [
-        row for row in rows if row.farm_id == second_farm and row.status != "PENDING"
-    ]
-    assert len(first_processed) == 1
-    assert len(second_processed) == 1
+    assert first_summary.claimed == 2
+    assert first_cycle_by_farm == {first_farm: 1, second_farm: 1, target_farm: 0}
+    assert second_summary.claimed == 2
+    assert any(row.farm_id == target_farm and row.status != "PENDING" for row in rows)
 
 
 async def test_abandoned_upload_sweep_is_bounded_per_cycle(client: httpx.AsyncClient) -> None:
@@ -4008,9 +4641,10 @@ async def test_one_images_commit_failure_rolls_back_and_spares_the_cycle(
     commit_failures = [
         record.getMessage()
         for record in caplog.records
-        if "committing screening image" in record.getMessage()
+        if "screening image commit failed" in record.getMessage()
     ]
     assert commit_failures and str(first.id) in commit_failures[0]
+    assert "test-injected row" not in caplog.text
     # Both cascades ran (the first one was rolled back); the survivor's
     # durable GATE run is the proof the cycle kept going.
     assert provider.calls == 2

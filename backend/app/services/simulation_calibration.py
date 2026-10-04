@@ -27,7 +27,6 @@ from ..schemas.simulation import CalibrationEvidence, FarmCalibrationOut
 from ..simulation.assumptions import (
     MAX_MONEY,
     MAX_WEIGHT_KG,
-    ParityMultipliers,
     SimulationAssumptions,
     _normalized_seasonality,
 )
@@ -504,15 +503,27 @@ async def calibrate_farm_assumptions(
         # The farm's own observed rate is a herd average that already embeds
         # its parity mix; keeping the literature parity table on top would
         # double-count the maiden/late-parity drag. Flatten it.
-        assumptions.reproduction.parity_multipliers = ParityMultipliers(
-            litter_size=[1.0], conception_rate=[1.0]
+        conception_parity_previous = list(
+            assumptions.reproduction.parity_multipliers.conception_rate
         )
+        assumptions.reproduction.parity_multipliers.conception_rate = [1.0]
         record(
             "reproduction.conception_rate",
             conception_previous,
             conception_calibrated,
             len(assessed),
             "Pregnant-or-aborted services divided by assessed services",
+            "breeding_records",
+        )
+        record(
+            "reproduction.parity_multipliers.conception_rate",
+            conception_parity_previous,
+            [1.0],
+            len(assessed),
+            (
+                "Flatten conception parity only because the observed herd rate "
+                "already embeds its parity mix"
+            ),
             "breeding_records",
         )
 
@@ -560,15 +571,25 @@ async def calibrate_farm_assumptions(
         # Same parity note as the conception calibration above: the observed
         # mean litter is already parity-blended; a second parity layer would
         # double-count it.
-        assumptions.reproduction.parity_multipliers = ParityMultipliers(
-            litter_size=[1.0], conception_rate=[1.0]
-        )
+        litter_parity_previous = list(assumptions.reproduction.parity_multipliers.litter_size)
+        assumptions.reproduction.parity_multipliers.litter_size = [1.0]
         record(
             "reproduction.litter_size",
             litter_previous,
             litter_calibrated,
             len(litter_sizes),
             "Mean total kids recorded per kidding",
+            "kidding_records/kid_entries",
+        )
+        record(
+            "reproduction.parity_multipliers.litter_size",
+            litter_parity_previous,
+            [1.0],
+            len(litter_sizes),
+            (
+                "Flatten litter-size parity only because the observed herd mean "
+                "already embeds its parity mix"
+            ),
             "kidding_records/kid_entries",
         )
         gestation_days = [(kidding - breeding).days for kidding, breeding in kidding_meta.values()]

@@ -3,18 +3,23 @@
 import * as React from "react"
 import { ArrowDown, ArrowDownUp, ArrowUp } from "lucide-react"
 
+import { DataTableLabelContext } from "@/components/data-table-label-context"
 import { cn } from "@/lib/utils"
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {
+  const cardTitleId = React.useContext(DataTableLabelContext)
+  const labelledBy = props["aria-labelledby"] ?? (props["aria-label"] ? undefined : cardTitleId)
   return (
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      className="relative w-full overflow-x-auto rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+      tabIndex={0}
     >
       <table
         data-slot="table"
         className={cn("table-numeric w-full caption-bottom text-sm", className)}
         {...props}
+        aria-labelledby={labelledBy}
       />
     </div>
   )

@@ -782,11 +782,6 @@ export type workerRosterApiAuthWorkerRosterGetResponse414 = {
   status: 414
 }
 
-export type workerRosterApiAuthWorkerRosterGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type workerRosterApiAuthWorkerRosterGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -810,7 +805,7 @@ export type workerRosterApiAuthWorkerRosterGetResponse503 = {
 export type workerRosterApiAuthWorkerRosterGetResponseSuccess = (workerRosterApiAuthWorkerRosterGetResponse200) & {
   headers: Headers;
 };
-export type workerRosterApiAuthWorkerRosterGetResponseError = (workerRosterApiAuthWorkerRosterGetResponse400 | workerRosterApiAuthWorkerRosterGetResponse401 | workerRosterApiAuthWorkerRosterGetResponse403 | workerRosterApiAuthWorkerRosterGetResponse404 | workerRosterApiAuthWorkerRosterGetResponse409 | workerRosterApiAuthWorkerRosterGetResponse413 | workerRosterApiAuthWorkerRosterGetResponse414 | workerRosterApiAuthWorkerRosterGetResponse415 | workerRosterApiAuthWorkerRosterGetResponse422 | workerRosterApiAuthWorkerRosterGetResponse429 | workerRosterApiAuthWorkerRosterGetResponse500 | workerRosterApiAuthWorkerRosterGetResponse503) & {
+export type workerRosterApiAuthWorkerRosterGetResponseError = (workerRosterApiAuthWorkerRosterGetResponse400 | workerRosterApiAuthWorkerRosterGetResponse401 | workerRosterApiAuthWorkerRosterGetResponse403 | workerRosterApiAuthWorkerRosterGetResponse404 | workerRosterApiAuthWorkerRosterGetResponse409 | workerRosterApiAuthWorkerRosterGetResponse413 | workerRosterApiAuthWorkerRosterGetResponse414 | workerRosterApiAuthWorkerRosterGetResponse422 | workerRosterApiAuthWorkerRosterGetResponse429 | workerRosterApiAuthWorkerRosterGetResponse500 | workerRosterApiAuthWorkerRosterGetResponse503) & {
   headers: Headers;
 };
 
@@ -1127,11 +1122,6 @@ export type refreshApiAuthRefreshPostResponse414 = {
   status: 414
 }
 
-export type refreshApiAuthRefreshPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type refreshApiAuthRefreshPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -1155,7 +1145,7 @@ export type refreshApiAuthRefreshPostResponse503 = {
 export type refreshApiAuthRefreshPostResponseSuccess = (refreshApiAuthRefreshPostResponse200) & {
   headers: Headers;
 };
-export type refreshApiAuthRefreshPostResponseError = (refreshApiAuthRefreshPostResponse400 | refreshApiAuthRefreshPostResponse401 | refreshApiAuthRefreshPostResponse403 | refreshApiAuthRefreshPostResponse404 | refreshApiAuthRefreshPostResponse409 | refreshApiAuthRefreshPostResponse413 | refreshApiAuthRefreshPostResponse414 | refreshApiAuthRefreshPostResponse415 | refreshApiAuthRefreshPostResponse422 | refreshApiAuthRefreshPostResponse429 | refreshApiAuthRefreshPostResponse500 | refreshApiAuthRefreshPostResponse503) & {
+export type refreshApiAuthRefreshPostResponseError = (refreshApiAuthRefreshPostResponse400 | refreshApiAuthRefreshPostResponse401 | refreshApiAuthRefreshPostResponse403 | refreshApiAuthRefreshPostResponse404 | refreshApiAuthRefreshPostResponse409 | refreshApiAuthRefreshPostResponse413 | refreshApiAuthRefreshPostResponse414 | refreshApiAuthRefreshPostResponse422 | refreshApiAuthRefreshPostResponse429 | refreshApiAuthRefreshPostResponse500 | refreshApiAuthRefreshPostResponse503) & {
   headers: Headers;
 };
 
@@ -1272,11 +1262,6 @@ export type logoutSessionApiAuthLogoutSessionPostResponse414 = {
   status: 414
 }
 
-export type logoutSessionApiAuthLogoutSessionPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type logoutSessionApiAuthLogoutSessionPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -1300,7 +1285,7 @@ export type logoutSessionApiAuthLogoutSessionPostResponse503 = {
 export type logoutSessionApiAuthLogoutSessionPostResponseSuccess = (logoutSessionApiAuthLogoutSessionPostResponse204) & {
   headers: Headers;
 };
-export type logoutSessionApiAuthLogoutSessionPostResponseError = (logoutSessionApiAuthLogoutSessionPostResponse400 | logoutSessionApiAuthLogoutSessionPostResponse401 | logoutSessionApiAuthLogoutSessionPostResponse403 | logoutSessionApiAuthLogoutSessionPostResponse404 | logoutSessionApiAuthLogoutSessionPostResponse409 | logoutSessionApiAuthLogoutSessionPostResponse413 | logoutSessionApiAuthLogoutSessionPostResponse414 | logoutSessionApiAuthLogoutSessionPostResponse415 | logoutSessionApiAuthLogoutSessionPostResponse422 | logoutSessionApiAuthLogoutSessionPostResponse429 | logoutSessionApiAuthLogoutSessionPostResponse500 | logoutSessionApiAuthLogoutSessionPostResponse503) & {
+export type logoutSessionApiAuthLogoutSessionPostResponseError = (logoutSessionApiAuthLogoutSessionPostResponse400 | logoutSessionApiAuthLogoutSessionPostResponse401 | logoutSessionApiAuthLogoutSessionPostResponse403 | logoutSessionApiAuthLogoutSessionPostResponse404 | logoutSessionApiAuthLogoutSessionPostResponse409 | logoutSessionApiAuthLogoutSessionPostResponse413 | logoutSessionApiAuthLogoutSessionPostResponse414 | logoutSessionApiAuthLogoutSessionPostResponse422 | logoutSessionApiAuthLogoutSessionPostResponse429 | logoutSessionApiAuthLogoutSessionPostResponse500 | logoutSessionApiAuthLogoutSessionPostResponse503) & {
   headers: Headers;
 };
 
@@ -1418,11 +1403,6 @@ export type logoutApiAuthLogoutPostResponse414 = {
   status: 414
 }
 
-export type logoutApiAuthLogoutPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type logoutApiAuthLogoutPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -1446,7 +1426,7 @@ export type logoutApiAuthLogoutPostResponse503 = {
 export type logoutApiAuthLogoutPostResponseSuccess = (logoutApiAuthLogoutPostResponse204) & {
   headers: Headers;
 };
-export type logoutApiAuthLogoutPostResponseError = (logoutApiAuthLogoutPostResponse400 | logoutApiAuthLogoutPostResponse401 | logoutApiAuthLogoutPostResponse403 | logoutApiAuthLogoutPostResponse404 | logoutApiAuthLogoutPostResponse409 | logoutApiAuthLogoutPostResponse413 | logoutApiAuthLogoutPostResponse414 | logoutApiAuthLogoutPostResponse415 | logoutApiAuthLogoutPostResponse422 | logoutApiAuthLogoutPostResponse429 | logoutApiAuthLogoutPostResponse500 | logoutApiAuthLogoutPostResponse503) & {
+export type logoutApiAuthLogoutPostResponseError = (logoutApiAuthLogoutPostResponse400 | logoutApiAuthLogoutPostResponse401 | logoutApiAuthLogoutPostResponse403 | logoutApiAuthLogoutPostResponse404 | logoutApiAuthLogoutPostResponse409 | logoutApiAuthLogoutPostResponse413 | logoutApiAuthLogoutPostResponse414 | logoutApiAuthLogoutPostResponse422 | logoutApiAuthLogoutPostResponse429 | logoutApiAuthLogoutPostResponse500 | logoutApiAuthLogoutPostResponse503) & {
   headers: Headers;
 };
 
@@ -1563,11 +1543,6 @@ export type changePasswordApiAuthChangePasswordPostResponse414 = {
   status: 414
 }
 
-export type changePasswordApiAuthChangePasswordPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type changePasswordApiAuthChangePasswordPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -1591,7 +1566,7 @@ export type changePasswordApiAuthChangePasswordPostResponse503 = {
 export type changePasswordApiAuthChangePasswordPostResponseSuccess = (changePasswordApiAuthChangePasswordPostResponse200) & {
   headers: Headers;
 };
-export type changePasswordApiAuthChangePasswordPostResponseError = (changePasswordApiAuthChangePasswordPostResponse400 | changePasswordApiAuthChangePasswordPostResponse401 | changePasswordApiAuthChangePasswordPostResponse403 | changePasswordApiAuthChangePasswordPostResponse404 | changePasswordApiAuthChangePasswordPostResponse409 | changePasswordApiAuthChangePasswordPostResponse413 | changePasswordApiAuthChangePasswordPostResponse414 | changePasswordApiAuthChangePasswordPostResponse415 | changePasswordApiAuthChangePasswordPostResponse422 | changePasswordApiAuthChangePasswordPostResponse429 | changePasswordApiAuthChangePasswordPostResponse500 | changePasswordApiAuthChangePasswordPostResponse503) & {
+export type changePasswordApiAuthChangePasswordPostResponseError = (changePasswordApiAuthChangePasswordPostResponse400 | changePasswordApiAuthChangePasswordPostResponse401 | changePasswordApiAuthChangePasswordPostResponse403 | changePasswordApiAuthChangePasswordPostResponse404 | changePasswordApiAuthChangePasswordPostResponse409 | changePasswordApiAuthChangePasswordPostResponse413 | changePasswordApiAuthChangePasswordPostResponse414 | changePasswordApiAuthChangePasswordPostResponse422 | changePasswordApiAuthChangePasswordPostResponse429 | changePasswordApiAuthChangePasswordPostResponse500 | changePasswordApiAuthChangePasswordPostResponse503) & {
   headers: Headers;
 };
 
@@ -1711,11 +1686,6 @@ export type meApiAuthMeGetResponse414 = {
   status: 414
 }
 
-export type meApiAuthMeGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type meApiAuthMeGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -1739,7 +1709,7 @@ export type meApiAuthMeGetResponse503 = {
 export type meApiAuthMeGetResponseSuccess = (meApiAuthMeGetResponse200) & {
   headers: Headers;
 };
-export type meApiAuthMeGetResponseError = (meApiAuthMeGetResponse400 | meApiAuthMeGetResponse401 | meApiAuthMeGetResponse403 | meApiAuthMeGetResponse404 | meApiAuthMeGetResponse409 | meApiAuthMeGetResponse413 | meApiAuthMeGetResponse414 | meApiAuthMeGetResponse415 | meApiAuthMeGetResponse422 | meApiAuthMeGetResponse429 | meApiAuthMeGetResponse500 | meApiAuthMeGetResponse503) & {
+export type meApiAuthMeGetResponseError = (meApiAuthMeGetResponse400 | meApiAuthMeGetResponse401 | meApiAuthMeGetResponse403 | meApiAuthMeGetResponse404 | meApiAuthMeGetResponse409 | meApiAuthMeGetResponse413 | meApiAuthMeGetResponse414 | meApiAuthMeGetResponse422 | meApiAuthMeGetResponse429 | meApiAuthMeGetResponse500 | meApiAuthMeGetResponse503) & {
   headers: Headers;
 };
 
@@ -1886,11 +1856,6 @@ export type exportAccountApiAuthAccountExportGetResponse414 = {
   status: 414
 }
 
-export type exportAccountApiAuthAccountExportGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type exportAccountApiAuthAccountExportGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -1914,7 +1879,7 @@ export type exportAccountApiAuthAccountExportGetResponse503 = {
 export type exportAccountApiAuthAccountExportGetResponseSuccess = (exportAccountApiAuthAccountExportGetResponse200) & {
   headers: Headers;
 };
-export type exportAccountApiAuthAccountExportGetResponseError = (exportAccountApiAuthAccountExportGetResponse400 | exportAccountApiAuthAccountExportGetResponse401 | exportAccountApiAuthAccountExportGetResponse403 | exportAccountApiAuthAccountExportGetResponse404 | exportAccountApiAuthAccountExportGetResponse409 | exportAccountApiAuthAccountExportGetResponse413 | exportAccountApiAuthAccountExportGetResponse414 | exportAccountApiAuthAccountExportGetResponse415 | exportAccountApiAuthAccountExportGetResponse422 | exportAccountApiAuthAccountExportGetResponse429 | exportAccountApiAuthAccountExportGetResponse500 | exportAccountApiAuthAccountExportGetResponse503) & {
+export type exportAccountApiAuthAccountExportGetResponseError = (exportAccountApiAuthAccountExportGetResponse400 | exportAccountApiAuthAccountExportGetResponse401 | exportAccountApiAuthAccountExportGetResponse403 | exportAccountApiAuthAccountExportGetResponse404 | exportAccountApiAuthAccountExportGetResponse409 | exportAccountApiAuthAccountExportGetResponse413 | exportAccountApiAuthAccountExportGetResponse414 | exportAccountApiAuthAccountExportGetResponse422 | exportAccountApiAuthAccountExportGetResponse429 | exportAccountApiAuthAccountExportGetResponse500 | exportAccountApiAuthAccountExportGetResponse503) & {
   headers: Headers;
 };
 
@@ -2068,11 +2033,6 @@ export type deleteAccountApiAuthAccountDeleteResponse414 = {
   status: 414
 }
 
-export type deleteAccountApiAuthAccountDeleteResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type deleteAccountApiAuthAccountDeleteResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -2096,7 +2056,7 @@ export type deleteAccountApiAuthAccountDeleteResponse503 = {
 export type deleteAccountApiAuthAccountDeleteResponseSuccess = (deleteAccountApiAuthAccountDeleteResponse204) & {
   headers: Headers;
 };
-export type deleteAccountApiAuthAccountDeleteResponseError = (deleteAccountApiAuthAccountDeleteResponse400 | deleteAccountApiAuthAccountDeleteResponse401 | deleteAccountApiAuthAccountDeleteResponse403 | deleteAccountApiAuthAccountDeleteResponse404 | deleteAccountApiAuthAccountDeleteResponse409 | deleteAccountApiAuthAccountDeleteResponse413 | deleteAccountApiAuthAccountDeleteResponse414 | deleteAccountApiAuthAccountDeleteResponse415 | deleteAccountApiAuthAccountDeleteResponse422 | deleteAccountApiAuthAccountDeleteResponse429 | deleteAccountApiAuthAccountDeleteResponse500 | deleteAccountApiAuthAccountDeleteResponse503) & {
+export type deleteAccountApiAuthAccountDeleteResponseError = (deleteAccountApiAuthAccountDeleteResponse400 | deleteAccountApiAuthAccountDeleteResponse401 | deleteAccountApiAuthAccountDeleteResponse403 | deleteAccountApiAuthAccountDeleteResponse404 | deleteAccountApiAuthAccountDeleteResponse409 | deleteAccountApiAuthAccountDeleteResponse413 | deleteAccountApiAuthAccountDeleteResponse414 | deleteAccountApiAuthAccountDeleteResponse422 | deleteAccountApiAuthAccountDeleteResponse429 | deleteAccountApiAuthAccountDeleteResponse500 | deleteAccountApiAuthAccountDeleteResponse503) & {
   headers: Headers;
 };
 
@@ -2217,11 +2177,6 @@ export type permissionsApiAuthPermissionsGetResponse414 = {
   status: 414
 }
 
-export type permissionsApiAuthPermissionsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type permissionsApiAuthPermissionsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -2245,7 +2200,7 @@ export type permissionsApiAuthPermissionsGetResponse503 = {
 export type permissionsApiAuthPermissionsGetResponseSuccess = (permissionsApiAuthPermissionsGetResponse200) & {
   headers: Headers;
 };
-export type permissionsApiAuthPermissionsGetResponseError = (permissionsApiAuthPermissionsGetResponse400 | permissionsApiAuthPermissionsGetResponse401 | permissionsApiAuthPermissionsGetResponse403 | permissionsApiAuthPermissionsGetResponse404 | permissionsApiAuthPermissionsGetResponse409 | permissionsApiAuthPermissionsGetResponse413 | permissionsApiAuthPermissionsGetResponse414 | permissionsApiAuthPermissionsGetResponse415 | permissionsApiAuthPermissionsGetResponse422 | permissionsApiAuthPermissionsGetResponse429 | permissionsApiAuthPermissionsGetResponse500 | permissionsApiAuthPermissionsGetResponse503) & {
+export type permissionsApiAuthPermissionsGetResponseError = (permissionsApiAuthPermissionsGetResponse400 | permissionsApiAuthPermissionsGetResponse401 | permissionsApiAuthPermissionsGetResponse403 | permissionsApiAuthPermissionsGetResponse404 | permissionsApiAuthPermissionsGetResponse409 | permissionsApiAuthPermissionsGetResponse413 | permissionsApiAuthPermissionsGetResponse414 | permissionsApiAuthPermissionsGetResponse422 | permissionsApiAuthPermissionsGetResponse429 | permissionsApiAuthPermissionsGetResponse500 | permissionsApiAuthPermissionsGetResponse503) & {
   headers: Headers;
 };
 
@@ -2392,11 +2347,6 @@ export type listFarmsApiAuthFarmsGetResponse414 = {
   status: 414
 }
 
-export type listFarmsApiAuthFarmsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listFarmsApiAuthFarmsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -2420,7 +2370,7 @@ export type listFarmsApiAuthFarmsGetResponse503 = {
 export type listFarmsApiAuthFarmsGetResponseSuccess = (listFarmsApiAuthFarmsGetResponse200) & {
   headers: Headers;
 };
-export type listFarmsApiAuthFarmsGetResponseError = (listFarmsApiAuthFarmsGetResponse400 | listFarmsApiAuthFarmsGetResponse401 | listFarmsApiAuthFarmsGetResponse403 | listFarmsApiAuthFarmsGetResponse404 | listFarmsApiAuthFarmsGetResponse409 | listFarmsApiAuthFarmsGetResponse413 | listFarmsApiAuthFarmsGetResponse414 | listFarmsApiAuthFarmsGetResponse415 | listFarmsApiAuthFarmsGetResponse422 | listFarmsApiAuthFarmsGetResponse429 | listFarmsApiAuthFarmsGetResponse500 | listFarmsApiAuthFarmsGetResponse503) & {
+export type listFarmsApiAuthFarmsGetResponseError = (listFarmsApiAuthFarmsGetResponse400 | listFarmsApiAuthFarmsGetResponse401 | listFarmsApiAuthFarmsGetResponse403 | listFarmsApiAuthFarmsGetResponse404 | listFarmsApiAuthFarmsGetResponse409 | listFarmsApiAuthFarmsGetResponse413 | listFarmsApiAuthFarmsGetResponse414 | listFarmsApiAuthFarmsGetResponse422 | listFarmsApiAuthFarmsGetResponse429 | listFarmsApiAuthFarmsGetResponse500 | listFarmsApiAuthFarmsGetResponse503) & {
   headers: Headers;
 };
 
@@ -2567,11 +2517,6 @@ export type createFarmApiAuthFarmsPostResponse414 = {
   status: 414
 }
 
-export type createFarmApiAuthFarmsPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type createFarmApiAuthFarmsPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -2595,7 +2540,7 @@ export type createFarmApiAuthFarmsPostResponse503 = {
 export type createFarmApiAuthFarmsPostResponseSuccess = (createFarmApiAuthFarmsPostResponse201) & {
   headers: Headers;
 };
-export type createFarmApiAuthFarmsPostResponseError = (createFarmApiAuthFarmsPostResponse400 | createFarmApiAuthFarmsPostResponse401 | createFarmApiAuthFarmsPostResponse403 | createFarmApiAuthFarmsPostResponse404 | createFarmApiAuthFarmsPostResponse409 | createFarmApiAuthFarmsPostResponse413 | createFarmApiAuthFarmsPostResponse414 | createFarmApiAuthFarmsPostResponse415 | createFarmApiAuthFarmsPostResponse422 | createFarmApiAuthFarmsPostResponse429 | createFarmApiAuthFarmsPostResponse500 | createFarmApiAuthFarmsPostResponse503) & {
+export type createFarmApiAuthFarmsPostResponseError = (createFarmApiAuthFarmsPostResponse400 | createFarmApiAuthFarmsPostResponse401 | createFarmApiAuthFarmsPostResponse403 | createFarmApiAuthFarmsPostResponse404 | createFarmApiAuthFarmsPostResponse409 | createFarmApiAuthFarmsPostResponse413 | createFarmApiAuthFarmsPostResponse414 | createFarmApiAuthFarmsPostResponse422 | createFarmApiAuthFarmsPostResponse429 | createFarmApiAuthFarmsPostResponse500 | createFarmApiAuthFarmsPostResponse503) & {
   headers: Headers;
 };
 
@@ -2712,11 +2657,6 @@ export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse
   status: 414
 }
 
-export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -2740,7 +2680,7 @@ export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse
 export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponseSuccess = (transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse200) & {
   headers: Headers;
 };
-export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponseError = (transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse400 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse401 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse403 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse404 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse409 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse413 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse414 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse415 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse422 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse429 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse500 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse503) & {
+export type transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponseError = (transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse400 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse401 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse403 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse404 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse409 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse413 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse414 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse422 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse429 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse500 | transferFarmOwnershipApiAuthFarmsFarmIdTransferOwnershipPostResponse503) & {
   headers: Headers;
 };
 
@@ -2862,11 +2802,6 @@ export type totpEnrollApiAuthTotpEnrollPostResponse414 = {
   status: 414
 }
 
-export type totpEnrollApiAuthTotpEnrollPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type totpEnrollApiAuthTotpEnrollPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -2890,7 +2825,7 @@ export type totpEnrollApiAuthTotpEnrollPostResponse503 = {
 export type totpEnrollApiAuthTotpEnrollPostResponseSuccess = (totpEnrollApiAuthTotpEnrollPostResponse200) & {
   headers: Headers;
 };
-export type totpEnrollApiAuthTotpEnrollPostResponseError = (totpEnrollApiAuthTotpEnrollPostResponse400 | totpEnrollApiAuthTotpEnrollPostResponse401 | totpEnrollApiAuthTotpEnrollPostResponse403 | totpEnrollApiAuthTotpEnrollPostResponse404 | totpEnrollApiAuthTotpEnrollPostResponse409 | totpEnrollApiAuthTotpEnrollPostResponse413 | totpEnrollApiAuthTotpEnrollPostResponse414 | totpEnrollApiAuthTotpEnrollPostResponse415 | totpEnrollApiAuthTotpEnrollPostResponse422 | totpEnrollApiAuthTotpEnrollPostResponse429 | totpEnrollApiAuthTotpEnrollPostResponse500 | totpEnrollApiAuthTotpEnrollPostResponse503) & {
+export type totpEnrollApiAuthTotpEnrollPostResponseError = (totpEnrollApiAuthTotpEnrollPostResponse400 | totpEnrollApiAuthTotpEnrollPostResponse401 | totpEnrollApiAuthTotpEnrollPostResponse403 | totpEnrollApiAuthTotpEnrollPostResponse404 | totpEnrollApiAuthTotpEnrollPostResponse409 | totpEnrollApiAuthTotpEnrollPostResponse413 | totpEnrollApiAuthTotpEnrollPostResponse414 | totpEnrollApiAuthTotpEnrollPostResponse422 | totpEnrollApiAuthTotpEnrollPostResponse429 | totpEnrollApiAuthTotpEnrollPostResponse500 | totpEnrollApiAuthTotpEnrollPostResponse503) & {
   headers: Headers;
 };
 
@@ -3011,11 +2946,6 @@ export type totpConfirmApiAuthTotpConfirmPostResponse414 = {
   status: 414
 }
 
-export type totpConfirmApiAuthTotpConfirmPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type totpConfirmApiAuthTotpConfirmPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -3039,7 +2969,7 @@ export type totpConfirmApiAuthTotpConfirmPostResponse503 = {
 export type totpConfirmApiAuthTotpConfirmPostResponseSuccess = (totpConfirmApiAuthTotpConfirmPostResponse200) & {
   headers: Headers;
 };
-export type totpConfirmApiAuthTotpConfirmPostResponseError = (totpConfirmApiAuthTotpConfirmPostResponse400 | totpConfirmApiAuthTotpConfirmPostResponse401 | totpConfirmApiAuthTotpConfirmPostResponse403 | totpConfirmApiAuthTotpConfirmPostResponse404 | totpConfirmApiAuthTotpConfirmPostResponse409 | totpConfirmApiAuthTotpConfirmPostResponse413 | totpConfirmApiAuthTotpConfirmPostResponse414 | totpConfirmApiAuthTotpConfirmPostResponse415 | totpConfirmApiAuthTotpConfirmPostResponse422 | totpConfirmApiAuthTotpConfirmPostResponse429 | totpConfirmApiAuthTotpConfirmPostResponse500 | totpConfirmApiAuthTotpConfirmPostResponse503) & {
+export type totpConfirmApiAuthTotpConfirmPostResponseError = (totpConfirmApiAuthTotpConfirmPostResponse400 | totpConfirmApiAuthTotpConfirmPostResponse401 | totpConfirmApiAuthTotpConfirmPostResponse403 | totpConfirmApiAuthTotpConfirmPostResponse404 | totpConfirmApiAuthTotpConfirmPostResponse409 | totpConfirmApiAuthTotpConfirmPostResponse413 | totpConfirmApiAuthTotpConfirmPostResponse414 | totpConfirmApiAuthTotpConfirmPostResponse422 | totpConfirmApiAuthTotpConfirmPostResponse429 | totpConfirmApiAuthTotpConfirmPostResponse500 | totpConfirmApiAuthTotpConfirmPostResponse503) & {
   headers: Headers;
 };
 
@@ -3162,11 +3092,6 @@ export type totpDisableApiAuthTotpDisablePostResponse414 = {
   status: 414
 }
 
-export type totpDisableApiAuthTotpDisablePostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type totpDisableApiAuthTotpDisablePostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -3190,7 +3115,7 @@ export type totpDisableApiAuthTotpDisablePostResponse503 = {
 export type totpDisableApiAuthTotpDisablePostResponseSuccess = (totpDisableApiAuthTotpDisablePostResponse204) & {
   headers: Headers;
 };
-export type totpDisableApiAuthTotpDisablePostResponseError = (totpDisableApiAuthTotpDisablePostResponse400 | totpDisableApiAuthTotpDisablePostResponse401 | totpDisableApiAuthTotpDisablePostResponse403 | totpDisableApiAuthTotpDisablePostResponse404 | totpDisableApiAuthTotpDisablePostResponse409 | totpDisableApiAuthTotpDisablePostResponse413 | totpDisableApiAuthTotpDisablePostResponse414 | totpDisableApiAuthTotpDisablePostResponse415 | totpDisableApiAuthTotpDisablePostResponse422 | totpDisableApiAuthTotpDisablePostResponse429 | totpDisableApiAuthTotpDisablePostResponse500 | totpDisableApiAuthTotpDisablePostResponse503) & {
+export type totpDisableApiAuthTotpDisablePostResponseError = (totpDisableApiAuthTotpDisablePostResponse400 | totpDisableApiAuthTotpDisablePostResponse401 | totpDisableApiAuthTotpDisablePostResponse403 | totpDisableApiAuthTotpDisablePostResponse404 | totpDisableApiAuthTotpDisablePostResponse409 | totpDisableApiAuthTotpDisablePostResponse413 | totpDisableApiAuthTotpDisablePostResponse414 | totpDisableApiAuthTotpDisablePostResponse422 | totpDisableApiAuthTotpDisablePostResponse429 | totpDisableApiAuthTotpDisablePostResponse500 | totpDisableApiAuthTotpDisablePostResponse503) & {
   headers: Headers;
 };
 
@@ -3310,11 +3235,6 @@ export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse414 =
   status: 414
 }
 
-export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -3338,7 +3258,7 @@ export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse503 =
 export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponseSuccess = (totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse200) & {
   headers: Headers;
 };
-export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponseError = (totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse400 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse401 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse403 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse404 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse409 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse413 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse414 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse415 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse422 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse429 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse500 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse503) & {
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponseError = (totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse400 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse401 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse403 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse404 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse409 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse413 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse414 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse422 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse429 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse500 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse503) & {
   headers: Headers;
 };
 
@@ -3608,11 +3528,6 @@ export type listAnimalsApiAnimalsGetResponse414 = {
   status: 414
 }
 
-export type listAnimalsApiAnimalsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listAnimalsApiAnimalsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -3636,7 +3551,7 @@ export type listAnimalsApiAnimalsGetResponse503 = {
 export type listAnimalsApiAnimalsGetResponseSuccess = (listAnimalsApiAnimalsGetResponse200) & {
   headers: Headers;
 };
-export type listAnimalsApiAnimalsGetResponseError = (listAnimalsApiAnimalsGetResponse400 | listAnimalsApiAnimalsGetResponse401 | listAnimalsApiAnimalsGetResponse403 | listAnimalsApiAnimalsGetResponse404 | listAnimalsApiAnimalsGetResponse409 | listAnimalsApiAnimalsGetResponse413 | listAnimalsApiAnimalsGetResponse414 | listAnimalsApiAnimalsGetResponse415 | listAnimalsApiAnimalsGetResponse422 | listAnimalsApiAnimalsGetResponse429 | listAnimalsApiAnimalsGetResponse500 | listAnimalsApiAnimalsGetResponse503) & {
+export type listAnimalsApiAnimalsGetResponseError = (listAnimalsApiAnimalsGetResponse400 | listAnimalsApiAnimalsGetResponse401 | listAnimalsApiAnimalsGetResponse403 | listAnimalsApiAnimalsGetResponse404 | listAnimalsApiAnimalsGetResponse409 | listAnimalsApiAnimalsGetResponse413 | listAnimalsApiAnimalsGetResponse414 | listAnimalsApiAnimalsGetResponse422 | listAnimalsApiAnimalsGetResponse429 | listAnimalsApiAnimalsGetResponse500 | listAnimalsApiAnimalsGetResponse503) & {
   headers: Headers;
 };
 
@@ -3796,11 +3711,6 @@ export type createAnimalApiAnimalsPostResponse414 = {
   status: 414
 }
 
-export type createAnimalApiAnimalsPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type createAnimalApiAnimalsPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -3824,7 +3734,7 @@ export type createAnimalApiAnimalsPostResponse503 = {
 export type createAnimalApiAnimalsPostResponseSuccess = (createAnimalApiAnimalsPostResponse201) & {
   headers: Headers;
 };
-export type createAnimalApiAnimalsPostResponseError = (createAnimalApiAnimalsPostResponse400 | createAnimalApiAnimalsPostResponse401 | createAnimalApiAnimalsPostResponse403 | createAnimalApiAnimalsPostResponse404 | createAnimalApiAnimalsPostResponse409 | createAnimalApiAnimalsPostResponse413 | createAnimalApiAnimalsPostResponse414 | createAnimalApiAnimalsPostResponse415 | createAnimalApiAnimalsPostResponse422 | createAnimalApiAnimalsPostResponse429 | createAnimalApiAnimalsPostResponse500 | createAnimalApiAnimalsPostResponse503) & {
+export type createAnimalApiAnimalsPostResponseError = (createAnimalApiAnimalsPostResponse400 | createAnimalApiAnimalsPostResponse401 | createAnimalApiAnimalsPostResponse403 | createAnimalApiAnimalsPostResponse404 | createAnimalApiAnimalsPostResponse409 | createAnimalApiAnimalsPostResponse413 | createAnimalApiAnimalsPostResponse414 | createAnimalApiAnimalsPostResponse422 | createAnimalApiAnimalsPostResponse429 | createAnimalApiAnimalsPostResponse500 | createAnimalApiAnimalsPostResponse503) & {
   headers: Headers;
 };
 
@@ -3950,11 +3860,6 @@ export type updateAnimalApiAnimalsAnimalIdPatchResponse414 = {
   status: 414
 }
 
-export type updateAnimalApiAnimalsAnimalIdPatchResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type updateAnimalApiAnimalsAnimalIdPatchResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -3978,7 +3883,7 @@ export type updateAnimalApiAnimalsAnimalIdPatchResponse503 = {
 export type updateAnimalApiAnimalsAnimalIdPatchResponseSuccess = (updateAnimalApiAnimalsAnimalIdPatchResponse200) & {
   headers: Headers;
 };
-export type updateAnimalApiAnimalsAnimalIdPatchResponseError = (updateAnimalApiAnimalsAnimalIdPatchResponse400 | updateAnimalApiAnimalsAnimalIdPatchResponse401 | updateAnimalApiAnimalsAnimalIdPatchResponse403 | updateAnimalApiAnimalsAnimalIdPatchResponse404 | updateAnimalApiAnimalsAnimalIdPatchResponse409 | updateAnimalApiAnimalsAnimalIdPatchResponse413 | updateAnimalApiAnimalsAnimalIdPatchResponse414 | updateAnimalApiAnimalsAnimalIdPatchResponse415 | updateAnimalApiAnimalsAnimalIdPatchResponse422 | updateAnimalApiAnimalsAnimalIdPatchResponse429 | updateAnimalApiAnimalsAnimalIdPatchResponse500 | updateAnimalApiAnimalsAnimalIdPatchResponse503) & {
+export type updateAnimalApiAnimalsAnimalIdPatchResponseError = (updateAnimalApiAnimalsAnimalIdPatchResponse400 | updateAnimalApiAnimalsAnimalIdPatchResponse401 | updateAnimalApiAnimalsAnimalIdPatchResponse403 | updateAnimalApiAnimalsAnimalIdPatchResponse404 | updateAnimalApiAnimalsAnimalIdPatchResponse409 | updateAnimalApiAnimalsAnimalIdPatchResponse413 | updateAnimalApiAnimalsAnimalIdPatchResponse414 | updateAnimalApiAnimalsAnimalIdPatchResponse422 | updateAnimalApiAnimalsAnimalIdPatchResponse429 | updateAnimalApiAnimalsAnimalIdPatchResponse500 | updateAnimalApiAnimalsAnimalIdPatchResponse503) & {
   headers: Headers;
 };
 
@@ -4101,11 +4006,6 @@ export type animalProfileApiAnimalsAnimalIdGetResponse414 = {
   status: 414
 }
 
-export type animalProfileApiAnimalsAnimalIdGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type animalProfileApiAnimalsAnimalIdGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -4129,7 +4029,7 @@ export type animalProfileApiAnimalsAnimalIdGetResponse503 = {
 export type animalProfileApiAnimalsAnimalIdGetResponseSuccess = (animalProfileApiAnimalsAnimalIdGetResponse200) & {
   headers: Headers;
 };
-export type animalProfileApiAnimalsAnimalIdGetResponseError = (animalProfileApiAnimalsAnimalIdGetResponse400 | animalProfileApiAnimalsAnimalIdGetResponse401 | animalProfileApiAnimalsAnimalIdGetResponse403 | animalProfileApiAnimalsAnimalIdGetResponse404 | animalProfileApiAnimalsAnimalIdGetResponse409 | animalProfileApiAnimalsAnimalIdGetResponse413 | animalProfileApiAnimalsAnimalIdGetResponse414 | animalProfileApiAnimalsAnimalIdGetResponse415 | animalProfileApiAnimalsAnimalIdGetResponse422 | animalProfileApiAnimalsAnimalIdGetResponse429 | animalProfileApiAnimalsAnimalIdGetResponse500 | animalProfileApiAnimalsAnimalIdGetResponse503) & {
+export type animalProfileApiAnimalsAnimalIdGetResponseError = (animalProfileApiAnimalsAnimalIdGetResponse400 | animalProfileApiAnimalsAnimalIdGetResponse401 | animalProfileApiAnimalsAnimalIdGetResponse403 | animalProfileApiAnimalsAnimalIdGetResponse404 | animalProfileApiAnimalsAnimalIdGetResponse409 | animalProfileApiAnimalsAnimalIdGetResponse413 | animalProfileApiAnimalsAnimalIdGetResponse414 | animalProfileApiAnimalsAnimalIdGetResponse422 | animalProfileApiAnimalsAnimalIdGetResponse429 | animalProfileApiAnimalsAnimalIdGetResponse500 | animalProfileApiAnimalsAnimalIdGetResponse503) & {
   headers: Headers;
 };
 
@@ -4291,11 +4191,6 @@ export type moveBucketApiAnimalsAnimalIdMovePostResponse414 = {
   status: 414
 }
 
-export type moveBucketApiAnimalsAnimalIdMovePostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type moveBucketApiAnimalsAnimalIdMovePostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -4319,7 +4214,7 @@ export type moveBucketApiAnimalsAnimalIdMovePostResponse503 = {
 export type moveBucketApiAnimalsAnimalIdMovePostResponseSuccess = (moveBucketApiAnimalsAnimalIdMovePostResponse200) & {
   headers: Headers;
 };
-export type moveBucketApiAnimalsAnimalIdMovePostResponseError = (moveBucketApiAnimalsAnimalIdMovePostResponse400 | moveBucketApiAnimalsAnimalIdMovePostResponse401 | moveBucketApiAnimalsAnimalIdMovePostResponse403 | moveBucketApiAnimalsAnimalIdMovePostResponse404 | moveBucketApiAnimalsAnimalIdMovePostResponse409 | moveBucketApiAnimalsAnimalIdMovePostResponse413 | moveBucketApiAnimalsAnimalIdMovePostResponse414 | moveBucketApiAnimalsAnimalIdMovePostResponse415 | moveBucketApiAnimalsAnimalIdMovePostResponse422 | moveBucketApiAnimalsAnimalIdMovePostResponse429 | moveBucketApiAnimalsAnimalIdMovePostResponse500 | moveBucketApiAnimalsAnimalIdMovePostResponse503) & {
+export type moveBucketApiAnimalsAnimalIdMovePostResponseError = (moveBucketApiAnimalsAnimalIdMovePostResponse400 | moveBucketApiAnimalsAnimalIdMovePostResponse401 | moveBucketApiAnimalsAnimalIdMovePostResponse403 | moveBucketApiAnimalsAnimalIdMovePostResponse404 | moveBucketApiAnimalsAnimalIdMovePostResponse409 | moveBucketApiAnimalsAnimalIdMovePostResponse413 | moveBucketApiAnimalsAnimalIdMovePostResponse414 | moveBucketApiAnimalsAnimalIdMovePostResponse422 | moveBucketApiAnimalsAnimalIdMovePostResponse429 | moveBucketApiAnimalsAnimalIdMovePostResponse500 | moveBucketApiAnimalsAnimalIdMovePostResponse503) & {
   headers: Headers;
 };
 
@@ -4437,11 +4332,6 @@ export type recordWeightApiAnimalsAnimalIdWeightPostResponse414 = {
   status: 414
 }
 
-export type recordWeightApiAnimalsAnimalIdWeightPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type recordWeightApiAnimalsAnimalIdWeightPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -4465,7 +4355,7 @@ export type recordWeightApiAnimalsAnimalIdWeightPostResponse503 = {
 export type recordWeightApiAnimalsAnimalIdWeightPostResponseSuccess = (recordWeightApiAnimalsAnimalIdWeightPostResponse201) & {
   headers: Headers;
 };
-export type recordWeightApiAnimalsAnimalIdWeightPostResponseError = (recordWeightApiAnimalsAnimalIdWeightPostResponse400 | recordWeightApiAnimalsAnimalIdWeightPostResponse401 | recordWeightApiAnimalsAnimalIdWeightPostResponse403 | recordWeightApiAnimalsAnimalIdWeightPostResponse404 | recordWeightApiAnimalsAnimalIdWeightPostResponse409 | recordWeightApiAnimalsAnimalIdWeightPostResponse413 | recordWeightApiAnimalsAnimalIdWeightPostResponse414 | recordWeightApiAnimalsAnimalIdWeightPostResponse415 | recordWeightApiAnimalsAnimalIdWeightPostResponse422 | recordWeightApiAnimalsAnimalIdWeightPostResponse429 | recordWeightApiAnimalsAnimalIdWeightPostResponse500 | recordWeightApiAnimalsAnimalIdWeightPostResponse503) & {
+export type recordWeightApiAnimalsAnimalIdWeightPostResponseError = (recordWeightApiAnimalsAnimalIdWeightPostResponse400 | recordWeightApiAnimalsAnimalIdWeightPostResponse401 | recordWeightApiAnimalsAnimalIdWeightPostResponse403 | recordWeightApiAnimalsAnimalIdWeightPostResponse404 | recordWeightApiAnimalsAnimalIdWeightPostResponse409 | recordWeightApiAnimalsAnimalIdWeightPostResponse413 | recordWeightApiAnimalsAnimalIdWeightPostResponse414 | recordWeightApiAnimalsAnimalIdWeightPostResponse422 | recordWeightApiAnimalsAnimalIdWeightPostResponse429 | recordWeightApiAnimalsAnimalIdWeightPostResponse500 | recordWeightApiAnimalsAnimalIdWeightPostResponse503) & {
   headers: Headers;
 };
 
@@ -4583,11 +4473,6 @@ export type changeStatusApiAnimalsAnimalIdStatusPostResponse414 = {
   status: 414
 }
 
-export type changeStatusApiAnimalsAnimalIdStatusPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type changeStatusApiAnimalsAnimalIdStatusPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -4611,7 +4496,7 @@ export type changeStatusApiAnimalsAnimalIdStatusPostResponse503 = {
 export type changeStatusApiAnimalsAnimalIdStatusPostResponseSuccess = (changeStatusApiAnimalsAnimalIdStatusPostResponse200) & {
   headers: Headers;
 };
-export type changeStatusApiAnimalsAnimalIdStatusPostResponseError = (changeStatusApiAnimalsAnimalIdStatusPostResponse400 | changeStatusApiAnimalsAnimalIdStatusPostResponse401 | changeStatusApiAnimalsAnimalIdStatusPostResponse403 | changeStatusApiAnimalsAnimalIdStatusPostResponse404 | changeStatusApiAnimalsAnimalIdStatusPostResponse409 | changeStatusApiAnimalsAnimalIdStatusPostResponse413 | changeStatusApiAnimalsAnimalIdStatusPostResponse414 | changeStatusApiAnimalsAnimalIdStatusPostResponse415 | changeStatusApiAnimalsAnimalIdStatusPostResponse422 | changeStatusApiAnimalsAnimalIdStatusPostResponse429 | changeStatusApiAnimalsAnimalIdStatusPostResponse500 | changeStatusApiAnimalsAnimalIdStatusPostResponse503) & {
+export type changeStatusApiAnimalsAnimalIdStatusPostResponseError = (changeStatusApiAnimalsAnimalIdStatusPostResponse400 | changeStatusApiAnimalsAnimalIdStatusPostResponse401 | changeStatusApiAnimalsAnimalIdStatusPostResponse403 | changeStatusApiAnimalsAnimalIdStatusPostResponse404 | changeStatusApiAnimalsAnimalIdStatusPostResponse409 | changeStatusApiAnimalsAnimalIdStatusPostResponse413 | changeStatusApiAnimalsAnimalIdStatusPostResponse414 | changeStatusApiAnimalsAnimalIdStatusPostResponse422 | changeStatusApiAnimalsAnimalIdStatusPostResponse429 | changeStatusApiAnimalsAnimalIdStatusPostResponse500 | changeStatusApiAnimalsAnimalIdStatusPostResponse503) & {
   headers: Headers;
 };
 
@@ -4729,11 +4614,6 @@ export type bucketsBoardApiBucketsGetResponse414 = {
   status: 414
 }
 
-export type bucketsBoardApiBucketsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type bucketsBoardApiBucketsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -4757,7 +4637,7 @@ export type bucketsBoardApiBucketsGetResponse503 = {
 export type bucketsBoardApiBucketsGetResponseSuccess = (bucketsBoardApiBucketsGetResponse200) & {
   headers: Headers;
 };
-export type bucketsBoardApiBucketsGetResponseError = (bucketsBoardApiBucketsGetResponse400 | bucketsBoardApiBucketsGetResponse401 | bucketsBoardApiBucketsGetResponse403 | bucketsBoardApiBucketsGetResponse404 | bucketsBoardApiBucketsGetResponse409 | bucketsBoardApiBucketsGetResponse413 | bucketsBoardApiBucketsGetResponse414 | bucketsBoardApiBucketsGetResponse415 | bucketsBoardApiBucketsGetResponse422 | bucketsBoardApiBucketsGetResponse429 | bucketsBoardApiBucketsGetResponse500 | bucketsBoardApiBucketsGetResponse503) & {
+export type bucketsBoardApiBucketsGetResponseError = (bucketsBoardApiBucketsGetResponse400 | bucketsBoardApiBucketsGetResponse401 | bucketsBoardApiBucketsGetResponse403 | bucketsBoardApiBucketsGetResponse404 | bucketsBoardApiBucketsGetResponse409 | bucketsBoardApiBucketsGetResponse413 | bucketsBoardApiBucketsGetResponse414 | bucketsBoardApiBucketsGetResponse422 | bucketsBoardApiBucketsGetResponse429 | bucketsBoardApiBucketsGetResponse500 | bucketsBoardApiBucketsGetResponse503) & {
   headers: Headers;
 };
 
@@ -4909,11 +4789,6 @@ export type breedingListApiBreedingGetResponse414 = {
   status: 414
 }
 
-export type breedingListApiBreedingGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type breedingListApiBreedingGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -4937,7 +4812,7 @@ export type breedingListApiBreedingGetResponse503 = {
 export type breedingListApiBreedingGetResponseSuccess = (breedingListApiBreedingGetResponse200) & {
   headers: Headers;
 };
-export type breedingListApiBreedingGetResponseError = (breedingListApiBreedingGetResponse400 | breedingListApiBreedingGetResponse401 | breedingListApiBreedingGetResponse403 | breedingListApiBreedingGetResponse404 | breedingListApiBreedingGetResponse409 | breedingListApiBreedingGetResponse413 | breedingListApiBreedingGetResponse414 | breedingListApiBreedingGetResponse415 | breedingListApiBreedingGetResponse422 | breedingListApiBreedingGetResponse429 | breedingListApiBreedingGetResponse500 | breedingListApiBreedingGetResponse503) & {
+export type breedingListApiBreedingGetResponseError = (breedingListApiBreedingGetResponse400 | breedingListApiBreedingGetResponse401 | breedingListApiBreedingGetResponse403 | breedingListApiBreedingGetResponse404 | breedingListApiBreedingGetResponse409 | breedingListApiBreedingGetResponse413 | breedingListApiBreedingGetResponse414 | breedingListApiBreedingGetResponse422 | breedingListApiBreedingGetResponse429 | breedingListApiBreedingGetResponse500 | breedingListApiBreedingGetResponse503) & {
   headers: Headers;
 };
 
@@ -5091,11 +4966,6 @@ export type createBreedingApiBreedingPostResponse414 = {
   status: 414
 }
 
-export type createBreedingApiBreedingPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type createBreedingApiBreedingPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -5119,7 +4989,7 @@ export type createBreedingApiBreedingPostResponse503 = {
 export type createBreedingApiBreedingPostResponseSuccess = (createBreedingApiBreedingPostResponse201) & {
   headers: Headers;
 };
-export type createBreedingApiBreedingPostResponseError = (createBreedingApiBreedingPostResponse400 | createBreedingApiBreedingPostResponse401 | createBreedingApiBreedingPostResponse403 | createBreedingApiBreedingPostResponse404 | createBreedingApiBreedingPostResponse409 | createBreedingApiBreedingPostResponse413 | createBreedingApiBreedingPostResponse414 | createBreedingApiBreedingPostResponse415 | createBreedingApiBreedingPostResponse422 | createBreedingApiBreedingPostResponse429 | createBreedingApiBreedingPostResponse500 | createBreedingApiBreedingPostResponse503) & {
+export type createBreedingApiBreedingPostResponseError = (createBreedingApiBreedingPostResponse400 | createBreedingApiBreedingPostResponse401 | createBreedingApiBreedingPostResponse403 | createBreedingApiBreedingPostResponse404 | createBreedingApiBreedingPostResponse409 | createBreedingApiBreedingPostResponse413 | createBreedingApiBreedingPostResponse414 | createBreedingApiBreedingPostResponse422 | createBreedingApiBreedingPostResponse429 | createBreedingApiBreedingPostResponse500 | createBreedingApiBreedingPostResponse503) & {
   headers: Headers;
 };
 
@@ -5236,11 +5106,6 @@ export type breedingCandidatesApiBreedingCandidatesGetResponse414 = {
   status: 414
 }
 
-export type breedingCandidatesApiBreedingCandidatesGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type breedingCandidatesApiBreedingCandidatesGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -5264,7 +5129,7 @@ export type breedingCandidatesApiBreedingCandidatesGetResponse503 = {
 export type breedingCandidatesApiBreedingCandidatesGetResponseSuccess = (breedingCandidatesApiBreedingCandidatesGetResponse200) & {
   headers: Headers;
 };
-export type breedingCandidatesApiBreedingCandidatesGetResponseError = (breedingCandidatesApiBreedingCandidatesGetResponse400 | breedingCandidatesApiBreedingCandidatesGetResponse401 | breedingCandidatesApiBreedingCandidatesGetResponse403 | breedingCandidatesApiBreedingCandidatesGetResponse404 | breedingCandidatesApiBreedingCandidatesGetResponse409 | breedingCandidatesApiBreedingCandidatesGetResponse413 | breedingCandidatesApiBreedingCandidatesGetResponse414 | breedingCandidatesApiBreedingCandidatesGetResponse415 | breedingCandidatesApiBreedingCandidatesGetResponse422 | breedingCandidatesApiBreedingCandidatesGetResponse429 | breedingCandidatesApiBreedingCandidatesGetResponse500 | breedingCandidatesApiBreedingCandidatesGetResponse503) & {
+export type breedingCandidatesApiBreedingCandidatesGetResponseError = (breedingCandidatesApiBreedingCandidatesGetResponse400 | breedingCandidatesApiBreedingCandidatesGetResponse401 | breedingCandidatesApiBreedingCandidatesGetResponse403 | breedingCandidatesApiBreedingCandidatesGetResponse404 | breedingCandidatesApiBreedingCandidatesGetResponse409 | breedingCandidatesApiBreedingCandidatesGetResponse413 | breedingCandidatesApiBreedingCandidatesGetResponse414 | breedingCandidatesApiBreedingCandidatesGetResponse422 | breedingCandidatesApiBreedingCandidatesGetResponse429 | breedingCandidatesApiBreedingCandidatesGetResponse500 | breedingCandidatesApiBreedingCandidatesGetResponse503) & {
   headers: Headers;
 };
 
@@ -5423,11 +5288,6 @@ export type getBreedingRecordApiBreedingRecordIdGetResponse414 = {
   status: 414
 }
 
-export type getBreedingRecordApiBreedingRecordIdGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type getBreedingRecordApiBreedingRecordIdGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -5451,7 +5311,7 @@ export type getBreedingRecordApiBreedingRecordIdGetResponse503 = {
 export type getBreedingRecordApiBreedingRecordIdGetResponseSuccess = (getBreedingRecordApiBreedingRecordIdGetResponse200) & {
   headers: Headers;
 };
-export type getBreedingRecordApiBreedingRecordIdGetResponseError = (getBreedingRecordApiBreedingRecordIdGetResponse400 | getBreedingRecordApiBreedingRecordIdGetResponse401 | getBreedingRecordApiBreedingRecordIdGetResponse403 | getBreedingRecordApiBreedingRecordIdGetResponse404 | getBreedingRecordApiBreedingRecordIdGetResponse409 | getBreedingRecordApiBreedingRecordIdGetResponse413 | getBreedingRecordApiBreedingRecordIdGetResponse414 | getBreedingRecordApiBreedingRecordIdGetResponse415 | getBreedingRecordApiBreedingRecordIdGetResponse422 | getBreedingRecordApiBreedingRecordIdGetResponse429 | getBreedingRecordApiBreedingRecordIdGetResponse500 | getBreedingRecordApiBreedingRecordIdGetResponse503) & {
+export type getBreedingRecordApiBreedingRecordIdGetResponseError = (getBreedingRecordApiBreedingRecordIdGetResponse400 | getBreedingRecordApiBreedingRecordIdGetResponse401 | getBreedingRecordApiBreedingRecordIdGetResponse403 | getBreedingRecordApiBreedingRecordIdGetResponse404 | getBreedingRecordApiBreedingRecordIdGetResponse409 | getBreedingRecordApiBreedingRecordIdGetResponse413 | getBreedingRecordApiBreedingRecordIdGetResponse414 | getBreedingRecordApiBreedingRecordIdGetResponse422 | getBreedingRecordApiBreedingRecordIdGetResponse429 | getBreedingRecordApiBreedingRecordIdGetResponse500 | getBreedingRecordApiBreedingRecordIdGetResponse503) & {
   headers: Headers;
 };
 
@@ -5598,11 +5458,6 @@ export type submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse414 = {
   status: 414
 }
 
-export type submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -5626,7 +5481,7 @@ export type submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse503 = {
 export type submitUltrasoundApiBreedingRecordIdUltrasoundPostResponseSuccess = (submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse200) & {
   headers: Headers;
 };
-export type submitUltrasoundApiBreedingRecordIdUltrasoundPostResponseError = (submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse400 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse401 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse403 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse404 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse409 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse413 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse414 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse415 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse422 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse429 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse500 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse503) & {
+export type submitUltrasoundApiBreedingRecordIdUltrasoundPostResponseError = (submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse400 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse401 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse403 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse404 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse409 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse413 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse414 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse422 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse429 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse500 | submitUltrasoundApiBreedingRecordIdUltrasoundPostResponse503) & {
   headers: Headers;
 };
 
@@ -5744,11 +5599,6 @@ export type abortPregnancyApiBreedingRecordIdAbortPostResponse414 = {
   status: 414
 }
 
-export type abortPregnancyApiBreedingRecordIdAbortPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type abortPregnancyApiBreedingRecordIdAbortPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -5772,7 +5622,7 @@ export type abortPregnancyApiBreedingRecordIdAbortPostResponse503 = {
 export type abortPregnancyApiBreedingRecordIdAbortPostResponseSuccess = (abortPregnancyApiBreedingRecordIdAbortPostResponse200) & {
   headers: Headers;
 };
-export type abortPregnancyApiBreedingRecordIdAbortPostResponseError = (abortPregnancyApiBreedingRecordIdAbortPostResponse400 | abortPregnancyApiBreedingRecordIdAbortPostResponse401 | abortPregnancyApiBreedingRecordIdAbortPostResponse403 | abortPregnancyApiBreedingRecordIdAbortPostResponse404 | abortPregnancyApiBreedingRecordIdAbortPostResponse409 | abortPregnancyApiBreedingRecordIdAbortPostResponse413 | abortPregnancyApiBreedingRecordIdAbortPostResponse414 | abortPregnancyApiBreedingRecordIdAbortPostResponse415 | abortPregnancyApiBreedingRecordIdAbortPostResponse422 | abortPregnancyApiBreedingRecordIdAbortPostResponse429 | abortPregnancyApiBreedingRecordIdAbortPostResponse500 | abortPregnancyApiBreedingRecordIdAbortPostResponse503) & {
+export type abortPregnancyApiBreedingRecordIdAbortPostResponseError = (abortPregnancyApiBreedingRecordIdAbortPostResponse400 | abortPregnancyApiBreedingRecordIdAbortPostResponse401 | abortPregnancyApiBreedingRecordIdAbortPostResponse403 | abortPregnancyApiBreedingRecordIdAbortPostResponse404 | abortPregnancyApiBreedingRecordIdAbortPostResponse409 | abortPregnancyApiBreedingRecordIdAbortPostResponse413 | abortPregnancyApiBreedingRecordIdAbortPostResponse414 | abortPregnancyApiBreedingRecordIdAbortPostResponse422 | abortPregnancyApiBreedingRecordIdAbortPostResponse429 | abortPregnancyApiBreedingRecordIdAbortPostResponse500 | abortPregnancyApiBreedingRecordIdAbortPostResponse503) & {
   headers: Headers;
 };
 
@@ -5890,11 +5740,6 @@ export type kiddingListApiKiddingGetResponse414 = {
   status: 414
 }
 
-export type kiddingListApiKiddingGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type kiddingListApiKiddingGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -5918,7 +5763,7 @@ export type kiddingListApiKiddingGetResponse503 = {
 export type kiddingListApiKiddingGetResponseSuccess = (kiddingListApiKiddingGetResponse200) & {
   headers: Headers;
 };
-export type kiddingListApiKiddingGetResponseError = (kiddingListApiKiddingGetResponse400 | kiddingListApiKiddingGetResponse401 | kiddingListApiKiddingGetResponse403 | kiddingListApiKiddingGetResponse404 | kiddingListApiKiddingGetResponse409 | kiddingListApiKiddingGetResponse413 | kiddingListApiKiddingGetResponse414 | kiddingListApiKiddingGetResponse415 | kiddingListApiKiddingGetResponse422 | kiddingListApiKiddingGetResponse429 | kiddingListApiKiddingGetResponse500 | kiddingListApiKiddingGetResponse503) & {
+export type kiddingListApiKiddingGetResponseError = (kiddingListApiKiddingGetResponse400 | kiddingListApiKiddingGetResponse401 | kiddingListApiKiddingGetResponse403 | kiddingListApiKiddingGetResponse404 | kiddingListApiKiddingGetResponse409 | kiddingListApiKiddingGetResponse413 | kiddingListApiKiddingGetResponse414 | kiddingListApiKiddingGetResponse422 | kiddingListApiKiddingGetResponse429 | kiddingListApiKiddingGetResponse500 | kiddingListApiKiddingGetResponse503) & {
   headers: Headers;
 };
 
@@ -6072,11 +5917,6 @@ export type createKiddingApiKiddingPostResponse414 = {
   status: 414
 }
 
-export type createKiddingApiKiddingPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type createKiddingApiKiddingPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -6100,7 +5940,7 @@ export type createKiddingApiKiddingPostResponse503 = {
 export type createKiddingApiKiddingPostResponseSuccess = (createKiddingApiKiddingPostResponse201) & {
   headers: Headers;
 };
-export type createKiddingApiKiddingPostResponseError = (createKiddingApiKiddingPostResponse400 | createKiddingApiKiddingPostResponse401 | createKiddingApiKiddingPostResponse403 | createKiddingApiKiddingPostResponse404 | createKiddingApiKiddingPostResponse409 | createKiddingApiKiddingPostResponse413 | createKiddingApiKiddingPostResponse414 | createKiddingApiKiddingPostResponse415 | createKiddingApiKiddingPostResponse422 | createKiddingApiKiddingPostResponse429 | createKiddingApiKiddingPostResponse500 | createKiddingApiKiddingPostResponse503) & {
+export type createKiddingApiKiddingPostResponseError = (createKiddingApiKiddingPostResponse400 | createKiddingApiKiddingPostResponse401 | createKiddingApiKiddingPostResponse403 | createKiddingApiKiddingPostResponse404 | createKiddingApiKiddingPostResponse409 | createKiddingApiKiddingPostResponse413 | createKiddingApiKiddingPostResponse414 | createKiddingApiKiddingPostResponse422 | createKiddingApiKiddingPostResponse429 | createKiddingApiKiddingPostResponse500 | createKiddingApiKiddingPostResponse503) & {
   headers: Headers;
 };
 
@@ -6217,11 +6057,6 @@ export type kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse414 
   status: 414
 }
 
-export type kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -6245,7 +6080,7 @@ export type kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse503 
 export type kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponseSuccess = (kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse200) & {
   headers: Headers;
 };
-export type kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponseError = (kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse400 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse401 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse403 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse404 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse409 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse413 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse414 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse415 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse422 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse429 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse500 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse503) & {
+export type kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponseError = (kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse400 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse401 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse403 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse404 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse409 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse413 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse414 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse422 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse429 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse500 | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse503) & {
   headers: Headers;
 };
 
@@ -6393,11 +6228,6 @@ export type healthRoundProgressApiHealthRoundsTaskIdGetResponse414 = {
   status: 414
 }
 
-export type healthRoundProgressApiHealthRoundsTaskIdGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type healthRoundProgressApiHealthRoundsTaskIdGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -6421,7 +6251,7 @@ export type healthRoundProgressApiHealthRoundsTaskIdGetResponse503 = {
 export type healthRoundProgressApiHealthRoundsTaskIdGetResponseSuccess = (healthRoundProgressApiHealthRoundsTaskIdGetResponse200) & {
   headers: Headers;
 };
-export type healthRoundProgressApiHealthRoundsTaskIdGetResponseError = (healthRoundProgressApiHealthRoundsTaskIdGetResponse400 | healthRoundProgressApiHealthRoundsTaskIdGetResponse401 | healthRoundProgressApiHealthRoundsTaskIdGetResponse403 | healthRoundProgressApiHealthRoundsTaskIdGetResponse404 | healthRoundProgressApiHealthRoundsTaskIdGetResponse409 | healthRoundProgressApiHealthRoundsTaskIdGetResponse413 | healthRoundProgressApiHealthRoundsTaskIdGetResponse414 | healthRoundProgressApiHealthRoundsTaskIdGetResponse415 | healthRoundProgressApiHealthRoundsTaskIdGetResponse422 | healthRoundProgressApiHealthRoundsTaskIdGetResponse429 | healthRoundProgressApiHealthRoundsTaskIdGetResponse500 | healthRoundProgressApiHealthRoundsTaskIdGetResponse503) & {
+export type healthRoundProgressApiHealthRoundsTaskIdGetResponseError = (healthRoundProgressApiHealthRoundsTaskIdGetResponse400 | healthRoundProgressApiHealthRoundsTaskIdGetResponse401 | healthRoundProgressApiHealthRoundsTaskIdGetResponse403 | healthRoundProgressApiHealthRoundsTaskIdGetResponse404 | healthRoundProgressApiHealthRoundsTaskIdGetResponse409 | healthRoundProgressApiHealthRoundsTaskIdGetResponse413 | healthRoundProgressApiHealthRoundsTaskIdGetResponse414 | healthRoundProgressApiHealthRoundsTaskIdGetResponse422 | healthRoundProgressApiHealthRoundsTaskIdGetResponse429 | healthRoundProgressApiHealthRoundsTaskIdGetResponse500 | healthRoundProgressApiHealthRoundsTaskIdGetResponse503) & {
   headers: Headers;
 };
 
@@ -6584,11 +6414,6 @@ export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse414 = {
   status: 414
 }
 
-export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -6612,7 +6437,7 @@ export type startHealthRoundApiHealthRoundsTaskIdStartPostResponse503 = {
 export type startHealthRoundApiHealthRoundsTaskIdStartPostResponseSuccess = (startHealthRoundApiHealthRoundsTaskIdStartPostResponse200) & {
   headers: Headers;
 };
-export type startHealthRoundApiHealthRoundsTaskIdStartPostResponseError = (startHealthRoundApiHealthRoundsTaskIdStartPostResponse400 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse401 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse403 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse404 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse409 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse413 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse414 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse415 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse422 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse429 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse500 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse503) & {
+export type startHealthRoundApiHealthRoundsTaskIdStartPostResponseError = (startHealthRoundApiHealthRoundsTaskIdStartPostResponse400 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse401 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse403 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse404 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse409 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse413 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse414 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse422 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse429 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse500 | startHealthRoundApiHealthRoundsTaskIdStartPostResponse503) & {
   headers: Headers;
 };
 
@@ -6729,11 +6554,6 @@ export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse414 = {
   status: 414
 }
 
-export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -6757,7 +6577,7 @@ export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse503 = {
 export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponseSuccess = (addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse200) & {
   headers: Headers;
 };
-export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponseError = (addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse400 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse401 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse403 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse404 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse409 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse413 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse414 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse415 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse422 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse429 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse500 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse503) & {
+export type addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponseError = (addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse400 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse401 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse403 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse404 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse409 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse413 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse414 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse422 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse429 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse500 | addHealthRoundTargetsApiHealthRoundsTaskIdTargetsPostResponse503) & {
   headers: Headers;
 };
 
@@ -6875,11 +6695,6 @@ export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse
   status: 414
 }
 
-export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -6903,7 +6718,7 @@ export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse
 export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponseSuccess = (excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse200) & {
   headers: Headers;
 };
-export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponseError = (excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse400 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse401 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse403 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse404 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse409 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse413 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse414 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse415 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse422 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse429 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse500 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse503) & {
+export type excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponseError = (excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse400 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse401 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse403 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse404 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse409 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse413 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse414 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse422 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse429 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse500 | excludeHealthRoundTargetsApiHealthRoundsTaskIdExclusionsPostResponse503) & {
   headers: Headers;
 };
 
@@ -7021,11 +6836,6 @@ export type scheduleTemplatesApiHealthScheduleTemplatesGetResponse414 = {
   status: 414
 }
 
-export type scheduleTemplatesApiHealthScheduleTemplatesGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type scheduleTemplatesApiHealthScheduleTemplatesGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -7049,7 +6859,7 @@ export type scheduleTemplatesApiHealthScheduleTemplatesGetResponse503 = {
 export type scheduleTemplatesApiHealthScheduleTemplatesGetResponseSuccess = (scheduleTemplatesApiHealthScheduleTemplatesGetResponse200) & {
   headers: Headers;
 };
-export type scheduleTemplatesApiHealthScheduleTemplatesGetResponseError = (scheduleTemplatesApiHealthScheduleTemplatesGetResponse400 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse401 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse403 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse404 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse409 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse413 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse414 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse415 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse422 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse429 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse500 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse503) & {
+export type scheduleTemplatesApiHealthScheduleTemplatesGetResponseError = (scheduleTemplatesApiHealthScheduleTemplatesGetResponse400 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse401 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse403 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse404 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse409 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse413 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse414 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse422 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse429 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse500 | scheduleTemplatesApiHealthScheduleTemplatesGetResponse503) & {
   headers: Headers;
 };
 
@@ -7204,11 +7014,6 @@ export type healthAnimalOptionsApiHealthAnimalsGetResponse414 = {
   status: 414
 }
 
-export type healthAnimalOptionsApiHealthAnimalsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type healthAnimalOptionsApiHealthAnimalsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -7232,7 +7037,7 @@ export type healthAnimalOptionsApiHealthAnimalsGetResponse503 = {
 export type healthAnimalOptionsApiHealthAnimalsGetResponseSuccess = (healthAnimalOptionsApiHealthAnimalsGetResponse200) & {
   headers: Headers;
 };
-export type healthAnimalOptionsApiHealthAnimalsGetResponseError = (healthAnimalOptionsApiHealthAnimalsGetResponse400 | healthAnimalOptionsApiHealthAnimalsGetResponse401 | healthAnimalOptionsApiHealthAnimalsGetResponse403 | healthAnimalOptionsApiHealthAnimalsGetResponse404 | healthAnimalOptionsApiHealthAnimalsGetResponse409 | healthAnimalOptionsApiHealthAnimalsGetResponse413 | healthAnimalOptionsApiHealthAnimalsGetResponse414 | healthAnimalOptionsApiHealthAnimalsGetResponse415 | healthAnimalOptionsApiHealthAnimalsGetResponse422 | healthAnimalOptionsApiHealthAnimalsGetResponse429 | healthAnimalOptionsApiHealthAnimalsGetResponse500 | healthAnimalOptionsApiHealthAnimalsGetResponse503) & {
+export type healthAnimalOptionsApiHealthAnimalsGetResponseError = (healthAnimalOptionsApiHealthAnimalsGetResponse400 | healthAnimalOptionsApiHealthAnimalsGetResponse401 | healthAnimalOptionsApiHealthAnimalsGetResponse403 | healthAnimalOptionsApiHealthAnimalsGetResponse404 | healthAnimalOptionsApiHealthAnimalsGetResponse409 | healthAnimalOptionsApiHealthAnimalsGetResponse413 | healthAnimalOptionsApiHealthAnimalsGetResponse414 | healthAnimalOptionsApiHealthAnimalsGetResponse422 | healthAnimalOptionsApiHealthAnimalsGetResponse429 | healthAnimalOptionsApiHealthAnimalsGetResponse500 | healthAnimalOptionsApiHealthAnimalsGetResponse503) & {
   headers: Headers;
 };
 
@@ -7394,11 +7199,6 @@ export type healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse414 = {
   status: 414
 }
 
-export type healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -7422,7 +7222,7 @@ export type healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse503 = {
 export type healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponseSuccess = (healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse200) & {
   headers: Headers;
 };
-export type healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponseError = (healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse400 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse401 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse403 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse404 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse409 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse413 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse414 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse415 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse422 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse429 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse500 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse503) & {
+export type healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponseError = (healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse400 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse401 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse403 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse404 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse409 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse413 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse414 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse422 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse429 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse500 | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse503) & {
   headers: Headers;
 };
 
@@ -7582,11 +7382,6 @@ export type movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse41
   status: 414
 }
 
-export type movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -7610,7 +7405,7 @@ export type movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse50
 export type movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponseSuccess = (movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse200) & {
   headers: Headers;
 };
-export type movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponseError = (movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse400 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse401 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse403 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse404 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse409 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse413 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse414 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse415 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse422 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse429 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse500 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse503) & {
+export type movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponseError = (movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse400 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse401 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse403 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse404 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse409 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse413 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse414 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse422 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse429 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse500 | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse503) & {
   headers: Headers;
 };
 
@@ -7772,11 +7567,6 @@ export type clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostRespon
   status: 414
 }
 
-export type clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -7800,7 +7590,7 @@ export type clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostRespon
 export type clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponseSuccess = (clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse204) & {
   headers: Headers;
 };
-export type clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponseError = (clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse400 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse401 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse403 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse404 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse409 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse413 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse414 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse415 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse422 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse429 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse500 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse503) & {
+export type clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponseError = (clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse400 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse401 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse403 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse404 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse409 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse413 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse414 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse422 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse429 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse500 | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse503) & {
   headers: Headers;
 };
 
@@ -7923,11 +7713,6 @@ export type listEventsApiHealthEventsGetResponse414 = {
   status: 414
 }
 
-export type listEventsApiHealthEventsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listEventsApiHealthEventsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -7951,7 +7736,7 @@ export type listEventsApiHealthEventsGetResponse503 = {
 export type listEventsApiHealthEventsGetResponseSuccess = (listEventsApiHealthEventsGetResponse200) & {
   headers: Headers;
 };
-export type listEventsApiHealthEventsGetResponseError = (listEventsApiHealthEventsGetResponse400 | listEventsApiHealthEventsGetResponse401 | listEventsApiHealthEventsGetResponse403 | listEventsApiHealthEventsGetResponse404 | listEventsApiHealthEventsGetResponse409 | listEventsApiHealthEventsGetResponse413 | listEventsApiHealthEventsGetResponse414 | listEventsApiHealthEventsGetResponse415 | listEventsApiHealthEventsGetResponse422 | listEventsApiHealthEventsGetResponse429 | listEventsApiHealthEventsGetResponse500 | listEventsApiHealthEventsGetResponse503) & {
+export type listEventsApiHealthEventsGetResponseError = (listEventsApiHealthEventsGetResponse400 | listEventsApiHealthEventsGetResponse401 | listEventsApiHealthEventsGetResponse403 | listEventsApiHealthEventsGetResponse404 | listEventsApiHealthEventsGetResponse409 | listEventsApiHealthEventsGetResponse413 | listEventsApiHealthEventsGetResponse414 | listEventsApiHealthEventsGetResponse422 | listEventsApiHealthEventsGetResponse429 | listEventsApiHealthEventsGetResponse500 | listEventsApiHealthEventsGetResponse503) & {
   headers: Headers;
 };
 
@@ -8106,11 +7891,6 @@ export type recordEventApiHealthEventsPostResponse414 = {
   status: 414
 }
 
-export type recordEventApiHealthEventsPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type recordEventApiHealthEventsPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -8134,7 +7914,7 @@ export type recordEventApiHealthEventsPostResponse503 = {
 export type recordEventApiHealthEventsPostResponseSuccess = (recordEventApiHealthEventsPostResponse201) & {
   headers: Headers;
 };
-export type recordEventApiHealthEventsPostResponseError = (recordEventApiHealthEventsPostResponse400 | recordEventApiHealthEventsPostResponse401 | recordEventApiHealthEventsPostResponse403 | recordEventApiHealthEventsPostResponse404 | recordEventApiHealthEventsPostResponse409 | recordEventApiHealthEventsPostResponse413 | recordEventApiHealthEventsPostResponse414 | recordEventApiHealthEventsPostResponse415 | recordEventApiHealthEventsPostResponse422 | recordEventApiHealthEventsPostResponse429 | recordEventApiHealthEventsPostResponse500 | recordEventApiHealthEventsPostResponse503) & {
+export type recordEventApiHealthEventsPostResponseError = (recordEventApiHealthEventsPostResponse400 | recordEventApiHealthEventsPostResponse401 | recordEventApiHealthEventsPostResponse403 | recordEventApiHealthEventsPostResponse404 | recordEventApiHealthEventsPostResponse409 | recordEventApiHealthEventsPostResponse413 | recordEventApiHealthEventsPostResponse414 | recordEventApiHealthEventsPostResponse422 | recordEventApiHealthEventsPostResponse429 | recordEventApiHealthEventsPostResponse500 | recordEventApiHealthEventsPostResponse503) & {
   headers: Headers;
 };
 
@@ -8255,11 +8035,6 @@ export type previewBulkEventTargetsApiHealthEventsPreviewPostResponse414 = {
   status: 414
 }
 
-export type previewBulkEventTargetsApiHealthEventsPreviewPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type previewBulkEventTargetsApiHealthEventsPreviewPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -8283,7 +8058,7 @@ export type previewBulkEventTargetsApiHealthEventsPreviewPostResponse503 = {
 export type previewBulkEventTargetsApiHealthEventsPreviewPostResponseSuccess = (previewBulkEventTargetsApiHealthEventsPreviewPostResponse200) & {
   headers: Headers;
 };
-export type previewBulkEventTargetsApiHealthEventsPreviewPostResponseError = (previewBulkEventTargetsApiHealthEventsPreviewPostResponse400 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse401 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse403 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse404 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse409 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse413 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse414 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse415 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse422 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse429 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse500 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse503) & {
+export type previewBulkEventTargetsApiHealthEventsPreviewPostResponseError = (previewBulkEventTargetsApiHealthEventsPreviewPostResponse400 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse401 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse403 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse404 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse409 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse413 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse414 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse422 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse429 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse500 | previewBulkEventTargetsApiHealthEventsPreviewPostResponse503) & {
   headers: Headers;
 };
 
@@ -8401,11 +8176,6 @@ export type vaccinationScheduleApiHealthScheduleAnimalIdGetResponse414 = {
   status: 414
 }
 
-export type vaccinationScheduleApiHealthScheduleAnimalIdGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type vaccinationScheduleApiHealthScheduleAnimalIdGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -8429,7 +8199,7 @@ export type vaccinationScheduleApiHealthScheduleAnimalIdGetResponse503 = {
 export type vaccinationScheduleApiHealthScheduleAnimalIdGetResponseSuccess = (vaccinationScheduleApiHealthScheduleAnimalIdGetResponse200) & {
   headers: Headers;
 };
-export type vaccinationScheduleApiHealthScheduleAnimalIdGetResponseError = (vaccinationScheduleApiHealthScheduleAnimalIdGetResponse400 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse401 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse403 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse404 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse409 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse413 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse414 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse415 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse422 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse429 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse500 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse503) & {
+export type vaccinationScheduleApiHealthScheduleAnimalIdGetResponseError = (vaccinationScheduleApiHealthScheduleAnimalIdGetResponse400 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse401 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse403 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse404 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse409 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse413 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse414 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse422 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse429 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse500 | vaccinationScheduleApiHealthScheduleAnimalIdGetResponse503) & {
   headers: Headers;
 };
 
@@ -8577,11 +8347,6 @@ export type listTasksApiTasksGetResponse414 = {
   status: 414
 }
 
-export type listTasksApiTasksGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listTasksApiTasksGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -8605,7 +8370,7 @@ export type listTasksApiTasksGetResponse503 = {
 export type listTasksApiTasksGetResponseSuccess = (listTasksApiTasksGetResponse200) & {
   headers: Headers;
 };
-export type listTasksApiTasksGetResponseError = (listTasksApiTasksGetResponse400 | listTasksApiTasksGetResponse401 | listTasksApiTasksGetResponse403 | listTasksApiTasksGetResponse404 | listTasksApiTasksGetResponse409 | listTasksApiTasksGetResponse413 | listTasksApiTasksGetResponse414 | listTasksApiTasksGetResponse415 | listTasksApiTasksGetResponse422 | listTasksApiTasksGetResponse429 | listTasksApiTasksGetResponse500 | listTasksApiTasksGetResponse503) & {
+export type listTasksApiTasksGetResponseError = (listTasksApiTasksGetResponse400 | listTasksApiTasksGetResponse401 | listTasksApiTasksGetResponse403 | listTasksApiTasksGetResponse404 | listTasksApiTasksGetResponse409 | listTasksApiTasksGetResponse413 | listTasksApiTasksGetResponse414 | listTasksApiTasksGetResponse422 | listTasksApiTasksGetResponse429 | listTasksApiTasksGetResponse500 | listTasksApiTasksGetResponse503) & {
   headers: Headers;
 };
 
@@ -8627,10 +8392,13 @@ export const getListTasksApiTasksGetUrl = (params?: ListTasksApiTasksGetParams,)
 }
 
 /**
- * All five v1 tabs as deterministic, independently pageable lists.
+ * All tab counts plus only the requested deterministic row page(s).
  *
  * Read-only: recurring husbandry duties are materialized by the background
- * cadence sweep (main.py), never on this hot read path.
+ * cadence sweep (main.py), never on this hot read path. ``all`` preserves
+ * the pre-2026-10-04 wire behavior for older clients; interactive clients
+ * use one selected tab, while the worker board uses the two-row-page
+ * ``worker`` view.
  * @summary List Tasks
  */
 export const listTasksApiTasksGet = async (params?: ListTasksApiTasksGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listTasksApiTasksGetResponse> => {
@@ -8763,11 +8531,6 @@ export type createTaskApiTasksPostResponse414 = {
   status: 414
 }
 
-export type createTaskApiTasksPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type createTaskApiTasksPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -8791,7 +8554,7 @@ export type createTaskApiTasksPostResponse503 = {
 export type createTaskApiTasksPostResponseSuccess = (createTaskApiTasksPostResponse201) & {
   headers: Headers;
 };
-export type createTaskApiTasksPostResponseError = (createTaskApiTasksPostResponse400 | createTaskApiTasksPostResponse401 | createTaskApiTasksPostResponse403 | createTaskApiTasksPostResponse404 | createTaskApiTasksPostResponse409 | createTaskApiTasksPostResponse413 | createTaskApiTasksPostResponse414 | createTaskApiTasksPostResponse415 | createTaskApiTasksPostResponse422 | createTaskApiTasksPostResponse429 | createTaskApiTasksPostResponse500 | createTaskApiTasksPostResponse503) & {
+export type createTaskApiTasksPostResponseError = (createTaskApiTasksPostResponse400 | createTaskApiTasksPostResponse401 | createTaskApiTasksPostResponse403 | createTaskApiTasksPostResponse404 | createTaskApiTasksPostResponse409 | createTaskApiTasksPostResponse413 | createTaskApiTasksPostResponse414 | createTaskApiTasksPostResponse422 | createTaskApiTasksPostResponse429 | createTaskApiTasksPostResponse500 | createTaskApiTasksPostResponse503) & {
   headers: Headers;
 };
 
@@ -8914,11 +8677,6 @@ export type getTaskApiTasksTaskIdGetResponse414 = {
   status: 414
 }
 
-export type getTaskApiTasksTaskIdGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type getTaskApiTasksTaskIdGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -8942,7 +8700,7 @@ export type getTaskApiTasksTaskIdGetResponse503 = {
 export type getTaskApiTasksTaskIdGetResponseSuccess = (getTaskApiTasksTaskIdGetResponse200) & {
   headers: Headers;
 };
-export type getTaskApiTasksTaskIdGetResponseError = (getTaskApiTasksTaskIdGetResponse400 | getTaskApiTasksTaskIdGetResponse401 | getTaskApiTasksTaskIdGetResponse403 | getTaskApiTasksTaskIdGetResponse404 | getTaskApiTasksTaskIdGetResponse409 | getTaskApiTasksTaskIdGetResponse413 | getTaskApiTasksTaskIdGetResponse414 | getTaskApiTasksTaskIdGetResponse415 | getTaskApiTasksTaskIdGetResponse422 | getTaskApiTasksTaskIdGetResponse429 | getTaskApiTasksTaskIdGetResponse500 | getTaskApiTasksTaskIdGetResponse503) & {
+export type getTaskApiTasksTaskIdGetResponseError = (getTaskApiTasksTaskIdGetResponse400 | getTaskApiTasksTaskIdGetResponse401 | getTaskApiTasksTaskIdGetResponse403 | getTaskApiTasksTaskIdGetResponse404 | getTaskApiTasksTaskIdGetResponse409 | getTaskApiTasksTaskIdGetResponse413 | getTaskApiTasksTaskIdGetResponse414 | getTaskApiTasksTaskIdGetResponse422 | getTaskApiTasksTaskIdGetResponse429 | getTaskApiTasksTaskIdGetResponse500 | getTaskApiTasksTaskIdGetResponse503) & {
   headers: Headers;
 };
 
@@ -9090,11 +8848,6 @@ export type completeApiTasksTaskIdCompletePostResponse414 = {
   status: 414
 }
 
-export type completeApiTasksTaskIdCompletePostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type completeApiTasksTaskIdCompletePostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -9118,7 +8871,7 @@ export type completeApiTasksTaskIdCompletePostResponse503 = {
 export type completeApiTasksTaskIdCompletePostResponseSuccess = (completeApiTasksTaskIdCompletePostResponse200) & {
   headers: Headers;
 };
-export type completeApiTasksTaskIdCompletePostResponseError = (completeApiTasksTaskIdCompletePostResponse400 | completeApiTasksTaskIdCompletePostResponse401 | completeApiTasksTaskIdCompletePostResponse403 | completeApiTasksTaskIdCompletePostResponse404 | completeApiTasksTaskIdCompletePostResponse409 | completeApiTasksTaskIdCompletePostResponse413 | completeApiTasksTaskIdCompletePostResponse414 | completeApiTasksTaskIdCompletePostResponse415 | completeApiTasksTaskIdCompletePostResponse422 | completeApiTasksTaskIdCompletePostResponse429 | completeApiTasksTaskIdCompletePostResponse500 | completeApiTasksTaskIdCompletePostResponse503) & {
+export type completeApiTasksTaskIdCompletePostResponseError = (completeApiTasksTaskIdCompletePostResponse400 | completeApiTasksTaskIdCompletePostResponse401 | completeApiTasksTaskIdCompletePostResponse403 | completeApiTasksTaskIdCompletePostResponse404 | completeApiTasksTaskIdCompletePostResponse409 | completeApiTasksTaskIdCompletePostResponse413 | completeApiTasksTaskIdCompletePostResponse414 | completeApiTasksTaskIdCompletePostResponse422 | completeApiTasksTaskIdCompletePostResponse429 | completeApiTasksTaskIdCompletePostResponse500 | completeApiTasksTaskIdCompletePostResponse503) & {
   headers: Headers;
 };
 
@@ -9235,11 +8988,6 @@ export type skipApiTasksTaskIdSkipPostResponse414 = {
   status: 414
 }
 
-export type skipApiTasksTaskIdSkipPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type skipApiTasksTaskIdSkipPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -9263,7 +9011,7 @@ export type skipApiTasksTaskIdSkipPostResponse503 = {
 export type skipApiTasksTaskIdSkipPostResponseSuccess = (skipApiTasksTaskIdSkipPostResponse200) & {
   headers: Headers;
 };
-export type skipApiTasksTaskIdSkipPostResponseError = (skipApiTasksTaskIdSkipPostResponse400 | skipApiTasksTaskIdSkipPostResponse401 | skipApiTasksTaskIdSkipPostResponse403 | skipApiTasksTaskIdSkipPostResponse404 | skipApiTasksTaskIdSkipPostResponse409 | skipApiTasksTaskIdSkipPostResponse413 | skipApiTasksTaskIdSkipPostResponse414 | skipApiTasksTaskIdSkipPostResponse415 | skipApiTasksTaskIdSkipPostResponse422 | skipApiTasksTaskIdSkipPostResponse429 | skipApiTasksTaskIdSkipPostResponse500 | skipApiTasksTaskIdSkipPostResponse503) & {
+export type skipApiTasksTaskIdSkipPostResponseError = (skipApiTasksTaskIdSkipPostResponse400 | skipApiTasksTaskIdSkipPostResponse401 | skipApiTasksTaskIdSkipPostResponse403 | skipApiTasksTaskIdSkipPostResponse404 | skipApiTasksTaskIdSkipPostResponse409 | skipApiTasksTaskIdSkipPostResponse413 | skipApiTasksTaskIdSkipPostResponse414 | skipApiTasksTaskIdSkipPostResponse422 | skipApiTasksTaskIdSkipPostResponse429 | skipApiTasksTaskIdSkipPostResponse500 | skipApiTasksTaskIdSkipPostResponse503) & {
   headers: Headers;
 };
 
@@ -9381,11 +9129,6 @@ export type verifyApiTasksTaskIdVerifyPostResponse414 = {
   status: 414
 }
 
-export type verifyApiTasksTaskIdVerifyPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type verifyApiTasksTaskIdVerifyPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -9409,7 +9152,7 @@ export type verifyApiTasksTaskIdVerifyPostResponse503 = {
 export type verifyApiTasksTaskIdVerifyPostResponseSuccess = (verifyApiTasksTaskIdVerifyPostResponse200) & {
   headers: Headers;
 };
-export type verifyApiTasksTaskIdVerifyPostResponseError = (verifyApiTasksTaskIdVerifyPostResponse400 | verifyApiTasksTaskIdVerifyPostResponse401 | verifyApiTasksTaskIdVerifyPostResponse403 | verifyApiTasksTaskIdVerifyPostResponse404 | verifyApiTasksTaskIdVerifyPostResponse409 | verifyApiTasksTaskIdVerifyPostResponse413 | verifyApiTasksTaskIdVerifyPostResponse414 | verifyApiTasksTaskIdVerifyPostResponse415 | verifyApiTasksTaskIdVerifyPostResponse422 | verifyApiTasksTaskIdVerifyPostResponse429 | verifyApiTasksTaskIdVerifyPostResponse500 | verifyApiTasksTaskIdVerifyPostResponse503) & {
+export type verifyApiTasksTaskIdVerifyPostResponseError = (verifyApiTasksTaskIdVerifyPostResponse400 | verifyApiTasksTaskIdVerifyPostResponse401 | verifyApiTasksTaskIdVerifyPostResponse403 | verifyApiTasksTaskIdVerifyPostResponse404 | verifyApiTasksTaskIdVerifyPostResponse409 | verifyApiTasksTaskIdVerifyPostResponse413 | verifyApiTasksTaskIdVerifyPostResponse414 | verifyApiTasksTaskIdVerifyPostResponse422 | verifyApiTasksTaskIdVerifyPostResponse429 | verifyApiTasksTaskIdVerifyPostResponse500 | verifyApiTasksTaskIdVerifyPostResponse503) & {
   headers: Headers;
 };
 
@@ -9526,11 +9269,6 @@ export type rejectApiTasksTaskIdRejectPostResponse414 = {
   status: 414
 }
 
-export type rejectApiTasksTaskIdRejectPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type rejectApiTasksTaskIdRejectPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -9554,7 +9292,7 @@ export type rejectApiTasksTaskIdRejectPostResponse503 = {
 export type rejectApiTasksTaskIdRejectPostResponseSuccess = (rejectApiTasksTaskIdRejectPostResponse200) & {
   headers: Headers;
 };
-export type rejectApiTasksTaskIdRejectPostResponseError = (rejectApiTasksTaskIdRejectPostResponse400 | rejectApiTasksTaskIdRejectPostResponse401 | rejectApiTasksTaskIdRejectPostResponse403 | rejectApiTasksTaskIdRejectPostResponse404 | rejectApiTasksTaskIdRejectPostResponse409 | rejectApiTasksTaskIdRejectPostResponse413 | rejectApiTasksTaskIdRejectPostResponse414 | rejectApiTasksTaskIdRejectPostResponse415 | rejectApiTasksTaskIdRejectPostResponse422 | rejectApiTasksTaskIdRejectPostResponse429 | rejectApiTasksTaskIdRejectPostResponse500 | rejectApiTasksTaskIdRejectPostResponse503) & {
+export type rejectApiTasksTaskIdRejectPostResponseError = (rejectApiTasksTaskIdRejectPostResponse400 | rejectApiTasksTaskIdRejectPostResponse401 | rejectApiTasksTaskIdRejectPostResponse403 | rejectApiTasksTaskIdRejectPostResponse404 | rejectApiTasksTaskIdRejectPostResponse409 | rejectApiTasksTaskIdRejectPostResponse413 | rejectApiTasksTaskIdRejectPostResponse414 | rejectApiTasksTaskIdRejectPostResponse422 | rejectApiTasksTaskIdRejectPostResponse429 | rejectApiTasksTaskIdRejectPostResponse500 | rejectApiTasksTaskIdRejectPostResponse503) & {
   headers: Headers;
 };
 
@@ -9672,11 +9410,6 @@ export type feedingTodayApiFeedingPlanGetResponse414 = {
   status: 414
 }
 
-export type feedingTodayApiFeedingPlanGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type feedingTodayApiFeedingPlanGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -9700,7 +9433,7 @@ export type feedingTodayApiFeedingPlanGetResponse503 = {
 export type feedingTodayApiFeedingPlanGetResponseSuccess = (feedingTodayApiFeedingPlanGetResponse200) & {
   headers: Headers;
 };
-export type feedingTodayApiFeedingPlanGetResponseError = (feedingTodayApiFeedingPlanGetResponse400 | feedingTodayApiFeedingPlanGetResponse401 | feedingTodayApiFeedingPlanGetResponse403 | feedingTodayApiFeedingPlanGetResponse404 | feedingTodayApiFeedingPlanGetResponse409 | feedingTodayApiFeedingPlanGetResponse413 | feedingTodayApiFeedingPlanGetResponse414 | feedingTodayApiFeedingPlanGetResponse415 | feedingTodayApiFeedingPlanGetResponse422 | feedingTodayApiFeedingPlanGetResponse429 | feedingTodayApiFeedingPlanGetResponse500 | feedingTodayApiFeedingPlanGetResponse503) & {
+export type feedingTodayApiFeedingPlanGetResponseError = (feedingTodayApiFeedingPlanGetResponse400 | feedingTodayApiFeedingPlanGetResponse401 | feedingTodayApiFeedingPlanGetResponse403 | feedingTodayApiFeedingPlanGetResponse404 | feedingTodayApiFeedingPlanGetResponse409 | feedingTodayApiFeedingPlanGetResponse413 | feedingTodayApiFeedingPlanGetResponse414 | feedingTodayApiFeedingPlanGetResponse422 | feedingTodayApiFeedingPlanGetResponse429 | feedingTodayApiFeedingPlanGetResponse500 | feedingTodayApiFeedingPlanGetResponse503) & {
   headers: Headers;
 };
 
@@ -9851,11 +9584,6 @@ export type saveSettingApiFeedingSettingsPostResponse414 = {
   status: 414
 }
 
-export type saveSettingApiFeedingSettingsPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type saveSettingApiFeedingSettingsPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -9879,7 +9607,7 @@ export type saveSettingApiFeedingSettingsPostResponse503 = {
 export type saveSettingApiFeedingSettingsPostResponseSuccess = (saveSettingApiFeedingSettingsPostResponse204) & {
   headers: Headers;
 };
-export type saveSettingApiFeedingSettingsPostResponseError = (saveSettingApiFeedingSettingsPostResponse400 | saveSettingApiFeedingSettingsPostResponse401 | saveSettingApiFeedingSettingsPostResponse403 | saveSettingApiFeedingSettingsPostResponse404 | saveSettingApiFeedingSettingsPostResponse409 | saveSettingApiFeedingSettingsPostResponse413 | saveSettingApiFeedingSettingsPostResponse414 | saveSettingApiFeedingSettingsPostResponse415 | saveSettingApiFeedingSettingsPostResponse422 | saveSettingApiFeedingSettingsPostResponse429 | saveSettingApiFeedingSettingsPostResponse500 | saveSettingApiFeedingSettingsPostResponse503) & {
+export type saveSettingApiFeedingSettingsPostResponseError = (saveSettingApiFeedingSettingsPostResponse400 | saveSettingApiFeedingSettingsPostResponse401 | saveSettingApiFeedingSettingsPostResponse403 | saveSettingApiFeedingSettingsPostResponse404 | saveSettingApiFeedingSettingsPostResponse409 | saveSettingApiFeedingSettingsPostResponse413 | saveSettingApiFeedingSettingsPostResponse414 | saveSettingApiFeedingSettingsPostResponse422 | saveSettingApiFeedingSettingsPostResponse429 | saveSettingApiFeedingSettingsPostResponse500 | saveSettingApiFeedingSettingsPostResponse503) & {
   headers: Headers;
 };
 
@@ -9997,11 +9725,6 @@ export type dispenseApiFeedingDispensePostResponse414 = {
   status: 414
 }
 
-export type dispenseApiFeedingDispensePostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type dispenseApiFeedingDispensePostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -10025,7 +9748,7 @@ export type dispenseApiFeedingDispensePostResponse503 = {
 export type dispenseApiFeedingDispensePostResponseSuccess = (dispenseApiFeedingDispensePostResponse201) & {
   headers: Headers;
 };
-export type dispenseApiFeedingDispensePostResponseError = (dispenseApiFeedingDispensePostResponse400 | dispenseApiFeedingDispensePostResponse401 | dispenseApiFeedingDispensePostResponse403 | dispenseApiFeedingDispensePostResponse404 | dispenseApiFeedingDispensePostResponse409 | dispenseApiFeedingDispensePostResponse413 | dispenseApiFeedingDispensePostResponse414 | dispenseApiFeedingDispensePostResponse415 | dispenseApiFeedingDispensePostResponse422 | dispenseApiFeedingDispensePostResponse429 | dispenseApiFeedingDispensePostResponse500 | dispenseApiFeedingDispensePostResponse503) & {
+export type dispenseApiFeedingDispensePostResponseError = (dispenseApiFeedingDispensePostResponse400 | dispenseApiFeedingDispensePostResponse401 | dispenseApiFeedingDispensePostResponse403 | dispenseApiFeedingDispensePostResponse404 | dispenseApiFeedingDispensePostResponse409 | dispenseApiFeedingDispensePostResponse413 | dispenseApiFeedingDispensePostResponse414 | dispenseApiFeedingDispensePostResponse422 | dispenseApiFeedingDispensePostResponse429 | dispenseApiFeedingDispensePostResponse500 | dispenseApiFeedingDispensePostResponse503) & {
   headers: Headers;
 };
 
@@ -10143,11 +9866,6 @@ export type feedingHistoryApiFeedingRecordsGetResponse414 = {
   status: 414
 }
 
-export type feedingHistoryApiFeedingRecordsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type feedingHistoryApiFeedingRecordsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -10171,7 +9889,7 @@ export type feedingHistoryApiFeedingRecordsGetResponse503 = {
 export type feedingHistoryApiFeedingRecordsGetResponseSuccess = (feedingHistoryApiFeedingRecordsGetResponse200) & {
   headers: Headers;
 };
-export type feedingHistoryApiFeedingRecordsGetResponseError = (feedingHistoryApiFeedingRecordsGetResponse400 | feedingHistoryApiFeedingRecordsGetResponse401 | feedingHistoryApiFeedingRecordsGetResponse403 | feedingHistoryApiFeedingRecordsGetResponse404 | feedingHistoryApiFeedingRecordsGetResponse409 | feedingHistoryApiFeedingRecordsGetResponse413 | feedingHistoryApiFeedingRecordsGetResponse414 | feedingHistoryApiFeedingRecordsGetResponse415 | feedingHistoryApiFeedingRecordsGetResponse422 | feedingHistoryApiFeedingRecordsGetResponse429 | feedingHistoryApiFeedingRecordsGetResponse500 | feedingHistoryApiFeedingRecordsGetResponse503) & {
+export type feedingHistoryApiFeedingRecordsGetResponseError = (feedingHistoryApiFeedingRecordsGetResponse400 | feedingHistoryApiFeedingRecordsGetResponse401 | feedingHistoryApiFeedingRecordsGetResponse403 | feedingHistoryApiFeedingRecordsGetResponse404 | feedingHistoryApiFeedingRecordsGetResponse409 | feedingHistoryApiFeedingRecordsGetResponse413 | feedingHistoryApiFeedingRecordsGetResponse414 | feedingHistoryApiFeedingRecordsGetResponse422 | feedingHistoryApiFeedingRecordsGetResponse429 | feedingHistoryApiFeedingRecordsGetResponse500 | feedingHistoryApiFeedingRecordsGetResponse503) & {
   headers: Headers;
 };
 
@@ -10326,11 +10044,6 @@ export type listRecipesApiFeedingRecipesGetResponse414 = {
   status: 414
 }
 
-export type listRecipesApiFeedingRecipesGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listRecipesApiFeedingRecipesGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -10354,7 +10067,7 @@ export type listRecipesApiFeedingRecipesGetResponse503 = {
 export type listRecipesApiFeedingRecipesGetResponseSuccess = (listRecipesApiFeedingRecipesGetResponse200) & {
   headers: Headers;
 };
-export type listRecipesApiFeedingRecipesGetResponseError = (listRecipesApiFeedingRecipesGetResponse400 | listRecipesApiFeedingRecipesGetResponse401 | listRecipesApiFeedingRecipesGetResponse403 | listRecipesApiFeedingRecipesGetResponse404 | listRecipesApiFeedingRecipesGetResponse409 | listRecipesApiFeedingRecipesGetResponse413 | listRecipesApiFeedingRecipesGetResponse414 | listRecipesApiFeedingRecipesGetResponse415 | listRecipesApiFeedingRecipesGetResponse422 | listRecipesApiFeedingRecipesGetResponse429 | listRecipesApiFeedingRecipesGetResponse500 | listRecipesApiFeedingRecipesGetResponse503) & {
+export type listRecipesApiFeedingRecipesGetResponseError = (listRecipesApiFeedingRecipesGetResponse400 | listRecipesApiFeedingRecipesGetResponse401 | listRecipesApiFeedingRecipesGetResponse403 | listRecipesApiFeedingRecipesGetResponse404 | listRecipesApiFeedingRecipesGetResponse409 | listRecipesApiFeedingRecipesGetResponse413 | listRecipesApiFeedingRecipesGetResponse414 | listRecipesApiFeedingRecipesGetResponse422 | listRecipesApiFeedingRecipesGetResponse429 | listRecipesApiFeedingRecipesGetResponse500 | listRecipesApiFeedingRecipesGetResponse503) & {
   headers: Headers;
 };
 
@@ -10502,11 +10215,6 @@ export type listFinishedStockApiFeedingFinishedStockGetResponse414 = {
   status: 414
 }
 
-export type listFinishedStockApiFeedingFinishedStockGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listFinishedStockApiFeedingFinishedStockGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -10530,7 +10238,7 @@ export type listFinishedStockApiFeedingFinishedStockGetResponse503 = {
 export type listFinishedStockApiFeedingFinishedStockGetResponseSuccess = (listFinishedStockApiFeedingFinishedStockGetResponse200) & {
   headers: Headers;
 };
-export type listFinishedStockApiFeedingFinishedStockGetResponseError = (listFinishedStockApiFeedingFinishedStockGetResponse400 | listFinishedStockApiFeedingFinishedStockGetResponse401 | listFinishedStockApiFeedingFinishedStockGetResponse403 | listFinishedStockApiFeedingFinishedStockGetResponse404 | listFinishedStockApiFeedingFinishedStockGetResponse409 | listFinishedStockApiFeedingFinishedStockGetResponse413 | listFinishedStockApiFeedingFinishedStockGetResponse414 | listFinishedStockApiFeedingFinishedStockGetResponse415 | listFinishedStockApiFeedingFinishedStockGetResponse422 | listFinishedStockApiFeedingFinishedStockGetResponse429 | listFinishedStockApiFeedingFinishedStockGetResponse500 | listFinishedStockApiFeedingFinishedStockGetResponse503) & {
+export type listFinishedStockApiFeedingFinishedStockGetResponseError = (listFinishedStockApiFeedingFinishedStockGetResponse400 | listFinishedStockApiFeedingFinishedStockGetResponse401 | listFinishedStockApiFeedingFinishedStockGetResponse403 | listFinishedStockApiFeedingFinishedStockGetResponse404 | listFinishedStockApiFeedingFinishedStockGetResponse409 | listFinishedStockApiFeedingFinishedStockGetResponse413 | listFinishedStockApiFeedingFinishedStockGetResponse414 | listFinishedStockApiFeedingFinishedStockGetResponse422 | listFinishedStockApiFeedingFinishedStockGetResponse429 | listFinishedStockApiFeedingFinishedStockGetResponse500 | listFinishedStockApiFeedingFinishedStockGetResponse503) & {
   headers: Headers;
 };
 
@@ -10678,11 +10386,6 @@ export type mixBatchApiFeedingMixPostResponse414 = {
   status: 414
 }
 
-export type mixBatchApiFeedingMixPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type mixBatchApiFeedingMixPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -10706,7 +10409,7 @@ export type mixBatchApiFeedingMixPostResponse503 = {
 export type mixBatchApiFeedingMixPostResponseSuccess = (mixBatchApiFeedingMixPostResponse200) & {
   headers: Headers;
 };
-export type mixBatchApiFeedingMixPostResponseError = (mixBatchApiFeedingMixPostResponse400 | mixBatchApiFeedingMixPostResponse401 | mixBatchApiFeedingMixPostResponse403 | mixBatchApiFeedingMixPostResponse404 | mixBatchApiFeedingMixPostResponse409 | mixBatchApiFeedingMixPostResponse413 | mixBatchApiFeedingMixPostResponse414 | mixBatchApiFeedingMixPostResponse415 | mixBatchApiFeedingMixPostResponse422 | mixBatchApiFeedingMixPostResponse429 | mixBatchApiFeedingMixPostResponse500 | mixBatchApiFeedingMixPostResponse503) & {
+export type mixBatchApiFeedingMixPostResponseError = (mixBatchApiFeedingMixPostResponse400 | mixBatchApiFeedingMixPostResponse401 | mixBatchApiFeedingMixPostResponse403 | mixBatchApiFeedingMixPostResponse404 | mixBatchApiFeedingMixPostResponse409 | mixBatchApiFeedingMixPostResponse413 | mixBatchApiFeedingMixPostResponse414 | mixBatchApiFeedingMixPostResponse422 | mixBatchApiFeedingMixPostResponse429 | mixBatchApiFeedingMixPostResponse500 | mixBatchApiFeedingMixPostResponse503) & {
   headers: Headers;
 };
 
@@ -10824,11 +10527,6 @@ export type listInventoryApiFeedingInventoryGetResponse414 = {
   status: 414
 }
 
-export type listInventoryApiFeedingInventoryGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listInventoryApiFeedingInventoryGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -10852,7 +10550,7 @@ export type listInventoryApiFeedingInventoryGetResponse503 = {
 export type listInventoryApiFeedingInventoryGetResponseSuccess = (listInventoryApiFeedingInventoryGetResponse200) & {
   headers: Headers;
 };
-export type listInventoryApiFeedingInventoryGetResponseError = (listInventoryApiFeedingInventoryGetResponse400 | listInventoryApiFeedingInventoryGetResponse401 | listInventoryApiFeedingInventoryGetResponse403 | listInventoryApiFeedingInventoryGetResponse404 | listInventoryApiFeedingInventoryGetResponse409 | listInventoryApiFeedingInventoryGetResponse413 | listInventoryApiFeedingInventoryGetResponse414 | listInventoryApiFeedingInventoryGetResponse415 | listInventoryApiFeedingInventoryGetResponse422 | listInventoryApiFeedingInventoryGetResponse429 | listInventoryApiFeedingInventoryGetResponse500 | listInventoryApiFeedingInventoryGetResponse503) & {
+export type listInventoryApiFeedingInventoryGetResponseError = (listInventoryApiFeedingInventoryGetResponse400 | listInventoryApiFeedingInventoryGetResponse401 | listInventoryApiFeedingInventoryGetResponse403 | listInventoryApiFeedingInventoryGetResponse404 | listInventoryApiFeedingInventoryGetResponse409 | listInventoryApiFeedingInventoryGetResponse413 | listInventoryApiFeedingInventoryGetResponse414 | listInventoryApiFeedingInventoryGetResponse422 | listInventoryApiFeedingInventoryGetResponse429 | listInventoryApiFeedingInventoryGetResponse500 | listInventoryApiFeedingInventoryGetResponse503) & {
   headers: Headers;
 };
 
@@ -11000,11 +10698,6 @@ export type addStockApiFeedingInventoryItemIdAddPostResponse414 = {
   status: 414
 }
 
-export type addStockApiFeedingInventoryItemIdAddPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type addStockApiFeedingInventoryItemIdAddPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -11028,7 +10721,7 @@ export type addStockApiFeedingInventoryItemIdAddPostResponse503 = {
 export type addStockApiFeedingInventoryItemIdAddPostResponseSuccess = (addStockApiFeedingInventoryItemIdAddPostResponse200) & {
   headers: Headers;
 };
-export type addStockApiFeedingInventoryItemIdAddPostResponseError = (addStockApiFeedingInventoryItemIdAddPostResponse400 | addStockApiFeedingInventoryItemIdAddPostResponse401 | addStockApiFeedingInventoryItemIdAddPostResponse403 | addStockApiFeedingInventoryItemIdAddPostResponse404 | addStockApiFeedingInventoryItemIdAddPostResponse409 | addStockApiFeedingInventoryItemIdAddPostResponse413 | addStockApiFeedingInventoryItemIdAddPostResponse414 | addStockApiFeedingInventoryItemIdAddPostResponse415 | addStockApiFeedingInventoryItemIdAddPostResponse422 | addStockApiFeedingInventoryItemIdAddPostResponse429 | addStockApiFeedingInventoryItemIdAddPostResponse500 | addStockApiFeedingInventoryItemIdAddPostResponse503) & {
+export type addStockApiFeedingInventoryItemIdAddPostResponseError = (addStockApiFeedingInventoryItemIdAddPostResponse400 | addStockApiFeedingInventoryItemIdAddPostResponse401 | addStockApiFeedingInventoryItemIdAddPostResponse403 | addStockApiFeedingInventoryItemIdAddPostResponse404 | addStockApiFeedingInventoryItemIdAddPostResponse409 | addStockApiFeedingInventoryItemIdAddPostResponse413 | addStockApiFeedingInventoryItemIdAddPostResponse414 | addStockApiFeedingInventoryItemIdAddPostResponse422 | addStockApiFeedingInventoryItemIdAddPostResponse429 | addStockApiFeedingInventoryItemIdAddPostResponse500 | addStockApiFeedingInventoryItemIdAddPostResponse503) & {
   headers: Headers;
 };
 
@@ -11147,11 +10840,6 @@ export type listTransactionsApiFinanceGetResponse414 = {
   status: 414
 }
 
-export type listTransactionsApiFinanceGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listTransactionsApiFinanceGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -11175,7 +10863,7 @@ export type listTransactionsApiFinanceGetResponse503 = {
 export type listTransactionsApiFinanceGetResponseSuccess = (listTransactionsApiFinanceGetResponse200) & {
   headers: Headers;
 };
-export type listTransactionsApiFinanceGetResponseError = (listTransactionsApiFinanceGetResponse400 | listTransactionsApiFinanceGetResponse401 | listTransactionsApiFinanceGetResponse403 | listTransactionsApiFinanceGetResponse404 | listTransactionsApiFinanceGetResponse409 | listTransactionsApiFinanceGetResponse413 | listTransactionsApiFinanceGetResponse414 | listTransactionsApiFinanceGetResponse415 | listTransactionsApiFinanceGetResponse422 | listTransactionsApiFinanceGetResponse429 | listTransactionsApiFinanceGetResponse500 | listTransactionsApiFinanceGetResponse503) & {
+export type listTransactionsApiFinanceGetResponseError = (listTransactionsApiFinanceGetResponse400 | listTransactionsApiFinanceGetResponse401 | listTransactionsApiFinanceGetResponse403 | listTransactionsApiFinanceGetResponse404 | listTransactionsApiFinanceGetResponse409 | listTransactionsApiFinanceGetResponse413 | listTransactionsApiFinanceGetResponse414 | listTransactionsApiFinanceGetResponse422 | listTransactionsApiFinanceGetResponse429 | listTransactionsApiFinanceGetResponse500 | listTransactionsApiFinanceGetResponse503) & {
   headers: Headers;
 };
 
@@ -11332,11 +11020,6 @@ export type addTransactionApiFinanceNewPostResponse414 = {
   status: 414
 }
 
-export type addTransactionApiFinanceNewPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type addTransactionApiFinanceNewPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -11360,7 +11043,7 @@ export type addTransactionApiFinanceNewPostResponse503 = {
 export type addTransactionApiFinanceNewPostResponseSuccess = (addTransactionApiFinanceNewPostResponse201) & {
   headers: Headers;
 };
-export type addTransactionApiFinanceNewPostResponseError = (addTransactionApiFinanceNewPostResponse400 | addTransactionApiFinanceNewPostResponse401 | addTransactionApiFinanceNewPostResponse403 | addTransactionApiFinanceNewPostResponse404 | addTransactionApiFinanceNewPostResponse409 | addTransactionApiFinanceNewPostResponse413 | addTransactionApiFinanceNewPostResponse414 | addTransactionApiFinanceNewPostResponse415 | addTransactionApiFinanceNewPostResponse422 | addTransactionApiFinanceNewPostResponse429 | addTransactionApiFinanceNewPostResponse500 | addTransactionApiFinanceNewPostResponse503) & {
+export type addTransactionApiFinanceNewPostResponseError = (addTransactionApiFinanceNewPostResponse400 | addTransactionApiFinanceNewPostResponse401 | addTransactionApiFinanceNewPostResponse403 | addTransactionApiFinanceNewPostResponse404 | addTransactionApiFinanceNewPostResponse409 | addTransactionApiFinanceNewPostResponse413 | addTransactionApiFinanceNewPostResponse414 | addTransactionApiFinanceNewPostResponse422 | addTransactionApiFinanceNewPostResponse429 | addTransactionApiFinanceNewPostResponse500 | addTransactionApiFinanceNewPostResponse503) & {
   headers: Headers;
 };
 
@@ -11478,11 +11161,6 @@ export type correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResp
   status: 414
 }
 
-export type correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -11506,7 +11184,7 @@ export type correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResp
 export type correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponseSuccess = (correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse201) & {
   headers: Headers;
 };
-export type correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponseError = (correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse400 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse401 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse403 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse404 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse409 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse413 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse414 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse415 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse422 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse429 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse500 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse503) & {
+export type correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponseError = (correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse400 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse401 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse403 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse404 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse409 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse413 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse414 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse422 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse429 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse500 | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse503) & {
   headers: Headers;
 };
 
@@ -11625,11 +11303,6 @@ export type listInsurancePoliciesApiFinanceInsuranceGetResponse414 = {
   status: 414
 }
 
-export type listInsurancePoliciesApiFinanceInsuranceGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listInsurancePoliciesApiFinanceInsuranceGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -11653,7 +11326,7 @@ export type listInsurancePoliciesApiFinanceInsuranceGetResponse503 = {
 export type listInsurancePoliciesApiFinanceInsuranceGetResponseSuccess = (listInsurancePoliciesApiFinanceInsuranceGetResponse200) & {
   headers: Headers;
 };
-export type listInsurancePoliciesApiFinanceInsuranceGetResponseError = (listInsurancePoliciesApiFinanceInsuranceGetResponse400 | listInsurancePoliciesApiFinanceInsuranceGetResponse401 | listInsurancePoliciesApiFinanceInsuranceGetResponse403 | listInsurancePoliciesApiFinanceInsuranceGetResponse404 | listInsurancePoliciesApiFinanceInsuranceGetResponse409 | listInsurancePoliciesApiFinanceInsuranceGetResponse413 | listInsurancePoliciesApiFinanceInsuranceGetResponse414 | listInsurancePoliciesApiFinanceInsuranceGetResponse415 | listInsurancePoliciesApiFinanceInsuranceGetResponse422 | listInsurancePoliciesApiFinanceInsuranceGetResponse429 | listInsurancePoliciesApiFinanceInsuranceGetResponse500 | listInsurancePoliciesApiFinanceInsuranceGetResponse503) & {
+export type listInsurancePoliciesApiFinanceInsuranceGetResponseError = (listInsurancePoliciesApiFinanceInsuranceGetResponse400 | listInsurancePoliciesApiFinanceInsuranceGetResponse401 | listInsurancePoliciesApiFinanceInsuranceGetResponse403 | listInsurancePoliciesApiFinanceInsuranceGetResponse404 | listInsurancePoliciesApiFinanceInsuranceGetResponse409 | listInsurancePoliciesApiFinanceInsuranceGetResponse413 | listInsurancePoliciesApiFinanceInsuranceGetResponse414 | listInsurancePoliciesApiFinanceInsuranceGetResponse422 | listInsurancePoliciesApiFinanceInsuranceGetResponse429 | listInsurancePoliciesApiFinanceInsuranceGetResponse500 | listInsurancePoliciesApiFinanceInsuranceGetResponse503) & {
   headers: Headers;
 };
 
@@ -11812,11 +11485,6 @@ export type addInsurancePolicyApiFinanceInsurancePostResponse414 = {
   status: 414
 }
 
-export type addInsurancePolicyApiFinanceInsurancePostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type addInsurancePolicyApiFinanceInsurancePostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -11840,7 +11508,7 @@ export type addInsurancePolicyApiFinanceInsurancePostResponse503 = {
 export type addInsurancePolicyApiFinanceInsurancePostResponseSuccess = (addInsurancePolicyApiFinanceInsurancePostResponse201) & {
   headers: Headers;
 };
-export type addInsurancePolicyApiFinanceInsurancePostResponseError = (addInsurancePolicyApiFinanceInsurancePostResponse400 | addInsurancePolicyApiFinanceInsurancePostResponse401 | addInsurancePolicyApiFinanceInsurancePostResponse403 | addInsurancePolicyApiFinanceInsurancePostResponse404 | addInsurancePolicyApiFinanceInsurancePostResponse409 | addInsurancePolicyApiFinanceInsurancePostResponse413 | addInsurancePolicyApiFinanceInsurancePostResponse414 | addInsurancePolicyApiFinanceInsurancePostResponse415 | addInsurancePolicyApiFinanceInsurancePostResponse422 | addInsurancePolicyApiFinanceInsurancePostResponse429 | addInsurancePolicyApiFinanceInsurancePostResponse500 | addInsurancePolicyApiFinanceInsurancePostResponse503) & {
+export type addInsurancePolicyApiFinanceInsurancePostResponseError = (addInsurancePolicyApiFinanceInsurancePostResponse400 | addInsurancePolicyApiFinanceInsurancePostResponse401 | addInsurancePolicyApiFinanceInsurancePostResponse403 | addInsurancePolicyApiFinanceInsurancePostResponse404 | addInsurancePolicyApiFinanceInsurancePostResponse409 | addInsurancePolicyApiFinanceInsurancePostResponse413 | addInsurancePolicyApiFinanceInsurancePostResponse414 | addInsurancePolicyApiFinanceInsurancePostResponse422 | addInsurancePolicyApiFinanceInsurancePostResponse429 | addInsurancePolicyApiFinanceInsurancePostResponse500 | addInsurancePolicyApiFinanceInsurancePostResponse503) & {
   headers: Headers;
 };
 
@@ -11961,11 +11629,6 @@ export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse414 = {
   status: 414
 }
 
-export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -11989,7 +11652,7 @@ export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse503 = {
 export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponseSuccess = (renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse200) & {
   headers: Headers;
 };
-export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponseError = (renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse400 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse401 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse403 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse404 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse409 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse413 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse414 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse415 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse422 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse429 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse500 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse503) & {
+export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponseError = (renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse400 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse401 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse403 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse404 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse409 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse413 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse414 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse422 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse429 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse500 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse503) & {
   headers: Headers;
 };
 
@@ -12114,11 +11777,6 @@ export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse414 = {
   status: 414
 }
 
-export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -12142,7 +11800,7 @@ export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse503 = {
 export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponseSuccess = (claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse200) & {
   headers: Headers;
 };
-export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponseError = (claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse400 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse401 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse403 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse404 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse409 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse413 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse414 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse415 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse422 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse429 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse500 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse503) & {
+export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponseError = (claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse400 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse401 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse403 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse404 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse409 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse413 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse414 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse422 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse429 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse500 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse503) & {
   headers: Headers;
 };
 
@@ -12266,11 +11924,6 @@ export type insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse4
   status: 414
 }
 
-export type insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -12294,7 +11947,7 @@ export type insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse5
 export type insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponseSuccess = (insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse200) & {
   headers: Headers;
 };
-export type insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponseError = (insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse400 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse401 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse403 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse404 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse409 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse413 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse414 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse415 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse422 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse429 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse500 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse503) & {
+export type insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponseError = (insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse400 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse401 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse403 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse404 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse409 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse413 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse414 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse422 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse429 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse500 | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse503) & {
   headers: Headers;
 };
 
@@ -12461,11 +12114,6 @@ export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse414 
   status: 414
 }
 
-export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -12489,7 +12137,7 @@ export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse503 
 export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponseSuccess = (animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse200) & {
   headers: Headers;
 };
-export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponseError = (animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse400 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse401 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse403 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse404 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse409 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse413 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse414 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse415 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse422 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse429 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse500 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse503) & {
+export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponseError = (animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse400 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse401 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse403 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse404 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse409 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse413 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse414 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse422 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse429 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse500 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse503) & {
   headers: Headers;
 };
 
@@ -12637,11 +12285,6 @@ export type listBatchesApiPurchasesGetResponse414 = {
   status: 414
 }
 
-export type listBatchesApiPurchasesGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listBatchesApiPurchasesGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -12665,7 +12308,7 @@ export type listBatchesApiPurchasesGetResponse503 = {
 export type listBatchesApiPurchasesGetResponseSuccess = (listBatchesApiPurchasesGetResponse200) & {
   headers: Headers;
 };
-export type listBatchesApiPurchasesGetResponseError = (listBatchesApiPurchasesGetResponse400 | listBatchesApiPurchasesGetResponse401 | listBatchesApiPurchasesGetResponse403 | listBatchesApiPurchasesGetResponse404 | listBatchesApiPurchasesGetResponse409 | listBatchesApiPurchasesGetResponse413 | listBatchesApiPurchasesGetResponse414 | listBatchesApiPurchasesGetResponse415 | listBatchesApiPurchasesGetResponse422 | listBatchesApiPurchasesGetResponse429 | listBatchesApiPurchasesGetResponse500 | listBatchesApiPurchasesGetResponse503) & {
+export type listBatchesApiPurchasesGetResponseError = (listBatchesApiPurchasesGetResponse400 | listBatchesApiPurchasesGetResponse401 | listBatchesApiPurchasesGetResponse403 | listBatchesApiPurchasesGetResponse404 | listBatchesApiPurchasesGetResponse409 | listBatchesApiPurchasesGetResponse413 | listBatchesApiPurchasesGetResponse414 | listBatchesApiPurchasesGetResponse422 | listBatchesApiPurchasesGetResponse429 | listBatchesApiPurchasesGetResponse500 | listBatchesApiPurchasesGetResponse503) & {
   headers: Headers;
 };
 
@@ -12827,11 +12470,6 @@ export type createBatchApiPurchasesNewPostResponse414 = {
   status: 414
 }
 
-export type createBatchApiPurchasesNewPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type createBatchApiPurchasesNewPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -12855,7 +12493,7 @@ export type createBatchApiPurchasesNewPostResponse503 = {
 export type createBatchApiPurchasesNewPostResponseSuccess = (createBatchApiPurchasesNewPostResponse201) & {
   headers: Headers;
 };
-export type createBatchApiPurchasesNewPostResponseError = (createBatchApiPurchasesNewPostResponse400 | createBatchApiPurchasesNewPostResponse401 | createBatchApiPurchasesNewPostResponse403 | createBatchApiPurchasesNewPostResponse404 | createBatchApiPurchasesNewPostResponse409 | createBatchApiPurchasesNewPostResponse413 | createBatchApiPurchasesNewPostResponse414 | createBatchApiPurchasesNewPostResponse415 | createBatchApiPurchasesNewPostResponse422 | createBatchApiPurchasesNewPostResponse429 | createBatchApiPurchasesNewPostResponse500 | createBatchApiPurchasesNewPostResponse503) & {
+export type createBatchApiPurchasesNewPostResponseError = (createBatchApiPurchasesNewPostResponse400 | createBatchApiPurchasesNewPostResponse401 | createBatchApiPurchasesNewPostResponse403 | createBatchApiPurchasesNewPostResponse404 | createBatchApiPurchasesNewPostResponse409 | createBatchApiPurchasesNewPostResponse413 | createBatchApiPurchasesNewPostResponse414 | createBatchApiPurchasesNewPostResponse422 | createBatchApiPurchasesNewPostResponse429 | createBatchApiPurchasesNewPostResponse500 | createBatchApiPurchasesNewPostResponse503) & {
   headers: Headers;
 };
 
@@ -12974,11 +12612,6 @@ export type batchDetailApiPurchasesBatchIdGetResponse414 = {
   status: 414
 }
 
-export type batchDetailApiPurchasesBatchIdGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type batchDetailApiPurchasesBatchIdGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -13002,7 +12635,7 @@ export type batchDetailApiPurchasesBatchIdGetResponse503 = {
 export type batchDetailApiPurchasesBatchIdGetResponseSuccess = (batchDetailApiPurchasesBatchIdGetResponse200) & {
   headers: Headers;
 };
-export type batchDetailApiPurchasesBatchIdGetResponseError = (batchDetailApiPurchasesBatchIdGetResponse400 | batchDetailApiPurchasesBatchIdGetResponse401 | batchDetailApiPurchasesBatchIdGetResponse403 | batchDetailApiPurchasesBatchIdGetResponse404 | batchDetailApiPurchasesBatchIdGetResponse409 | batchDetailApiPurchasesBatchIdGetResponse413 | batchDetailApiPurchasesBatchIdGetResponse414 | batchDetailApiPurchasesBatchIdGetResponse415 | batchDetailApiPurchasesBatchIdGetResponse422 | batchDetailApiPurchasesBatchIdGetResponse429 | batchDetailApiPurchasesBatchIdGetResponse500 | batchDetailApiPurchasesBatchIdGetResponse503) & {
+export type batchDetailApiPurchasesBatchIdGetResponseError = (batchDetailApiPurchasesBatchIdGetResponse400 | batchDetailApiPurchasesBatchIdGetResponse401 | batchDetailApiPurchasesBatchIdGetResponse403 | batchDetailApiPurchasesBatchIdGetResponse404 | batchDetailApiPurchasesBatchIdGetResponse409 | batchDetailApiPurchasesBatchIdGetResponse413 | batchDetailApiPurchasesBatchIdGetResponse414 | batchDetailApiPurchasesBatchIdGetResponse422 | batchDetailApiPurchasesBatchIdGetResponse429 | batchDetailApiPurchasesBatchIdGetResponse500 | batchDetailApiPurchasesBatchIdGetResponse503) & {
   headers: Headers;
 };
 
@@ -13174,11 +12807,6 @@ export type dashboardApiDashboardGetResponse414 = {
   status: 414
 }
 
-export type dashboardApiDashboardGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type dashboardApiDashboardGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -13202,7 +12830,7 @@ export type dashboardApiDashboardGetResponse503 = {
 export type dashboardApiDashboardGetResponseSuccess = (dashboardApiDashboardGetResponse200) & {
   headers: Headers;
 };
-export type dashboardApiDashboardGetResponseError = (dashboardApiDashboardGetResponse400 | dashboardApiDashboardGetResponse401 | dashboardApiDashboardGetResponse403 | dashboardApiDashboardGetResponse404 | dashboardApiDashboardGetResponse409 | dashboardApiDashboardGetResponse413 | dashboardApiDashboardGetResponse414 | dashboardApiDashboardGetResponse415 | dashboardApiDashboardGetResponse422 | dashboardApiDashboardGetResponse429 | dashboardApiDashboardGetResponse500 | dashboardApiDashboardGetResponse503) & {
+export type dashboardApiDashboardGetResponseError = (dashboardApiDashboardGetResponse400 | dashboardApiDashboardGetResponse401 | dashboardApiDashboardGetResponse403 | dashboardApiDashboardGetResponse404 | dashboardApiDashboardGetResponse409 | dashboardApiDashboardGetResponse413 | dashboardApiDashboardGetResponse414 | dashboardApiDashboardGetResponse422 | dashboardApiDashboardGetResponse429 | dashboardApiDashboardGetResponse500 | dashboardApiDashboardGetResponse503) & {
   headers: Headers;
 };
 
@@ -13380,11 +13008,6 @@ export type reportsApiDashboardReportsGetResponse414 = {
   status: 414
 }
 
-export type reportsApiDashboardReportsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type reportsApiDashboardReportsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -13408,7 +13031,7 @@ export type reportsApiDashboardReportsGetResponse503 = {
 export type reportsApiDashboardReportsGetResponseSuccess = (reportsApiDashboardReportsGetResponse200) & {
   headers: Headers;
 };
-export type reportsApiDashboardReportsGetResponseError = (reportsApiDashboardReportsGetResponse400 | reportsApiDashboardReportsGetResponse401 | reportsApiDashboardReportsGetResponse403 | reportsApiDashboardReportsGetResponse404 | reportsApiDashboardReportsGetResponse409 | reportsApiDashboardReportsGetResponse413 | reportsApiDashboardReportsGetResponse414 | reportsApiDashboardReportsGetResponse415 | reportsApiDashboardReportsGetResponse422 | reportsApiDashboardReportsGetResponse429 | reportsApiDashboardReportsGetResponse500 | reportsApiDashboardReportsGetResponse503) & {
+export type reportsApiDashboardReportsGetResponseError = (reportsApiDashboardReportsGetResponse400 | reportsApiDashboardReportsGetResponse401 | reportsApiDashboardReportsGetResponse403 | reportsApiDashboardReportsGetResponse404 | reportsApiDashboardReportsGetResponse409 | reportsApiDashboardReportsGetResponse413 | reportsApiDashboardReportsGetResponse414 | reportsApiDashboardReportsGetResponse422 | reportsApiDashboardReportsGetResponse429 | reportsApiDashboardReportsGetResponse500 | reportsApiDashboardReportsGetResponse503) & {
   headers: Headers;
 };
 
@@ -13567,11 +13190,6 @@ export type teamPageApiTeamGetResponse414 = {
   status: 414
 }
 
-export type teamPageApiTeamGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type teamPageApiTeamGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -13595,7 +13213,7 @@ export type teamPageApiTeamGetResponse503 = {
 export type teamPageApiTeamGetResponseSuccess = (teamPageApiTeamGetResponse200) & {
   headers: Headers;
 };
-export type teamPageApiTeamGetResponseError = (teamPageApiTeamGetResponse400 | teamPageApiTeamGetResponse401 | teamPageApiTeamGetResponse403 | teamPageApiTeamGetResponse404 | teamPageApiTeamGetResponse409 | teamPageApiTeamGetResponse413 | teamPageApiTeamGetResponse414 | teamPageApiTeamGetResponse415 | teamPageApiTeamGetResponse422 | teamPageApiTeamGetResponse429 | teamPageApiTeamGetResponse500 | teamPageApiTeamGetResponse503) & {
+export type teamPageApiTeamGetResponseError = (teamPageApiTeamGetResponse400 | teamPageApiTeamGetResponse401 | teamPageApiTeamGetResponse403 | teamPageApiTeamGetResponse404 | teamPageApiTeamGetResponse409 | teamPageApiTeamGetResponse413 | teamPageApiTeamGetResponse414 | teamPageApiTeamGetResponse422 | teamPageApiTeamGetResponse429 | teamPageApiTeamGetResponse500 | teamPageApiTeamGetResponse503) & {
   headers: Headers;
 };
 
@@ -13742,11 +13360,6 @@ export type createWorkerApiTeamWorkersPostResponse414 = {
   status: 414
 }
 
-export type createWorkerApiTeamWorkersPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type createWorkerApiTeamWorkersPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -13770,7 +13383,7 @@ export type createWorkerApiTeamWorkersPostResponse503 = {
 export type createWorkerApiTeamWorkersPostResponseSuccess = (createWorkerApiTeamWorkersPostResponse201) & {
   headers: Headers;
 };
-export type createWorkerApiTeamWorkersPostResponseError = (createWorkerApiTeamWorkersPostResponse400 | createWorkerApiTeamWorkersPostResponse401 | createWorkerApiTeamWorkersPostResponse403 | createWorkerApiTeamWorkersPostResponse404 | createWorkerApiTeamWorkersPostResponse409 | createWorkerApiTeamWorkersPostResponse413 | createWorkerApiTeamWorkersPostResponse414 | createWorkerApiTeamWorkersPostResponse415 | createWorkerApiTeamWorkersPostResponse422 | createWorkerApiTeamWorkersPostResponse429 | createWorkerApiTeamWorkersPostResponse500 | createWorkerApiTeamWorkersPostResponse503) & {
+export type createWorkerApiTeamWorkersPostResponseError = (createWorkerApiTeamWorkersPostResponse400 | createWorkerApiTeamWorkersPostResponse401 | createWorkerApiTeamWorkersPostResponse403 | createWorkerApiTeamWorkersPostResponse404 | createWorkerApiTeamWorkersPostResponse409 | createWorkerApiTeamWorkersPostResponse413 | createWorkerApiTeamWorkersPostResponse414 | createWorkerApiTeamWorkersPostResponse422 | createWorkerApiTeamWorkersPostResponse429 | createWorkerApiTeamWorkersPostResponse500 | createWorkerApiTeamWorkersPostResponse503) & {
   headers: Headers;
 };
 
@@ -13894,11 +13507,6 @@ export type changeRoleApiTeamWorkersMembershipIdRolePostResponse414 = {
   status: 414
 }
 
-export type changeRoleApiTeamWorkersMembershipIdRolePostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type changeRoleApiTeamWorkersMembershipIdRolePostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -13922,7 +13530,7 @@ export type changeRoleApiTeamWorkersMembershipIdRolePostResponse503 = {
 export type changeRoleApiTeamWorkersMembershipIdRolePostResponseSuccess = (changeRoleApiTeamWorkersMembershipIdRolePostResponse200) & {
   headers: Headers;
 };
-export type changeRoleApiTeamWorkersMembershipIdRolePostResponseError = (changeRoleApiTeamWorkersMembershipIdRolePostResponse400 | changeRoleApiTeamWorkersMembershipIdRolePostResponse401 | changeRoleApiTeamWorkersMembershipIdRolePostResponse403 | changeRoleApiTeamWorkersMembershipIdRolePostResponse404 | changeRoleApiTeamWorkersMembershipIdRolePostResponse409 | changeRoleApiTeamWorkersMembershipIdRolePostResponse413 | changeRoleApiTeamWorkersMembershipIdRolePostResponse414 | changeRoleApiTeamWorkersMembershipIdRolePostResponse415 | changeRoleApiTeamWorkersMembershipIdRolePostResponse422 | changeRoleApiTeamWorkersMembershipIdRolePostResponse429 | changeRoleApiTeamWorkersMembershipIdRolePostResponse500 | changeRoleApiTeamWorkersMembershipIdRolePostResponse503) & {
+export type changeRoleApiTeamWorkersMembershipIdRolePostResponseError = (changeRoleApiTeamWorkersMembershipIdRolePostResponse400 | changeRoleApiTeamWorkersMembershipIdRolePostResponse401 | changeRoleApiTeamWorkersMembershipIdRolePostResponse403 | changeRoleApiTeamWorkersMembershipIdRolePostResponse404 | changeRoleApiTeamWorkersMembershipIdRolePostResponse409 | changeRoleApiTeamWorkersMembershipIdRolePostResponse413 | changeRoleApiTeamWorkersMembershipIdRolePostResponse414 | changeRoleApiTeamWorkersMembershipIdRolePostResponse422 | changeRoleApiTeamWorkersMembershipIdRolePostResponse429 | changeRoleApiTeamWorkersMembershipIdRolePostResponse500 | changeRoleApiTeamWorkersMembershipIdRolePostResponse503) & {
   headers: Headers;
 };
 
@@ -14040,11 +13648,6 @@ export type setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse414 = {
   status: 414
 }
 
-export type setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -14068,7 +13671,7 @@ export type setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse503 = {
 export type setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponseSuccess = (setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse200) & {
   headers: Headers;
 };
-export type setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponseError = (setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse400 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse401 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse403 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse404 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse409 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse413 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse414 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse415 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse422 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse429 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse500 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse503) & {
+export type setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponseError = (setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse400 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse401 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse403 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse404 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse409 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse413 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse414 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse422 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse429 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse500 | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse503) & {
   headers: Headers;
 };
 
@@ -14186,11 +13789,6 @@ export type resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse414 
   status: 414
 }
 
-export type resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -14214,7 +13812,7 @@ export type resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse503 
 export type resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponseSuccess = (resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse200) & {
   headers: Headers;
 };
-export type resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponseError = (resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse400 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse401 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse403 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse404 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse409 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse413 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse414 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse415 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse422 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse429 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse500 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse503) & {
+export type resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponseError = (resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse400 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse401 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse403 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse404 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse409 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse413 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse414 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse422 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse429 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse500 | resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse503) & {
   headers: Headers;
 };
 
@@ -14333,11 +13931,6 @@ export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse414 = {
   status: 414
 }
 
-export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -14361,7 +13954,7 @@ export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse503 = {
 export type resetPinApiTeamWorkersMembershipIdResetPinPostResponseSuccess = (resetPinApiTeamWorkersMembershipIdResetPinPostResponse200) & {
   headers: Headers;
 };
-export type resetPinApiTeamWorkersMembershipIdResetPinPostResponseError = (resetPinApiTeamWorkersMembershipIdResetPinPostResponse400 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse401 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse403 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse404 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse409 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse413 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse414 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse415 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse422 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse429 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse500 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse503) & {
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponseError = (resetPinApiTeamWorkersMembershipIdResetPinPostResponse400 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse401 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse403 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse404 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse409 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse413 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse414 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse422 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse429 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse500 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse503) & {
   headers: Headers;
 };
 
@@ -14484,11 +14077,6 @@ export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetRespon
   status: 414
 }
 
-export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -14512,7 +14100,7 @@ export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetRespon
 export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponseSuccess = (getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse200) & {
   headers: Headers;
 };
-export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponseError = (getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse400 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse401 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse403 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse404 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse409 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse413 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse414 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse415 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse422 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse429 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse500 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse503) & {
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponseError = (getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse400 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse401 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse403 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse404 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse409 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse413 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse414 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse422 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse429 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse500 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse503) & {
   headers: Headers;
 };
 
@@ -14660,11 +14248,6 @@ export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutRespon
   status: 414
 }
 
-export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -14688,7 +14271,7 @@ export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutRespon
 export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponseSuccess = (setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse200) & {
   headers: Headers;
 };
-export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponseError = (setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse400 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse401 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse403 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse404 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse409 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse413 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse414 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse415 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse422 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse429 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse500 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse503) & {
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponseError = (setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse400 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse401 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse403 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse404 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse409 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse413 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse414 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse422 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse429 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse500 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse503) & {
   headers: Headers;
 };
 
@@ -14810,11 +14393,6 @@ export type createRoleApiTeamRolesPostResponse414 = {
   status: 414
 }
 
-export type createRoleApiTeamRolesPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type createRoleApiTeamRolesPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -14838,7 +14416,7 @@ export type createRoleApiTeamRolesPostResponse503 = {
 export type createRoleApiTeamRolesPostResponseSuccess = (createRoleApiTeamRolesPostResponse201) & {
   headers: Headers;
 };
-export type createRoleApiTeamRolesPostResponseError = (createRoleApiTeamRolesPostResponse400 | createRoleApiTeamRolesPostResponse401 | createRoleApiTeamRolesPostResponse403 | createRoleApiTeamRolesPostResponse404 | createRoleApiTeamRolesPostResponse409 | createRoleApiTeamRolesPostResponse413 | createRoleApiTeamRolesPostResponse414 | createRoleApiTeamRolesPostResponse415 | createRoleApiTeamRolesPostResponse422 | createRoleApiTeamRolesPostResponse429 | createRoleApiTeamRolesPostResponse500 | createRoleApiTeamRolesPostResponse503) & {
+export type createRoleApiTeamRolesPostResponseError = (createRoleApiTeamRolesPostResponse400 | createRoleApiTeamRolesPostResponse401 | createRoleApiTeamRolesPostResponse403 | createRoleApiTeamRolesPostResponse404 | createRoleApiTeamRolesPostResponse409 | createRoleApiTeamRolesPostResponse413 | createRoleApiTeamRolesPostResponse414 | createRoleApiTeamRolesPostResponse422 | createRoleApiTeamRolesPostResponse429 | createRoleApiTeamRolesPostResponse500 | createRoleApiTeamRolesPostResponse503) & {
   headers: Headers;
 };
 
@@ -14955,11 +14533,6 @@ export type updateRoleApiTeamRolesRoleIdPutResponse414 = {
   status: 414
 }
 
-export type updateRoleApiTeamRolesRoleIdPutResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type updateRoleApiTeamRolesRoleIdPutResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -14983,7 +14556,7 @@ export type updateRoleApiTeamRolesRoleIdPutResponse503 = {
 export type updateRoleApiTeamRolesRoleIdPutResponseSuccess = (updateRoleApiTeamRolesRoleIdPutResponse200) & {
   headers: Headers;
 };
-export type updateRoleApiTeamRolesRoleIdPutResponseError = (updateRoleApiTeamRolesRoleIdPutResponse400 | updateRoleApiTeamRolesRoleIdPutResponse401 | updateRoleApiTeamRolesRoleIdPutResponse403 | updateRoleApiTeamRolesRoleIdPutResponse404 | updateRoleApiTeamRolesRoleIdPutResponse409 | updateRoleApiTeamRolesRoleIdPutResponse413 | updateRoleApiTeamRolesRoleIdPutResponse414 | updateRoleApiTeamRolesRoleIdPutResponse415 | updateRoleApiTeamRolesRoleIdPutResponse422 | updateRoleApiTeamRolesRoleIdPutResponse429 | updateRoleApiTeamRolesRoleIdPutResponse500 | updateRoleApiTeamRolesRoleIdPutResponse503) & {
+export type updateRoleApiTeamRolesRoleIdPutResponseError = (updateRoleApiTeamRolesRoleIdPutResponse400 | updateRoleApiTeamRolesRoleIdPutResponse401 | updateRoleApiTeamRolesRoleIdPutResponse403 | updateRoleApiTeamRolesRoleIdPutResponse404 | updateRoleApiTeamRolesRoleIdPutResponse409 | updateRoleApiTeamRolesRoleIdPutResponse413 | updateRoleApiTeamRolesRoleIdPutResponse414 | updateRoleApiTeamRolesRoleIdPutResponse422 | updateRoleApiTeamRolesRoleIdPutResponse429 | updateRoleApiTeamRolesRoleIdPutResponse500 | updateRoleApiTeamRolesRoleIdPutResponse503) & {
   headers: Headers;
 };
 
@@ -15101,11 +14674,6 @@ export type deleteRoleApiTeamRolesRoleIdDeleteResponse414 = {
   status: 414
 }
 
-export type deleteRoleApiTeamRolesRoleIdDeleteResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type deleteRoleApiTeamRolesRoleIdDeleteResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -15129,7 +14697,7 @@ export type deleteRoleApiTeamRolesRoleIdDeleteResponse503 = {
 export type deleteRoleApiTeamRolesRoleIdDeleteResponseSuccess = (deleteRoleApiTeamRolesRoleIdDeleteResponse204) & {
   headers: Headers;
 };
-export type deleteRoleApiTeamRolesRoleIdDeleteResponseError = (deleteRoleApiTeamRolesRoleIdDeleteResponse400 | deleteRoleApiTeamRolesRoleIdDeleteResponse401 | deleteRoleApiTeamRolesRoleIdDeleteResponse403 | deleteRoleApiTeamRolesRoleIdDeleteResponse404 | deleteRoleApiTeamRolesRoleIdDeleteResponse409 | deleteRoleApiTeamRolesRoleIdDeleteResponse413 | deleteRoleApiTeamRolesRoleIdDeleteResponse414 | deleteRoleApiTeamRolesRoleIdDeleteResponse415 | deleteRoleApiTeamRolesRoleIdDeleteResponse422 | deleteRoleApiTeamRolesRoleIdDeleteResponse429 | deleteRoleApiTeamRolesRoleIdDeleteResponse500 | deleteRoleApiTeamRolesRoleIdDeleteResponse503) & {
+export type deleteRoleApiTeamRolesRoleIdDeleteResponseError = (deleteRoleApiTeamRolesRoleIdDeleteResponse400 | deleteRoleApiTeamRolesRoleIdDeleteResponse401 | deleteRoleApiTeamRolesRoleIdDeleteResponse403 | deleteRoleApiTeamRolesRoleIdDeleteResponse404 | deleteRoleApiTeamRolesRoleIdDeleteResponse409 | deleteRoleApiTeamRolesRoleIdDeleteResponse413 | deleteRoleApiTeamRolesRoleIdDeleteResponse414 | deleteRoleApiTeamRolesRoleIdDeleteResponse422 | deleteRoleApiTeamRolesRoleIdDeleteResponse429 | deleteRoleApiTeamRolesRoleIdDeleteResponse500 | deleteRoleApiTeamRolesRoleIdDeleteResponse503) & {
   headers: Headers;
 };
 
@@ -15246,11 +14814,6 @@ export type listBreedsApiSimulationDefaultsBreedsGetResponse414 = {
   status: 414
 }
 
-export type listBreedsApiSimulationDefaultsBreedsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listBreedsApiSimulationDefaultsBreedsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -15274,7 +14837,7 @@ export type listBreedsApiSimulationDefaultsBreedsGetResponse503 = {
 export type listBreedsApiSimulationDefaultsBreedsGetResponseSuccess = (listBreedsApiSimulationDefaultsBreedsGetResponse200) & {
   headers: Headers;
 };
-export type listBreedsApiSimulationDefaultsBreedsGetResponseError = (listBreedsApiSimulationDefaultsBreedsGetResponse400 | listBreedsApiSimulationDefaultsBreedsGetResponse401 | listBreedsApiSimulationDefaultsBreedsGetResponse403 | listBreedsApiSimulationDefaultsBreedsGetResponse404 | listBreedsApiSimulationDefaultsBreedsGetResponse409 | listBreedsApiSimulationDefaultsBreedsGetResponse413 | listBreedsApiSimulationDefaultsBreedsGetResponse414 | listBreedsApiSimulationDefaultsBreedsGetResponse415 | listBreedsApiSimulationDefaultsBreedsGetResponse422 | listBreedsApiSimulationDefaultsBreedsGetResponse429 | listBreedsApiSimulationDefaultsBreedsGetResponse500 | listBreedsApiSimulationDefaultsBreedsGetResponse503) & {
+export type listBreedsApiSimulationDefaultsBreedsGetResponseError = (listBreedsApiSimulationDefaultsBreedsGetResponse400 | listBreedsApiSimulationDefaultsBreedsGetResponse401 | listBreedsApiSimulationDefaultsBreedsGetResponse403 | listBreedsApiSimulationDefaultsBreedsGetResponse404 | listBreedsApiSimulationDefaultsBreedsGetResponse409 | listBreedsApiSimulationDefaultsBreedsGetResponse413 | listBreedsApiSimulationDefaultsBreedsGetResponse414 | listBreedsApiSimulationDefaultsBreedsGetResponse422 | listBreedsApiSimulationDefaultsBreedsGetResponse429 | listBreedsApiSimulationDefaultsBreedsGetResponse500 | listBreedsApiSimulationDefaultsBreedsGetResponse503) & {
   headers: Headers;
 };
 
@@ -15423,11 +14986,6 @@ export type breedDefaultsApiSimulationDefaultsGetResponse414 = {
   status: 414
 }
 
-export type breedDefaultsApiSimulationDefaultsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type breedDefaultsApiSimulationDefaultsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -15451,7 +15009,7 @@ export type breedDefaultsApiSimulationDefaultsGetResponse503 = {
 export type breedDefaultsApiSimulationDefaultsGetResponseSuccess = (breedDefaultsApiSimulationDefaultsGetResponse200) & {
   headers: Headers;
 };
-export type breedDefaultsApiSimulationDefaultsGetResponseError = (breedDefaultsApiSimulationDefaultsGetResponse400 | breedDefaultsApiSimulationDefaultsGetResponse401 | breedDefaultsApiSimulationDefaultsGetResponse403 | breedDefaultsApiSimulationDefaultsGetResponse404 | breedDefaultsApiSimulationDefaultsGetResponse409 | breedDefaultsApiSimulationDefaultsGetResponse413 | breedDefaultsApiSimulationDefaultsGetResponse414 | breedDefaultsApiSimulationDefaultsGetResponse415 | breedDefaultsApiSimulationDefaultsGetResponse422 | breedDefaultsApiSimulationDefaultsGetResponse429 | breedDefaultsApiSimulationDefaultsGetResponse500 | breedDefaultsApiSimulationDefaultsGetResponse503) & {
+export type breedDefaultsApiSimulationDefaultsGetResponseError = (breedDefaultsApiSimulationDefaultsGetResponse400 | breedDefaultsApiSimulationDefaultsGetResponse401 | breedDefaultsApiSimulationDefaultsGetResponse403 | breedDefaultsApiSimulationDefaultsGetResponse404 | breedDefaultsApiSimulationDefaultsGetResponse409 | breedDefaultsApiSimulationDefaultsGetResponse413 | breedDefaultsApiSimulationDefaultsGetResponse414 | breedDefaultsApiSimulationDefaultsGetResponse422 | breedDefaultsApiSimulationDefaultsGetResponse429 | breedDefaultsApiSimulationDefaultsGetResponse500 | breedDefaultsApiSimulationDefaultsGetResponse503) & {
   headers: Headers;
 };
 
@@ -15608,11 +15166,6 @@ export type herdSnapshotApiSimulationHerdSnapshotGetResponse414 = {
   status: 414
 }
 
-export type herdSnapshotApiSimulationHerdSnapshotGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type herdSnapshotApiSimulationHerdSnapshotGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -15636,7 +15189,7 @@ export type herdSnapshotApiSimulationHerdSnapshotGetResponse503 = {
 export type herdSnapshotApiSimulationHerdSnapshotGetResponseSuccess = (herdSnapshotApiSimulationHerdSnapshotGetResponse200) & {
   headers: Headers;
 };
-export type herdSnapshotApiSimulationHerdSnapshotGetResponseError = (herdSnapshotApiSimulationHerdSnapshotGetResponse400 | herdSnapshotApiSimulationHerdSnapshotGetResponse401 | herdSnapshotApiSimulationHerdSnapshotGetResponse403 | herdSnapshotApiSimulationHerdSnapshotGetResponse404 | herdSnapshotApiSimulationHerdSnapshotGetResponse409 | herdSnapshotApiSimulationHerdSnapshotGetResponse413 | herdSnapshotApiSimulationHerdSnapshotGetResponse414 | herdSnapshotApiSimulationHerdSnapshotGetResponse415 | herdSnapshotApiSimulationHerdSnapshotGetResponse422 | herdSnapshotApiSimulationHerdSnapshotGetResponse429 | herdSnapshotApiSimulationHerdSnapshotGetResponse500 | herdSnapshotApiSimulationHerdSnapshotGetResponse503) & {
+export type herdSnapshotApiSimulationHerdSnapshotGetResponseError = (herdSnapshotApiSimulationHerdSnapshotGetResponse400 | herdSnapshotApiSimulationHerdSnapshotGetResponse401 | herdSnapshotApiSimulationHerdSnapshotGetResponse403 | herdSnapshotApiSimulationHerdSnapshotGetResponse404 | herdSnapshotApiSimulationHerdSnapshotGetResponse409 | herdSnapshotApiSimulationHerdSnapshotGetResponse413 | herdSnapshotApiSimulationHerdSnapshotGetResponse414 | herdSnapshotApiSimulationHerdSnapshotGetResponse422 | herdSnapshotApiSimulationHerdSnapshotGetResponse429 | herdSnapshotApiSimulationHerdSnapshotGetResponse500 | herdSnapshotApiSimulationHerdSnapshotGetResponse503) & {
   headers: Headers;
 };
 
@@ -15795,11 +15348,6 @@ export type farmCalibrationApiSimulationCalibrationGetResponse414 = {
   status: 414
 }
 
-export type farmCalibrationApiSimulationCalibrationGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type farmCalibrationApiSimulationCalibrationGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -15823,7 +15371,7 @@ export type farmCalibrationApiSimulationCalibrationGetResponse503 = {
 export type farmCalibrationApiSimulationCalibrationGetResponseSuccess = (farmCalibrationApiSimulationCalibrationGetResponse200) & {
   headers: Headers;
 };
-export type farmCalibrationApiSimulationCalibrationGetResponseError = (farmCalibrationApiSimulationCalibrationGetResponse400 | farmCalibrationApiSimulationCalibrationGetResponse401 | farmCalibrationApiSimulationCalibrationGetResponse403 | farmCalibrationApiSimulationCalibrationGetResponse404 | farmCalibrationApiSimulationCalibrationGetResponse409 | farmCalibrationApiSimulationCalibrationGetResponse413 | farmCalibrationApiSimulationCalibrationGetResponse414 | farmCalibrationApiSimulationCalibrationGetResponse415 | farmCalibrationApiSimulationCalibrationGetResponse422 | farmCalibrationApiSimulationCalibrationGetResponse429 | farmCalibrationApiSimulationCalibrationGetResponse500 | farmCalibrationApiSimulationCalibrationGetResponse503) & {
+export type farmCalibrationApiSimulationCalibrationGetResponseError = (farmCalibrationApiSimulationCalibrationGetResponse400 | farmCalibrationApiSimulationCalibrationGetResponse401 | farmCalibrationApiSimulationCalibrationGetResponse403 | farmCalibrationApiSimulationCalibrationGetResponse404 | farmCalibrationApiSimulationCalibrationGetResponse409 | farmCalibrationApiSimulationCalibrationGetResponse413 | farmCalibrationApiSimulationCalibrationGetResponse414 | farmCalibrationApiSimulationCalibrationGetResponse422 | farmCalibrationApiSimulationCalibrationGetResponse429 | farmCalibrationApiSimulationCalibrationGetResponse500 | farmCalibrationApiSimulationCalibrationGetResponse503) & {
   headers: Headers;
 };
 
@@ -15983,11 +15531,6 @@ export type runAdhocApiSimulationRunPostResponse414 = {
   status: 414
 }
 
-export type runAdhocApiSimulationRunPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type runAdhocApiSimulationRunPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -16011,7 +15554,7 @@ export type runAdhocApiSimulationRunPostResponse503 = {
 export type runAdhocApiSimulationRunPostResponseSuccess = (runAdhocApiSimulationRunPostResponse200) & {
   headers: Headers;
 };
-export type runAdhocApiSimulationRunPostResponseError = (runAdhocApiSimulationRunPostResponse400 | runAdhocApiSimulationRunPostResponse401 | runAdhocApiSimulationRunPostResponse403 | runAdhocApiSimulationRunPostResponse404 | runAdhocApiSimulationRunPostResponse409 | runAdhocApiSimulationRunPostResponse413 | runAdhocApiSimulationRunPostResponse414 | runAdhocApiSimulationRunPostResponse415 | runAdhocApiSimulationRunPostResponse422 | runAdhocApiSimulationRunPostResponse429 | runAdhocApiSimulationRunPostResponse500 | runAdhocApiSimulationRunPostResponse503) & {
+export type runAdhocApiSimulationRunPostResponseError = (runAdhocApiSimulationRunPostResponse400 | runAdhocApiSimulationRunPostResponse401 | runAdhocApiSimulationRunPostResponse403 | runAdhocApiSimulationRunPostResponse404 | runAdhocApiSimulationRunPostResponse409 | runAdhocApiSimulationRunPostResponse413 | runAdhocApiSimulationRunPostResponse414 | runAdhocApiSimulationRunPostResponse422 | runAdhocApiSimulationRunPostResponse429 | runAdhocApiSimulationRunPostResponse500 | runAdhocApiSimulationRunPostResponse503) & {
   headers: Headers;
 };
 
@@ -16129,11 +15672,6 @@ export type createScenarioApiSimulationScenariosPostResponse414 = {
   status: 414
 }
 
-export type createScenarioApiSimulationScenariosPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type createScenarioApiSimulationScenariosPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -16157,7 +15695,7 @@ export type createScenarioApiSimulationScenariosPostResponse503 = {
 export type createScenarioApiSimulationScenariosPostResponseSuccess = (createScenarioApiSimulationScenariosPostResponse201) & {
   headers: Headers;
 };
-export type createScenarioApiSimulationScenariosPostResponseError = (createScenarioApiSimulationScenariosPostResponse400 | createScenarioApiSimulationScenariosPostResponse401 | createScenarioApiSimulationScenariosPostResponse403 | createScenarioApiSimulationScenariosPostResponse404 | createScenarioApiSimulationScenariosPostResponse409 | createScenarioApiSimulationScenariosPostResponse413 | createScenarioApiSimulationScenariosPostResponse414 | createScenarioApiSimulationScenariosPostResponse415 | createScenarioApiSimulationScenariosPostResponse422 | createScenarioApiSimulationScenariosPostResponse429 | createScenarioApiSimulationScenariosPostResponse500 | createScenarioApiSimulationScenariosPostResponse503) & {
+export type createScenarioApiSimulationScenariosPostResponseError = (createScenarioApiSimulationScenariosPostResponse400 | createScenarioApiSimulationScenariosPostResponse401 | createScenarioApiSimulationScenariosPostResponse403 | createScenarioApiSimulationScenariosPostResponse404 | createScenarioApiSimulationScenariosPostResponse409 | createScenarioApiSimulationScenariosPostResponse413 | createScenarioApiSimulationScenariosPostResponse414 | createScenarioApiSimulationScenariosPostResponse422 | createScenarioApiSimulationScenariosPostResponse429 | createScenarioApiSimulationScenariosPostResponse500 | createScenarioApiSimulationScenariosPostResponse503) & {
   headers: Headers;
 };
 
@@ -16274,11 +15812,6 @@ export type listScenariosApiSimulationScenariosGetResponse414 = {
   status: 414
 }
 
-export type listScenariosApiSimulationScenariosGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listScenariosApiSimulationScenariosGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -16302,7 +15835,7 @@ export type listScenariosApiSimulationScenariosGetResponse503 = {
 export type listScenariosApiSimulationScenariosGetResponseSuccess = (listScenariosApiSimulationScenariosGetResponse200) & {
   headers: Headers;
 };
-export type listScenariosApiSimulationScenariosGetResponseError = (listScenariosApiSimulationScenariosGetResponse400 | listScenariosApiSimulationScenariosGetResponse401 | listScenariosApiSimulationScenariosGetResponse403 | listScenariosApiSimulationScenariosGetResponse404 | listScenariosApiSimulationScenariosGetResponse409 | listScenariosApiSimulationScenariosGetResponse413 | listScenariosApiSimulationScenariosGetResponse414 | listScenariosApiSimulationScenariosGetResponse415 | listScenariosApiSimulationScenariosGetResponse422 | listScenariosApiSimulationScenariosGetResponse429 | listScenariosApiSimulationScenariosGetResponse500 | listScenariosApiSimulationScenariosGetResponse503) & {
+export type listScenariosApiSimulationScenariosGetResponseError = (listScenariosApiSimulationScenariosGetResponse400 | listScenariosApiSimulationScenariosGetResponse401 | listScenariosApiSimulationScenariosGetResponse403 | listScenariosApiSimulationScenariosGetResponse404 | listScenariosApiSimulationScenariosGetResponse409 | listScenariosApiSimulationScenariosGetResponse413 | listScenariosApiSimulationScenariosGetResponse414 | listScenariosApiSimulationScenariosGetResponse422 | listScenariosApiSimulationScenariosGetResponse429 | listScenariosApiSimulationScenariosGetResponse500 | listScenariosApiSimulationScenariosGetResponse503) & {
   headers: Headers;
 };
 
@@ -16456,11 +15989,6 @@ export type compareScenariosApiSimulationScenariosCompareGetResponse414 = {
   status: 414
 }
 
-export type compareScenariosApiSimulationScenariosCompareGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type compareScenariosApiSimulationScenariosCompareGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -16484,7 +16012,7 @@ export type compareScenariosApiSimulationScenariosCompareGetResponse503 = {
 export type compareScenariosApiSimulationScenariosCompareGetResponseSuccess = (compareScenariosApiSimulationScenariosCompareGetResponse200) & {
   headers: Headers;
 };
-export type compareScenariosApiSimulationScenariosCompareGetResponseError = (compareScenariosApiSimulationScenariosCompareGetResponse400 | compareScenariosApiSimulationScenariosCompareGetResponse401 | compareScenariosApiSimulationScenariosCompareGetResponse403 | compareScenariosApiSimulationScenariosCompareGetResponse404 | compareScenariosApiSimulationScenariosCompareGetResponse409 | compareScenariosApiSimulationScenariosCompareGetResponse413 | compareScenariosApiSimulationScenariosCompareGetResponse414 | compareScenariosApiSimulationScenariosCompareGetResponse415 | compareScenariosApiSimulationScenariosCompareGetResponse422 | compareScenariosApiSimulationScenariosCompareGetResponse429 | compareScenariosApiSimulationScenariosCompareGetResponse500 | compareScenariosApiSimulationScenariosCompareGetResponse503) & {
+export type compareScenariosApiSimulationScenariosCompareGetResponseError = (compareScenariosApiSimulationScenariosCompareGetResponse400 | compareScenariosApiSimulationScenariosCompareGetResponse401 | compareScenariosApiSimulationScenariosCompareGetResponse403 | compareScenariosApiSimulationScenariosCompareGetResponse404 | compareScenariosApiSimulationScenariosCompareGetResponse409 | compareScenariosApiSimulationScenariosCompareGetResponse413 | compareScenariosApiSimulationScenariosCompareGetResponse414 | compareScenariosApiSimulationScenariosCompareGetResponse422 | compareScenariosApiSimulationScenariosCompareGetResponse429 | compareScenariosApiSimulationScenariosCompareGetResponse500 | compareScenariosApiSimulationScenariosCompareGetResponse503) & {
   headers: Headers;
 };
 
@@ -16643,11 +16171,6 @@ export type getScenarioApiSimulationScenariosScenarioIdGetResponse414 = {
   status: 414
 }
 
-export type getScenarioApiSimulationScenariosScenarioIdGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type getScenarioApiSimulationScenariosScenarioIdGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -16671,7 +16194,7 @@ export type getScenarioApiSimulationScenariosScenarioIdGetResponse503 = {
 export type getScenarioApiSimulationScenariosScenarioIdGetResponseSuccess = (getScenarioApiSimulationScenariosScenarioIdGetResponse200) & {
   headers: Headers;
 };
-export type getScenarioApiSimulationScenariosScenarioIdGetResponseError = (getScenarioApiSimulationScenariosScenarioIdGetResponse400 | getScenarioApiSimulationScenariosScenarioIdGetResponse401 | getScenarioApiSimulationScenariosScenarioIdGetResponse403 | getScenarioApiSimulationScenariosScenarioIdGetResponse404 | getScenarioApiSimulationScenariosScenarioIdGetResponse409 | getScenarioApiSimulationScenariosScenarioIdGetResponse413 | getScenarioApiSimulationScenariosScenarioIdGetResponse414 | getScenarioApiSimulationScenariosScenarioIdGetResponse415 | getScenarioApiSimulationScenariosScenarioIdGetResponse422 | getScenarioApiSimulationScenariosScenarioIdGetResponse429 | getScenarioApiSimulationScenariosScenarioIdGetResponse500 | getScenarioApiSimulationScenariosScenarioIdGetResponse503) & {
+export type getScenarioApiSimulationScenariosScenarioIdGetResponseError = (getScenarioApiSimulationScenariosScenarioIdGetResponse400 | getScenarioApiSimulationScenariosScenarioIdGetResponse401 | getScenarioApiSimulationScenariosScenarioIdGetResponse403 | getScenarioApiSimulationScenariosScenarioIdGetResponse404 | getScenarioApiSimulationScenariosScenarioIdGetResponse409 | getScenarioApiSimulationScenariosScenarioIdGetResponse413 | getScenarioApiSimulationScenariosScenarioIdGetResponse414 | getScenarioApiSimulationScenariosScenarioIdGetResponse422 | getScenarioApiSimulationScenariosScenarioIdGetResponse429 | getScenarioApiSimulationScenariosScenarioIdGetResponse500 | getScenarioApiSimulationScenariosScenarioIdGetResponse503) & {
   headers: Headers;
 };
 
@@ -16818,11 +16341,6 @@ export type updateScenarioApiSimulationScenariosScenarioIdPatchResponse414 = {
   status: 414
 }
 
-export type updateScenarioApiSimulationScenariosScenarioIdPatchResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type updateScenarioApiSimulationScenariosScenarioIdPatchResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -16846,7 +16364,7 @@ export type updateScenarioApiSimulationScenariosScenarioIdPatchResponse503 = {
 export type updateScenarioApiSimulationScenariosScenarioIdPatchResponseSuccess = (updateScenarioApiSimulationScenariosScenarioIdPatchResponse200) & {
   headers: Headers;
 };
-export type updateScenarioApiSimulationScenariosScenarioIdPatchResponseError = (updateScenarioApiSimulationScenariosScenarioIdPatchResponse400 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse401 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse403 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse404 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse409 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse413 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse414 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse415 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse422 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse429 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse500 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse503) & {
+export type updateScenarioApiSimulationScenariosScenarioIdPatchResponseError = (updateScenarioApiSimulationScenariosScenarioIdPatchResponse400 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse401 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse403 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse404 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse409 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse413 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse414 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse422 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse429 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse500 | updateScenarioApiSimulationScenariosScenarioIdPatchResponse503) & {
   headers: Headers;
 };
 
@@ -16964,11 +16482,6 @@ export type deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse414 = {
   status: 414
 }
 
-export type deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -16992,7 +16505,7 @@ export type deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse503 = {
 export type deleteScenarioApiSimulationScenariosScenarioIdDeleteResponseSuccess = (deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse204) & {
   headers: Headers;
 };
-export type deleteScenarioApiSimulationScenariosScenarioIdDeleteResponseError = (deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse400 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse401 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse403 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse404 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse409 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse413 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse414 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse415 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse422 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse429 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse500 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse503) & {
+export type deleteScenarioApiSimulationScenariosScenarioIdDeleteResponseError = (deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse400 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse401 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse403 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse404 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse409 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse413 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse414 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse422 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse429 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse500 | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse503) & {
   headers: Headers;
 };
 
@@ -17119,11 +16632,6 @@ export type runScenarioApiSimulationScenariosScenarioIdRunPostResponse414 = {
   status: 414
 }
 
-export type runScenarioApiSimulationScenariosScenarioIdRunPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type runScenarioApiSimulationScenariosScenarioIdRunPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -17147,7 +16655,7 @@ export type runScenarioApiSimulationScenariosScenarioIdRunPostResponse503 = {
 export type runScenarioApiSimulationScenariosScenarioIdRunPostResponseSuccess = (runScenarioApiSimulationScenariosScenarioIdRunPostResponse200) & {
   headers: Headers;
 };
-export type runScenarioApiSimulationScenariosScenarioIdRunPostResponseError = (runScenarioApiSimulationScenariosScenarioIdRunPostResponse400 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse401 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse403 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse404 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse409 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse413 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse414 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse415 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse422 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse429 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse500 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse503) & {
+export type runScenarioApiSimulationScenariosScenarioIdRunPostResponseError = (runScenarioApiSimulationScenariosScenarioIdRunPostResponse400 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse401 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse403 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse404 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse409 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse413 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse414 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse422 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse429 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse500 | runScenarioApiSimulationScenariosScenarioIdRunPostResponse503) & {
   headers: Headers;
 };
 
@@ -17274,11 +16782,6 @@ export type planSalesApiPlannerPlanPostResponse414 = {
   status: 414
 }
 
-export type planSalesApiPlannerPlanPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type planSalesApiPlannerPlanPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -17302,7 +16805,7 @@ export type planSalesApiPlannerPlanPostResponse503 = {
 export type planSalesApiPlannerPlanPostResponseSuccess = (planSalesApiPlannerPlanPostResponse200) & {
   headers: Headers;
 };
-export type planSalesApiPlannerPlanPostResponseError = (planSalesApiPlannerPlanPostResponse400 | planSalesApiPlannerPlanPostResponse401 | planSalesApiPlannerPlanPostResponse403 | planSalesApiPlannerPlanPostResponse404 | planSalesApiPlannerPlanPostResponse409 | planSalesApiPlannerPlanPostResponse413 | planSalesApiPlannerPlanPostResponse414 | planSalesApiPlannerPlanPostResponse415 | planSalesApiPlannerPlanPostResponse422 | planSalesApiPlannerPlanPostResponse429 | planSalesApiPlannerPlanPostResponse500 | planSalesApiPlannerPlanPostResponse503) & {
+export type planSalesApiPlannerPlanPostResponseError = (planSalesApiPlannerPlanPostResponse400 | planSalesApiPlannerPlanPostResponse401 | planSalesApiPlannerPlanPostResponse403 | planSalesApiPlannerPlanPostResponse404 | planSalesApiPlannerPlanPostResponse409 | planSalesApiPlannerPlanPostResponse413 | planSalesApiPlannerPlanPostResponse414 | planSalesApiPlannerPlanPostResponse422 | planSalesApiPlannerPlanPostResponse429 | planSalesApiPlannerPlanPostResponse500 | planSalesApiPlannerPlanPostResponse503) & {
   headers: Headers;
 };
 
@@ -17422,11 +16925,6 @@ export type createPlanApiPlannerPlansPostResponse414 = {
   status: 414
 }
 
-export type createPlanApiPlannerPlansPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type createPlanApiPlannerPlansPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -17450,7 +16948,7 @@ export type createPlanApiPlannerPlansPostResponse503 = {
 export type createPlanApiPlannerPlansPostResponseSuccess = (createPlanApiPlannerPlansPostResponse201) & {
   headers: Headers;
 };
-export type createPlanApiPlannerPlansPostResponseError = (createPlanApiPlannerPlansPostResponse400 | createPlanApiPlannerPlansPostResponse401 | createPlanApiPlannerPlansPostResponse403 | createPlanApiPlannerPlansPostResponse404 | createPlanApiPlannerPlansPostResponse409 | createPlanApiPlannerPlansPostResponse413 | createPlanApiPlannerPlansPostResponse414 | createPlanApiPlannerPlansPostResponse415 | createPlanApiPlannerPlansPostResponse422 | createPlanApiPlannerPlansPostResponse429 | createPlanApiPlannerPlansPostResponse500 | createPlanApiPlannerPlansPostResponse503) & {
+export type createPlanApiPlannerPlansPostResponseError = (createPlanApiPlannerPlansPostResponse400 | createPlanApiPlannerPlansPostResponse401 | createPlanApiPlannerPlansPostResponse403 | createPlanApiPlannerPlansPostResponse404 | createPlanApiPlannerPlansPostResponse409 | createPlanApiPlannerPlansPostResponse413 | createPlanApiPlannerPlansPostResponse414 | createPlanApiPlannerPlansPostResponse422 | createPlanApiPlannerPlansPostResponse429 | createPlanApiPlannerPlansPostResponse500 | createPlanApiPlannerPlansPostResponse503) & {
   headers: Headers;
 };
 
@@ -17567,11 +17065,6 @@ export type listPlansApiPlannerPlansGetResponse414 = {
   status: 414
 }
 
-export type listPlansApiPlannerPlansGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listPlansApiPlannerPlansGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -17595,7 +17088,7 @@ export type listPlansApiPlannerPlansGetResponse503 = {
 export type listPlansApiPlannerPlansGetResponseSuccess = (listPlansApiPlannerPlansGetResponse200) & {
   headers: Headers;
 };
-export type listPlansApiPlannerPlansGetResponseError = (listPlansApiPlannerPlansGetResponse400 | listPlansApiPlannerPlansGetResponse401 | listPlansApiPlannerPlansGetResponse403 | listPlansApiPlannerPlansGetResponse404 | listPlansApiPlannerPlansGetResponse409 | listPlansApiPlannerPlansGetResponse413 | listPlansApiPlannerPlansGetResponse414 | listPlansApiPlannerPlansGetResponse415 | listPlansApiPlannerPlansGetResponse422 | listPlansApiPlannerPlansGetResponse429 | listPlansApiPlannerPlansGetResponse500 | listPlansApiPlannerPlansGetResponse503) & {
+export type listPlansApiPlannerPlansGetResponseError = (listPlansApiPlannerPlansGetResponse400 | listPlansApiPlannerPlansGetResponse401 | listPlansApiPlannerPlansGetResponse403 | listPlansApiPlannerPlansGetResponse404 | listPlansApiPlannerPlansGetResponse409 | listPlansApiPlannerPlansGetResponse413 | listPlansApiPlannerPlansGetResponse414 | listPlansApiPlannerPlansGetResponse422 | listPlansApiPlannerPlansGetResponse429 | listPlansApiPlannerPlansGetResponse500 | listPlansApiPlannerPlansGetResponse503) & {
   headers: Headers;
 };
 
@@ -17749,11 +17242,6 @@ export type getPlanApiPlannerPlansPlanIdGetResponse414 = {
   status: 414
 }
 
-export type getPlanApiPlannerPlansPlanIdGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type getPlanApiPlannerPlansPlanIdGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -17777,7 +17265,7 @@ export type getPlanApiPlannerPlansPlanIdGetResponse503 = {
 export type getPlanApiPlannerPlansPlanIdGetResponseSuccess = (getPlanApiPlannerPlansPlanIdGetResponse200) & {
   headers: Headers;
 };
-export type getPlanApiPlannerPlansPlanIdGetResponseError = (getPlanApiPlannerPlansPlanIdGetResponse400 | getPlanApiPlannerPlansPlanIdGetResponse401 | getPlanApiPlannerPlansPlanIdGetResponse403 | getPlanApiPlannerPlansPlanIdGetResponse404 | getPlanApiPlannerPlansPlanIdGetResponse409 | getPlanApiPlannerPlansPlanIdGetResponse413 | getPlanApiPlannerPlansPlanIdGetResponse414 | getPlanApiPlannerPlansPlanIdGetResponse415 | getPlanApiPlannerPlansPlanIdGetResponse422 | getPlanApiPlannerPlansPlanIdGetResponse429 | getPlanApiPlannerPlansPlanIdGetResponse500 | getPlanApiPlannerPlansPlanIdGetResponse503) & {
+export type getPlanApiPlannerPlansPlanIdGetResponseError = (getPlanApiPlannerPlansPlanIdGetResponse400 | getPlanApiPlannerPlansPlanIdGetResponse401 | getPlanApiPlannerPlansPlanIdGetResponse403 | getPlanApiPlannerPlansPlanIdGetResponse404 | getPlanApiPlannerPlansPlanIdGetResponse409 | getPlanApiPlannerPlansPlanIdGetResponse413 | getPlanApiPlannerPlansPlanIdGetResponse414 | getPlanApiPlannerPlansPlanIdGetResponse422 | getPlanApiPlannerPlansPlanIdGetResponse429 | getPlanApiPlannerPlansPlanIdGetResponse500 | getPlanApiPlannerPlansPlanIdGetResponse503) & {
   headers: Headers;
 };
 
@@ -17924,11 +17412,6 @@ export type updatePlanApiPlannerPlansPlanIdPatchResponse414 = {
   status: 414
 }
 
-export type updatePlanApiPlannerPlansPlanIdPatchResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type updatePlanApiPlannerPlansPlanIdPatchResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -17952,7 +17435,7 @@ export type updatePlanApiPlannerPlansPlanIdPatchResponse503 = {
 export type updatePlanApiPlannerPlansPlanIdPatchResponseSuccess = (updatePlanApiPlannerPlansPlanIdPatchResponse200) & {
   headers: Headers;
 };
-export type updatePlanApiPlannerPlansPlanIdPatchResponseError = (updatePlanApiPlannerPlansPlanIdPatchResponse400 | updatePlanApiPlannerPlansPlanIdPatchResponse401 | updatePlanApiPlannerPlansPlanIdPatchResponse403 | updatePlanApiPlannerPlansPlanIdPatchResponse404 | updatePlanApiPlannerPlansPlanIdPatchResponse409 | updatePlanApiPlannerPlansPlanIdPatchResponse413 | updatePlanApiPlannerPlansPlanIdPatchResponse414 | updatePlanApiPlannerPlansPlanIdPatchResponse415 | updatePlanApiPlannerPlansPlanIdPatchResponse422 | updatePlanApiPlannerPlansPlanIdPatchResponse429 | updatePlanApiPlannerPlansPlanIdPatchResponse500 | updatePlanApiPlannerPlansPlanIdPatchResponse503) & {
+export type updatePlanApiPlannerPlansPlanIdPatchResponseError = (updatePlanApiPlannerPlansPlanIdPatchResponse400 | updatePlanApiPlannerPlansPlanIdPatchResponse401 | updatePlanApiPlannerPlansPlanIdPatchResponse403 | updatePlanApiPlannerPlansPlanIdPatchResponse404 | updatePlanApiPlannerPlansPlanIdPatchResponse409 | updatePlanApiPlannerPlansPlanIdPatchResponse413 | updatePlanApiPlannerPlansPlanIdPatchResponse414 | updatePlanApiPlannerPlansPlanIdPatchResponse422 | updatePlanApiPlannerPlansPlanIdPatchResponse429 | updatePlanApiPlannerPlansPlanIdPatchResponse500 | updatePlanApiPlannerPlansPlanIdPatchResponse503) & {
   headers: Headers;
 };
 
@@ -18070,11 +17553,6 @@ export type deletePlanApiPlannerPlansPlanIdDeleteResponse414 = {
   status: 414
 }
 
-export type deletePlanApiPlannerPlansPlanIdDeleteResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type deletePlanApiPlannerPlansPlanIdDeleteResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -18098,7 +17576,7 @@ export type deletePlanApiPlannerPlansPlanIdDeleteResponse503 = {
 export type deletePlanApiPlannerPlansPlanIdDeleteResponseSuccess = (deletePlanApiPlannerPlansPlanIdDeleteResponse204) & {
   headers: Headers;
 };
-export type deletePlanApiPlannerPlansPlanIdDeleteResponseError = (deletePlanApiPlannerPlansPlanIdDeleteResponse400 | deletePlanApiPlannerPlansPlanIdDeleteResponse401 | deletePlanApiPlannerPlansPlanIdDeleteResponse403 | deletePlanApiPlannerPlansPlanIdDeleteResponse404 | deletePlanApiPlannerPlansPlanIdDeleteResponse409 | deletePlanApiPlannerPlansPlanIdDeleteResponse413 | deletePlanApiPlannerPlansPlanIdDeleteResponse414 | deletePlanApiPlannerPlansPlanIdDeleteResponse415 | deletePlanApiPlannerPlansPlanIdDeleteResponse422 | deletePlanApiPlannerPlansPlanIdDeleteResponse429 | deletePlanApiPlannerPlansPlanIdDeleteResponse500 | deletePlanApiPlannerPlansPlanIdDeleteResponse503) & {
+export type deletePlanApiPlannerPlansPlanIdDeleteResponseError = (deletePlanApiPlannerPlansPlanIdDeleteResponse400 | deletePlanApiPlannerPlansPlanIdDeleteResponse401 | deletePlanApiPlannerPlansPlanIdDeleteResponse403 | deletePlanApiPlannerPlansPlanIdDeleteResponse404 | deletePlanApiPlannerPlansPlanIdDeleteResponse409 | deletePlanApiPlannerPlansPlanIdDeleteResponse413 | deletePlanApiPlannerPlansPlanIdDeleteResponse414 | deletePlanApiPlannerPlansPlanIdDeleteResponse422 | deletePlanApiPlannerPlansPlanIdDeleteResponse429 | deletePlanApiPlannerPlansPlanIdDeleteResponse500 | deletePlanApiPlannerPlansPlanIdDeleteResponse503) & {
   headers: Headers;
 };
 
@@ -18225,11 +17703,6 @@ export type planDprApiPlannerPlansPlanIdDprGetResponse414 = {
   status: 414
 }
 
-export type planDprApiPlannerPlansPlanIdDprGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type planDprApiPlannerPlansPlanIdDprGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -18253,7 +17726,7 @@ export type planDprApiPlannerPlansPlanIdDprGetResponse503 = {
 export type planDprApiPlannerPlansPlanIdDprGetResponseSuccess = (planDprApiPlannerPlansPlanIdDprGetResponse200) & {
   headers: Headers;
 };
-export type planDprApiPlannerPlansPlanIdDprGetResponseError = (planDprApiPlannerPlansPlanIdDprGetResponse400 | planDprApiPlannerPlansPlanIdDprGetResponse401 | planDprApiPlannerPlansPlanIdDprGetResponse403 | planDprApiPlannerPlansPlanIdDprGetResponse404 | planDprApiPlannerPlansPlanIdDprGetResponse409 | planDprApiPlannerPlansPlanIdDprGetResponse413 | planDprApiPlannerPlansPlanIdDprGetResponse414 | planDprApiPlannerPlansPlanIdDprGetResponse415 | planDprApiPlannerPlansPlanIdDprGetResponse422 | planDprApiPlannerPlansPlanIdDprGetResponse429 | planDprApiPlannerPlansPlanIdDprGetResponse500 | planDprApiPlannerPlansPlanIdDprGetResponse503) & {
+export type planDprApiPlannerPlansPlanIdDprGetResponseError = (planDprApiPlannerPlansPlanIdDprGetResponse400 | planDprApiPlannerPlansPlanIdDprGetResponse401 | planDprApiPlannerPlansPlanIdDprGetResponse403 | planDprApiPlannerPlansPlanIdDprGetResponse404 | planDprApiPlannerPlansPlanIdDprGetResponse409 | planDprApiPlannerPlansPlanIdDprGetResponse413 | planDprApiPlannerPlansPlanIdDprGetResponse414 | planDprApiPlannerPlansPlanIdDprGetResponse422 | planDprApiPlannerPlansPlanIdDprGetResponse429 | planDprApiPlannerPlansPlanIdDprGetResponse500 | planDprApiPlannerPlansPlanIdDprGetResponse503) & {
   headers: Headers;
 };
 
@@ -18403,11 +17876,6 @@ export type runDailyOpsSimulationApiOpsSimRunPostResponse414 = {
   status: 414
 }
 
-export type runDailyOpsSimulationApiOpsSimRunPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type runDailyOpsSimulationApiOpsSimRunPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -18431,7 +17899,7 @@ export type runDailyOpsSimulationApiOpsSimRunPostResponse503 = {
 export type runDailyOpsSimulationApiOpsSimRunPostResponseSuccess = (runDailyOpsSimulationApiOpsSimRunPostResponse200) & {
   headers: Headers;
 };
-export type runDailyOpsSimulationApiOpsSimRunPostResponseError = (runDailyOpsSimulationApiOpsSimRunPostResponse400 | runDailyOpsSimulationApiOpsSimRunPostResponse401 | runDailyOpsSimulationApiOpsSimRunPostResponse403 | runDailyOpsSimulationApiOpsSimRunPostResponse404 | runDailyOpsSimulationApiOpsSimRunPostResponse409 | runDailyOpsSimulationApiOpsSimRunPostResponse413 | runDailyOpsSimulationApiOpsSimRunPostResponse414 | runDailyOpsSimulationApiOpsSimRunPostResponse415 | runDailyOpsSimulationApiOpsSimRunPostResponse422 | runDailyOpsSimulationApiOpsSimRunPostResponse429 | runDailyOpsSimulationApiOpsSimRunPostResponse500 | runDailyOpsSimulationApiOpsSimRunPostResponse503) & {
+export type runDailyOpsSimulationApiOpsSimRunPostResponseError = (runDailyOpsSimulationApiOpsSimRunPostResponse400 | runDailyOpsSimulationApiOpsSimRunPostResponse401 | runDailyOpsSimulationApiOpsSimRunPostResponse403 | runDailyOpsSimulationApiOpsSimRunPostResponse404 | runDailyOpsSimulationApiOpsSimRunPostResponse409 | runDailyOpsSimulationApiOpsSimRunPostResponse413 | runDailyOpsSimulationApiOpsSimRunPostResponse414 | runDailyOpsSimulationApiOpsSimRunPostResponse422 | runDailyOpsSimulationApiOpsSimRunPostResponse429 | runDailyOpsSimulationApiOpsSimRunPostResponse500 | runDailyOpsSimulationApiOpsSimRunPostResponse503) & {
   headers: Headers;
 };
 
@@ -18550,11 +18018,6 @@ export type listImagesApiScreeningImagesGetResponse414 = {
   status: 414
 }
 
-export type listImagesApiScreeningImagesGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listImagesApiScreeningImagesGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -18578,7 +18041,7 @@ export type listImagesApiScreeningImagesGetResponse503 = {
 export type listImagesApiScreeningImagesGetResponseSuccess = (listImagesApiScreeningImagesGetResponse200) & {
   headers: Headers;
 };
-export type listImagesApiScreeningImagesGetResponseError = (listImagesApiScreeningImagesGetResponse400 | listImagesApiScreeningImagesGetResponse401 | listImagesApiScreeningImagesGetResponse403 | listImagesApiScreeningImagesGetResponse404 | listImagesApiScreeningImagesGetResponse409 | listImagesApiScreeningImagesGetResponse413 | listImagesApiScreeningImagesGetResponse414 | listImagesApiScreeningImagesGetResponse415 | listImagesApiScreeningImagesGetResponse422 | listImagesApiScreeningImagesGetResponse429 | listImagesApiScreeningImagesGetResponse500 | listImagesApiScreeningImagesGetResponse503) & {
+export type listImagesApiScreeningImagesGetResponseError = (listImagesApiScreeningImagesGetResponse400 | listImagesApiScreeningImagesGetResponse401 | listImagesApiScreeningImagesGetResponse403 | listImagesApiScreeningImagesGetResponse404 | listImagesApiScreeningImagesGetResponse409 | listImagesApiScreeningImagesGetResponse413 | listImagesApiScreeningImagesGetResponse414 | listImagesApiScreeningImagesGetResponse422 | listImagesApiScreeningImagesGetResponse429 | listImagesApiScreeningImagesGetResponse500 | listImagesApiScreeningImagesGetResponse503) & {
   headers: Headers;
 };
 
@@ -18734,11 +18197,6 @@ export type getImageApiScreeningImagesImageIdGetResponse414 = {
   status: 414
 }
 
-export type getImageApiScreeningImagesImageIdGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type getImageApiScreeningImagesImageIdGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -18762,7 +18220,7 @@ export type getImageApiScreeningImagesImageIdGetResponse503 = {
 export type getImageApiScreeningImagesImageIdGetResponseSuccess = (getImageApiScreeningImagesImageIdGetResponse200) & {
   headers: Headers;
 };
-export type getImageApiScreeningImagesImageIdGetResponseError = (getImageApiScreeningImagesImageIdGetResponse400 | getImageApiScreeningImagesImageIdGetResponse401 | getImageApiScreeningImagesImageIdGetResponse403 | getImageApiScreeningImagesImageIdGetResponse404 | getImageApiScreeningImagesImageIdGetResponse409 | getImageApiScreeningImagesImageIdGetResponse413 | getImageApiScreeningImagesImageIdGetResponse414 | getImageApiScreeningImagesImageIdGetResponse415 | getImageApiScreeningImagesImageIdGetResponse422 | getImageApiScreeningImagesImageIdGetResponse429 | getImageApiScreeningImagesImageIdGetResponse500 | getImageApiScreeningImagesImageIdGetResponse503) & {
+export type getImageApiScreeningImagesImageIdGetResponseError = (getImageApiScreeningImagesImageIdGetResponse400 | getImageApiScreeningImagesImageIdGetResponse401 | getImageApiScreeningImagesImageIdGetResponse403 | getImageApiScreeningImagesImageIdGetResponse404 | getImageApiScreeningImagesImageIdGetResponse409 | getImageApiScreeningImagesImageIdGetResponse413 | getImageApiScreeningImagesImageIdGetResponse414 | getImageApiScreeningImagesImageIdGetResponse422 | getImageApiScreeningImagesImageIdGetResponse429 | getImageApiScreeningImagesImageIdGetResponse500 | getImageApiScreeningImagesImageIdGetResponse503) & {
   headers: Headers;
 };
 
@@ -18911,11 +18369,6 @@ export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse414 = {
   status: 414
 }
 
-export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -18939,7 +18392,7 @@ export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse503 = {
 export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponseSuccess = (reviewFindingApiScreeningFindingsFindingIdReviewPostResponse200) & {
   headers: Headers;
 };
-export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponseError = (reviewFindingApiScreeningFindingsFindingIdReviewPostResponse400 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse401 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse403 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse404 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse409 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse413 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse414 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse415 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse422 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse429 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse500 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse503) & {
+export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponseError = (reviewFindingApiScreeningFindingsFindingIdReviewPostResponse400 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse401 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse403 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse404 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse409 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse413 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse414 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse422 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse429 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse500 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse503) & {
   headers: Headers;
 };
 
@@ -19061,11 +18514,6 @@ export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse4
   status: 414
 }
 
-export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -19089,7 +18537,7 @@ export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse5
 export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponseSuccess = (findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse200) & {
   headers: Headers;
 };
-export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponseError = (findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse400 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse401 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse403 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse404 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse409 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse413 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse414 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse415 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse422 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse429 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse500 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse503) & {
+export type findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponseError = (findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse400 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse401 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse403 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse404 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse409 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse413 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse414 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse422 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse429 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse500 | findingReviewHistoryApiScreeningFindingsFindingIdReviewsGetResponse503) & {
   headers: Headers;
 };
 
@@ -19251,11 +18699,6 @@ export type providerStatsApiScreeningStatsGetResponse414 = {
   status: 414
 }
 
-export type providerStatsApiScreeningStatsGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type providerStatsApiScreeningStatsGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -19279,7 +18722,7 @@ export type providerStatsApiScreeningStatsGetResponse503 = {
 export type providerStatsApiScreeningStatsGetResponseSuccess = (providerStatsApiScreeningStatsGetResponse200) & {
   headers: Headers;
 };
-export type providerStatsApiScreeningStatsGetResponseError = (providerStatsApiScreeningStatsGetResponse400 | providerStatsApiScreeningStatsGetResponse401 | providerStatsApiScreeningStatsGetResponse403 | providerStatsApiScreeningStatsGetResponse404 | providerStatsApiScreeningStatsGetResponse409 | providerStatsApiScreeningStatsGetResponse413 | providerStatsApiScreeningStatsGetResponse414 | providerStatsApiScreeningStatsGetResponse415 | providerStatsApiScreeningStatsGetResponse422 | providerStatsApiScreeningStatsGetResponse429 | providerStatsApiScreeningStatsGetResponse500 | providerStatsApiScreeningStatsGetResponse503) & {
+export type providerStatsApiScreeningStatsGetResponseError = (providerStatsApiScreeningStatsGetResponse400 | providerStatsApiScreeningStatsGetResponse401 | providerStatsApiScreeningStatsGetResponse403 | providerStatsApiScreeningStatsGetResponse404 | providerStatsApiScreeningStatsGetResponse409 | providerStatsApiScreeningStatsGetResponse413 | providerStatsApiScreeningStatsGetResponse414 | providerStatsApiScreeningStatsGetResponse422 | providerStatsApiScreeningStatsGetResponse429 | providerStatsApiScreeningStatsGetResponse500 | providerStatsApiScreeningStatsGetResponse503) & {
   headers: Headers;
 };
 
@@ -19301,11 +18744,15 @@ export const getProviderStatsApiScreeningStatsGetUrl = (params?: ProviderStatsAp
 }
 
 /**
- * The rotation scoreboard: call volume, verdict behavior, vet-labeled
- * precision and cross-check agreement per provider over the window.
+ * The rotation scoreboard: call volume, verdict behavior, conditional
+ * positive precision, sampled healthy false-negative rate, and cross-check
+ * agreement per provider over the window.
  *
  * This is the feedback loop that turns the round-robin from vendor
- * insurance into a measured comparison on your own photos.
+ * insurance into a measured comparison on your own photos. The positive
+ * metric is conditional on emitted findings; the healthy metric covers the
+ * deterministic quality-control sample and is not full-population
+ * sensitivity or specificity.
  * @summary Provider Stats
  */
 export const providerStatsApiScreeningStatsGet = async (params?: ProviderStatsApiScreeningStatsGetParams, options?: Parameters<typeof customInstance>[1]): Promise<providerStatsApiScreeningStatsGetResponse> => {
@@ -19438,11 +18885,6 @@ export type exportDatasetApiScreeningExportGetResponse414 = {
   status: 414
 }
 
-export type exportDatasetApiScreeningExportGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type exportDatasetApiScreeningExportGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -19466,7 +18908,7 @@ export type exportDatasetApiScreeningExportGetResponse503 = {
 export type exportDatasetApiScreeningExportGetResponseSuccess = (exportDatasetApiScreeningExportGetResponse200) & {
   headers: Headers;
 };
-export type exportDatasetApiScreeningExportGetResponseError = (exportDatasetApiScreeningExportGetResponse400 | exportDatasetApiScreeningExportGetResponse401 | exportDatasetApiScreeningExportGetResponse403 | exportDatasetApiScreeningExportGetResponse404 | exportDatasetApiScreeningExportGetResponse409 | exportDatasetApiScreeningExportGetResponse413 | exportDatasetApiScreeningExportGetResponse414 | exportDatasetApiScreeningExportGetResponse415 | exportDatasetApiScreeningExportGetResponse422 | exportDatasetApiScreeningExportGetResponse429 | exportDatasetApiScreeningExportGetResponse500 | exportDatasetApiScreeningExportGetResponse503) & {
+export type exportDatasetApiScreeningExportGetResponseError = (exportDatasetApiScreeningExportGetResponse400 | exportDatasetApiScreeningExportGetResponse401 | exportDatasetApiScreeningExportGetResponse403 | exportDatasetApiScreeningExportGetResponse404 | exportDatasetApiScreeningExportGetResponse409 | exportDatasetApiScreeningExportGetResponse413 | exportDatasetApiScreeningExportGetResponse414 | exportDatasetApiScreeningExportGetResponse422 | exportDatasetApiScreeningExportGetResponse429 | exportDatasetApiScreeningExportGetResponse500 | exportDatasetApiScreeningExportGetResponse503) & {
   headers: Headers;
 };
 
@@ -19492,7 +18934,8 @@ export const getExportDatasetApiScreeningExportGetUrl = (params?: ExportDatasetA
  * vet verdict that makes each label trustworthy. Defaults to every
  * finding INCLUDING the pending review queue (each record carries
  * ``vet_status`` so consumers can filter); pass vet_status=CONFIRMED or
- * REJECTED for reviewed-only exports.
+ * REJECTED for reviewed-only exports. Healthy-control records use CONFIRMED
+ * for no visible abnormality and REJECTED when the reviewer found one.
  * @summary Export Dataset
  */
 export const exportDatasetApiScreeningExportGet = async (params?: ExportDatasetApiScreeningExportGetParams, options?: Parameters<typeof customInstance>[1]): Promise<exportDatasetApiScreeningExportGetResponse> => {
@@ -19625,11 +19068,6 @@ export type createBatchApiScreeningBatchesPostResponse414 = {
   status: 414
 }
 
-export type createBatchApiScreeningBatchesPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type createBatchApiScreeningBatchesPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -19653,7 +19091,7 @@ export type createBatchApiScreeningBatchesPostResponse503 = {
 export type createBatchApiScreeningBatchesPostResponseSuccess = (createBatchApiScreeningBatchesPostResponse201) & {
   headers: Headers;
 };
-export type createBatchApiScreeningBatchesPostResponseError = (createBatchApiScreeningBatchesPostResponse400 | createBatchApiScreeningBatchesPostResponse401 | createBatchApiScreeningBatchesPostResponse403 | createBatchApiScreeningBatchesPostResponse404 | createBatchApiScreeningBatchesPostResponse409 | createBatchApiScreeningBatchesPostResponse413 | createBatchApiScreeningBatchesPostResponse414 | createBatchApiScreeningBatchesPostResponse415 | createBatchApiScreeningBatchesPostResponse422 | createBatchApiScreeningBatchesPostResponse429 | createBatchApiScreeningBatchesPostResponse500 | createBatchApiScreeningBatchesPostResponse503) & {
+export type createBatchApiScreeningBatchesPostResponseError = (createBatchApiScreeningBatchesPostResponse400 | createBatchApiScreeningBatchesPostResponse401 | createBatchApiScreeningBatchesPostResponse403 | createBatchApiScreeningBatchesPostResponse404 | createBatchApiScreeningBatchesPostResponse409 | createBatchApiScreeningBatchesPostResponse413 | createBatchApiScreeningBatchesPostResponse414 | createBatchApiScreeningBatchesPostResponse422 | createBatchApiScreeningBatchesPostResponse429 | createBatchApiScreeningBatchesPostResponse500 | createBatchApiScreeningBatchesPostResponse503) & {
   headers: Headers;
 };
 
@@ -19772,11 +19210,6 @@ export type listBatchesApiScreeningBatchesGetResponse414 = {
   status: 414
 }
 
-export type listBatchesApiScreeningBatchesGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type listBatchesApiScreeningBatchesGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -19800,7 +19233,7 @@ export type listBatchesApiScreeningBatchesGetResponse503 = {
 export type listBatchesApiScreeningBatchesGetResponseSuccess = (listBatchesApiScreeningBatchesGetResponse200) & {
   headers: Headers;
 };
-export type listBatchesApiScreeningBatchesGetResponseError = (listBatchesApiScreeningBatchesGetResponse400 | listBatchesApiScreeningBatchesGetResponse401 | listBatchesApiScreeningBatchesGetResponse403 | listBatchesApiScreeningBatchesGetResponse404 | listBatchesApiScreeningBatchesGetResponse409 | listBatchesApiScreeningBatchesGetResponse413 | listBatchesApiScreeningBatchesGetResponse414 | listBatchesApiScreeningBatchesGetResponse415 | listBatchesApiScreeningBatchesGetResponse422 | listBatchesApiScreeningBatchesGetResponse429 | listBatchesApiScreeningBatchesGetResponse500 | listBatchesApiScreeningBatchesGetResponse503) & {
+export type listBatchesApiScreeningBatchesGetResponseError = (listBatchesApiScreeningBatchesGetResponse400 | listBatchesApiScreeningBatchesGetResponse401 | listBatchesApiScreeningBatchesGetResponse403 | listBatchesApiScreeningBatchesGetResponse404 | listBatchesApiScreeningBatchesGetResponse409 | listBatchesApiScreeningBatchesGetResponse413 | listBatchesApiScreeningBatchesGetResponse414 | listBatchesApiScreeningBatchesGetResponse422 | listBatchesApiScreeningBatchesGetResponse429 | listBatchesApiScreeningBatchesGetResponse500 | listBatchesApiScreeningBatchesGetResponse503) & {
   headers: Headers;
 };
 
@@ -19957,11 +19390,6 @@ export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse414 = {
   status: 414
 }
 
-export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -19985,7 +19413,7 @@ export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse503 = {
 export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponseSuccess = (submitBatchApiScreeningBatchesBatchIdSubmitPostResponse200) & {
   headers: Headers;
 };
-export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponseError = (submitBatchApiScreeningBatchesBatchIdSubmitPostResponse400 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse401 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse403 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse404 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse409 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse413 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse414 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse415 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse422 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse429 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse500 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse503) & {
+export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponseError = (submitBatchApiScreeningBatchesBatchIdSubmitPostResponse400 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse401 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse403 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse404 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse409 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse413 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse414 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse422 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse429 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse500 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse503) & {
   headers: Headers;
 };
 
@@ -20104,11 +19532,6 @@ export type requestUploadApiScreeningUploadsPostResponse414 = {
   status: 414
 }
 
-export type requestUploadApiScreeningUploadsPostResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type requestUploadApiScreeningUploadsPostResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -20132,7 +19555,7 @@ export type requestUploadApiScreeningUploadsPostResponse503 = {
 export type requestUploadApiScreeningUploadsPostResponseSuccess = (requestUploadApiScreeningUploadsPostResponse201) & {
   headers: Headers;
 };
-export type requestUploadApiScreeningUploadsPostResponseError = (requestUploadApiScreeningUploadsPostResponse400 | requestUploadApiScreeningUploadsPostResponse401 | requestUploadApiScreeningUploadsPostResponse403 | requestUploadApiScreeningUploadsPostResponse404 | requestUploadApiScreeningUploadsPostResponse409 | requestUploadApiScreeningUploadsPostResponse413 | requestUploadApiScreeningUploadsPostResponse414 | requestUploadApiScreeningUploadsPostResponse415 | requestUploadApiScreeningUploadsPostResponse422 | requestUploadApiScreeningUploadsPostResponse429 | requestUploadApiScreeningUploadsPostResponse500 | requestUploadApiScreeningUploadsPostResponse503) & {
+export type requestUploadApiScreeningUploadsPostResponseError = (requestUploadApiScreeningUploadsPostResponse400 | requestUploadApiScreeningUploadsPostResponse401 | requestUploadApiScreeningUploadsPostResponse403 | requestUploadApiScreeningUploadsPostResponse404 | requestUploadApiScreeningUploadsPostResponse409 | requestUploadApiScreeningUploadsPostResponse413 | requestUploadApiScreeningUploadsPostResponse414 | requestUploadApiScreeningUploadsPostResponse422 | requestUploadApiScreeningUploadsPostResponse429 | requestUploadApiScreeningUploadsPostResponse500 | requestUploadApiScreeningUploadsPostResponse503) & {
   headers: Headers;
 };
 
@@ -20256,11 +19679,6 @@ export type ownerOverviewApiOwnerOverviewGetResponse414 = {
   status: 414
 }
 
-export type ownerOverviewApiOwnerOverviewGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type ownerOverviewApiOwnerOverviewGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -20284,7 +19702,7 @@ export type ownerOverviewApiOwnerOverviewGetResponse503 = {
 export type ownerOverviewApiOwnerOverviewGetResponseSuccess = (ownerOverviewApiOwnerOverviewGetResponse200) & {
   headers: Headers;
 };
-export type ownerOverviewApiOwnerOverviewGetResponseError = (ownerOverviewApiOwnerOverviewGetResponse400 | ownerOverviewApiOwnerOverviewGetResponse401 | ownerOverviewApiOwnerOverviewGetResponse403 | ownerOverviewApiOwnerOverviewGetResponse404 | ownerOverviewApiOwnerOverviewGetResponse409 | ownerOverviewApiOwnerOverviewGetResponse413 | ownerOverviewApiOwnerOverviewGetResponse414 | ownerOverviewApiOwnerOverviewGetResponse415 | ownerOverviewApiOwnerOverviewGetResponse422 | ownerOverviewApiOwnerOverviewGetResponse429 | ownerOverviewApiOwnerOverviewGetResponse500 | ownerOverviewApiOwnerOverviewGetResponse503) & {
+export type ownerOverviewApiOwnerOverviewGetResponseError = (ownerOverviewApiOwnerOverviewGetResponse400 | ownerOverviewApiOwnerOverviewGetResponse401 | ownerOverviewApiOwnerOverviewGetResponse403 | ownerOverviewApiOwnerOverviewGetResponse404 | ownerOverviewApiOwnerOverviewGetResponse409 | ownerOverviewApiOwnerOverviewGetResponse413 | ownerOverviewApiOwnerOverviewGetResponse414 | ownerOverviewApiOwnerOverviewGetResponse422 | ownerOverviewApiOwnerOverviewGetResponse429 | ownerOverviewApiOwnerOverviewGetResponse500 | ownerOverviewApiOwnerOverviewGetResponse503) & {
   headers: Headers;
 };
 
@@ -20432,11 +19850,6 @@ export type ownerBenchmarksApiOwnerBenchmarksGetResponse414 = {
   status: 414
 }
 
-export type ownerBenchmarksApiOwnerBenchmarksGetResponse415 = {
-  data: ErrorOut
-  status: 415
-}
-
 export type ownerBenchmarksApiOwnerBenchmarksGetResponse422 = {
   data: ErrorOut | RequestValidationErrorOut
   status: 422
@@ -20460,7 +19873,7 @@ export type ownerBenchmarksApiOwnerBenchmarksGetResponse503 = {
 export type ownerBenchmarksApiOwnerBenchmarksGetResponseSuccess = (ownerBenchmarksApiOwnerBenchmarksGetResponse200) & {
   headers: Headers;
 };
-export type ownerBenchmarksApiOwnerBenchmarksGetResponseError = (ownerBenchmarksApiOwnerBenchmarksGetResponse400 | ownerBenchmarksApiOwnerBenchmarksGetResponse401 | ownerBenchmarksApiOwnerBenchmarksGetResponse403 | ownerBenchmarksApiOwnerBenchmarksGetResponse404 | ownerBenchmarksApiOwnerBenchmarksGetResponse409 | ownerBenchmarksApiOwnerBenchmarksGetResponse413 | ownerBenchmarksApiOwnerBenchmarksGetResponse414 | ownerBenchmarksApiOwnerBenchmarksGetResponse415 | ownerBenchmarksApiOwnerBenchmarksGetResponse422 | ownerBenchmarksApiOwnerBenchmarksGetResponse429 | ownerBenchmarksApiOwnerBenchmarksGetResponse500 | ownerBenchmarksApiOwnerBenchmarksGetResponse503) & {
+export type ownerBenchmarksApiOwnerBenchmarksGetResponseError = (ownerBenchmarksApiOwnerBenchmarksGetResponse400 | ownerBenchmarksApiOwnerBenchmarksGetResponse401 | ownerBenchmarksApiOwnerBenchmarksGetResponse403 | ownerBenchmarksApiOwnerBenchmarksGetResponse404 | ownerBenchmarksApiOwnerBenchmarksGetResponse409 | ownerBenchmarksApiOwnerBenchmarksGetResponse413 | ownerBenchmarksApiOwnerBenchmarksGetResponse414 | ownerBenchmarksApiOwnerBenchmarksGetResponse422 | ownerBenchmarksApiOwnerBenchmarksGetResponse429 | ownerBenchmarksApiOwnerBenchmarksGetResponse500 | ownerBenchmarksApiOwnerBenchmarksGetResponse503) & {
   headers: Headers;
 };
 

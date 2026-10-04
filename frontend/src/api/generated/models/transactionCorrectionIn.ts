@@ -17,6 +17,10 @@ export interface TransactionCorrectionIn {
   date: string;
   type: TransactionCorrectionInType;
   category: TransactionCorrectionInCategory;
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   amount: number;
   notes?: string | null;
   related_animal_id?: number | null;

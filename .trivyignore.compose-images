@@ -1,14 +1,14 @@
-# Trivy ignore file — SCOPED to the compose-pulled third-party images only
-# (PostgreSQL and nginx). It is passed via the `trivyignores:` input on
-# exactly those two scan steps in .github/workflows/security.yml; the
-# backend/frontend scans never load it, so our own images must stay at zero
+# Trivy ignore file — SCOPED to the compose-pulled third-party PostgreSQL image.
+# It is passed via the `trivyignores:` input on exactly that scan step in
+# .github/workflows/security.yml; repository-built backend/frontend/edge scans
+# never load it, so our own images must stay at zero
 # fixable HIGH/CRITICAL with no masking.
 #
-# Rationale for every entry: the fix exists upstream (a Debian/Alpine point
-# release or a rebuilt upstream binary), but the digest-pinned official
+# Rationale for every entry: the fix exists upstream (a Debian point release
+# or a rebuilt upstream binary), but the digest-pinned official
 # image predates it and Docker Hub has not published a rebuilt tag. Compose
-# services run these images as-is, so there is no build step where
-# `apt/apk upgrade` could apply the fix (the way our own Dockerfiles do).
+# service runs this image as-is, so there is no build step where an
+# `apt upgrade` could apply the fix (the way our own Dockerfiles do).
 #
 # REFRESH POLICY: on each weekly security scan, re-check whether the pinned
 # digests have been republished (Docker Hub tag last_updated) or newer
@@ -21,18 +21,6 @@
 # change that refreshes the digests — never on its own.
 #
 # refreshed: 2026-09-14
-#
-# === nginx:1.30-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c (built 2026-09-03, alpine 3.24.1) ===
-# libuuid (util-linux), fixed in alpine 3.24 point release 2.42.3-r0:
-CVE-2026-53612
-CVE-2026-53613
-CVE-2026-53614
-# zlib/zlib-ng + busybox point releases (fixed builds exist upstream, image
-# predates them):
-CVE-2026-76642
-CVE-2026-78408
-CVE-2026-78409
-CVE-2026-78410
 #
 # === postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94 (built 2026-08-26, debian 13.6 "trixie") ===
 # (Staying on the trixie/glibc line: switching the database to an alpine/musl

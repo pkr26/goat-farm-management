@@ -194,6 +194,7 @@ describe("ReportsPage branches", () => {
     server.use(permissionsHandler(["reports.view", "breeding.view", "animals.view"]));
     await renderLoaded(payload);
 
+    expect(summaryValue("Kids born (recorded)")).toHaveTextContent("Requires health access");
     expect(summaryValue("Stillborn rate")).toHaveTextContent("Requires health access");
     // DEAD is present in status_counts, so it is already rendered with its
     // count — the withheld filler must not duplicate the row.

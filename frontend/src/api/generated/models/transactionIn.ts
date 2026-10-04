@@ -11,6 +11,10 @@ export interface TransactionIn {
   date: string;
   type: TransactionInType;
   category: TransactionInCategory;
+  /**
+     * @maximum 1000000000
+     * @exclusiveMinimum 0
+     */
   amount: number;
   notes?: string | null;
   related_animal_id?: number | null;

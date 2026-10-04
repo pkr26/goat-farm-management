@@ -11,5 +11,9 @@ export interface MixIn {
      * @maxLength 30
      */
   recipe_code: string;
+  /**
+     * @maximum 1000000
+     * @exclusiveMinimum 0
+     */
   batch_kg: number;
 }

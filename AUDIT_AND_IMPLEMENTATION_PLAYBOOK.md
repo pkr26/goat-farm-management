@@ -84,7 +84,7 @@ Everything in Part 3 below. Notably: notifications, Telugu, offline, and screeni
 # PART 3 — IMPLEMENTATION PLAYBOOK
 
 > Each spec is self-contained. Standard gates after ANY change (run from repo subdirs):
-> - Backend: `cd backend && ./.venv/bin/python -m pytest -q` · `./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .` · `./.venv/bin/python -m mypy --strict app` · `./.venv/bin/alembic upgrade head && ./.venv/bin/alembic check`
+> - Backend: `cd backend && ./.venv/bin/python -m pytest -q` · `./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .` · `./.venv/bin/python -m mypy --strict app` · `GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://localhost:5432/goatfarm ./.venv/bin/alembic upgrade head && GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://localhost:5432/goatfarm ./.venv/bin/alembic check`
 > - Contract sync after ANY backend route/schema change: `cd backend && ./.venv/bin/python scripts/export_openapi.py` then `cd frontend && pnpm orval` (CI has freshness gates for both).
 > - Frontend: `cd frontend && pnpm test:coverage` (floors 85/80/85/85) · `pnpm build` · `pnpm exec playwright test`
 > - Conventions: backend = no narration comments, match module style, mypy strict green, NEVER edit an applied migration file (append new revisions only). Frontend = theme tokens only (no hex), `dark:` pairs on tints, shared components (PageHeader/StatCard/DataTableCard/EmptyState/StatusBadge), lucide icons only, i18n strings in BOTH `en.ts` and `te.ts` (typed MessageKey union enforces parity), semantic `data-*` test hooks not class assertions.

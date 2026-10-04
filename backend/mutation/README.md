@@ -6,6 +6,16 @@ baselines, isolated execution and compatible campaign receipts. The corrected
 report's dry run reports the current checkout as unmeasured until a fresh
 campaign exists.
 
+`.github/workflows/mutation.yml` now runs actual application mutants (not
+only harness self-tests) for pull requests that touch application/tests and
+on a weekly schedule. It regenerates a passing full-suite coverage map,
+selects at most 25 mutation sites from changed production files (or a
+bounded repository sample when no production file is selected), uses
+complete test selections, requires every attempt to reach a scored verdict,
+and enforces an 80% assertion-kill floor. The plan, provenance, manifest,
+raw attempts, and report are retained for 30 days. This bounded gate is not
+represented as a whole-manifest score.
+
 For a new campaign on a stable checkout:
 
 1. Generate a manifest with `python mutation/mutate_gen.py`. Each edit carries

@@ -56,6 +56,7 @@ vi.mock("next/navigation", () => ({
 // the exact header the real proxy sets.
 vi.mock("next/headers", () => ({
   headers: async () => new Headers({ "x-nonce": "dGVzdC1ub25jZS0wMTIzNDU2Nzg5" }),
+  cookies: async () => ({ get: vi.fn(() => undefined) }),
 }));
 
 beforeAll(() => {
@@ -78,14 +79,10 @@ function ProviderProbe() {
 
 describe("RootLayout", () => {
   it("loads both font families with the latin subset and the theme's CSS variables", async () => {
-    // The font loaders run at module scope, so importing this file once at the
-    // top would record the calls before the test body ever executes — the
-    // assertion would then only ever inspect a cached side effect. Re-import
-    // under a reset module registry so the configuration is genuinely
-    // exercised *by this test*.
-    fontLoaderCalls.length = 0;
-    vi.resetModules();
-    await import("./layout");
+    // The font loaders run at module scope and the hoisted mock records that
+    // import. Do not reset Vitest's process-wide module registry here: doing
+    // so discards the locale catalog installed by vitest.setup and makes every
+    // later test sharing this worker observe a different i18n singleton.
 
     // globals.css maps --font-sans/--font-mono onto these exact variable
     // names, so a renamed or dropped variable silently un-styles the app.
@@ -103,16 +100,11 @@ describe("RootLayout", () => {
       },
     ]);
 
-    // The metadata literal re-evaluates on the fresh import above, so assert
-    // it here too — this test owns module-scope coverage, and the metadata
-    // assertions alone (in tests that never re-import) are not selected by
-    // Stryker's per-test runner for these statically-covered mutants.
-    const { metadata: freshMetadata } = await import("./layout");
-    expect(freshMetadata.title).toEqual({
+    expect(metadata.title).toEqual({
       default: "Herdly — Goat farm management",
       template: "%s · Herdly",
     });
-    expect(freshMetadata.description).toBe(
+    expect(metadata.description).toBe(
       "Goat farm management — herd, health, breeding, kidding and finance in one place.",
     );
   });
@@ -155,7 +147,7 @@ describe("RootLayout", () => {
       "text-foreground",
       "antialiased",
     );
-    expect(screen.getByText("page content")).toBeInTheDocument();
+    expect(await screen.findByText("page content")).toBeInTheDocument();
   });
 
   it("mounts children inside the app providers", async () => {

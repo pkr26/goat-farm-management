@@ -5,12 +5,14 @@ import logging
 import math
 import os
 import re
+import signal
 import time
 import unicodedata
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -48,6 +51,7 @@ from .api import (
     tasks,
     team,
 )
+from .audit import emit_transient_security_signal_summary
 from .core.config import Settings, get_settings
 from .db import get_engine, get_sessionmaker
 from .deps import deactivate_deleted_user_memberships, purge_expired_refresh_sessions
@@ -66,6 +70,8 @@ from .services.idempotency import (
 from .services.maintenance_progress import MaintenancePage, run_maintenance_page
 from .services.notifications.providers import NotificationProvider
 from .services.retention import run_retention_sweep
+from .services.screening.raw_cleanup import run_raw_cleanup_batch
+from .services.screening.s3 import storage_for_settings
 from .utils import utcnow
 
 logger = logging.getLogger("goatfarm")
@@ -93,6 +99,20 @@ _LOG_CONTROL_ESCAPES = {"\r": "\\r", "\n": "\\n", "\t": "\\t"}
 # _RequestIdFilter so a user report can be correlated with server logs.
 _request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
 _REQUEST_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+# Process-local admission controls are safe only while exactly one API process
+# owns the deployment. The production API holds this PostgreSQL session lock
+# for its complete serving lifetime; a second host/container therefore fails
+# startup even when an orchestrator ignores the Compose replica declaration.
+_PRODUCTION_API_SINGLETON_LOCK_ID = 718204615
+_PRODUCTION_API_SINGLETON_HEARTBEAT_SECONDS = 5
+_production_singleton_lease_healthy = True
+
+
+@dataclass(slots=True)
+class _ProductionSingletonLease:
+    connection: AsyncConnection
+    backend_pid: int
 
 
 class RequestBodyLimitMiddleware:
@@ -190,13 +210,125 @@ def _configure_logging() -> None:
             handler.addFilter(_RequestIdFilter())
 
 
-async def _throttle_summary_loop(interval_seconds: int = 300) -> None:
-    """DET-3/DET-4 (2026-09-16): periodically log per-scope 429 totals.
+async def _acquire_production_singleton_lease(
+    settings: Settings,
+) -> _ProductionSingletonLease | None:
+    """Hold the deployment-wide API singleton lease, or fail closed.
 
-    The limiter's per-request "throttled" lines exist, but a slow distributed
-    campaign below per-request alert thresholds is only visible once
-    aggregated; in-memory state also dies with the process. One summary line
-    per interval keeps the signal durable and greppable."""
+    PostgreSQL advisory locks are scoped to one physical session. A dedicated
+    pooled connection remains checked out until shutdown so normal request
+    transaction boundaries cannot release or inherit the lease.
+    """
+    if settings.environment != "production":
+        return None
+    connection = await get_engine().connect()
+    try:
+        acquired = await connection.scalar(
+            text("SELECT pg_try_advisory_lock(:lock_id)"),
+            {"lock_id": _PRODUCTION_API_SINGLETON_LOCK_ID},
+        )
+        if acquired is not True:
+            raise RuntimeError(
+                "Refusing to boot: another production API replica owns the "
+                "deployment singleton lease. Process-local admission controls "
+                "require exactly one API replica."
+            )
+        backend_pid = await connection.scalar(text("SELECT pg_backend_pid()"))
+        if not isinstance(backend_pid, int):
+            raise RuntimeError("Could not identify the singleton lease database session")
+        # End SQLAlchemy's implicit transaction; the session lock deliberately
+        # survives the commit and the connection stays checked out below.
+        await connection.commit()
+    except Exception:
+        await connection.close()
+        raise
+    logger.info("acquired production API singleton lease")
+    global _production_singleton_lease_healthy
+    _production_singleton_lease_healthy = True
+    return _ProductionSingletonLease(connection=connection, backend_pid=backend_pid)
+
+
+async def _release_production_singleton_lease(
+    lease: _ProductionSingletonLease | None,
+) -> None:
+    if lease is None:
+        return
+    connection = lease.connection
+    try:
+        released = await connection.scalar(
+            text("SELECT pg_advisory_unlock(:lock_id)"),
+            {"lock_id": _PRODUCTION_API_SINGLETON_LOCK_ID},
+        )
+        await connection.commit()
+        if released is not True:
+            logger.error("production API singleton lease was not owned at shutdown")
+    finally:
+        await connection.close()
+
+
+def _terminate_after_singleton_lease_loss() -> None:
+    """Ask the ASGI server to stop after the fail-closed flag is visible."""
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+async def _production_singleton_lease_watchdog(
+    lease: _ProductionSingletonLease | None,
+    interval_seconds: float = _PRODUCTION_API_SINGLETON_HEARTBEAT_SECONDS,
+) -> None:
+    """Continuously prove that the original PostgreSQL session owns the lock.
+
+    A checked-out SQLAlchemy connection can reconnect after an idle network or
+    proxy failure. Comparing the backend PID as well as `pg_locks` prevents a
+    replacement session from silently masquerading as the original lease.
+    """
+    if lease is None:
+        return
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            held = await lease.connection.scalar(
+                text(
+                    "SELECT pg_backend_pid() = :backend_pid "
+                    "AND EXISTS ("
+                    "SELECT 1 FROM pg_locks "
+                    "WHERE locktype = 'advisory' "
+                    "AND pid = pg_backend_pid() "
+                    "AND classid = 0 "
+                    "AND objid = :lock_id "
+                    "AND objsubid = 1 "
+                    "AND granted"
+                    ")"
+                ),
+                {
+                    "backend_pid": lease.backend_pid,
+                    "lock_id": _PRODUCTION_API_SINGLETON_LOCK_ID,
+                },
+            )
+            await lease.connection.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.critical(
+                "production API singleton lease heartbeat failed; terminating",
+                exc_info=True,
+            )
+            held = False
+        if held is True:
+            continue
+        global _production_singleton_lease_healthy
+        _production_singleton_lease_healthy = False
+        logger.critical("production API singleton lease was lost; terminating")
+        _terminate_after_singleton_lease_loss()
+        return
+
+
+async def _throttle_summary_loop(interval_seconds: int = 300) -> None:
+    """Periodically log bounded authentication-failure aggregates.
+
+    A slow distributed campaign is visible here even when it never dominates
+    an individual request stream; in-memory state also dies with the process.
+    One summary line per scope/signal and interval keeps evidence greppable
+    without allowing attacker-controlled credentials to amplify log writes."""
     while True:
         await asyncio.sleep(interval_seconds)
         try:
@@ -207,6 +339,7 @@ async def _throttle_summary_loop(interval_seconds: int = 300) -> None:
                     interval_seconds,
                     ", ".join(f"{scope}={count}" for scope, count in sorted(summary.items())),
                 )
+            emit_transient_security_signal_summary(interval_seconds)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -268,6 +401,62 @@ async def _idempotency_cleanup_loop(
             raise
         except Exception:
             logger.exception("periodic idempotency cleanup failed")
+
+
+async def _screening_raw_cleanup_loop(
+    interval_seconds: int,
+    batch_size: int,
+    max_batches: int,
+) -> None:
+    """Permanently purge raw uploads after every presigned write window.
+
+    The first finite pass runs immediately so a restart resumes expired
+    obligations without adding another interval of exposure.  Each batch's
+    service call commits its claim before S3 I/O and opens fresh transactions
+    for outcome acknowledgement; this loop never holds a database connection
+    while waiting on object storage.
+    """
+    first = True
+    while True:
+        if not first:
+            await asyncio.sleep(interval_seconds)
+        first = False
+        try:
+            claimed_total = 0
+            completed_total = 0
+            in_progress_total = 0
+            failed_total = 0
+            acknowledgement_failed_total = 0
+            settings = get_settings()
+            storage = storage_for_settings(settings)
+            for _batch in range(max_batches):
+                summary = await run_raw_cleanup_batch(
+                    get_sessionmaker(),
+                    storage,
+                    batch_size=batch_size,
+                )
+                claimed_total += summary.claimed
+                completed_total += summary.completed
+                in_progress_total += summary.in_progress
+                failed_total += summary.failed
+                acknowledgement_failed_total += summary.acknowledgement_failed
+                metrics.record_maintenance_batch("screening_raw_cleanup", summary.completed)
+                if summary.claimed < batch_size:
+                    break
+            if claimed_total:
+                logger.info(
+                    "raw screening cleanup claimed=%d completed=%d in_progress=%d failed=%d "
+                    "acknowledgement_failed=%d",
+                    claimed_total,
+                    completed_total,
+                    in_progress_total,
+                    failed_total,
+                    acknowledgement_failed_total,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("periodic raw screening cleanup failed")
 
 
 async def _legacy_data_repair_loop(
@@ -374,9 +563,9 @@ async def _deleted_membership_cleanup_loop(
 async def _retention_sweep_loop() -> None:
     """Daily data-retention sweep (2026-09-28 audit, ITEM 9.1).
 
-    Aged screening fact chains and long-terminal duties grow without bound
-    otherwise. Opt-in like the notifications loop: a disabled deployment
-    exits immediately, so an unconfigured feature costs nothing. The sweep
+    Aged screening fact chains, operational ledgers, empty batch anchors, and
+    long-terminal duties grow without bound otherwise. Development can disable
+    the loop explicitly; production refuses that unsafe configuration. The sweep
     itself commits per farm, so one interval's work is a series of small
     tenant transactions, never one unbounded delete. The FIRST sweep runs
     immediately on startup — enabling the feature is the operator asking for
@@ -404,16 +593,27 @@ async def _retention_sweep_loop() -> None:
                     "retention sweep skipped failed_farms=%d (per-farm errors above)",
                     summary.failed_farms,
                 )
-            if summary.total_deleted:
+            if summary.total_progress:
                 logger.info(
                     "retention sweep deleted findings=%d runs=%d crops=%d claims=%d "
-                    "images=%d terminal_tasks=%d",
+                    "images=%d batches=%d call_reservations=%d daily_budgets=%d "
+                    "notification_log=%d notification_outbox=%d terminal_tasks=%d "
+                    "deletion_intents_staged=%d object_deletions_verified=%d "
+                    "deletion_intents_requeued=%d",
                     summary.screening_findings,
                     summary.screening_runs,
                     summary.screening_crops,
                     summary.screening_content_claims,
                     summary.screening_images,
+                    summary.screening_batches,
+                    summary.screening_call_reservations,
+                    summary.screening_daily_budgets,
+                    summary.notification_log,
+                    summary.notification_outbox,
                     summary.terminal_tasks,
+                    summary.screening_deletion_intents_staged,
+                    summary.screening_object_deletions_verified,
+                    summary.screening_deletion_intents_requeued,
                 )
         except asyncio.CancelledError:
             raise
@@ -447,17 +647,21 @@ async def _notification_alert_farm_batch(
             ).scalars()
         )
     page = ids[: settings.notifications_loop_batch_size]
-    for farm_id in page:
+    slots = asyncio.BoundedSemaphore(settings.notifications_delivery_concurrency)
+
+    async def run_farm(farm_id: int) -> None:
         try:
-            async with get_sessionmaker()() as db:
+            async with slots, get_sessionmaker()() as db:
                 farm = await db.get(Farm, farm_id)
                 if farm is None:
-                    continue
+                    return
                 await overdue_critical_sweep(db, settings, provider, farm)
                 await kidding_watch_daily(db, settings, provider, farm)
                 await feed_reorder_daily(db, settings, provider, farm)
         except Exception:
             logger.exception("hourly notification alerts failed for farm %s", farm_id)
+
+    await asyncio.gather(*(run_farm(farm_id) for farm_id in page))
     return (
         len(page),
         page[-1] if page else after_farm_id,
@@ -480,73 +684,98 @@ async def _notification_alert_maintenance_page(
         )
 
 
-async def _notifications_loop() -> None:
-    """Minute-tick notification dispatch (ITEM 4, 2026-09-21 playbook).
+async def _notification_outbox_loop(settings: Settings, provider: NotificationProvider) -> None:
+    from .services.notifications.outbox import dispatch_pending_alerts
 
-    Fires the per-farm morning digest at each farm's local digest minute and
-    runs the overdue-critical sweep hourly. Disabled deployments idle — the
-    loop exits immediately, so an unconfigured feature costs nothing.
+    while True:
+        try:
+            await dispatch_pending_alerts(settings, provider)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("notification outbox iteration failed")
+        await asyncio.sleep(60)
+
+
+async def _notification_digest_loop(settings: Settings, provider: NotificationProvider) -> None:
+    from .services.notifications import farms_ready_for_digest, run_digest_for_farm
+
+    while True:
+        try:
+            now = utcnow().replace(tzinfo=UTC)
+            async with get_sessionmaker()() as db:
+                digest_ids = [farm.id for farm in await farms_ready_for_digest(db, settings, now)]
+            slots = asyncio.BoundedSemaphore(settings.notifications_delivery_concurrency)
+
+            async def run_farm(farm_id: int, farm_slots: asyncio.BoundedSemaphore = slots) -> None:
+                try:
+                    async with farm_slots, get_sessionmaker()() as db:
+                        farm = await db.get(Farm, farm_id)
+                        if farm is None:
+                            return
+                        summary = await run_digest_for_farm(db, settings, provider, farm)
+                        if summary.sent or summary.skipped:
+                            logger.info(
+                                "digest farm=%s sent=%d skipped=%d",
+                                farm_id,
+                                summary.sent,
+                                summary.skipped,
+                            )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("notification digest failed for farm %s", farm_id)
+
+            await asyncio.gather(*(run_farm(farm_id) for farm_id in digest_ids))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("notification digest iteration failed")
+        await asyncio.sleep(60)
+
+
+async def _notification_periodic_alert_loop(
+    settings: Settings, provider: NotificationProvider
+) -> None:
+    while True:
+        try:
+            now = utcnow().replace(tzinfo=UTC)
+            sweep_hour = now.replace(minute=0, second=0, microsecond=0)
+            page = await _notification_alert_maintenance_page(settings, provider, sweep_hour)
+            if page is not None:
+                metrics.record_maintenance_batch("notification_alerts", page.processed)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("periodic notification alert iteration failed")
+        await asyncio.sleep(60)
+
+
+async def _notifications_loop() -> None:
+    """Independently scheduled notification classes with shared admission.
+
+    A slow outbox recipient cannot delay a digest or the periodic alert
+    checkpoint. Provider I/O is bounded globally and per farm by the delivery
+    service. Disabled deployments exit immediately.
     """
     settings = get_settings()
     if not settings.notifications_enabled:
         return
-    from .services.notifications import (
-        build_notification_provider,
-        farms_ready_for_digest,
-        run_digest_for_farm,
-    )
+    from .services.notifications import build_notification_provider
 
     provider = None
     try:
-        while True:
+        while provider is None:
             await asyncio.sleep(60)
             try:
-                active_provider = provider
-                if active_provider is None:
-                    # Built lazily inside the try: a build failure (bad MSG91
-                    # config) must log loudly every tick, not kill the loop
-                    # task silently on the first attempt (2026-09-29 audit).
-                    try:
-                        active_provider = build_notification_provider(settings)
-                    except Exception:
-                        logger.exception("notification provider build failed; retrying next tick")
-                        continue
-                    provider = active_provider
-                now = utcnow().replace(tzinfo=UTC)
-                from .services.notifications.outbox import dispatch_pending_alerts
-
-                await dispatch_pending_alerts(settings, active_provider)
-                async with get_sessionmaker()() as db:
-                    digest_ids = [
-                        farm.id for farm in await farms_ready_for_digest(db, settings, now)
-                    ]
-                for farm_id in digest_ids:
-                    try:
-                        async with get_sessionmaker()() as db:
-                            farm = await db.get(Farm, farm_id)
-                            if farm is None:
-                                continue
-                            summary = await run_digest_for_farm(db, settings, active_provider, farm)
-                            if summary.sent or summary.skipped:
-                                logger.info(
-                                    "digest farm=%s sent=%d skipped=%d",
-                                    farm_id,
-                                    summary.sent,
-                                    summary.skipped,
-                                )
-                    except Exception:
-                        logger.exception("notification digest failed for farm %s", farm_id)
-                sweep_hour = now.replace(minute=0, second=0, microsecond=0)
-
-                page = await _notification_alert_maintenance_page(
-                    settings, active_provider, sweep_hour
-                )
-                if page is not None:
-                    metrics.record_maintenance_batch("notification_alerts", page.processed)
-            except asyncio.CancelledError:
-                raise
+                provider = build_notification_provider(settings)
             except Exception:
-                logger.exception("notifications loop iteration failed")
+                logger.exception("notification provider build failed; retrying next tick")
+        await asyncio.gather(
+            _notification_outbox_loop(settings, provider),
+            _notification_digest_loop(settings, provider),
+            _notification_periodic_alert_loop(settings, provider),
+        )
     finally:
         # Close the provider's owned httpx transport on shutdown, mirroring
         # the screening worker. Test doubles without transports are skipped.
@@ -657,7 +886,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Schema is owned by Alembic (alembic upgrade head). Before readiness we
     # seed only fixed-size global reference data; tenant role/inventory/task
     # repair is the finite post-readiness worker below.
-    logger.info("startup (environment=%s)", get_settings().environment)
+    settings = get_settings()
+    logger.info("startup (environment=%s)", settings.environment)
     # Single-process guard: the auth rate limiter, simulation CPU budget and
     # worker-idempotency gates are in-memory per-process controls that the
     # provided Dockerfile's `--workers 1` makes correct. Any other launcher
@@ -684,7 +914,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # 429 all registrations deployment-wide. The shipped compose wires the
     # edge IP; a bare deployment (or one that adds an OUTER TLS terminator
     # without extending GOATFARM_TRUSTED_PROXY_HOSTS) must hear about it.
-    settings = get_settings()
     if settings.environment == "production" and not settings.trusted_proxy_hosts:
         logger.warning(
             "GOATFARM_TRUSTED_PROXY_HOSTS is empty in production: X-Forwarded-For "
@@ -696,6 +925,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Warm the timing-equalization dummy hash so the first unknown-email
     # login pays no cold-start cost.
     prime_dummy_password_hash()
+    singleton_connection = await _acquire_production_singleton_lease(settings)
     try:
         async with get_sessionmaker()() as db:
             await seed_startup(db)
@@ -710,6 +940,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             await db.commit()
     except Exception:
         logger.critical("startup seeding failed; refusing to serve", exc_info=True)
+        await _release_production_singleton_lease(singleton_connection)
         raise
     refresh_cleanup_task = asyncio.create_task(
         _refresh_session_cleanup_loop(
@@ -726,6 +957,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             get_settings().idempotency_cleanup_max_batches,
         ),
         name="idempotency-cleanup",
+    )
+    screening_raw_cleanup_task = asyncio.create_task(
+        _screening_raw_cleanup_loop(
+            get_settings().screening_raw_cleanup_interval_seconds,
+            get_settings().screening_raw_cleanup_batch_size,
+            get_settings().screening_raw_cleanup_max_batches,
+        ),
+        name="screening-raw-cleanup",
     )
     legacy_repair_task = asyncio.create_task(
         _legacy_data_repair_loop(
@@ -763,32 +1002,41 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         name="cadence-materialization",
     )
     throttle_summary_task = asyncio.create_task(_throttle_summary_loop(), name="throttle-summary")
+    singleton_lease_watchdog_task = asyncio.create_task(
+        _production_singleton_lease_watchdog(singleton_connection),
+        name="production-singleton-lease-watchdog",
+    )
     try:
         yield
     finally:
         refresh_cleanup_task.cancel()
         notifications_task.cancel()
         idempotency_cleanup_task.cancel()
+        screening_raw_cleanup_task.cancel()
         throttle_summary_task.cancel()
         legacy_repair_task.cancel()
         inactive_animal_task_cleanup_task.cancel()
         deleted_membership_cleanup_task.cancel()
         cadence_materialization_task.cancel()
         retention_sweep_task.cancel()
+        singleton_lease_watchdog_task.cancel()
         for cleanup_task in (
             refresh_cleanup_task,
             notifications_task,
             idempotency_cleanup_task,
+            screening_raw_cleanup_task,
             legacy_repair_task,
             inactive_animal_task_cleanup_task,
             deleted_membership_cleanup_task,
             cadence_materialization_task,
             retention_sweep_task,
             throttle_summary_task,
+            singleton_lease_watchdog_task,
         ):
             with suppress(asyncio.CancelledError):
                 await cleanup_task
         logger.info("shutdown: disposing database engine")
+        await _release_production_singleton_lease(singleton_connection)
         await get_engine().dispose()
 
 
@@ -936,6 +1184,11 @@ async def healthz() -> HealthStatusOut:
 
 async def readyz() -> ReadinessStatusOut | JSONResponse:
     """Readiness: the DB pool can serve a query (SELECT 1)."""
+    if not _production_singleton_lease_healthy:
+        return JSONResponse(
+            status_code=503,
+            content=ReadinessUnavailableOut(status="unavailable").model_dump(mode="json"),
+        )
     try:
         async with get_sessionmaker()() as db:
             await db.execute(text("SELECT 1"))
@@ -998,6 +1251,22 @@ def _publish_required_idempotency_headers(app: FastAPI) -> None:
                         "maxLength": MAX_IDEMPOTENCY_KEY_LENGTH,
                         "pattern": IDEMPOTENCY_KEY_PATTERN,
                     }
+        # A protected 401 is an HTTP Bearer challenge, not merely a JSON
+        # error. Apply the header only where FastAPI published HTTPBearer
+        # security; public credential-entry 401s must not claim it.
+        for methods in schema.get("paths", {}).values():
+            for operation in methods.values():
+                if not isinstance(operation, dict):
+                    continue
+                if {"HTTPBearer": []} not in operation.get("security", []):
+                    continue
+                unauthorized = operation.get("responses", {}).get("401")
+                if not isinstance(unauthorized, dict):
+                    continue
+                unauthorized.setdefault("headers", {})["WWW-Authenticate"] = {
+                    "description": "Bearer authentication challenge",
+                    "schema": {"type": "string", "example": "Bearer"},
+                }
         return schema
 
     app.openapi = openapi_with_required_headers  # type: ignore[method-assign]

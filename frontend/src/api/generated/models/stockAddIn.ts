@@ -6,6 +6,10 @@
  */
 
 export interface StockAddIn {
+  /**
+     * @maximum 1000000
+     * @exclusiveMinimum 0
+     */
   qty_kg: number;
   price_per_kg?: number | null;
 }

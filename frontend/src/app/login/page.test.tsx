@@ -474,7 +474,7 @@ describe("LoginPage", () => {
     );
 
     expect(await screen.findByRole("button", { name: "తెలుగు" })).toBeInTheDocument();
-    expect(document.documentElement.lang).toBe("te");
+    await waitFor(() => expect(document.documentElement.lang).toBe("te"));
 
     // The form is fully localized: labels and the submit button are Telugu.
     await user.type(screen.getByLabelText("ఇమెయిల్"), "demo@goatfarm.in");

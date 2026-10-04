@@ -9,7 +9,7 @@
  */
 
 import { Camera, ChevronLeft, Download, Stethoscope } from "lucide-react";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -144,12 +144,30 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
 
   const [checkOpen, setCheckOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const exportEpoch = useRef(0);
+  const exportAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => {
+    exportEpoch.current += 1;
+    exportAbort.current?.abort();
+    exportAbort.current = null;
+  }, []);
+
   const downloadDataset = async () => {
     if (exporting) return;
+    const epoch = ++exportEpoch.current;
+    const stillOwnsFarm = captureFarmScope();
+    exportAbort.current?.abort();
+    const controller = new AbortController();
+    exportAbort.current = controller;
+    const stillCurrent = () =>
+      exportEpoch.current === epoch && stillOwnsFarm();
     setExporting(true);
     try {
-      const result = await exportDatasetApiScreeningExportGet({ vet_status: "ALL" });
-      if (result.status !== 200) return;
+      const result = await exportDatasetApiScreeningExportGet(
+        { vet_status: "ALL" },
+        { signal: controller.signal },
+      );
+      if (result.status !== 200 || !stillCurrent()) return;
       const blob = new Blob([JSON.stringify(result.data, null, 2)], {
         type: "application/json",
       });
@@ -166,10 +184,18 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
           ? t("screening.export.done_one", { count: result.data.record_count })
           : t("screening.export.done", { count: result.data.record_count }),
       );
-    } catch {
-      toast.error(t("common.somethingWentWrong"));
+    } catch (error) {
+      if (
+        stillCurrent() &&
+        !(error instanceof DOMException && error.name === "AbortError")
+      ) {
+        toast.error(t("common.somethingWentWrong"));
+      }
     } finally {
-      setExporting(false);
+      if (exportEpoch.current === epoch) {
+        exportAbort.current = null;
+        setExporting(false);
+      }
     }
   };
 
@@ -181,6 +207,10 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
     (detail?.crops ?? [])
       .filter((crop) => crop.id !== undefined && crop.crop_index !== undefined)
       .map((crop) => [crop.id as number, crop.crop_index as number]),
+  );
+  const pendingHealthyControl = (detail?.findings ?? []).some(
+    (finding) =>
+      finding.evaluation_kind === "HEALTHY_CONTROL" && finding.status === "PENDING_REVIEW",
   );
 
   const reviewMutation = useReviewFindingApiScreeningFindingsFindingIdReviewPost();
@@ -280,8 +310,8 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                   <th className="text-right">{t("screening.stats.unassessable")}</th>
                   <th className="text-right">{t("screening.stats.latency")}</th>
                   <th className="text-right">{t("screening.stats.agreement")}</th>
-                  <th className="text-right">{t("screening.stats.confirmed")}</th>
-                  <th className="text-right">{t("screening.stats.rejected")}</th>
+                  <th className="text-right">{t("screening.stats.positivePrecision")}</th>
+                  <th className="text-right">{t("screening.stats.healthyFalseNegative")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -294,6 +324,29 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                     row.cross_checks > 0
                       ? `${Math.round((row.cross_check_agreements / row.cross_checks) * 100)}%`
                       : "—";
+                  const positiveReviewed = row.findings_confirmed + row.findings_rejected;
+                  const positivePrecision =
+                    row.positive_precision == null
+                      ? t("screening.stats.pendingOnly", { pending: row.findings_pending })
+                      : t("screening.stats.metricWithInterval", {
+                          rate: Math.round(Number(row.positive_precision) * 100),
+                          low: Math.round(Number(row.positive_precision_ci_low) * 100),
+                          high: Math.round(Number(row.positive_precision_ci_high) * 100),
+                          reviewed: positiveReviewed,
+                          pending: row.findings_pending,
+                        });
+                  const healthyFalseNegative =
+                    row.healthy_false_negative_rate == null
+                      ? t("screening.stats.pendingOnly", {
+                          pending: row.healthy_controls_pending ?? 0,
+                        })
+                      : t("screening.stats.metricWithInterval", {
+                          rate: Math.round(Number(row.healthy_false_negative_rate) * 100),
+                          low: Math.round(Number(row.healthy_false_negative_ci_low) * 100),
+                          high: Math.round(Number(row.healthy_false_negative_ci_high) * 100),
+                          reviewed: row.healthy_controls_reviewed ?? 0,
+                          pending: row.healthy_controls_pending ?? 0,
+                        });
                   return (
                     <tr key={`${row.provider}/${row.model}`}>
                       <td>
@@ -309,8 +362,8 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                           : `${(row.avg_gate_latency_ms / 1000).toFixed(1)}s`}
                       </td>
                       <td className="table-numeric text-right">{agreement}</td>
-                      <td className="table-numeric text-right">{row.findings_confirmed}</td>
-                      <td className="table-numeric text-right">{row.findings_rejected}</td>
+                      <td className="table-numeric text-right">{positivePrecision}</td>
+                      <td className="table-numeric text-right">{healthyFalseNegative}</td>
                     </tr>
                   );
                 })}
@@ -389,7 +442,9 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                   <dt className="text-muted-foreground">{t("screening.table.status")}</dt>
                   <dd>
                     <StatusBadge status={detail.status}>
-                      {imageStatusLabel(t, detail.status)}
+                      {pendingHealthyControl
+                        ? t("screening.review.qualityControl")
+                        : imageStatusLabel(t, detail.status)}
                     </StatusBadge>
                   </dd>
                 </dl>
@@ -435,6 +490,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                   ) : (
                     <ul className="space-y-2">
                       {(detail.findings ?? []).map((finding) => {
+                        const isHealthyControl = finding.evaluation_kind === "HEALTHY_CONTROL";
                         const severity = severityLabel(t, finding.severity);
                         const cropId = finding.crop_id ?? null;
                         const goatIndex =
@@ -454,12 +510,18 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                                 <Badge variant="outline">{finding.region}</Badge>
                               ) : null}
                               {severity ? <Badge variant="secondary">{severity}</Badge> : null}
-                              <span className="font-medium">{finding.label}</span>
-                              <span className="text-muted-foreground">
-                                {confidenceLabel(t, finding.confidence)}
+                              <span className="font-medium">
+                                {isHealthyControl
+                                  ? t("screening.review.qualityControl")
+                                  : finding.label}
                               </span>
+                              {!isHealthyControl || finding.status !== "PENDING_REVIEW" ? (
+                                <span className="text-muted-foreground">
+                                  {confidenceLabel(t, finding.confidence)}
+                                </span>
+                              ) : null}
                             </div>
-                            {finding.note ? (
+                            {finding.note && !isHealthyControl ? (
                               <p className="mt-1 text-muted-foreground">{finding.note}</p>
                             ) : null}
                             {finding.review_note ? (
@@ -483,7 +545,11 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                                     submitReview(finding.id, "CONFIRMED", finding.status, finding.review_revision)
                                   }
                                 >
-                                  {t("screening.review.confirm")}
+                                  {t(
+                                    isHealthyControl
+                                      ? "screening.review.noVisibleAbnormality"
+                                      : "screening.review.confirm",
+                                  )}
                                 </Button>
                                 <Button
                                   size="sm"
@@ -493,7 +559,11 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                                     submitReview(finding.id, "REJECTED", finding.status, finding.review_revision)
                                   }
                                 >
-                                  {t("screening.review.reject")}
+                                  {t(
+                                    isHealthyControl
+                                      ? "screening.review.visibleAbnormality"
+                                      : "screening.review.reject",
+                                  )}
                                 </Button>
                                 </div>
                               </div>
@@ -507,6 +577,11 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                 </section>
                 <section className="space-y-2">
                   <h3 className="font-medium">{t("screening.detail.runs")}</h3>
+                  {pendingHealthyControl ? (
+                    <p className="text-sm text-muted-foreground">
+                      {t("screening.review.outcomeHidden")}
+                    </p>
+                  ) : (
                   <ul className="space-y-2 text-sm">
                     {(detail.runs ?? []).map((run) => {
                       const isCrossCheck = run.stage === "CROSS_CHECK";
@@ -537,6 +612,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                       );
                     })}
                   </ul>
+                  )}
                 </section>
               </div>
             </div>
@@ -631,7 +707,9 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                             onClick={() => setUrlState({ image_id: String(row.id) })}
                           >
                             <StatusBadge status={row.status}>
-                              {imageStatusLabel(t, row.status)}
+                              {(row.pending_healthy_controls ?? 0) > 0
+                                ? t("screening.review.qualityControl")
+                                : imageStatusLabel(t, row.status)}
                             </StatusBadge>
                           </button>
                         </td>
@@ -641,13 +719,23 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                         </td>
                         <td className="table-numeric text-right">
                           {(row.pending_findings ?? 0) > 0 ? (
-                            <Badge variant="destructive">{row.pending_findings ?? 0}</Badge>
+                            <Badge
+                              variant={
+                                (row.pending_healthy_controls ?? 0) === row.pending_findings
+                                  ? "secondary"
+                                  : "destructive"
+                              }
+                            >
+                              {row.pending_findings ?? 0}
+                            </Badge>
                           ) : (
                             "—"
                           )}
                         </td>
                         <td className="hidden text-muted-foreground lg:table-cell">
-                          {row.latest_run
+                          {(row.pending_healthy_controls ?? 0) > 0
+                            ? t("screening.review.outcomeHiddenShort")
+                            : row.latest_run
                             ? `${row.latest_run.provider} · ${row.latest_run.model}`
                             : "—"}
                         </td>

@@ -212,5 +212,8 @@ async def run_specialist(
         model=answer.model,
         prompt_version=SPECIALIST_PROMPT_VERSIONS[kind],
         latency_ms=answer.latency_ms,
-        raw_text=answer.text[:2000],
+        # Persisted evidence is the bounded parsed structure plus a digest,
+        # never this raw text. Retain the complete answer only in memory so
+        # the digest identifies the response that was actually parsed.
+        raw_text=answer.text,
     )

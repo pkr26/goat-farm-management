@@ -26,4 +26,10 @@ describe("Simulation help language and domain coverage", () => {
     expect(simulationFieldHelp("risk.monte_carlo_runs", vocabulary, te)?.help.body).toContain("200–500");
     for (const suffix of ["enabled", "low", "high"]) expect(simulationFieldHelp(`risk.meat_price.${suffix}`, vocabulary, te)?.help.body).toMatch(/[\u0C00-\u0C7F]/);
   });
+  it("does not invent AI capacity in the localized sire guidance", () => {
+    const bucks = simulationFieldHelp("herd.bucks", vocabulary, te)!.help.body;
+    const autoPurchase = simulationFieldHelp("herd.auto_purchase_bucks", vocabulary, te)!.help.body;
+    expect(`${bucks} ${autoPurchase}`).not.toMatch(/AI|కృత్రిమ గర్భధారణ/i);
+    expect(autoPurchase).toContain("సామర్థ్యం సున్నా");
+  });
 });

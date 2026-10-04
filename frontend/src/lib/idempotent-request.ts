@@ -298,7 +298,7 @@ function allowsPersistedRecovery(url: string): boolean {
   const path = requestPath(url);
   return (
     path !== "/api/team/workers" &&
-    !/^\/api\/team\/workers\/\d+\/reset-pin$/.test(path) &&
+    !/^\/api\/team\/workers\/\d+\/reset-(?:pin|password)$/.test(path) &&
     path !== "/api/screening/batches"
   );
 }

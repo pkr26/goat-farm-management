@@ -161,6 +161,8 @@ describe("ADV G3: secret & persistence surface scan", () => {
     // credential: nothing session-bearing may enter this list).
     const authContext = readFileSync(join(SRC_ROOT, "lib", "auth-context.tsx"), "utf8");
     expect(authContext).toContain('FARM_STORAGE_KEY = "goatfarm.farmId"');
+    expect(authContext).toContain('AUTH_EVENT_STORAGE_KEY = "goatfarm.authEvent"');
+    expect(authContext).toContain('const probeKey = `${AUTH_EVENT_STORAGE_KEY}.probe`');
     const workerLayout = readFileSync(
       join(SRC_ROOT, "app", "worker", "layout.tsx"),
       "utf8",
@@ -174,8 +176,8 @@ describe("ADV G3: secret & persistence surface scan", () => {
     expect(offlineQueue).toContain(
       'OFFLINE_QUEUE_WIPE_EPOCH_KEY = "goatfarm:offlineQueue:wipeEpoch:v1"',
     );
-    const i18n = readFileSync(join(SRC_ROOT, "lib", "i18n", "index.tsx"), "utf8");
-    expect(i18n).toContain('LANGUAGE_STORAGE_KEY = "herdly.language"');
+    const i18nConfig = readFileSync(join(SRC_ROOT, "lib", "i18n", "config.ts"), "utf8");
+    expect(i18nConfig).toContain('LANGUAGE_STORAGE_KEY = "herdly.language"');
     const shift = readFileSync(join(SRC_ROOT, "lib", "worker-offline-shift.ts"), "utf8");
     expect(shift).toContain('ACTIVE_SHIFT_KEY = "herdly:offline-shift:v1"');
     expect(shift).toContain('safeStorage("session")');
@@ -188,7 +190,7 @@ describe("ADV G3: secret & persistence surface scan", () => {
           match[1].trim(),
           `${file} writes storage key ${match[1]}`,
         ).toMatch(
-          /^(FARM_STORAGE_KEY|TABLET_FARM_STORAGE_KEY|OFFLINE_QUEUE_STORAGE_KEY|OFFLINE_QUEUE_WIPE_EPOCH_KEY|IDEMPOTENCY_SESSION_STORAGE_KEY|LANGUAGE_STORAGE_KEY|ACTIVE_SHIFT_KEY)$/,
+          /^(FARM_STORAGE_KEY|AUTH_EVENT_STORAGE_KEY|probeKey|TABLET_FARM_STORAGE_KEY|OFFLINE_QUEUE_STORAGE_KEY|OFFLINE_QUEUE_WIPE_EPOCH_KEY|IDEMPOTENCY_SESSION_STORAGE_KEY|LANGUAGE_STORAGE_KEY|ACTIVE_SHIFT_KEY)$/,
         );
       }
     }

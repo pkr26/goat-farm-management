@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly Goat Farm backup-freshness check
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=1h
+Persistent=true
+Unit=goatfarm-backup-freshness.service
+
+[Install]
+WantedBy=timers.target

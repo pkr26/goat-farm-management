@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, cast
@@ -35,6 +36,23 @@ _S3_CONNECT_TIMEOUT_SECONDS = 5
 _S3_READ_TIMEOUT_SECONDS = 5
 _S3_TOTAL_MAX_ATTEMPTS = 1
 _S3_DOWNLOAD_DEADLINE_SECONDS = 20
+# Permanent deletion has a known maximum of seven sequential network calls
+# below. Give that non-cancellable thread a stricter client so even the sum of
+# connect + read timeouts (7 * (2 + 2) = 28s) leaves twelve seconds of margin
+# inside Compose's 40-second worker stop grace.
+_S3_DELETE_CONNECT_TIMEOUT_SECONDS = 2
+_S3_DELETE_READ_TIMEOUT_SECONDS = 2
+_S3_PERMANENT_DELETE_MAX_NETWORK_CALLS = 7
+_S3_PERMANENT_DELETE_TIMEOUT_BUDGET_SECONDS = _S3_PERMANENT_DELETE_MAX_NETWORK_CALLS * (
+    _S3_DELETE_CONNECT_TIMEOUT_SECONDS + _S3_DELETE_READ_TIMEOUT_SECONDS
+)
+# Permanent deletion runs while its caller owns a durable dispatcher/row
+# lease. Never accumulate an attacker-controlled number of versions in RAM or
+# hold that lease for an unbounded listing. Each call makes finite progress;
+# callers persist retry state and invoke the idempotent primitive again.
+_PERMANENT_DELETE_PAGE_SIZE = 1_000
+_PERMANENT_DELETE_MAX_KEYS_PER_CALL = 1
+_PERMANENT_DELETE_MAX_VERSION_PAGES_PER_CALL = 1
 # S3 evaluates a POST policy's content-length range against the multipart
 # request, not just the object payload.  This bounded allowance covers the
 # policy/signature fields, MIME boundaries and a maximal client filename so a
@@ -47,6 +65,16 @@ POST_MULTIPART_OVERHEAD_BYTES = 64 * 1024
 
 class ScreeningStorageError(Exception):
     """Any S3 interaction failure; the pipeline records it on the image."""
+
+
+class ScreeningStorageDeleteInProgress(ScreeningStorageError):
+    """A permanent purge made bounded progress and needs another call.
+
+    This is not an object-store fault: one complete version-list page was
+    removed successfully, but the finite per-call operation budget was
+    exhausted before verified absence. Durable callers should schedule a
+    short continuation instead of applying their operational-failure backoff.
+    """
 
 
 class ScreeningObjectMissingError(ScreeningStorageError):
@@ -94,6 +122,7 @@ class ScreeningStorage:
     def __init__(self, settings: ScreeningRuntimeSettings) -> None:
         self._settings = settings
         self._client = None
+        self._delete_client = None
 
     @property
     def bucket(self) -> str:
@@ -105,54 +134,64 @@ class ScreeningStorage:
             raise ScreeningStorageError("screening S3 bucket is not configured")
         return bucket
 
+    def _build_client(self, *, connect_timeout: int, read_timeout: int) -> Any:
+        s = self._settings
+        if (
+            not s.s3_bucket
+            or not s.s3_bucket.strip()
+            or not s.s3_access_key_id
+            or not s.s3_access_key_id.get_secret_value().strip()
+            or not s.s3_secret_access_key
+            or not s.s3_secret_access_key.get_secret_value().strip()
+        ):
+            raise ScreeningStorageError("screening S3 settings incomplete (bucket/credentials)")
+        try:
+            return boto3.client(
+                "s3",
+                endpoint_url=s.s3_endpoint_url,
+                region_name=s.s3_region,
+                aws_access_key_id=s.s3_access_key_id.get_secret_value(),
+                aws_secret_access_key=s.s3_secret_access_key.get_secret_value(),
+                config=BotoConfig(
+                    # Service-level retry/backoff already handles a transient
+                    # object-store failure. Retrying hidden inside one
+                    # non-cancellable worker thread can outlive stop grace.
+                    retries={"total_max_attempts": _S3_TOTAL_MAX_ATTEMPTS, "mode": "standard"},
+                    connect_timeout=connect_timeout,
+                    read_timeout=read_timeout,
+                    signature_version="s3v4",
+                    # Direct browser CSP needs to name the exact origin
+                    # returned by a presigned POST/GET. Keep AWS S3 proper on
+                    # virtual-hosted regional endpoints, including us-east-1.
+                    s3=(
+                        {
+                            "addressing_style": "virtual",
+                            "us_east_1_regional_endpoint": "regional",
+                        }
+                        if s.s3_endpoint_url is None
+                        else None
+                    ),
+                ),
+            )
+        except (BotoCoreError, ClientError) as exc:
+            raise ScreeningStorageError(f"S3 client construction failed: {exc}") from exc
+
     def _ensure_client(self) -> Any:
         if self._client is None:
-            s = self._settings
-            if (
-                not s.s3_bucket
-                or not s.s3_bucket.strip()
-                or not s.s3_access_key_id
-                or not s.s3_access_key_id.get_secret_value().strip()
-                or not s.s3_secret_access_key
-                or not s.s3_secret_access_key.get_secret_value().strip()
-            ):
-                raise ScreeningStorageError("screening S3 settings incomplete (bucket/credentials)")
-            try:
-                self._client = boto3.client(
-                    "s3",
-                    endpoint_url=s.s3_endpoint_url,
-                    region_name=s.s3_region,
-                    aws_access_key_id=s.s3_access_key_id.get_secret_value(),
-                    aws_secret_access_key=s.s3_secret_access_key.get_secret_value(),
-                    config=BotoConfig(
-                        # Pipeline-level retry/backoff already handles a
-                        # transient object-store failure. Retrying hidden
-                        # inside one non-cancellable worker thread makes a
-                        # SIGTERM routinely outlive its 40-second grace.
-                        retries={"total_max_attempts": _S3_TOTAL_MAX_ATTEMPTS, "mode": "standard"},
-                        connect_timeout=_S3_CONNECT_TIMEOUT_SECONDS,
-                        read_timeout=_S3_READ_TIMEOUT_SECONDS,
-                        signature_version="s3v4",
-                        # Direct browser CSP needs to name the exact origin
-                        # returned by a presigned POST/GET.  Keep AWS S3
-                        # proper on virtual-hosted *regional* endpoints,
-                        # including us-east-1, rather than silently yielding
-                        # the legacy global s3.amazonaws.com host.  A custom
-                        # S3-compatible endpoint retains its own addressing
-                        # behavior/configuration.
-                        s3=(
-                            {
-                                "addressing_style": "virtual",
-                                "us_east_1_regional_endpoint": "regional",
-                            }
-                            if s.s3_endpoint_url is None
-                            else None
-                        ),
-                    ),
-                )
-            except (BotoCoreError, ClientError) as exc:
-                raise ScreeningStorageError(f"S3 client construction failed: {exc}") from exc
+            self._client = self._build_client(
+                connect_timeout=_S3_CONNECT_TIMEOUT_SECONDS,
+                read_timeout=_S3_READ_TIMEOUT_SECONDS,
+            )
         return self._client
+
+    def _ensure_delete_client(self) -> Any:
+        """Return the stricter client used only by permanent-delete sagas."""
+        if self._delete_client is None:
+            self._delete_client = self._build_client(
+                connect_timeout=_S3_DELETE_CONNECT_TIMEOUT_SECONDS,
+                read_timeout=_S3_DELETE_READ_TIMEOUT_SECONDS,
+            )
+        return self._delete_client
 
     def list_object_keys(self, prefix: str, max_keys: int) -> list[str]:
         """Up to ``max_keys`` object keys under ``prefix`` (lexicographic)."""
@@ -290,6 +329,108 @@ class ScreeningStorage:
             client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
         except (BotoCoreError, ClientError) as exc:
             raise ScreeningStorageError(f"S3 upload failed for {key!r}: {exc}") from exc
+
+    def delete_permanently(self, keys: Sequence[str]) -> None:
+        """Delete exact keys, including every version and delete marker.
+
+        A plain ``delete_object`` only adds a marker in a versioned bucket,
+        leaving the original photo (and its EXIF/GPS) recoverable. This method
+        is intentionally idempotent and version-aware so immediate raw-photo
+        cleanup and retention sweeps share one privacy-safe primitive. Success
+        means a post-delete HEAD and (when versioned) a second complete
+        version listing both verified absence; an acknowledged API call alone
+        is not sufficient for relational-retention finalization.
+        """
+        unique_keys = list(dict.fromkeys(key for key in keys if key))
+        if not unique_keys:
+            return
+        if len(unique_keys) > _PERMANENT_DELETE_MAX_KEYS_PER_CALL:
+            raise ScreeningStorageError(
+                "S3 permanent delete accepts at most "
+                f"{_PERMANENT_DELETE_MAX_KEYS_PER_CALL} exact keys per call"
+            )
+        client = self._ensure_delete_client()
+        try:
+
+            def exact_version_page(key: str) -> list[dict[str, str]]:
+                """Return only one bounded first page for this exact key.
+
+                Exact matches sort before longer keys sharing the prefix. We
+                delete that first page and restart from the beginning instead
+                of retaining an unbounded list or relying on continuation
+                markers whose referenced versions were just deleted.
+                """
+                page = client.list_object_versions(
+                    Bucket=self.bucket,
+                    Prefix=key,
+                    MaxKeys=_PERMANENT_DELETE_PAGE_SIZE,
+                )
+                return [
+                    {"Key": key, "VersionId": str(item["VersionId"])}
+                    for item in [*page.get("Versions", []), *page.get("DeleteMarkers", [])]
+                    if item.get("Key") == key and item.get("VersionId") is not None
+                ]
+
+            def current_exists(key: str) -> bool:
+                try:
+                    client.head_object(Bucket=self.bucket, Key=key)
+                except ClientError as exc:
+                    code = exc.response.get("Error", {}).get("Code", "")
+                    if code in {"NoSuchKey", "404", "NotFound"}:
+                        return False
+                    raise
+                return True
+
+            def verify_current_absent(key: str) -> None:
+                if not current_exists(key):
+                    return
+                raise ScreeningStorageError(
+                    f"S3 permanent delete could not verify absence for {key!r}"
+                )
+
+            versioning = client.get_bucket_versioning(Bucket=self.bucket).get("Status")
+            if versioning not in {"Enabled", "Suspended"}:
+                for key in unique_keys:
+                    if current_exists(key):
+                        client.delete_object(Bucket=self.bucket, Key=key)
+                    verify_current_absent(key)
+                return
+
+            deleted_pages = 0
+            for key in unique_keys:
+                # Delete the current key first. In a versioned bucket this
+                # creates a delete marker; the version enumeration below then
+                # removes that marker alongside every retained byte version.
+                # Doing this last would leave a fresh marker behind. On a
+                # retry, an already-absent current key is *not* deleted again:
+                # recreating markers for completed earlier keys could consume
+                # the global page budget forever before later keys are reached.
+                if current_exists(key):
+                    client.delete_object(Bucket=self.bucket, Key=key)
+                while deleted_pages < _PERMANENT_DELETE_MAX_VERSION_PAGES_PER_CALL:
+                    objects = exact_version_page(key)
+                    if not objects:
+                        break
+                    response = client.delete_objects(
+                        Bucket=self.bucket,
+                        Delete={"Objects": objects, "Quiet": True},
+                    )
+                    errors = response.get("Errors") or []
+                    if errors:
+                        raise ScreeningStorageError(
+                            f"S3 permanent delete reported {len(errors)} object error(s)"
+                        )
+                    deleted_pages += 1
+                remaining = exact_version_page(key)
+                if remaining:
+                    raise ScreeningStorageDeleteInProgress(
+                        "S3 permanent delete made bounded progress; retry is required"
+                    )
+                verify_current_absent(key)
+        except ScreeningStorageError:
+            raise
+        except (BotoCoreError, ClientError) as exc:
+            raise ScreeningStorageError(f"S3 permanent delete failed: {exc}") from exc
 
     def presign_post(
         self,

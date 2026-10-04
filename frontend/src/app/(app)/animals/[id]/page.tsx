@@ -1704,7 +1704,9 @@ function ProfileBody({
             <span className="inline-flex flex-wrap items-center gap-2">
               {a.tag_number}
               {a.name ? ` · ${a.name}` : ""}
-              <StatusBadge status={a.status} />
+              <StatusBadge status={a.status}>
+                {enumLabel("status", a.status, language)}
+              </StatusBadge>
             </span>
           }
           description={`${a.breed} · ${a.sex === "F" ? enumLabel("sex", "F", language) : enumLabel("sex", "M", language)} · ${enumLabel("bucket", a.current_bucket, language)}`}
@@ -1834,7 +1836,9 @@ function ProfileBody({
                           {action.restriction_version}
                         </TableCell>
                         <TableCell>
-                          <StatusBadge status={action.action} />
+                          <StatusBadge status={action.action}>
+                            {enumLabel("restrictionAction", action.action, language)}
+                          </StatusBadge>
                         </TableCell>
                         <TableCell>{formatFarmDateTime(action.acted_at)}</TableCell>
                         <TableCell>{action.action_reference}</TableCell>
@@ -2186,7 +2190,9 @@ function ProfileBody({
                       <TableCell>{enumLabel("sex", k.sex, language)}</TableCell>
                       <TableCell>{formatDate(k.date_of_birth)}</TableCell>
                       <TableCell>
-                        <StatusBadge status={k.status} />
+                        <StatusBadge status={k.status}>
+                          {enumLabel("kidStatus", k.status, language)}
+                        </StatusBadge>
                       </TableCell>
                     </TableRow>
                   ))}

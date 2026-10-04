@@ -26,6 +26,8 @@ load_app_safety_settings
 S3_URI="${GOATFARM_BACKUP_S3_URI:-}"
 GPG_RECIPIENT="${GOATFARM_BACKUP_GPG_RECIPIENT:-}"
 GPG_SIGNER="${GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT:-}"
+RECOVERY_INVENTORY_SOURCE="${GOATFARM_RECOVERY_INVENTORY_FILE:-}"
+RECOVERY_INVENTORY_MAX_AGE_HOURS="${GOATFARM_RECOVERY_INVENTORY_MAX_AGE_HOURS:-26}"
 
 WORK_DIR=""
 FLOCK_PATH="${DEST_DIR}/.goatfarm-backup.flock"
@@ -37,12 +39,15 @@ LEGACY_CLAIM_SNAPSHOT=""
 LEGACY_PUBLISHED_SNAPSHOT=""
 FINAL_ARCHIVE=""
 FINAL_CHECKSUM=""
+FINAL_RECOVERY_INVENTORY=""
 PUBLISH_STARTED=0
 LOCAL_PUBLISHED=0
 REMOTE_ARCHIVE=""
 REMOTE_CHECKSUM=""
+REMOTE_RECOVERY_INVENTORY=""
 REMOTE_ARCHIVE_UPLOADED=0
 REMOTE_CHECKSUM_UPLOADED=0
+REMOTE_RECOVERY_INVENTORY_UPLOADED=0
 REMOTE_COMPLETE=0
 
 cleanup() {
@@ -54,6 +59,11 @@ cleanup() {
         # orphaned remote object with no sidecar forever, so name the keys the
         # operator has to remove (or cover with an S3 lifecycle rule).  The
         # original failure status stays authoritative; cleanup failures only log.
+        if (( REMOTE_RECOVERY_INVENTORY_UPLOADED == 1 )); then
+            if ! aws s3 rm "${REMOTE_RECOVERY_INVENTORY}" >/dev/null 2>&1; then
+                echo "WARNING: failed to remove partially published remote object ${REMOTE_RECOVERY_INVENTORY}; remove it manually" >&2
+            fi
+        fi
         if (( REMOTE_CHECKSUM_UPLOADED == 1 )); then
             if ! aws s3 rm "${REMOTE_CHECKSUM}" >/dev/null 2>&1; then
                 echo "WARNING: failed to remove partially published remote object ${REMOTE_CHECKSUM}; remove it manually" >&2
@@ -68,6 +78,7 @@ cleanup() {
     if (( status != 0 && PUBLISH_STARTED == 1 && LOCAL_PUBLISHED == 0 )); then
         [[ -z "${FINAL_ARCHIVE}" ]] || rm -f -- "${FINAL_ARCHIVE}"
         [[ -z "${FINAL_CHECKSUM}" ]] || rm -f -- "${FINAL_CHECKSUM}"
+        [[ -z "${FINAL_RECOVERY_INVENTORY}" ]] || rm -f -- "${FINAL_RECOVERY_INVENTORY}"
     fi
     if [[ -n "${WORK_DIR}" ]]; then
         case "${WORK_DIR}" in
@@ -154,6 +165,24 @@ fi
 if [[ "${GPG_RECIPIENT}" == *$'\n'* || "${GPG_RECIPIENT}" == *$'\r'* ]]; then
     echo "GOATFARM_BACKUP_GPG_RECIPIENT contains a control character" >&2
     exit 2
+fi
+if [[ ! "${RECOVERY_INVENTORY_MAX_AGE_HOURS}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "GOATFARM_RECOVERY_INVENTORY_MAX_AGE_HOURS must be a positive integer" >&2
+    exit 2
+fi
+if [[ "${ENVIRONMENT}" == "production" && -z "${RECOVERY_INVENTORY_SOURCE}" ]]; then
+    echo "Production backups require GOATFARM_RECOVERY_INVENTORY_FILE" >&2
+    exit 2
+fi
+if [[ -n "${RECOVERY_INVENTORY_SOURCE}" ]]; then
+    if [[ ! -f "${RECOVERY_INVENTORY_SOURCE}" || -L "${RECOVERY_INVENTORY_SOURCE}" ]]; then
+        echo "GOATFARM_RECOVERY_INVENTORY_FILE must name a regular, non-symlink file" >&2
+        exit 2
+    fi
+    "${PYTHON_BIN}" "${SCRIPT_DIR}/recovery_inventory.py" validate \
+        --inventory "${RECOVERY_INVENTORY_SOURCE}" \
+        --max-age-hours "${RECOVERY_INVENTORY_MAX_AGE_HOURS}" \
+        --binding unbound
 fi
 
 # Keep the application URL out of every child process environment.  The helper
@@ -373,7 +402,9 @@ if [[ -n "${GPG_RECIPIENT}" ]]; then
 fi
 FINAL_ARCHIVE="${DEST_DIR}/${BASE_NAME}"
 FINAL_CHECKSUM="${FINAL_ARCHIVE}.sha256"
-if [[ -e "${FINAL_ARCHIVE}" || -e "${FINAL_CHECKSUM}" ]]; then
+FINAL_RECOVERY_INVENTORY="${FINAL_ARCHIVE}.recovery.json"
+if [[ -e "${FINAL_ARCHIVE}" || -e "${FINAL_CHECKSUM}" \
+    || -e "${FINAL_RECOVERY_INVENTORY}" ]]; then
     echo "Refusing to overwrite existing backup artifact: ${BASE_NAME}" >&2
     exit 2
 fi
@@ -424,16 +455,31 @@ CHECKSUM_TMP="${WORK_DIR}/backup.sha256"
 printf '%s  %s\n' "${checksum}" "${BASE_NAME}" > "${CHECKSUM_TMP}"
 chmod 0600 "${CHECKSUM_TMP}"
 
+RECOVERY_INVENTORY_TMP=""
+if [[ -n "${RECOVERY_INVENTORY_SOURCE}" ]]; then
+    RECOVERY_INVENTORY_TMP="${WORK_DIR}/backup.recovery.json"
+    "${PYTHON_BIN}" "${SCRIPT_DIR}/recovery_inventory.py" bind \
+        --inventory "${RECOVERY_INVENTORY_SOURCE}" \
+        --output "${RECOVERY_INVENTORY_TMP}" \
+        --archive-name "${BASE_NAME}" \
+        --archive-sha256 "${checksum}" \
+        --max-age-hours "${RECOVERY_INVENTORY_MAX_AGE_HOURS}"
+fi
+
 # Publish the sidecar first.  Until the archive rename, restore sees no
 # candidate; if the second rename fails the EXIT trap removes the sidecar.
 PUBLISH_STARTED=1
 mv "${CHECKSUM_TMP}" "${FINAL_CHECKSUM}"
+if [[ -n "${RECOVERY_INVENTORY_TMP}" ]]; then
+    mv "${RECOVERY_INVENTORY_TMP}" "${FINAL_RECOVERY_INVENTORY}"
+fi
 mv "${ARTIFACT_TMP}" "${FINAL_ARCHIVE}"
 LOCAL_PUBLISHED=1
 
 if [[ -n "${S3_URI}" ]]; then
     REMOTE_ARCHIVE="${S3_URI%/}/${BASE_NAME}"
     REMOTE_CHECKSUM="${REMOTE_ARCHIVE}.sha256"
+    REMOTE_RECOVERY_INVENTORY="${REMOTE_ARCHIVE}.recovery.json"
     s3_location="${S3_URI#s3://}"
     s3_bucket="${s3_location%%/*}"
     if [[ "${s3_location}" == */* ]]; then
@@ -458,10 +504,18 @@ if [[ -n "${S3_URI}" ]]; then
         exit 2
     fi
     echo "[$(date -Iseconds)] uploading authenticated backup to ${S3_URI%/}/"
-    aws s3 cp --sse AES256 "${FINAL_ARCHIVE}" "${REMOTE_ARCHIVE}"
-    REMOTE_ARCHIVE_UPLOADED=1
+    # Publish the archive last, matching the local rename protocol. A remote
+    # lister must never observe a candidate archive before every sidecar needed
+    # to authenticate and recover it is durable.
     aws s3 cp --sse AES256 "${FINAL_CHECKSUM}" "${REMOTE_CHECKSUM}"
     REMOTE_CHECKSUM_UPLOADED=1
+    if [[ -f "${FINAL_RECOVERY_INVENTORY}" ]]; then
+        aws s3 cp --sse AES256 \
+            "${FINAL_RECOVERY_INVENTORY}" "${REMOTE_RECOVERY_INVENTORY}"
+        REMOTE_RECOVERY_INVENTORY_UPLOADED=1
+    fi
+    aws s3 cp --sse AES256 "${FINAL_ARCHIVE}" "${REMOTE_ARCHIVE}"
+    REMOTE_ARCHIVE_UPLOADED=1
     REMOTE_COMPLETE=1
 fi
 
@@ -482,7 +536,8 @@ if (( ${#backup_files[@]} > KEEP )); then
         done
     done
     for ((i = KEEP; i < ${#backup_files[@]}; i++)); do
-        rm -f -- "${backup_files[i]}" "${backup_files[i]}.sha256"
+        rm -f -- "${backup_files[i]}" "${backup_files[i]}.sha256" \
+            "${backup_files[i]}.recovery.json"
     done
 fi
 

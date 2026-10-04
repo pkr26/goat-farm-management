@@ -196,7 +196,9 @@ describe("ADV C2: overlong animal name is a SILENT block (expected to CONFIRM M-
 describe("ADV C5: markup in rendered free text stays text", () => {
   it("StatusBadge with a hostile enum renders escaped content", () => {
     const { container } = renderWithProviders(
-      <StatusBadge status={'<img src=x onerror="alert(1)">' as "ACTIVE"} />,
+      <StatusBadge status={'<img src=x onerror="alert(1)">' as "ACTIVE"}>
+        {'<img src=x onerror="alert(1)>'}
+      </StatusBadge>,
     );
     expect(container.textContent).toMatch(/<img src=x/i);
     expect(container.querySelector("img")).toBeNull();

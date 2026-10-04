@@ -35,6 +35,8 @@ from ..models import (
     KiddingRecord,
     KidEntry,
     ScreeningFinding,
+    ScreeningImage,
+    ScreeningRun,
     Task,
     TaskStatus,
     Transaction,
@@ -146,9 +148,20 @@ async def owner_overview(
     flag_rows = (
         await db.execute(
             select(ScreeningFinding.farm_id, func.count())
+            .join(
+                ScreeningRun,
+                (ScreeningRun.farm_id == ScreeningFinding.farm_id)
+                & (ScreeningRun.id == ScreeningFinding.run_id),
+            )
+            .join(
+                ScreeningImage,
+                (ScreeningImage.farm_id == ScreeningRun.farm_id)
+                & (ScreeningImage.id == ScreeningRun.image_id),
+            )
             .where(
                 ScreeningFinding.farm_id.in_(farm_ids),
                 ScreeningFinding.status == "PENDING_REVIEW",
+                ScreeningImage.retention_tombstoned_at.is_(None),
             )
             .group_by(ScreeningFinding.farm_id)
         )

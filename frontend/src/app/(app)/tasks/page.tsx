@@ -17,7 +17,11 @@ import {
   useListTasksApiTasksGet,
   useTeamPageApiTeamGet,
 } from "@/api/generated/endpoints";
-import { TaskCreateInCategory, type TaskOut } from "@/api/generated/models";
+import {
+  TaskCreateInCategory,
+  type ListTasksApiTasksGetParams,
+  type TaskOut,
+} from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
@@ -642,8 +646,7 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
   const [open, setOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const query = useListTasksApiTasksGet(
-    {
+  const taskListParams: ListTasksApiTasksGetParams = {
       active_limit: TASK_PAGE_SIZE,
       today_offset: offsets.today,
       overdue_offset: offsets.overdue,
@@ -651,7 +654,10 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
       awaiting_offset: offsets.awaiting,
       completed_limit: TASK_PAGE_SIZE,
       completed_offset: offsets.completed,
-    },
+      view: tab,
+  };
+  const query = useListTasksApiTasksGet(
+    taskListParams,
     {
       query: {
         enabled: allowed,

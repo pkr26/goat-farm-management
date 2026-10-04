@@ -160,8 +160,8 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
     OTHER: "Other",
   },
   outcome: {
-    PENDING: "Awaiting check",
-    CONFIRMED_PREGNANT: "Confirmed pregnant",
+    PENDING: "Pending",
+    CONFIRMED_PREGNANT: "Confirmed Pregnant",
     FAILED: "Failed",
     ABORTED: "Aborted",
     UNASSESSED: "Left the herd unassessed",
@@ -174,6 +174,14 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
     ACTIVE: "Active",
     LAPSED: "Lapsed",
     CLAIMED: "Claimed",
+  },
+  restrictionAction: {
+    PLACED: "Placed",
+    CLEARED: "Cleared",
+  },
+  screeningReviewStatus: {
+    CONFIRMED: "Confirmed",
+    REJECTED: "Rejected",
   },
 };
 
@@ -332,6 +340,14 @@ const TE_LABELS: { [K in EnumKind]?: Record<string, string> } = {
     LAPSED: "రద్దైంది",
     CLAIMED: "పరిహారం అయింది",
   },
+  restrictionAction: {
+    PLACED: "విధించబడింది",
+    CLEARED: "తొలగించబడింది",
+  },
+  screeningReviewStatus: {
+    CONFIRMED: "ధృవీకరించబడింది",
+    REJECTED: "తిరస్కరించబడింది",
+  },
   bucket: {
     QUARANTINE: "క్వారంటైన్",
     FOUNDATION: "ఫౌండేషన్",
@@ -366,6 +382,8 @@ export type EnumKind =
   | "lossCause"
   | "disposalMethod"
   | "insuranceStatus"
+  | "restrictionAction"
+  | "screeningReviewStatus"
   | "bucket";
 
 /**

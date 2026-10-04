@@ -612,6 +612,47 @@ describe("WorkerBoardPage", () => {
     expect(screen.getByTestId("complete-1")).toBeInTheDocument();
   });
 
+  it("keeps cached duties visible but clearly marks a failed refresh as stale", async () => {
+    let reads = 0;
+    const payload = {
+      today: [BOARD(1, "Feed the bucks", today())],
+      overdue: [],
+      upcoming: [],
+      awaiting: [],
+      completed: [],
+      totals: { today: 1, overdue: 0, upcoming: 0, awaiting: 0, completed: 0 },
+    };
+    server.use(
+      http.get("/api/tasks", () => {
+        reads += 1;
+        return reads === 2
+          ? HttpResponse.json({ detail: "refresh unavailable" }, { status: 503 })
+          : HttpResponse.json(payload);
+      }),
+    );
+    const queryClient = createTestQueryClient();
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerBoardPage />, queryClient);
+    expect(await screen.findByText("Feed the bucks")).toBeInTheDocument();
+
+    await act(async () => {
+      await queryClient.refetchQueries();
+    });
+
+    const warning = await screen.findByRole("alert");
+    expect(warning).toHaveTextContent("Could not refresh duties.");
+    expect(warning).toHaveTextContent("Actions remain available");
+    expect(screen.getByText("Feed the bucks")).toBeInTheDocument();
+    expect(screen.getByTestId("complete-1")).toBeEnabled();
+    expect(screen.getByTestId("complete-1")).toHaveAccessibleName(
+      /saved against the last checked board/i,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(reads).toBe(3);
+  });
+
   it("renders a keyed duty title in the worker's language, not the raw English payload", async () => {
     // 2026-09-28 audit, H5: the backend ships title_key/title_args precisely
     // so the Telugu-first board never shows the payload's English title.

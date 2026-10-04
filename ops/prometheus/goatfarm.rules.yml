@@ -1,0 +1,69 @@
+groups:
+  - name: goatfarm-availability
+    rules:
+      - alert: GoatFarmApiScrapeDown
+        expr: up{job="goatfarm-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Goat Farm API metrics scrape is down
+      - alert: GoatFarmReadinessFailed
+        expr: probe_success{job="goatfarm-readyz"} == 0 or absent(probe_success{job="goatfarm-readyz"})
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Goat Farm database readiness probe is failing
+      - alert: GoatFarmScreeningWorkerMissing
+        expr: absent(container_last_seen{name=~".*screening-worker.*"}) or (time() - container_last_seen{name=~".*screening-worker.*"} > 120)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Screening worker container heartbeat is missing
+
+  - name: goatfarm-maintenance
+    rules:
+      - alert: GoatFarmRetentionLoopStalled
+        expr: absent(goatfarm_maintenance_loop_batches_total{loop="retention_sweep"}) or (increase(goatfarm_maintenance_loop_batches_total{loop="retention_sweep"}[26h]) < 1)
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Retention maintenance has not completed a pass
+      - alert: GoatFarmBackupMissingOrStale
+        expr: goatfarm_backup_fresh == 0 or absent(goatfarm_backup_fresh) or (time() - goatfarm_backup_recovery_timestamp_seconds > 93600) or absent(goatfarm_backup_recovery_timestamp_seconds) or (time() - node_textfile_mtime_seconds{file="goatfarm_backup.prom"} > 7200) or absent(node_textfile_mtime_seconds{file="goatfarm_backup.prom"})
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: No complete whole-system backup is within the 26-hour policy
+      - alert: GoatFarmBackupIntegrityRejected
+        expr: goatfarm_backup_invalid_sets > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: At least one retained backup set failed checksum or inventory validation
+      - alert: GoatFarmBackupUnitFailed
+        expr: node_systemd_unit_state{name="goatfarm-backup.service",state="failed"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Goat Farm backup service failed
+      - alert: GoatFarmBackupFreshnessUnitFailed
+        expr: node_systemd_unit_state{name="goatfarm-backup-freshness.service",state="failed"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Goat Farm backup-freshness service failed
+      - alert: GoatFarmBackupTimersInactive
+        expr: absent(node_systemd_unit_state{name=~"goatfarm-backup(-freshness)?.timer",state="active"}) or count(node_systemd_unit_state{name=~"goatfarm-backup(-freshness)?.timer",state="active"} == 1) < 2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: A Goat Farm backup timer is not active

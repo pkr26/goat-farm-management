@@ -395,6 +395,10 @@ describe("idempotency persistence and signature branches", () => {
     // be an offline verifier for a 4–12 digit numeric credential, so it gets
     // the same memory-only treatment as worker create (2026-09-28 audit).
     ["the worker PIN-reset route", { url: "/api/team/workers/4/reset-pin" }],
+    // Password resets carry a reusable login secret too. A body digest would
+    // be an offline verifier for that password, so recovery remains in-memory
+    // even though the Idempotency-Key is still used for the live retry.
+    ["the worker password-reset route", { url: "/api/team/workers/4/reset-password" }],
     // Batch creation is a void POST: every walkthrough's digest is identical,
     // so recovery would hand a NEW walkthrough a prior one's key (and thus
     // the OLD batch). Memory-only, like the credential routes above.

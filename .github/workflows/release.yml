@@ -1,13 +1,14 @@
 name: Release
 
-# Container CD: push a v* tag to build both application images for
+# Container CD: push a v* tag to build the backend, frontend, and edge images for
 # linux/amd64 + linux/arm64, gate each architecture on the same Trivy policy
 # as security.yml BEFORE anything is published, then push multi-arch manifests
 # to ghcr.io with provenance+SBOM attestations and cut a GitHub release
 # carrying the per-architecture SPDX SBOMs. A release tag is accepted only
 # when its exact commit is reachable from main and has a completed successful
-# CI run; repository tag protection remains an additional control, not the
-# sole release gate.
+# CI and Security push runs; repository tag protection remains an additional
+# control, not the sole release gate. Version tags and artifacts are one-shot:
+# a changed build must use a new version.
 on:
   push:
     tags: ["v*"]
@@ -31,22 +32,25 @@ jobs:
     # keep a generous ceiling for a rarely-run workflow.
     timeout-minutes: 90
     permissions:
-      # GITHUB_TOKEN pushes the two images to ghcr.io. No other job in this
+      # GITHUB_TOKEN pushes the three images to ghcr.io. No other job in this
       # workflow may write packages.
       packages: write
       contents: read
       actions: read
+      id-token: write
     outputs:
       backend_image: ${{ steps.images.outputs.backend_image }}
       frontend_image: ${{ steps.images.outputs.frontend_image }}
+      edge_image: ${{ steps.images.outputs.edge_image }}
       backend_digest: ${{ steps.assemble.outputs.backend_digest }}
       frontend_digest: ${{ steps.assemble.outputs.frontend_digest }}
+      edge_digest: ${{ steps.assemble.outputs.edge_digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      - name: Require successful CI for the tagged main commit
+      - name: Require successful CI and Security for the tagged main commit
         env:
           GH_TOKEN: ${{ github.token }}
           TAGGED_SHA: ${{ github.sha }}
@@ -64,13 +68,28 @@ jobs:
               echo "::error::Refusing release: no successful push CI run exists for $TAGGED_SHA."
               exit 1
             }
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/security.yml/runs?head_sha=${TAGGED_SHA}&status=completed&per_page=100" \
+            --jq '.workflow_runs[] | select(.conclusion == "success" and .event == "push") | .id' \
+            | grep -q . || {
+              echo "::error::Refusing release: no successful push Security run exists for $TAGGED_SHA."
+              exit 1
+            }
 
       - name: Set up QEMU (arm64 emulation)
         # The published images are multi-arch; the arm64 legs need emulation
         # on the amd64 hosted runner.
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        with:
+          # This image runs privileged to register binfmt handlers. Pin the
+          # exact OCI index and install only the one cross-target we build.
+          image: docker.io/tonistiigi/binfmt:qemu-v10.2.3-68@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          platforms: arm64
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.37.2
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       - name: Resolve image names
         id: images
@@ -80,14 +99,32 @@ jobs:
           owner="$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
           echo "backend_image=ghcr.io/${owner}/goatfarm-backend" >> "$GITHUB_OUTPUT"
           echo "frontend_image=ghcr.io/${owner}/goatfarm-frontend" >> "$GITHUB_OUTPUT"
+          echo "edge_image=ghcr.io/${owner}/goatfarm-edge" >> "$GITHUB_OUTPUT"
           echo "BACKEND_IMAGE=ghcr.io/${owner}/goatfarm-backend" >> "$GITHUB_ENV"
           echo "FRONTEND_IMAGE=ghcr.io/${owner}/goatfarm-frontend" >> "$GITHUB_ENV"
+          echo "EDGE_IMAGE=ghcr.io/${owner}/goatfarm-edge" >> "$GITHUB_ENV"
           echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "${GITHUB_TOKEN}" | docker login ghcr.io --username '${{ github.actor }}' --password-stdin
+
+      - name: Refuse an existing immutable release version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists; publish changed bits under a new version."
+            exit 1
+          fi
+          for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$EDGE_IMAGE"; do
+            if docker buildx imagetools inspect "${image}:${TAG}" >/dev/null 2>&1; then
+              echo "::error::Immutable image tag ${image}:${TAG} already exists."
+              exit 1
+            fi
+          done
 
       # ── Gate phase ─────────────────────────────────────────────────────
       # Build each image per architecture into the local daemon and run the
@@ -146,6 +183,28 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
+      - name: Gate-build edge (linux/amd64)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/edge/Dockerfile
+          push: false
+          load: true
+          platforms: linux/amd64
+          tags: ${{ env.EDGE_IMAGE }}:${{ env.TAG }}-gate-amd64
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan edge (linux/amd64) for fixable high/critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.EDGE_IMAGE }}:${{ env.TAG }}-gate-amd64
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
       - name: Gate-build backend (linux/arm64, QEMU)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -190,6 +249,28 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
+      - name: Gate-build edge (linux/arm64, QEMU)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/edge/Dockerfile
+          push: false
+          load: true
+          platforms: linux/arm64
+          tags: ${{ env.EDGE_IMAGE }}:${{ env.TAG }}-gate-arm64
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan edge (linux/arm64) for fixable high/critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.EDGE_IMAGE }}:${{ env.TAG }}-gate-arm64
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
       # SPDX SBOMs from the exact per-architecture images that were just
       # gated — one asset per architecture, because the base-image package
       # sets differ between amd64 and arm64.
@@ -225,6 +306,22 @@ jobs:
           output-file: frontend-sbom-linux-arm64.spdx.json
           upload-artifact: false
 
+      - name: Generate edge SPDX SBOM (linux/amd64)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ env.EDGE_IMAGE }}:${{ env.TAG }}-gate-amd64
+          format: spdx-json
+          output-file: edge-sbom-linux-amd64.spdx.json
+          upload-artifact: false
+
+      - name: Generate edge SPDX SBOM (linux/arm64)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ env.EDGE_IMAGE }}:${{ env.TAG }}-gate-arm64
+          format: spdx-json
+          output-file: edge-sbom-linux-arm64.spdx.json
+          upload-artifact: false
+
       - name: Preserve SBOM artifacts
         # Uploaded by the pinned upload-artifact step so the release job
         # gets a deterministic download path.
@@ -236,6 +333,8 @@ jobs:
             backend-sbom-linux-arm64.spdx.json
             frontend-sbom-linux-amd64.spdx.json
             frontend-sbom-linux-arm64.spdx.json
+            edge-sbom-linux-amd64.spdx.json
+            edge-sbom-linux-arm64.spdx.json
           retention-days: 30
 
       # ── Publish phase ──────────────────────────────────────────────────
@@ -304,6 +403,30 @@ jobs:
           sbom: true
           cache-from: type=gha
 
+      - name: Publish edge image (linux/amd64, exact gate bits)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/edge/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ env.EDGE_IMAGE }}:${{ env.TAG }}-publish-amd64
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+
+      - name: Publish edge image (linux/arm64, exact gate bits)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/edge/Dockerfile
+          push: true
+          platforms: linux/arm64
+          tags: ${{ env.EDGE_IMAGE }}:${{ env.TAG }}-publish-arm64
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+
       - name: Verify published bits are the scanned bits (RT-R-6)
         # The pushed per-arch tag is an OCI index (image manifest + attestation
         # manifests). Walk to the platform's image manifest and compare its
@@ -314,6 +437,7 @@ jobs:
         env:
           BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
           FRONTEND_IMAGE: ${{ env.FRONTEND_IMAGE }}
+          EDGE_IMAGE: ${{ env.EDGE_IMAGE }}
           TAG: ${{ env.TAG }}
         run: |
           set -euo pipefail
@@ -338,6 +462,7 @@ jobs:
           for arch in amd64 arm64; do
             verify "$BACKEND_IMAGE" "$arch"
             verify "$FRONTEND_IMAGE" "$arch"
+            verify "$EDGE_IMAGE" "$arch"
           done
 
       - name: Assemble release tags from the verified per-arch images
@@ -348,9 +473,14 @@ jobs:
         env:
           BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
           FRONTEND_IMAGE: ${{ env.FRONTEND_IMAGE }}
+          EDGE_IMAGE: ${{ env.EDGE_IMAGE }}
           TAG: ${{ env.TAG }}
         run: |
           set -euo pipefail
+          # The immutable version tags did not exist at preflight. Once this
+          # marker exists, failure cleanup may remove only version tags owned
+          # by this run; it must never touch a tag that made preflight fail.
+          touch "${RUNNER_TEMP}/goatfarm-release-assembly-owned"
           docker buildx imagetools create \
             -t "${BACKEND_IMAGE}:${TAG}" \
             "${BACKEND_IMAGE}:${TAG}-publish-amd64" \
@@ -359,25 +489,50 @@ jobs:
             -t "${FRONTEND_IMAGE}:${TAG}" \
             "${FRONTEND_IMAGE}:${TAG}-publish-amd64" \
             "${FRONTEND_IMAGE}:${TAG}-publish-arm64"
-          backend_digest="$(docker buildx imagetools inspect --raw "${BACKEND_IMAGE}:${TAG}" | sha256sum | cut -d' ' -f1)"
-          frontend_digest="$(docker buildx imagetools inspect --raw "${FRONTEND_IMAGE}:${TAG}" | sha256sum | cut -d' ' -f1)"
-          echo "backend_digest=sha256:${backend_digest}" >> "$GITHUB_OUTPUT"
-          echo "frontend_digest=sha256:${frontend_digest}" >> "$GITHUB_OUTPUT"
+          docker buildx imagetools create \
+            -t "${EDGE_IMAGE}:${TAG}" \
+            "${EDGE_IMAGE}:${TAG}-publish-amd64" \
+            "${EDGE_IMAGE}:${TAG}-publish-arm64"
+          manifest_digest() {
+            docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' \
+              | jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))'
+          }
+          backend_digest="$(manifest_digest "${BACKEND_IMAGE}:${TAG}")"
+          frontend_digest="$(manifest_digest "${FRONTEND_IMAGE}:${TAG}")"
+          edge_digest="$(manifest_digest "${EDGE_IMAGE}:${TAG}")"
+          echo "backend_digest=${backend_digest}" >> "$GITHUB_OUTPUT"
+          echo "frontend_digest=${frontend_digest}" >> "$GITHUB_OUTPUT"
+          echo "edge_digest=${edge_digest}" >> "$GITHUB_OUTPUT"
 
-      - name: Remove unverified per-arch publish tags on failure
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2 / cosign v3.0.6
+
+      - name: Sign immutable release image manifests
+        env:
+          BACKEND_DIGEST: ${{ steps.assemble.outputs.backend_digest }}
+          FRONTEND_DIGEST: ${{ steps.assemble.outputs.frontend_digest }}
+          EDGE_DIGEST: ${{ steps.assemble.outputs.edge_digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${BACKEND_IMAGE}@${BACKEND_DIGEST}"
+          cosign sign --yes "${FRONTEND_IMAGE}@${FRONTEND_DIGEST}"
+          cosign sign --yes "${EDGE_IMAGE}@${EDGE_DIGEST}"
+
+      - name: Remove incomplete release and per-arch publish tags on failure
         # 2026-09-17 re-audit: a verification divergence (or a mid-publish
-        # crash) correctly aborts the release, but the four "-publish-*"
-        # tags it already pushed would otherwise linger in GHCR holding
-        # never-verified bits until the next release overwrote them. Delete
-        # the package versions carrying those tags. Best-effort: if the
+        # crash) correctly aborts the release, but its "-publish-*" tags and
+        # any final version tags assembled before a signing failure would
+        # otherwise linger in GHCR. Delete the package versions carrying
+        # those run-owned tags. Best-effort: if the
         # GITHUB_TOKEN's packages:write cannot delete (org policy), say so
-        # loudly instead of failing the already-failed job — the release tag
-        # itself was never assembled, so nothing deployable exists.
+        # loudly instead of failing the already-failed job. A final tag is
+        # removed only when this run crossed the assembly ownership marker.
         if: failure() || cancelled()
         env:
           GH_TOKEN: ${{ github.token }}
           BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
           FRONTEND_IMAGE: ${{ env.FRONTEND_IMAGE }}
+          EDGE_IMAGE: ${{ env.EDGE_IMAGE }}
           TAG: ${{ env.TAG }}
         run: |
           set -euo pipefail
@@ -387,10 +542,13 @@ jobs:
           else
             api_base="user"
           fi
-          for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
+          for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$EDGE_IMAGE"; do
             package="${image##*/}"
-            for arch in amd64 arm64; do
-              tag="${TAG}-publish-${arch}"
+            tags=("${TAG}-publish-amd64" "${TAG}-publish-arm64")
+            if [ -f "${RUNNER_TEMP}/goatfarm-release-assembly-owned" ]; then
+              tags+=("${TAG}")
+            fi
+            for tag in "${tags[@]}"; do
               ids="$(gh api --paginate "${api_base}/packages/container/${package}/versions" \
                 | jq -r --arg tag "$tag" \
                   '.[] | select((.metadata.container.tags // []) | index($tag)) | .id' || true)"
@@ -413,6 +571,7 @@ jobs:
       # Only this job — and only after the Trivy gate passed — may write to
       # the repository: it creates the release on the pushed tag.
       contents: write
+      id-token: write
     env:
       # No checkout in this job: gh cannot infer the repository without a
       # git remote, and it does not read GITHUB_REPOSITORY. Point it at the
@@ -421,8 +580,10 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BACKEND_IMAGE: ${{ needs.images.outputs.backend_image }}
       FRONTEND_IMAGE: ${{ needs.images.outputs.frontend_image }}
+      EDGE_IMAGE: ${{ needs.images.outputs.edge_image }}
       BACKEND_DIGEST: ${{ needs.images.outputs.backend_digest }}
       FRONTEND_DIGEST: ${{ needs.images.outputs.frontend_digest }}
+      EDGE_DIGEST: ${{ needs.images.outputs.edge_digest }}
     steps:
       - name: Download SBOM assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -430,49 +591,55 @@ jobs:
           name: release-sboms
           path: release-assets
 
-      - name: Create or update release with SBOM assets
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2 / cosign v3.0.6
+
+      - name: Create signed checksums and immutable release
         run: |
+          set -euo pipefail
           tag="${GITHUB_REF_NAME}"
-          # v1.2.3-rc1 / -beta tags publish as pre-releases, not latest.
-          args=(--title "$tag" --generate-notes)
-          case "$tag" in
-            *-*) args+=(--prerelease) ;;
-          esac
-          assets=(release-assets/*.spdx.json)
           if gh release view "$tag" >/dev/null 2>&1; then
-            # Re-run after a partial failure: never duplicate the release,
-            # just refresh its assets and digest notes.
-            gh release upload "$tag" "${assets[@]}" --clobber
-          else
-            gh release create "$tag" "${args[@]}" "${assets[@]}"
+            echo "::error::Release $tag already exists and is immutable; use a new version."
+            exit 1
           fi
-          # Pin the published digests in the notes so deployments can verify
-          # what the tag resolved to at release time. Idempotent on re-run.
-          gh release view "$tag" --json body --jq .body > release-body.md
+          (
+            cd release-assets
+            sha256sum ./*.spdx.json > SHA256SUMS
+          )
+          cosign sign-blob --yes \
+            --bundle release-assets/SHA256SUMS.sigstore.json \
+            release-assets/SHA256SUMS
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="$tag" -f target_commitish="$GITHUB_SHA" \
+            --jq .body > release-body.md
           python3 - <<'PYNOTES'
           import os
-          import re
           from pathlib import Path
 
           path = Path("release-body.md")
-          body = path.read_text()
-          # Replace only the exact workflow heading, preserving authored notes
-          # and later sections. The old unmarked block is adopted on first rerun.
-          body = re.sub(
-              r"(?m)^### Published image digests[ \t]*\n.*?(?=^#{1,3} |\Z)",
-              "",
-              body,
-              flags=re.S,
-          ).rstrip()
+          body = path.read_text().rstrip()
           tag = os.environ["GITHUB_REF_NAME"]
           block = ["### Published image digests", ""]
-          for component in ("BACKEND", "FRONTEND"):
+          for component in ("BACKEND", "FRONTEND", "EDGE"):
               image = os.environ[f"{component}_IMAGE"]
               digest = os.environ[f"{component}_DIGEST"]
               block.append(f"- `{image}:{tag}` (linux/amd64, linux/arm64) → `{digest}`")
-          block.extend(["", "SBOM assets from this build:"])
+          block.extend(
+              [
+                  "",
+                  "Images and release checksums are keyless-signed by the pinned release workflow.",
+                  "See SECURITY.md for the issuer/identity verification policy.",
+                  "",
+                  "SBOM assets from this build:",
+              ]
+          )
           for asset in sorted(Path("release-assets").glob("*.spdx.json")):
               block.append(f"- `{asset.name}`")
           path.write_text(body + "\n\n" + "\n".join(block) + "\n")
           PYNOTES
-          gh release edit "$tag" --notes-file release-body.md
+          args=(--title "$tag" --notes-file release-body.md)
+          case "$tag" in
+            *-*) args+=(--prerelease) ;;
+          esac
+          assets=(release-assets/*)
+          gh release create "$tag" "${args[@]}" "${assets[@]}"

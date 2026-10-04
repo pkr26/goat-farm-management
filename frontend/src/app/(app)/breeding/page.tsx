@@ -110,11 +110,12 @@ const lossCauseOptions = (language: Language) =>
     label: enumLabel("lossCause", value, language),
   }));
 
-function OutcomeBadge({ outcome }: { outcome: string }) {
-  // The shared chip system already maps breeding outcomes to semantic tones
-  // (CONFIRMED_PREGNANT/PREGNANT → success, FAILED → destructive, the rest
-  // neutral) and humanises the code — no local tint table belongs here.
-  return <StatusBadge status={outcome} />;
+function OutcomeBadge({ outcome, language }: { outcome: string; language: Language }) {
+  return (
+    <StatusBadge status={outcome}>
+      {enumLabel("outcome", outcome, language)}
+    </StatusBadge>
+  );
 }
 
 /** Exported for direct schema-level testing of the inline gates. The
@@ -1160,7 +1161,7 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
               <div key={r.id} className="space-y-2 rounded-xl border bg-card p-3 shadow-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium">{formatDate(r.breeding_date)}</span>
-                  <OutcomeBadge outcome={r.outcome} />
+                  <OutcomeBadge outcome={r.outcome} language={language} />
                 </div>
                 <p className="text-sm">
                   {canViewAnimals ? (
@@ -1286,7 +1287,7 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
                   <TableCell>{r.kid_count_detected ?? "—"}</TableCell>
                   <TableCell>{formatDate(r.expected_kidding_date)}</TableCell>
                   <TableCell>
-                    <OutcomeBadge outcome={r.outcome} />
+                    <OutcomeBadge outcome={r.outcome} language={language} />
                     {r.outcome === "ABORTED" && r.loss_date && (
                       <div className="mt-1 text-xs text-muted-foreground">
                         <p>

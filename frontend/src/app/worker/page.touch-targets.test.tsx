@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 import { server } from "@/test/msw-server";
 
-import WorkerBoardPage from "./page";
+import WorkerBoardPage, { DutyCard } from "./page";
 
 const { pushMock, replaceMock, signOutMock, selectFarmMock, getFarmsMock } = vi.hoisted(() => ({
   pushMock: vi.fn(),
@@ -51,8 +51,8 @@ const BOARD = (id: number, title: string) => ({
   id,
   title,
   due_date: new Date().toISOString().slice(0, 10),
-  category: "OTHER",
-  status: "PENDING",
+  category: "OTHER" as const,
+  status: "PENDING" as const,
   priority: null,
   notes: null,
   animal_id: null,
@@ -77,23 +77,28 @@ const BOARD = (id: number, title: string) => ({
   skipped_by_id: null,
   skipped_at: null,
   created_at: "2026-09-20T05:00:00Z",
+  created_by_id: null,
   updated_at: "2026-09-20T05:00:00Z",
   title_key: null,
   title_args: {},
 });
 
+let requestedTaskView: string | null;
+
 beforeEach(() => {
   window.localStorage.clear();
+  requestedTaskView = null;
   server.use(
-    http.get("/api/tasks", () =>
-      HttpResponse.json({
+    http.get("/api/tasks", ({ request }) => {
+      requestedTaskView = new URL(request.url).searchParams.get("view");
+      return HttpResponse.json({
         today: [BOARD(1, "Feed the bucks"), BOARD(2, "Water trough check")],
         overdue: [BOARD(3, "Yesterday's spray round")],
         upcoming: [],
         awaiting: [],
         completed: [],
-      }),
-    ),
+      });
+    }),
   );
 });
 
@@ -111,5 +116,50 @@ describe("worker duty board touch targets", () => {
       undersized.map((b) => `${b.textContent ?? b.getAttribute("data-testid")}:${b.className}`),
       "buttons without a >=44px class (min-h-11): ",
     ).toEqual([]);
+    expect(requestedTaskView).toBe("worker");
+  });
+
+  it("renders a duty card without creating its own permissions observer", async () => {
+    let permissionReads = 0;
+    server.use(
+      http.get("/api/auth/permissions", () => {
+        permissionReads += 1;
+        return HttpResponse.json({ is_owner: false, permissions: ["tasks.view"] });
+      }),
+    );
+    renderWithProviders(
+      <DutyCard
+        task={BOARD(9, "Observer-free duty")}
+        canComplete
+        canOpenAction={() => false}
+        staleBoard={false}
+        busy={false}
+        onComplete={vi.fn()}
+        onSkip={vi.fn()}
+      />,
+      createTestQueryClient(),
+    );
+
+    expect(await screen.findByText("Observer-free duty")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(permissionReads).toBe(0);
+  });
+
+  it("names an overdue duty's urgency in the accessibility tree", async () => {
+    renderWithProviders(
+      <DutyCard
+        task={{ ...BOARD(10, "Late duty"), due_date: "2020-01-01" }}
+        canComplete
+        canOpenAction={() => false}
+        staleBoard={false}
+        busy={false}
+        onComplete={vi.fn()}
+        onSkip={vi.fn()}
+      />,
+      createTestQueryClient(),
+    );
+
+    expect(await screen.findByText("Late duty")).toBeInTheDocument();
+    expect(screen.getByText("Overdue")).toHaveClass("sr-only");
   });
 });

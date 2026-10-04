@@ -61,10 +61,19 @@ REQUIRED_EITHER_DELIVERY_VARS = (
     "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET",
 )
 
-# Required in production but legitimately optional in development (legacy
-# TOTP ciphertext readability), so absence passes here and the application's
-# boot validator decides by environment. Ambiguity is still refused.
-AMBIGUOUS_DELIVERY_VARS = ("GOATFARM_TOTP_ENCRYPTION_KEY",)
+# Optional or feature-gated credentials may be absent, but every supported
+# plain/``*_FILE`` pair still has exactly one authoritative route when used.
+# Keep this list in lockstep with the production manifest's config-guard
+# environment and the settings projections' ambiguity checks.
+OPTIONAL_EITHER_DELIVERY_VARS = (
+    "GOATFARM_TOTP_ENCRYPTION_KEY",
+    "GOATFARM_METRICS_BEARER_TOKEN",
+    "GOATFARM_S3_ACCESS_KEY_ID",
+    "GOATFARM_S3_SECRET_ACCESS_KEY",
+    "GOATFARM_SCREENING_ANTHROPIC_API_KEY",
+    "GOATFARM_SCREENING_OPENAI_API_KEY",
+    "GOATFARM_MSG91_AUTH_KEY",
+)
 
 
 def unknown_names(path: Path) -> set[str]:
@@ -114,7 +123,7 @@ def delivery_problems(path: Path) -> list[str]:
             problems.append(f"{name} and {name}_FILE are both set; deliver exactly one")
         if not plain and not from_file:
             problems.append(f"neither {name} nor {name}_FILE is set; deliver exactly one")
-    for name in AMBIGUOUS_DELIVERY_VARS:
+    for name in OPTIONAL_EITHER_DELIVERY_VARS:
         if _delivered(name) and _delivered(f"{name}_FILE"):
             problems.append(f"{name} and {name}_FILE are both set; deliver exactly one")
     if _delivered("GOATFARM_APP_SECRET_DIR"):

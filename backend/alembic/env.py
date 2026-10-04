@@ -5,7 +5,7 @@ Zero-downtime posture:
   that can't grab its lock fails fast instead of queueing behind (or
   stalling) live traffic.
 - ``statement_timeout`` comes from ``migration_statement_timeout_ms`` (default
-  0 = unbounded), never from the API's request-path backstop. DDL is not OLTP:
+  15 minutes), never from the API's request-path backstop. DDL is not OLTP:
   a table rewrite, a constraint validation, or a CREATE INDEX CONCURRENTLY —
   which waits twice for every concurrent transaction to drain — legitimately
   runs for minutes, and cancelling one mid-flight aborts the release and can
@@ -20,10 +20,12 @@ Zero-downtime posture:
 """
 
 import asyncio
+from contextlib import suppress
 from logging.config import fileConfig
 
-from alembic.script.revision import RangeNotAncestorError
+from alembic.script.revision import RangeNotAncestorError, RevisionError
 from sqlalchemy import text
+from sqlalchemy.engine import Connection, make_url
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context, util
@@ -57,6 +59,12 @@ LOCK_TIMEOUT = "10s"
 # survives the SET transaction commit below and is released automatically when
 # this one-shot Alembic connection closes, including after a failed migration.
 RELEASE_WRITER_ADVISORY_LOCK_ID = 718204614
+
+# f9 takes an EXCLUSIVE findings lock while preserving legacy review evidence.
+# fd adds/backfills privacy-cleanup state across the hot screening image queue,
+# replaces its lease-refresh trigger, and validates new invariants. A populated
+# upgrade crossing either step must be a deliberate write-quiesced cutover.
+QUIESCENCE_REQUIRED_REVISIONS = frozenset({"f9a3b7c1d5e2", "fd4e5f6a7b8c"})
 
 # These applied revisions consume live query results. Preserve their exact
 # preflights and immutable history: offline ranges crossing them are explicitly
@@ -105,7 +113,7 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def do_run_migrations(connection) -> None:
+def do_run_migrations(connection: Connection) -> None:
     context.configure(
         connection=connection, target_metadata=target_metadata, compare_server_default=True
     )
@@ -115,8 +123,14 @@ def do_run_migrations(connection) -> None:
 
 async def run_migrations_online() -> None:
     settings = get_migration_settings()
+    if not settings.migration_database_url:
+        raise util.CommandError(
+            "Online migrations require an explicit GOATFARM_MIGRATION_DATABASE_URL "
+            "(or GOATFARM_MIGRATION_DATABASE_URL_FILE); refusing the implicit "
+            "development database target"
+        )
     configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = settings.migration_database_url or settings.database_url
+    configuration["sqlalchemy.url"] = settings.migration_database_url
     # Alembic is a separate engine from app.db. Carry the same wire-TLS
     # guarantee across instead of silently falling back to the asyncpg/libpq
     # default during the most privileged database operation. The per-statement
@@ -131,6 +145,117 @@ async def run_migrations_online() -> None:
     )
     try:
         async with connectable.connect() as connection:
+            marker_exists = await connection.scalar(
+                text("SELECT to_regclass('public.alembic_version') IS NOT NULL")
+            )
+            current_revisions: tuple[str, ...] = ()
+            if marker_exists:
+                current_revisions = tuple(
+                    (
+                        await connection.execute(
+                            text("SELECT version_num FROM alembic_version ORDER BY version_num")
+                        )
+                    ).scalars()
+                )
+            # ``get_revision_argument`` resolves symbolic targets such as
+            # ``head`` to concrete revision ids.  Do not silently substitute
+            # the repository head here: operators and migration regression
+            # tests routinely walk to an intermediate revision, and a
+            # preflight for a *later* migration must not inspect columns that
+            # do not exist at that requested stop point.  Commands such as
+            # ``current``/``check`` have no destination and therefore have no
+            # migration range to preflight.
+            # Inspection/autogenerate commands (notably ``current`` and
+            # ``check``) do not install ``destination_rev`` in Alembic's
+            # EnvironmentContext at all.  ``get_revision_argument()`` raises
+            # KeyError in that case; it does not return None.  Treat the
+            # missing option as an inspection with no migration range, while
+            # preserving None as Alembic's resolved spelling of ``base``.
+            try:
+                requested_target = context.get_revision_argument()
+            except KeyError:
+                requested_target = None
+            if requested_target is None:
+                target_revisions: tuple[str, ...] = ()
+            elif isinstance(requested_target, tuple):
+                target_revisions = requested_target
+            else:
+                target_revisions = (requested_target,)
+            parsed_target = make_url(settings.migration_database_url)
+            host = parsed_target.host or "local-socket"
+            port = f":{parsed_target.port}" if parsed_target.port is not None else ""
+            database = parsed_target.database or "<missing-database>"
+            util.msg(
+                "Migration target "
+                f"{host}{port}/{database}; current="
+                f"{','.join(current_revisions) if current_revisions else 'base'}; "
+                f"target={','.join(target_revisions) if target_revisions else 'base/inspection'}"
+            )
+
+            pending: set[str] = set()
+            if requested_target is not None:
+                # A downgrade (or branch-to-branch walk) has no
+                # upgrade-only write-quiescence step pending.
+                # Absolute downgrades raise RangeNotAncestorError here.
+                # Relative downgrades (``-1``, ``-2``) are parsed as an
+                # impossible relative *upgrade* by iterate_revisions and raise
+                # RevisionError instead.  In either case no upgrade-only
+                # quiescence step is pending; Alembic's actual command
+                # callback validates and executes the downgrade afterwards.
+                with suppress(RangeNotAncestorError, RevisionError):
+                    pending = {
+                        candidate.revision
+                        for candidate in context.script.iterate_revisions(
+                            requested_target, current_revisions or "base"
+                        )
+                    }
+            quiescence_steps = sorted(pending & QUIESCENCE_REQUIRED_REVISIONS)
+            # A brand-new database has no application writers to drain. Any
+            # populated/previously stamped database crossing a flagged step
+            # needs an explicit release-procedure acknowledgement.
+            if current_revisions and quiescence_steps:
+                findings_exists = await connection.scalar(
+                    text("SELECT to_regclass('public.screening_findings') IS NOT NULL")
+                )
+                review_revision_exists = False
+                if findings_exists:
+                    review_revision_exists = bool(
+                        await connection.scalar(
+                            text(
+                                "SELECT EXISTS ("
+                                "SELECT 1 FROM pg_attribute "
+                                "WHERE attrelid = 'public.screening_findings'::regclass "
+                                "AND attname = 'review_revision' "
+                                "AND attnum > 0 AND NOT attisdropped)"
+                            )
+                        )
+                    )
+                legacy_rows: int | None = None
+                if review_revision_exists:
+                    legacy_rows = int(
+                        await connection.scalar(
+                            text(
+                                "SELECT count(*) FROM screening_findings "
+                                "WHERE review_revision = 0 "
+                                "AND status IN ('CONFIRMED', 'REJECTED') "
+                                "AND reviewed_by_id IS NOT NULL AND reviewed_at IS NOT NULL"
+                            )
+                        )
+                        or 0
+                    )
+                util.msg(
+                    "Write-quiescence migration rehearsal: revisions="
+                    f"{','.join(quiescence_steps)} eligible_legacy_review_rows="
+                    f"{legacy_rows if legacy_rows is not None else 'not-yet-queryable'}"
+                )
+                if not settings.migration_writes_quiesced:
+                    raise util.CommandError(
+                        "Pending migration(s) "
+                        f"{', '.join(quiescence_steps)} require application writes to be "
+                        "drained. Rehearse against a restored disposable database, stop "
+                        "API/worker writers, then set GOATFARM_MIGRATION_WRITES_QUIESCED=true "
+                        "for the one-shot migration job."
+                    )
             release_lock_acquired = await connection.scalar(
                 text(f"SELECT pg_try_advisory_lock({RELEASE_WRITER_ADVISORY_LOCK_ID})")
             )

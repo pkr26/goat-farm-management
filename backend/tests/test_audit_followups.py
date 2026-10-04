@@ -117,7 +117,17 @@ async def _migration_scenario() -> None:
     await admin_exec(f'DROP DATABASE IF EXISTS "{scratch}"')
     await admin_exec(f'CREATE DATABASE "{scratch}"')
     try:
-        env = {**os.environ, "GOATFARM_DATABASE_URL": f"{base}/{scratch}"}
+        target_url = f"{base}/{scratch}"
+        env = {
+            **os.environ,
+            "GOATFARM_DATABASE_URL": target_url,
+            "GOATFARM_MIGRATION_DATABASE_URL": target_url,
+            # This throwaway database has no application writers. The second
+            # step crosses the review-history cutover, so acknowledge the
+            # quiescence contract explicitly instead of inheriting ambient
+            # release-job state.
+            "GOATFARM_MIGRATION_WRITES_QUIESCED": "true",
+        }
         for target in ("e3a5b7c9d1f2", "head"):
             proc = await asyncio.to_thread(
                 subprocess.run,
@@ -227,7 +237,15 @@ async def _orf_upgrade_scenario() -> None:
     await admin_exec(f'DROP DATABASE IF EXISTS "{scratch}" WITH (FORCE)')
     await admin_exec(f'CREATE DATABASE "{scratch}"')
     try:
-        env = {**os.environ, "GOATFARM_DATABASE_URL": f"{base}/{scratch}"}
+        target_url = f"{base}/{scratch}"
+        env = {
+            **os.environ,
+            "GOATFARM_DATABASE_URL": target_url,
+            "GOATFARM_MIGRATION_DATABASE_URL": target_url,
+            # The test owns the database and holds all application traffic;
+            # crossing the review-history cutover is therefore quiesced.
+            "GOATFARM_MIGRATION_WRITES_QUIESCED": "true",
+        }
 
         async def alembic_upgrade(target: str) -> None:
             proc = await asyncio.to_thread(
@@ -484,15 +502,18 @@ async def test_register_email_probe_lockout_never_blocks_a_fresh_address(
     assert fresh.status_code == 201, fresh.text
 
 
-async def test_register_email_probe_throttle_log_never_contains_the_raw_address(
+async def test_register_probe_throttle_is_aggregated_without_identifier_logging(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The probe bucket key is logged verbatim on a throttle decision, so it
-    is a sha256 of the address — the raw email is PII and must never reach the
-    log stream (same rule as every other token-derived limiter key)."""
+    """A duplicate-address probe emits only a fixed-scope aggregate count.
+
+    Neither the raw email nor its stable hash belongs in an immediate log: a
+    high-rate caller could otherwise amplify writes and the hash would remain
+    a correlatable identifier.
+    """
     from app.api import auth as auth_api
     from app.core.config import Settings
-    from app.ratelimit import SlidingWindowRateLimiter
+    from app.ratelimit import SlidingWindowRateLimiter, drain_throttle_rejections
 
     settings = Settings(
         auth_rate_limit_enabled=True,
@@ -511,20 +532,20 @@ async def test_register_email_probe_throttle_log_never_contains_the_raw_address(
     for _ in range(50):
         auth_api.register_email_limiter.record("register-email", email_key, 300, max_attempts=50)
 
+    drain_throttle_rejections()
     with caplog.at_level(logging.INFO, logger="goatfarm.auth"):
         throttled = await client.post(
             "/api/auth/register", json={"email": owner_email, "password": "probepass123"}
         )
     assert throttled.status_code == 429, throttled.text
-    lines = [
-        record.getMessage()
-        for record in caplog.records
-        if "register-email throttled" in record.getMessage()
+    assert drain_throttle_rejections() == {"register-email": 1}
+    immediate_lines = [
+        record.getMessage() for record in caplog.records if record.name == "goatfarm.auth"
     ]
-    assert len(lines) == 1, caplog.records
-    # The hashed key identifies the bucket; the raw address appears nowhere.
-    assert email_key in lines[0]
-    assert all(owner_email not in record.getMessage() for record in caplog.records)
+    assert immediate_lines == []
+    rendered = " ".join(record.getMessage() for record in caplog.records)
+    assert email_key not in rendered
+    assert owner_email not in rendered
 
 
 async def test_register_probe_ceiling_is_soft_for_a_fresh_address(

@@ -4,6 +4,8 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { ScreeningDatasetRecordOutExampleKind } from './screeningDatasetRecordOutExampleKind';
+import type { ScreeningDatasetRecordOutModelVerdict } from './screeningDatasetRecordOutModelVerdict';
 import type { ScreeningDatasetRecordOutSeverity } from './screeningDatasetRecordOutSeverity';
 import type { ScreeningDatasetRecordOutVetStatus } from './screeningDatasetRecordOutVetStatus';
 
@@ -14,10 +16,15 @@ import type { ScreeningDatasetRecordOutVetStatus } from './screeningDatasetRecor
  * ``image_s3_key`` intentionally identifies the normalized derivative that
  * was actually sent to the model, not the short-lived browser-upload raw
  * key. A presigned raw POST may be replayed before expiry; the derivative is
- * worker-owned and its bytes match ``image_sha256``.
+ * worker-owned and its bytes match ``image_sha256``. For
+ * ``HEALTHY_CONTROL`` examples, ``CONFIRMED`` means the reviewer also saw no
+ * abnormality; ``REJECTED`` is a hard negative where the reviewer found one.
  */
 export interface ScreeningDatasetRecordOut {
   finding_id: number;
+  example_kind: ScreeningDatasetRecordOutExampleKind;
+  model_verdict: ScreeningDatasetRecordOutModelVerdict;
+  prompt_version: string;
   vet_status: ScreeningDatasetRecordOutVetStatus;
   label: string;
   confidence: string | null;

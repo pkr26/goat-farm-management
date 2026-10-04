@@ -182,6 +182,28 @@ class Farm(Base):
     )
 
 
+class FarmOwnerHistory(Base):
+    """Immutable tenant-affiliation anchor for every current or former owner.
+
+    Owners deliberately are not ``FarmMembership`` rows. Keeping this compact
+    pair means ownership transfer cannot invalidate actor attribution on
+    historical farm records, while the database trigger that populates it
+    still prevents an unrelated user from becoming an accepted farm actor.
+    """
+
+    __tablename__ = "farm_owner_history"
+
+    farm_id: Mapped[int] = mapped_column(
+        ForeignKey("farms.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), primary_key=True
+    )
+    acquired_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+
+
 class Role(Base):
     """Farm-scoped role: a named bundle of permission codes (JSON list).
 

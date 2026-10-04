@@ -34,11 +34,15 @@ def _is_throwaway_db(name: str) -> bool:
 
 
 async def _alembic(*args: str, succeeds: bool = True) -> subprocess.CompletedProcess[str]:
+    migration_env = os.environ.copy()
+    # The guarded pytest database is exclusively controlled while these
+    # historical downgrade/upgrade scenarios run.
+    migration_env["GOATFARM_MIGRATION_WRITES_QUIESCED"] = "true"
     result = await asyncio.to_thread(
         subprocess.run,
         [sys.executable, "-m", "alembic", *args],
         cwd=BACKEND_DIR,
-        env=os.environ.copy(),
+        env=migration_env,
         check=False,
         capture_output=True,
         text=True,
@@ -48,6 +52,40 @@ async def _alembic(*args: str, succeeds: bool = True) -> subprocess.CompletedPro
     else:
         assert result.returncode != 0, result.stdout + result.stderr
     return result
+
+
+async def _truncate_synthetic_security_events() -> None:
+    """Archive substitute for destructive history tests on the pytest DB.
+
+    Production correctly refuses to drop a nonempty append-only audit ledger.
+    These tests own an explicitly guarded throwaway database and need to cross
+    the ledger's parent revision to exercise older migrations, so discard only
+    their synthetic evidence immediately before that downgrade.
+    """
+    assert _is_throwaway_db(TEST_DB), TEST_DB
+    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    try:
+        if await connection.fetchval("SELECT to_regclass('security_events') IS NOT NULL"):
+            await connection.execute("TRUNCATE TABLE security_events")
+    finally:
+        await connection.close()
+
+
+async def _restore_head() -> None:
+    await get_engine().dispose()
+    await _alembic("upgrade", "head")
+
+
+async def _delete_null_scopes_and_restore_head() -> None:
+    """Remove deliberate pre-F3 dirt before restoring the shared schema."""
+    try:
+        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        try:
+            await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
+        finally:
+            await connection.close()
+    finally:
+        await _restore_head()
 
 
 async def _catalog_state() -> dict[str, Any]:
@@ -151,19 +189,20 @@ async def test_f3_catalog_downgrade_guard_roundtrip_and_autogenerate(
     assert created.status_code == 201, created.text
     _assert_f3_catalog(await _catalog_state())
 
-    await get_engine().dispose()
-    refused = await _alembic("downgrade", F2_REVISION, succeeds=False)
-    output = refused.stdout + refused.stderr
-    assert "Cannot downgrade actor-scoped idempotency" in output
-    assert "Sample record ids" in output
-
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
     try:
-        await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
-    finally:
-        await connection.close()
+        await get_engine().dispose()
+        await _truncate_synthetic_security_events()
+        refused = await _alembic("downgrade", F2_REVISION, succeeds=False)
+        output = refused.stdout + refused.stderr
+        assert "Cannot downgrade actor-scoped idempotency" in output
+        assert "Sample record ids" in output
 
-    try:
+        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        try:
+            await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
+        finally:
+            await connection.close()
+
         await _alembic("downgrade", F2_REVISION)
         parent = await _catalog_state()
         assert parent["farm_nullable"] == "NO"
@@ -178,8 +217,7 @@ async def test_f3_catalog_downgrade_guard_roundtrip_and_autogenerate(
         _assert_f3_catalog(await _catalog_state())
         await _alembic("check")
     finally:
-        await get_engine().dispose()
-        await _alembic("upgrade", "head")
+        await _restore_head()
 
 
 def test_throwaway_db_guard_accepts_every_name_conftest_accepts() -> None:
@@ -216,6 +254,7 @@ async def test_f4_purges_only_sensitive_rows_and_is_irreversible_roundtrip(
 
     await get_engine().dispose()
     try:
+        await _truncate_synthetic_security_events()
         await _alembic("downgrade", F3_REVISION)
         connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
         try:
@@ -300,34 +339,39 @@ async def test_f3_refuses_invalid_and_duplicate_null_scopes_then_recovers(
             )
         ).scalar_one()
 
-    await get_engine().dispose()
-    # Farm creation (setup above) persisted NULL-farm idempotency claims that
-    # f3's downgrade guard refuses to carry across the downgrade.
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
     try:
-        await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
-    finally:
-        await connection.close()
-    await _alembic("downgrade", F2_REVISION)
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
-    try:
-        await connection.execute(
-            "ALTER TABLE idempotency_records ALTER COLUMN farm_id DROP NOT NULL"
-        )
-        first_id = await connection.fetchval(
-            """
-            INSERT INTO idempotency_records (
-              farm_id, actor_id, operation, key_digest, request_hash,
-              created_at, expires_at
-            ) VALUES (NULL, $1, 'tenant.operation', $2, $3, now(), now() + interval '1 day')
-            RETURNING id
-            """,
-            actor_id,
-            "a" * 64,
-            "b" * 64,
-        )
-    finally:
-        await connection.close()
+        await get_engine().dispose()
+        await _truncate_synthetic_security_events()
+        # Farm creation (setup above) persisted NULL-farm idempotency claims
+        # that f3's downgrade guard refuses to carry across the downgrade.
+        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        try:
+            await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
+        finally:
+            await connection.close()
+        await _alembic("downgrade", F2_REVISION)
+        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        try:
+            await connection.execute(
+                "ALTER TABLE idempotency_records ALTER COLUMN farm_id DROP NOT NULL"
+            )
+            first_id = await connection.fetchval(
+                """
+                INSERT INTO idempotency_records (
+                  farm_id, actor_id, operation, key_digest, request_hash,
+                  created_at, expires_at
+                ) VALUES (NULL, $1, 'tenant.operation', $2, $3, now(), now() + interval '1 day')
+                RETURNING id
+                """,
+                actor_id,
+                "a" * 64,
+                "b" * 64,
+            )
+        finally:
+            await connection.close()
+    except BaseException:
+        await _delete_null_scopes_and_restore_head()
+        raise
 
     try:
         invalid = await _alembic("upgrade", "head", succeeds=False)
@@ -400,13 +444,7 @@ async def test_f3_refuses_invalid_and_duplicate_null_scopes_then_recovers(
         finally:
             await connection.close()
     finally:
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
-        try:
-            await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
-        finally:
-            await connection.close()
-        await get_engine().dispose()
-        await _alembic("upgrade", "head")
+        await _delete_null_scopes_and_restore_head()
 
 
 async def _worker(
@@ -429,6 +467,65 @@ async def _worker(
     )
     assert created.status_code == 201, created.text
     return int(created.json()["user_id"]), int(role_id)
+
+
+async def _restore_task_repair_fixture_and_head(
+    primary_role_id: int,
+    primary_user_id: int,
+    task_ids: list[int],
+) -> None:
+    """Make the deliberate legacy rows valid, then always restore head."""
+    try:
+        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        try:
+            await connection.execute(
+                "UPDATE roles SET deleted_at = NULL WHERE id = $1",
+                primary_role_id,
+            )
+            await connection.execute(
+                "UPDATE tasks SET assigned_user_id = $1, assigned_role_id = $2 "
+                "WHERE id = ANY($3::int[])",
+                primary_user_id,
+                primary_role_id,
+                task_ids,
+            )
+            has_membership_fk = await connection.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM pg_constraint "
+                "WHERE conname = 'fk_tasks_farm_assigned_membership')"
+            )
+            if not has_membership_fk:
+                await connection.execute(
+                    """
+                    ALTER TABLE tasks
+                    ADD CONSTRAINT fk_tasks_farm_assigned_membership
+                    FOREIGN KEY (farm_id, assigned_user_id)
+                    REFERENCES farm_memberships (farm_id, user_id)
+                    NOT VALID
+                    """
+                )
+                await connection.execute(
+                    "ALTER TABLE tasks VALIDATE CONSTRAINT fk_tasks_farm_assigned_membership"
+                )
+            has_task_check = await connection.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM pg_constraint "
+                "WHERE conname = 'ck_tasks_user_assignment_has_role')"
+            )
+            if not has_task_check:
+                await connection.execute(
+                    """
+                    ALTER TABLE tasks
+                    ADD CONSTRAINT ck_tasks_user_assignment_has_role
+                    CHECK (
+                      status <> 'PENDING'
+                      OR assigned_user_id IS NULL
+                      OR assigned_role_id IS NOT NULL
+                    ) NOT VALID
+                    """
+                )
+        finally:
+            await connection.close()
+    finally:
+        await _restore_head()
 
 
 async def test_f3_task_repair_rejects_cross_farm_and_tombstoned_roles_then_recovers(
@@ -470,49 +567,58 @@ async def test_f3_task_repair_rejects_cross_farm_and_tombstoned_roles_then_recov
         assert response.status_code == 201, response.text
         task_ids.append(int(response.json()["id"]))
 
-    await get_engine().dispose()
-    # Farm creation (setup above) persisted NULL-farm idempotency claims that
-    # f3's downgrade guard refuses to carry across the downgrade.
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
     try:
-        await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
-    finally:
-        await connection.close()
-    await _alembic("downgrade", F2_REVISION)
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
-    try:
-        await connection.execute(
-            "ALTER TABLE tasks DROP CONSTRAINT ck_tasks_user_assignment_has_role"
-        )
-        await connection.execute(
-            "ALTER TABLE tasks DROP CONSTRAINT fk_tasks_farm_assigned_membership"
-        )
-        await connection.execute(
-            "UPDATE roles SET deleted_at = now() WHERE id = $1",
+        await get_engine().dispose()
+        await _truncate_synthetic_security_events()
+        # Farm creation (setup above) persisted NULL-farm idempotency claims
+        # that f3's downgrade guard refuses to carry across the downgrade.
+        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        try:
+            await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
+        finally:
+            await connection.close()
+        await _alembic("downgrade", F2_REVISION)
+        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        try:
+            await connection.execute(
+                "ALTER TABLE tasks DROP CONSTRAINT ck_tasks_user_assignment_has_role"
+            )
+            await connection.execute(
+                "ALTER TABLE tasks DROP CONSTRAINT fk_tasks_farm_assigned_membership"
+            )
+            await connection.execute(
+                "UPDATE roles SET deleted_at = now() WHERE id = $1",
+                primary_role_id,
+            )
+            await connection.execute(
+                "UPDATE tasks SET assigned_role_id = NULL WHERE id = $1",
+                task_ids[0],
+            )
+            await connection.execute(
+                "UPDATE tasks SET assigned_user_id = $1, assigned_role_id = NULL WHERE id = $2",
+                cross_farm_user_id,
+                task_ids[1],
+            )
+            await connection.execute(
+                """
+                ALTER TABLE tasks
+                ADD CONSTRAINT ck_tasks_user_assignment_has_role
+                CHECK (
+                  status <> 'PENDING'
+                  OR assigned_user_id IS NULL
+                  OR assigned_role_id IS NOT NULL
+                ) NOT VALID
+                """
+            )
+        finally:
+            await connection.close()
+    except BaseException:
+        await _restore_task_repair_fixture_and_head(
             primary_role_id,
+            primary_user_id,
+            task_ids,
         )
-        await connection.execute(
-            "UPDATE tasks SET assigned_role_id = NULL WHERE id = $1",
-            task_ids[0],
-        )
-        await connection.execute(
-            "UPDATE tasks SET assigned_user_id = $1, assigned_role_id = NULL WHERE id = $2",
-            cross_farm_user_id,
-            task_ids[1],
-        )
-        await connection.execute(
-            """
-            ALTER TABLE tasks
-            ADD CONSTRAINT ck_tasks_user_assignment_has_role
-            CHECK (
-              status <> 'PENDING'
-              OR assigned_user_id IS NULL
-              OR assigned_role_id IS NOT NULL
-            ) NOT VALID
-            """
-        )
-    finally:
-        await connection.close()
+        raise
 
     try:
         refused = await _alembic("upgrade", "head", succeeds=False)
@@ -594,53 +700,8 @@ async def test_f3_task_repair_rejects_cross_farm_and_tombstoned_roles_then_recov
             (task_id, primary_role_id) for task_id in sorted(task_ids)
         ]
     finally:
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
-        try:
-            await connection.execute(
-                "UPDATE roles SET deleted_at = NULL WHERE id = $1",
-                primary_role_id,
-            )
-            await connection.execute(
-                "UPDATE tasks SET assigned_user_id = $1, assigned_role_id = $2 "
-                "WHERE id = ANY($3::int[])",
-                primary_user_id,
-                primary_role_id,
-                task_ids,
-            )
-            has_membership_fk = await connection.fetchval(
-                "SELECT EXISTS (SELECT 1 FROM pg_constraint "
-                "WHERE conname = 'fk_tasks_farm_assigned_membership')"
-            )
-            if not has_membership_fk:
-                await connection.execute(
-                    """
-                    ALTER TABLE tasks
-                    ADD CONSTRAINT fk_tasks_farm_assigned_membership
-                    FOREIGN KEY (farm_id, assigned_user_id)
-                    REFERENCES farm_memberships (farm_id, user_id)
-                    NOT VALID
-                    """
-                )
-                await connection.execute(
-                    "ALTER TABLE tasks VALIDATE CONSTRAINT fk_tasks_farm_assigned_membership"
-                )
-            has_task_check = await connection.fetchval(
-                "SELECT EXISTS (SELECT 1 FROM pg_constraint "
-                "WHERE conname = 'ck_tasks_user_assignment_has_role')"
-            )
-            if not has_task_check:
-                await connection.execute(
-                    """
-                    ALTER TABLE tasks
-                    ADD CONSTRAINT ck_tasks_user_assignment_has_role
-                    CHECK (
-                      status <> 'PENDING'
-                      OR assigned_user_id IS NULL
-                      OR assigned_role_id IS NOT NULL
-                    ) NOT VALID
-                    """
-                )
-        finally:
-            await connection.close()
-        await get_engine().dispose()
-        await _alembic("upgrade", "head")
+        await _restore_task_repair_fixture_and_head(
+            primary_role_id,
+            primary_user_id,
+            task_ids,
+        )

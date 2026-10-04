@@ -1,7 +1,7 @@
 """Recurring husbandry cadence materialized onto the task board.
 
 The vaccination/deworming schedule computed from ``VaccineTemplates`` is an
-animal-level read model; the seasonal husbandry calendar (FMD rounds,
+animal-level read model; the recurring husbandry calendar (annual PPR, FMD rounds,
 pre-monsoon ET+HS, deworming sweeps, hoof trimming, spraying, shed
 disinfection, weighing, feed-room routine, water checks and buck rotation)
 is farm-level operational work. This module turns that calendar into actual
@@ -30,7 +30,7 @@ from ..models import (
     TaskCategory,
     TaskStatus,
 )
-from ..utils import today
+from ..utils import add_months, today
 from ._common import _add_task
 from .health_rounds import ensure_round_snapshot
 from .tasks import lock_manual_task_queue
@@ -51,6 +51,8 @@ _BACKFALL_MAX_AGE_DAYS = 365
 # the lookback: an operator-scheduled same-category round due next week must
 # suppress today's auto round, or the board grows a duplicate pair.
 _INTERVAL_FORWARD_DEDUPE_DAYS = 30
+_PPR_TITLE_KEY = "ppr_vaccination_round"
+_PPR_TITLE_TEMPLATE = "PPR annual vaccination round ({year}) — all animals"
 
 _MONTH_NAMES = (
     "January",
@@ -322,6 +324,48 @@ async def _ensure_interval_rounds(db: AsyncSession, farm_id: int, reference: dat
     return created
 
 
+async def _ensure_ppr_round(db: AsyncSession, farm_id: int, reference: date) -> bool:
+    """Materialize the app's annual PPR default independently of other vaccines.
+
+    Vaccine-category dedupe is unsafe here because an FMD/ET/HS duty must not
+    suppress PPR. The stable title key is the programme identity; any-status
+    history within the annual window and an operator-scheduled copy in the
+    next 30 days suppress a duplicate. Deployments still need a qualified
+    local veterinary/public-health owner to approve this default cadence.
+    """
+    latest_due = (
+        await db.execute(
+            select(Task.due_date)
+            .where(
+                Task.farm_id == farm_id,
+                Task.category == TaskCategory.VACCINE.value,
+                Task.title_key == _PPR_TITLE_KEY,
+                Task.due_date <= reference + timedelta(days=_INTERVAL_FORWARD_DEDUPE_DAYS),
+            )
+            .order_by(Task.due_date.desc(), Task.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    # Advance the actual prior due date instead of subtracting from today:
+    # month arithmetic is not reversible at leap-day/month-end boundaries.
+    # A 2024-02-29 round is therefore due again on 2025-02-28, exactly as
+    # ``add_months(previous_due, 12)`` specifies, with no 365-day drift.
+    if latest_due is not None and add_months(latest_due, 12) > reference:
+        return False
+    task = await _add_task(
+        db,
+        farm_id,
+        _PPR_TITLE_TEMPLATE.format(year=reference.year),
+        reference,
+        TaskCategory.VACCINE,
+        title_key=_PPR_TITLE_KEY,
+        title_args={"year": reference.year, "due_date": reference.isoformat()},
+    )
+    await db.flush()
+    await ensure_round_snapshot(db, task)
+    return True
+
+
 async def _ensure_daily_feed_routine(db: AsyncSession, farm_id: int, reference: date) -> bool:
     """The feed-room morning routine, once per business day.
 
@@ -562,6 +606,7 @@ async def ensure_cadence_tasks(db: AsyncSession, farm: Farm) -> None:
     )
     created = False
     created |= await _ensure_calendar_rounds(db, farm.id, business_today, backfill_floor)
+    created |= await _ensure_ppr_round(db, farm.id, business_today)
     created |= await _ensure_interval_rounds(db, farm.id, business_today)
     created |= await _ensure_daily_feed_routine(db, farm.id, business_today)
     created |= await _ensure_daily_water_check(db, farm.id, business_today)

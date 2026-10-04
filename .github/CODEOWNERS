@@ -1,0 +1,9 @@
+# Default ownership for application, deployment, and security-sensitive files.
+* @pkr26
+
+/.github/ @pkr26
+/backend/alembic/ @pkr26
+/backend/scripts/ @pkr26
+/docker-compose*.yml @pkr26
+/ops/ @pkr26
+/SECURITY.md @pkr26

@@ -710,7 +710,7 @@ describe("SimulationPage editor bindings", () => {
 
     await waitFor(() =>
       expect(toastMocks.error).toHaveBeenCalledWith(
-        "The editor was reloaded while the herd snapshot was loading. Click “Use current herd” again to apply it.",
+        "The editor changed while the herd snapshot was loading. Click “Use current herd” again to replace it deliberately.",
       ),
     );
     expect(screen.getByLabelText("Does")).toHaveValue(99);
@@ -719,6 +719,60 @@ describe("SimulationPage editor bindings", () => {
     // The newest intent still lands when it arrives.
     releaseCalibration();
     await waitFor(() => expect(screen.getByLabelText("Does")).toHaveValue(73));
+  });
+
+  it("does not let a late herd snapshot overwrite an edit made after the request began", async () => {
+    let releaseSnapshot!: () => void;
+    const user = await renderLoaded({
+      snapshot: () =>
+        new Promise<Response>((resolve) => {
+          releaseSnapshot = () => resolve(HttpResponse.json(SNAPSHOT));
+        }),
+    });
+
+    await user.click(screen.getByRole("button", { name: "Use current herd" }));
+    await waitFor(() => expect(releaseSnapshot).toBeTypeOf("function"));
+    const does = screen.getByLabelText("Does");
+    await user.clear(does);
+    await user.type(does, "67");
+    expect(does).toHaveValue(67);
+
+    releaseSnapshot();
+
+    await waitFor(() =>
+      expect(toastMocks.error).toHaveBeenCalledWith(
+        "The editor changed while the herd snapshot was loading. Click “Use current herd” again to replace it deliberately.",
+      ),
+    );
+    expect(does).toHaveValue(67);
+  });
+
+  it("does not let late calibration overwrite an edit made after the request began", async () => {
+    let releaseCalibration!: () => void;
+    const user = await renderLoaded({
+      permissions: CALIBRATION_PERMS,
+      calibration: () =>
+        new Promise<Response>((resolve) => {
+          releaseCalibration = () =>
+            resolve(HttpResponse.json(calibrationPayload({ ...DEFAULTS, herd: herd(73) })));
+        }),
+    });
+
+    await user.click(screen.getByRole("button", { name: "Calibrate from farm" }));
+    await waitFor(() => expect(releaseCalibration).toBeTypeOf("function"));
+    const does = screen.getByLabelText("Does");
+    await user.clear(does);
+    await user.type(does, "68");
+    expect(does).toHaveValue(68);
+
+    releaseCalibration();
+
+    await waitFor(() =>
+      expect(toastMocks.error).toHaveBeenCalledWith(
+        "The editor or calibration settings changed while calibration was running. Calibrate again to apply fresh farm evidence.",
+      ),
+    );
+    expect(does).toHaveValue(68);
   });
 });
 

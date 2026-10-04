@@ -4,7 +4,14 @@ import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll } from "vitest";
 
 import { clearIdempotencyRequestState } from "./src/lib/idempotent-request";
+import { installLanguageCatalog } from "./src/lib/i18n";
+import te from "./src/lib/i18n/te";
 import { server } from "./src/test/msw-server";
+
+// Production reaches Telugu through a dynamic import. Tests exercise many
+// pure synchronous translation helpers, so install the same catalog in the
+// test-only graph without making it a shared production dependency.
+installLanguageCatalog("te", te);
 
 /** Minimal Web Storage shim. Node >= 25 ships an experimental host
  *  localStorage that shadows the jsdom realm's and evaluates to undefined

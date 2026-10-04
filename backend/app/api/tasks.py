@@ -10,10 +10,10 @@ KIDDING_DUE, VACCINE, DEWORMING) must be closed through their linked form,
 not the bare complete endpoint.
 """
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import Select, and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -75,6 +75,7 @@ VIEW = Annotated[set[str], Depends(require_perm("tasks.view"))]
 CREATE = Annotated[set[str], Depends(require_perm("tasks.create"))]
 COMPLETE = Annotated[set[str], Depends(require_perm("tasks.complete"))]
 VERIFY = Annotated[set[str], Depends(require_perm("tasks.verify"))]
+TaskListView = Literal["all", "today", "overdue", "upcoming", "awaiting", "completed", "worker"]
 
 # The categories whose completion means recording clinical/reproductive data —
 # the exact mapping ``task_action_url`` in `._shared` builds form links for.
@@ -276,22 +277,36 @@ async def list_tasks(
     awaiting_offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
     completed_limit: Annotated[int, Query(ge=1, le=200)] = 100,
     completed_offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
+    view: Annotated[
+        TaskListView,
+        Query(
+            description=(
+                "Rows to return. Counts for every tab are always included; "
+                "worker returns only today and overdue. 'all' is the legacy compatibility mode."
+            )
+        ),
+    ] = "all",
 ) -> TaskTabsOut:
-    """All five v1 tabs as deterministic, independently pageable lists.
+    """All tab counts plus only the requested deterministic row page(s).
 
     Read-only: recurring husbandry duties are materialized by the background
-    cadence sweep (main.py), never on this hot read path.
+    cadence sweep (main.py), never on this hot read path. ``all`` preserves
+    the pre-2026-10-04 wire behavior for older clients; interactive clients
+    use one selected tab, while the worker board uses the two-row-page
+    ``worker`` view.
     """
     now = today(farm.timezone)
-    scoped = (await task_scope(db, farm, user)).options(*TASK_LOADS)
-    pending = scoped.where(actionable_pending_task_predicate())
+    scoped = await task_scope(db, farm, user)
+    pending = scoped.where(actionable_pending_task_predicate()).options(*TASK_LOADS)
 
     # Only the actionable review queue is farm-wide for tasks.verify holders.
     # Historical rows retain normal assignment scope; verification authority
     # is not permission to enumerate other teams' titles, assignees or goats.
     can_verify = "tasks.verify" in perms
     awaiting_base = (
-        select(Task).where(Task.farm_id == farm.id).options(*TASK_LOADS) if can_verify else scoped
+        select(Task).where(Task.farm_id == farm.id).options(*TASK_LOADS)
+        if can_verify
+        else scoped.options(*TASK_LOADS)
     )
     done_base = awaiting_base.where(Task.status == TaskStatus.DONE.value)
 
@@ -299,56 +314,122 @@ async def list_tasks(
     overdue_query = pending.where(Task.due_date < now)
     upcoming_query = pending.where(Task.due_date > now)
 
-    async def total(statement: Select[tuple[Task]]) -> int:
-        # Keeping this local helper avoids duplicating the order-free count
-        # wrapper five times.
-        query = statement.order_by(None)
-        return (await db.execute(select(func.count()).select_from(query.subquery()))).scalar_one()
+    # One conditional aggregate replaces five serial count round trips. The
+    # ordinary visibility scope supplies today/overdue/upcoming/completed. A
+    # verifier's awaiting queue is intentionally farm-wide, so that one count
+    # is a scalar subquery (still in this same SQL statement) only for that
+    # permission shape.
+    scoped_rows = scoped.order_by(None).subquery()
+    columns = scoped_rows.c
+    active_linked_animal = (
+        select(Animal.id)
+        .where(
+            Animal.id == columns.animal_id,
+            Animal.farm_id == columns.farm_id,
+            Animal.status == AnimalStatus.ACTIVE.value,
+        )
+        .exists()
+    )
+    pending_count_filter = and_(
+        columns.status == TaskStatus.PENDING.value,
+        or_(columns.animal_id.is_(None), active_linked_animal),
+    )
+    awaiting_count_filter = and_(
+        columns.status == TaskStatus.DONE.value,
+        columns.category.in_(VERIFICATION_REQUIRED_CATEGORIES),
+    )
+    completed_count_filter = and_(
+        columns.status.in_(
+            [TaskStatus.DONE.value, TaskStatus.VERIFIED.value, TaskStatus.SKIPPED.value]
+        ),
+        or_(
+            columns.status == TaskStatus.SKIPPED.value,
+            columns.status == TaskStatus.VERIFIED.value,
+            columns.category.notin_(VERIFICATION_REQUIRED_CATEGORIES),
+        ),
+    )
+    awaiting_total_expression = (
+        select(func.count())
+        .select_from(Task)
+        .where(Task.farm_id == farm.id, Task.awaiting_verification_clause())
+        .scalar_subquery()
+        if can_verify
+        else func.count().filter(awaiting_count_filter)
+    )
+    counts = (
+        await db.execute(
+            select(
+                func.count()
+                .filter(and_(pending_count_filter, columns.due_date == now))
+                .label("today_total"),
+                func.count()
+                .filter(and_(pending_count_filter, columns.due_date < now))
+                .label("overdue_total"),
+                func.count()
+                .filter(and_(pending_count_filter, columns.due_date > now))
+                .label("upcoming_total"),
+                awaiting_total_expression.label("awaiting_total"),
+                func.count().filter(completed_count_filter).label("completed_total"),
+            ).select_from(scoped_rows)
+        )
+    ).one()
+    today_total = int(counts.today_total)
+    overdue_total = int(counts.overdue_total)
+    upcoming_total = int(counts.upcoming_total)
+    awaiting_total = int(counts.awaiting_total)
+    completed_total = int(counts.completed_total)
 
-    today_total = await total(today_query)
-    overdue_total = await total(overdue_query)
-    upcoming_total = await total(upcoming_query)
-    today_rows = list(
-        (
-            await db.execute(today_query.order_by(Task.id).offset(today_offset).limit(active_limit))
-        ).scalars()
-    )
-    overdue_rows = list(
-        (
-            await db.execute(
-                overdue_query.order_by(Task.due_date, Task.id)
-                .offset(overdue_offset)
-                .limit(active_limit)
-            )
-        ).scalars()
-    )
-    upcoming_rows = list(
-        (
-            await db.execute(
-                upcoming_query.order_by(Task.due_date, Task.id)
-                .offset(upcoming_offset)
-                .limit(active_limit)
-            )
-        ).scalars()
-    )
+    today_rows: list[Task] = []
+    overdue_rows: list[Task] = []
+    upcoming_rows: list[Task] = []
+    awaiting: list[Task] = []
+    completed: list[Task] = []
+    if view in ("all", "today", "worker"):
+        today_rows = list(
+            (
+                await db.execute(
+                    today_query.order_by(Task.id).offset(today_offset).limit(active_limit)
+                )
+            ).scalars()
+        )
+    if view in ("all", "overdue", "worker"):
+        overdue_rows = list(
+            (
+                await db.execute(
+                    overdue_query.order_by(Task.due_date, Task.id)
+                    .offset(overdue_offset)
+                    .limit(active_limit)
+                )
+            ).scalars()
+        )
+    if view in ("all", "upcoming"):
+        upcoming_rows = list(
+            (
+                await db.execute(
+                    upcoming_query.order_by(Task.due_date, Task.id)
+                    .offset(upcoming_offset)
+                    .limit(active_limit)
+                )
+            ).scalars()
+        )
     # Awaiting verification (see Task.awaiting_verification_clause) — filtered
     # in SQL, not by loading the whole DONE pile.
     awaiting_query = done_base.where(Task.awaiting_verification_clause())
-    awaiting_total = await total(awaiting_query)
-    awaiting = list(
-        (
-            await db.execute(
-                awaiting_query.order_by(Task.completed_at.desc(), Task.id.desc())
-                .offset(awaiting_offset)
-                .limit(active_limit)
-            )
-        ).scalars()
-    )
+    if view in ("all", "awaiting"):
+        awaiting = list(
+            (
+                await db.execute(
+                    awaiting_query.order_by(Task.completed_at.desc(), Task.id.desc())
+                    .offset(awaiting_offset)
+                    .limit(active_limit)
+                )
+            ).scalars()
+        )
     # The completed-tab predicate runs in SQL BEFORE the 100-row cap: skipped
     # duties (owner sees them), duties needing no verification, and verified
     # ones — previously the newest 100 rows were filtered in Python, so a DONE
     # pile dominated by unverified CLEANING rows starved the tab.
-    finished = scoped.where(
+    finished = scoped.options(*TASK_LOADS).where(
         Task.status.in_(
             [TaskStatus.DONE.value, TaskStatus.VERIFIED.value, TaskStatus.SKIPPED.value]
         ),
@@ -358,7 +439,6 @@ async def list_tasks(
             Task.category.notin_(VERIFICATION_REQUIRED_CATEGORIES),
         ),
     )
-    completed_total = await total(finished)
     # Order on the instant the row actually finished, which is what the UI
     # renders: a SKIPPED duty only carries skipped_at, and PostgreSQL sorts the
     # resulting NULL completed_at FIRST under DESC — so every bulk service-side
@@ -368,15 +448,16 @@ async def list_tasks(
         (Task.status == TaskStatus.SKIPPED.value, Task.skipped_at),
         else_=Task.completed_at,
     )
-    completed = list(
-        (
-            await db.execute(
-                finished.order_by(finished_at.desc(), Task.id.desc())
-                .offset(completed_offset)
-                .limit(completed_limit)
-            )
-        ).scalars()
-    )
+    if view in ("all", "completed"):
+        completed = list(
+            (
+                await db.execute(
+                    finished.order_by(finished_at.desc(), Task.id.desc())
+                    .offset(completed_offset)
+                    .limit(completed_limit)
+                )
+            ).scalars()
+        )
     return TaskTabsOut(
         today=[task_out(t) for t in today_rows],
         overdue=[task_out(t) for t in overdue_rows],

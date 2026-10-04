@@ -71,6 +71,8 @@ function loadWorker(overrides: { fetchImpl?: typeof fetch; setTimeoutFn?: typeof
         put: async (request: string | URL | { url?: string }, response: Response) => {
           bucket.set(cacheKey(request), response.clone());
         },
+        keys: async () => [...bucket.keys()].map((url) => ({ url })),
+        delete: async (request: string | URL | { url?: string }) => bucket.delete(cacheKey(request)),
       };
     },
     keys: async () => [...cacheStore.keys()],
@@ -222,6 +224,34 @@ describe("service worker update safety (executed)", () => {
     expect(await cached.get(`${ORIGIN}/_next/static/previous.js`)!.clone().text()).toBe("previous working build");
   });
 
+  it("retains only the current and previous shell asset generations", async () => {
+    let generation = 1;
+    const worker = loadWorker({
+      fetchImpl: (async (input) => {
+        const path = String(input);
+        return makeResponse(path.startsWith("/worker")
+          ? `<script src="/_next/static/build-${generation}.js"></script>`
+          : `generation ${generation}`);
+      }) as typeof fetch,
+    });
+
+    await worker.fire("install");
+    generation = 2;
+    await worker.fire("install");
+    generation = 3;
+    await worker.fire("install");
+
+    const cached = worker.cacheStore.get("herdly-worker-v3")!;
+    expect(cached.has(`${ORIGIN}/_next/static/build-1.js`)).toBe(false);
+    expect(cached.has(`${ORIGIN}/_next/static/build-2.js`)).toBe(true);
+    expect(cached.has(`${ORIGIN}/_next/static/build-3.js`)).toBe(true);
+    const state = await cached.get(`${ORIGIN}/__herdly_worker_asset_state_v1__`)!.clone().json();
+    expect(state).toEqual({
+      current: [`${ORIGIN}/_next/static/build-3.js`],
+      previous: [`${ORIGIN}/_next/static/build-2.js`],
+    });
+  });
+
   it("activate deletes every OTHER cache and claims open clients (the paren-regression step)", async () => {
     const worker = loadWorker();
     worker.cacheStore.set("herdly-worker-v1", new Map());
@@ -295,6 +325,39 @@ describe("service worker update safety (executed)", () => {
     });
     const response = (await respondArgument) as Response;
     expect(await response.text()).toBe("<cached shell>");
+  });
+
+  it("prefers a complete cached shell over a fast non-OK network response", async () => {
+    const worker = loadWorker({
+      fetchImpl: (() => Promise.resolve(new Response("upstream unavailable", { status: 503 }))) as unknown as typeof fetch,
+    });
+    worker.cacheStore.set("herdly-worker-v3", new Map([[`${ORIGIN}/worker`, makeResponse("<cached shell>")]]));
+    let respondArgument: unknown;
+    worker.fire("fetch", {
+      request: { method: "GET", url: `${ORIGIN}/worker` },
+      respondWith: (p: unknown) => {
+        respondArgument = p;
+      },
+    });
+    const response = (await respondArgument) as Response;
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("<cached shell>");
+  });
+
+  it("preserves a non-OK network response when no cached shell exists", async () => {
+    const worker = loadWorker({
+      fetchImpl: (() => Promise.resolve(new Response("upstream unavailable", { status: 503 }))) as unknown as typeof fetch,
+    });
+    let respondArgument: unknown;
+    worker.fire("fetch", {
+      request: { method: "GET", url: `${ORIGIN}/worker` },
+      respondWith: (p: unknown) => {
+        respondArgument = p;
+      },
+    });
+    const response = (await respondArgument) as Response;
+    expect(response.status).toBe(503);
+    expect(await response.text()).toBe("upstream unavailable");
   });
 
   it("falls back to the cached shell when the connection wedges (bounded wait)", async () => {

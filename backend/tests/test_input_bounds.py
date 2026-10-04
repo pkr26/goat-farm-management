@@ -177,11 +177,14 @@ async def test_over_long_request_target_keeps_the_standard_error_envelope(
     assert response.json() == {"detail": "Request target is too long"}
 
 
-async def test_max_calendar_month_filter_is_empty_not_500(client: httpx.AsyncClient) -> None:
+@pytest.mark.parametrize("month", ["", "not-a-month", "2026-13", "9999-12"])
+async def test_invalid_calendar_month_filter_is_422(
+    client: httpx.AsyncClient,
+    month: str,
+) -> None:
     owner = await owner_with_farm(client)
-    response = await client.get("/api/finance", params={"month": "9999-12"}, headers=owner)
-    assert response.status_code == 200, response.text
-    assert response.json()["transactions"] == []
+    response = await client.get("/api/finance", params={"month": month}, headers=owner)
+    assert response.status_code == 422, response.text
 
 
 async def phoenix_owner_with_farm(client: httpx.AsyncClient) -> dict[str, Any]:

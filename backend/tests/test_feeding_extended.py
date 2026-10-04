@@ -481,6 +481,9 @@ async def test_plan_response_shape(client: httpx.AsyncClient) -> None:
     line = plan["lines"][0]
     assert set(line) == {
         "bucket",
+        "line_id",
+        "allocation_id",
+        "segment",
         "recipe_code",
         "recipe_name",
         "heads",
@@ -1003,6 +1006,9 @@ async def test_plan_breeding_sex_split_buck_gets_supplement(client: httpx.AsyncC
     assert set(by_note) == {None, "includes 0.5 kg breeding-season supplement"}
     doe_line = by_note[None]
     buck_line = by_note["includes 0.5 kg breeding-season supplement"]
+    assert doe_line["line_id"] != buck_line["line_id"]
+    assert doe_line["allocation_id"] == buck_line["allocation_id"]
+    assert {doe_line["segment"], buck_line["segment"]} == {"FEMALE", "MALE"}
     # bucket-level mean (30+40)/2 = 35 kg × 3.0% = 1.05 kg for both lines
     assert doe_line["basis"] == "weight"
     assert buck_line["basis"] == "weight"

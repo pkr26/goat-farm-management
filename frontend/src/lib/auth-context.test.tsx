@@ -33,6 +33,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 const FARM_STORAGE_KEY = "goatfarm.farmId";
+const AUTH_EVENT_STORAGE_KEY = "goatfarm.authEvent";
 
 /** Exposes the auth state and wires the mutating actions to buttons. */
 function Probe() {
@@ -385,6 +386,24 @@ describe("AuthProvider actions", () => {
     expect(replaceMock).toHaveBeenCalledWith("/login");
   });
 
+  it("publishes a dedicated logout event even when the account has no farm key", async () => {
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.json([])),
+      http.post("/api/auth/logout", () => new HttpResponse(null, { status: 204 })),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "sign-out" }));
+
+    await waitFor(() =>
+      expect(localStorage.getItem(AUTH_EVENT_STORAGE_KEY)).toMatch(/^logout:/),
+    );
+    expect(screen.getByTestId("user")).toHaveTextContent("none");
+  });
+
   it("signOut still clears local state when the logout request fails", async () => {
     server.use(
       http.post("/api/auth/logout", () =>
@@ -687,6 +706,22 @@ describe("AuthProvider cross-tab storage signals", () => {
       expect(screen.getByTestId("user")).toHaveTextContent("none"),
     );
     expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
+    expect(replaceMock).toHaveBeenCalledWith("/login");
+  });
+
+  it("a dedicated auth event tears down a farmless cross-tab session", async () => {
+    server.use(http.get("/api/auth/farms", () => HttpResponse.json([])));
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("none");
+
+    await act(async () => {
+      dispatchStorage(AUTH_EVENT_STORAGE_KEY, "logout:123:1");
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent("none"),
+    );
     expect(replaceMock).toHaveBeenCalledWith("/login");
   });
 

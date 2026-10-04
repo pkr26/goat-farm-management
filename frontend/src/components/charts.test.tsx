@@ -1,7 +1,13 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { Donut, Histogram } from "@/components/charts";
+import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
+
+afterEach(() => {
+  localStorage.clear();
+  document.documentElement.lang = "en";
+});
 
 describe("Donut", () => {
   it("summarizes every visible slice in its accessible label and legend", () => {
@@ -72,6 +78,17 @@ describe("Donut", () => {
     );
     expect(screen.queryByText("Broken")).not.toBeInTheDocument();
     expect(screen.getByText("Real")).toBeInTheDocument();
+  });
+
+  it("localizes the chart's accessible summary", async () => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    render(
+      <LanguageProvider>
+        <Donut slices={[{ label: "పిల్లలు", value: 4 }]} />
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByRole("img", { name: "పంపిణీ: పిల్లలు 4" })).toBeInTheDocument();
   });
 });
 

@@ -43,11 +43,31 @@ from app.models import (
     planned_ultrasound_date,
     quarantine_schedule,
 )
+from app.models.species import GOAT_PROFILE
+from app.seed import BUCKET_DEFINITIONS
 from app.services import recipe_for_animal
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm
 from .type_helpers import JsonObject, json_object, json_objects
+
+
+def test_seeded_breeding_guidance_uses_species_profile_minimum_age() -> None:
+    guidance = {
+        bucket.value: (who, exit_rule) for bucket, _name, who, exit_rule, _kg in BUCKET_DEFINITIONS
+    }
+    minimum = GOAT_PROFILE.min_breeding_age_months
+    minimum_weight = f"{GOAT_PROFILE.min_breeding_weight_kg:g}"
+    last_grower_month = minimum - 1
+
+    assert f"≥{minimum} mo" in guidance["FOUNDATION"][1]
+    assert f"≥{minimum} mo" in guidance["FEMALE_KIDS"][1]
+    assert f"≥{minimum_weight} kg" in guidance["FOUNDATION"][1]
+    assert "Purchased doelings 6–7 mo" in guidance["FOUNDATION"][0]
+    assert f"2–{last_grower_month}" in guidance["FOUNDATION"][0]
+    assert f"2–{last_grower_month}" in guidance["FEMALE_KIDS"][0]
+    assert "10–12" not in " ".join(part for row in guidance.values() for part in row)
+
 
 # ---------------------------------------------------------------------------
 # Shared setup helpers (API-driven)

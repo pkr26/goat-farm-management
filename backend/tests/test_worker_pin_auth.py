@@ -3,7 +3,7 @@
 Covers: PIN provisioning (and the must-change-password fence exemption), the
 owner-only reset that revokes sessions, the throttled worker-login exchange
 (success, wrong-PIN lockout, spray scope, the IP-agnostic per-membership
-account ceiling and its soft semantics, the never-reset spray bucket,
+account ceiling and its bounded hard-lock semantics, the never-reset spray bucket,
 unknown-pair parity, tombstone / inactive / TOTP / must-change refusals), the
 unauthenticated roster's shape and throttle, idempotent duty completion/skip
 replay, and the production PIN-length validator.
@@ -14,11 +14,12 @@ from collections.abc import Iterator
 
 import httpx
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+from app.audit import drain_transient_security_signals, emit_transient_security_signal_summary
 from app.core.config import Settings
 from app.db import get_sessionmaker
-from app.models import FarmMembership
+from app.models import FarmMembership, SecurityEvent
 from app.ratelimit import auth_limiter
 from app.utils import today, utcnow
 
@@ -294,6 +295,13 @@ async def test_wrong_pin_locks_the_identity_out_but_not_the_farm(
 ) -> None:
     owner = await owner_with_farm(client, email="pin-owner-3@farm.in")
     membership_id, farm_id = await _make_pin_worker(client, owner, email="pin-worker-lock@farm.in")
+    drain_transient_security_signals()
+    async with get_sessionmaker()() as db:
+        failure_rows_before = await db.scalar(
+            select(func.count())
+            .select_from(SecurityEvent)
+            .where(SecurityEvent.event == "auth.worker_pin.login_failed")
+        )
 
     for _ in range(10):
         refused = await _worker_login(client, farm_id, membership_id, "0000")
@@ -303,6 +311,14 @@ async def test_wrong_pin_locks_the_identity_out_but_not_the_farm(
     # The identity key is exhausted: even the RIGHT pin is throttled now.
     throttled = await _worker_login(client, farm_id, membership_id, "4321")
     assert throttled.status_code == 429, throttled.text
+    assert emit_transient_security_signal_summary(300) == {"auth.worker_pin.login_failed": 10}
+    async with get_sessionmaker()() as db:
+        failure_rows_after = await db.scalar(
+            select(func.count())
+            .select_from(SecurityEvent)
+            .where(SecurityEvent.event == "auth.worker_pin.login_failed")
+        )
+    assert failure_rows_before == failure_rows_after
 
     # A second worker on the same farm can still sign in: the lockout is per
     # (IP, farm, membership), not per farm.
@@ -374,25 +390,20 @@ async def test_rotating_ips_cannot_reset_the_per_membership_ceiling(
     assert throttled.status_code == 429, throttled.text
 
 
-async def test_correct_pin_still_works_when_the_account_bucket_is_full(
+async def test_account_bucket_stops_correct_pin_until_window_recovers(
     client: httpx.AsyncClient,
     rate_limits_on: None,
 ) -> None:
-    """Soft ceiling, mirroring login-email (RT-A-1): an attacker who pins the
-    account bucket at its ceiling cannot lock out the worker's own correct
-    PIN — the scope only ever answers a FAILED attempt."""
+    """The IP-agnostic ceiling caps guesses, including an eventual correct
+    guess from a fresh source; it recovers with the bounded sliding window."""
     owner = await owner_with_farm(client, email="pin-owner-soft@farm.in")
     membership_id, farm_id = await _make_pin_worker(client, owner, email="pin-worker-soft@farm.in")
     account_key = f"{farm_id}|{membership_id}"
     for _ in range(30):
         auth_limiter.record("worker-pin-account", account_key, window_seconds=300, max_attempts=30)
 
-    ok = await _worker_login(client, farm_id, membership_id, "4321")
-    assert ok.status_code == 200, ok.text
-    # The success also cleared the account bucket with the identity bucket: a
-    # fresh wrong PIN is an ordinary 401, not a 429.
-    refused = await _worker_login(client, farm_id, membership_id, "0000")
-    assert refused.status_code == 401, refused.text
+    refused = await _worker_login(client, farm_id, membership_id, "4321")
+    assert refused.status_code == 429, refused.text
 
 
 async def test_success_never_resets_the_spray_bucket(
@@ -755,6 +766,7 @@ async def test_pin_length_floor_follows_the_deployment_setting(
 
 _PROD_OVERRIDES = {
     "environment": "production",
+    "auth_rate_limit_enabled": True,
     "cookie_secure": True,
     "cors_origins": ["https://app.example.com"],
     "allowed_hosts": ["app.example.com"],
@@ -768,9 +780,14 @@ _PROD_OVERRIDES = {
 def test_production_settings_raise_the_pin_floor() -> None:
     # Default tightens automatically; an explicit short floor is refused.
     auto = settings_from_input(Settings, _PROD_OVERRIDES)
-    assert auto.worker_pin_min_length == 6
+    assert auto.worker_pin_min_length == 12
     with pytest.raises(ValueError, match="WORKER_PIN_MIN_LENGTH"):
-        settings_from_input(Settings, _PROD_OVERRIDES, worker_pin_min_length=4)
+        settings_from_input(Settings, _PROD_OVERRIDES, worker_pin_min_length=6)
+
+
+def test_production_refuses_disabled_application_auth_limiting() -> None:
+    with pytest.raises(ValueError, match="AUTH_RATE_LIMIT_ENABLED"):
+        settings_from_input(Settings, _PROD_OVERRIDES, auth_rate_limit_enabled=False)
 
 
 async def test_worker_login_requires_a_json_content_type(client: httpx.AsyncClient) -> None:

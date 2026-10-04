@@ -16,7 +16,7 @@ class WorkerCreateIn(EmailMixin):
     role_id: BoundedId
     # Optional worker-tablet quick sign-in PIN (ITEM 2, 2026-09-21 playbook).
     # Digits only — the tablet renders a numeric pad. The deployment's
-    # min length (4 dev / 6 production) is enforced by the handler so the
+    # min length (4 dev / 12 production) is enforced by the handler so the
     # wire schema stays environment-independent.
     pin: str | None = Field(default=None, min_length=4, max_length=12, pattern=r"^[0-9]+$")
 

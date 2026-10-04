@@ -109,4 +109,43 @@ describe("InsurancePage register dialog — Telugu", () => {
   it("keeps the catalog money floor identical to the shared persisted-money constant", () => {
     expect(translate("en", "insurance.validation.moneyMin")).toBe(MIN_PERSISTED_MONEY_MESSAGE);
   });
+
+  it("renders a coded 409 in Telugu instead of exposing backend English", async () => {
+    server.use(
+      http.post("/api/finance/insurance", () =>
+        HttpResponse.json(
+          {
+            detail: "Policy number POL-DUPLICATE is already registered on this farm",
+            code: "LIFECYCLE_CONFLICT",
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    const user = userEvent.setup();
+    renderWithProviders(
+      <LanguageProvider>
+        <InsurancePage />
+      </LanguageProvider>,
+    );
+    await screen.findAllByText("POL-2026-001");
+    const registerLabel = translate("te", "insurance.registerPolicy");
+    await user.click(screen.getByRole("button", { name: registerLabel }));
+    const dialog = await screen.findByRole("dialog", { name: registerLabel });
+    await user.type(within(dialog).getByLabelText(translate("te", "insurance.form.policyNumber")), "POL-DUPLICATE");
+    await user.type(within(dialog).getByLabelText(translate("te", "insurance.form.insurer")), "Test insurer");
+    await user.type(within(dialog).getByLabelText(translate("te", "insurance.form.sumInsured")), "1000");
+    await user.type(within(dialog).getByLabelText(translate("te", "insurance.form.premium")), "50");
+    await user.type(
+      within(dialog).getByLabelText(translate("te", "insurance.form.renewalDate")),
+      addDays(farmToday(), 30),
+    );
+    await user.click(within(dialog).getByRole("button", { name: registerLabel }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      translate("te", "serverErrors.lifecycleConflict"),
+    );
+    expect(dialog).not.toHaveTextContent("already registered on this farm");
+  });
 });

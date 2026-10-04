@@ -350,7 +350,7 @@ describe("BreedingPage mutation hardening", () => {
     await renderLoaded();
 
     const notice = await screen.findByText(/is not awaiting a result — nothing to record\./);
-    expect(notice).toHaveTextContent("Ultrasound record #2 (Confirmed pregnant)");
+    expect(notice).toHaveTextContent("Ultrasound record #2 (Confirmed Pregnant)");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByRole("button", { name: "Clear link" }));

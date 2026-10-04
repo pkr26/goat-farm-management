@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { E2E_EMAIL, E2E_FARM_NAME, E2E_PASSWORD, pickSelectOption, signIn, uniqueTag } from "./helpers";
+import { e2eCredentials, pickSelectOption, signIn, uniqueTag } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   // These journeys assert English copy explicitly. The worker shell otherwise
@@ -9,15 +9,16 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function createTaskOnlyRole(request: APIRequestContext, name: string) {
+  const credentials = e2eCredentials();
   const login = await request.post("http://localhost:8000/api/auth/login", {
-    data: { email: E2E_EMAIL, password: E2E_PASSWORD },
+    data: { email: credentials.email, password: credentials.password },
   });
   expect(login.ok()).toBeTruthy();
   const { access_token } = await login.json() as { access_token: string };
   const farms = await request.get("http://localhost:8000/api/auth/farms", {
     headers: { Authorization: `Bearer ${access_token}` },
   });
-  const farm = (await farms.json() as { id: number; name: string }[]).find(item => item.name === E2E_FARM_NAME);
+  const farm = (await farms.json() as { id: number; name: string }[]).find(item => item.name === credentials.farmName);
   expect(farm).toBeDefined();
   const response = await request.post("http://localhost:8000/api/team/roles", {
     headers: { Authorization: `Bearer ${access_token}`, "X-Farm-Id": String(farm!.id), "Idempotency-Key": randomUUID() },
@@ -68,6 +69,7 @@ test("task-only password worker completes first password rotation on the worker 
 });
 
 test("owner creates and resets a PIN worker through Team and pins the tablet through the UI", async ({ page, request }) => {
+  const credentials = e2eCredentials();
   const name = uniqueTag("PIN Worker");
   const email = `${uniqueTag("pin-worker")}@goatfarm.test`;
   const role = uniqueTag("PIN duties");
@@ -85,10 +87,10 @@ test("owner creates and resets a PIN worker through Team and pins the tablet thr
   await expect(page).toHaveURL(/\/login$/);
   await page.goto("/worker/login");
   await page.getByTestId("worker-setup-start").click();
-  await page.locator("#worker-setup-email").fill(E2E_EMAIL);
-  await page.locator("#worker-setup-password").fill(E2E_PASSWORD);
+  await page.locator("#worker-setup-email").fill(credentials.email);
+  await page.locator("#worker-setup-password").fill(credentials.password);
   await page.getByTestId("worker-setup-credentials").getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByTestId("worker-setup-farms").getByRole("button", { name: E2E_FARM_NAME, exact: true }).click();
+  await page.getByTestId("worker-setup-farms").getByRole("button", { name: credentials.farmName, exact: true }).click();
   await page.getByRole("button", { name: new RegExp(name) }).click();
   for (const digit of pin) await page.getByTestId(`pin-key-${digit}`).click();
   await page.getByTestId("pin-sign-in").click();

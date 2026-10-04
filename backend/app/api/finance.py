@@ -5,7 +5,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import false, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -545,7 +545,10 @@ async def list_transactions(
     db: DbSession,
     farm: CurrentFarm,
     perms: FinanceView,
-    month: str | None = None,
+    month: Annotated[
+        str | None,
+        Query(pattern=r"^[0-9]{4}-(?:0[1-9]|1[0-2])$"),
+    ] = None,
     # Typed against the ledger's own vocabulary: an untyped str was bound
     # straight into the SQL comparison, so "?type=%00" reached the driver and
     # answered 500 instead of a validation error.
@@ -562,24 +565,22 @@ async def list_transactions(
         .options(selectinload(Transaction.related_animal))
         .where(Transaction.farm_id == farm.id)
     )
-    if month:
+    if month is not None:
         try:
             first = datetime.strptime(month, "%Y-%m").date()
-        except ValueError:  # v1's LIKE on a garbage month simply matched nothing
-            query = query.where(false())
-        else:
-            try:
-                following_month = add_months(first, 1)
-            except ValueError:
-                # ``9999-12`` is parseable but has no representable following
-                # month. Treat it like every other unusable month filter,
-                # never as an uncaught date-overflow 500.
-                query = query.where(false())
-            else:
-                query = query.where(
-                    Transaction.date >= first,
-                    Transaction.date < following_month,
-                )
+            following_month = add_months(first, 1)
+        except ValueError as exc:
+            # The regex rejects malformed and empty values before the route.
+            # Keep this explicit guard for a syntactically valid but
+            # unrepresentable upper bound such as 9999-12.
+            raise HTTPException(
+                status_code=422,
+                detail="month must be a representable calendar month in YYYY-MM format",
+            ) from exc
+        query = query.where(
+            Transaction.date >= first,
+            Transaction.date < following_month,
+        )
     if type:
         query = query.where(Transaction.type == type)
     if category:

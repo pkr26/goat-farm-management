@@ -15,6 +15,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { server, permissionsHandler } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 import { settle } from "@/test/settle";
+import { setCurrentFarmId } from "@/lib/api-client";
 
 import ScreeningPage from "./page";
 
@@ -50,13 +51,25 @@ const STATS = {
       model: "claude-gate-1",
       gate_runs: 10,
       gate_flagged: 3,
+      gate_unassessable: 0,
       gate_errors: 1,
       avg_gate_latency_ms: 1500,
+      avg_gate_confidence: "0.810",
       cross_checks: 4,
       cross_check_agreements: 2,
       findings_confirmed: 5,
       findings_rejected: 1,
       findings_pending: 2,
+      positive_precision: "0.833",
+      positive_precision_ci_low: "0.436",
+      positive_precision_ci_high: "0.970",
+      healthy_controls_confirmed: 2,
+      healthy_controls_rejected: 1,
+      healthy_controls_pending: 1,
+      healthy_controls_reviewed: 3,
+      healthy_false_negative_rate: "0.333",
+      healthy_false_negative_ci_low: "0.061",
+      healthy_false_negative_ci_high: "0.792",
     },
   ],
 };
@@ -93,6 +106,7 @@ const ROW = (id: number) => ({
         }
       : null,
   pending_findings: id % 2 === 0 ? 2 : 0,
+  pending_healthy_controls: 0,
 });
 
 const DETAIL = {
@@ -163,6 +177,7 @@ const DETAIL = {
       crop_id: 21,
       region: "lips",
       label: "Orf lesions",
+      evaluation_kind: "POSITIVE_FINDING",
       confidence: "0.87",
       severity: "moderate",
       note: "Crusted lesions on the lower lip.",
@@ -229,7 +244,10 @@ describe("ScreeningPage", () => {
     expect(screen.getByText("30%")).toBeInTheDocument();
     expect(screen.getByText("50%")).toBeInTheDocument();
     expect(screen.getByText("1.5s")).toBeInTheDocument();
-    expect(screen.getByText("5")).toBeInTheDocument();
+    expect(screen.getByText("Positive precision (reviewed flags)")).toBeInTheDocument();
+    expect(screen.getByText("Healthy-control misses")).toBeInTheDocument();
+    expect(screen.getByText("83% (95% CI 44–97; 6 reviewed, 2 pending)")).toBeInTheDocument();
+    expect(screen.getByText("33% (95% CI 6–79; 3 reviewed, 1 pending)")).toBeInTheDocument();
   });
 
   it("renders the review queue rows with status, pending-findings badge and model", async () => {
@@ -271,6 +289,54 @@ describe("ScreeningPage", () => {
     expect(screen.getByText("Models disagree")).toBeInTheDocument();
     expect(screen.getByText(/openai_compatible · glm-gate/)).toBeInTheDocument();
     expect(nav.state.search).toContain("image_id=2");
+  });
+
+  it("blinds a pending healthy control and offers neutral review choices", async () => {
+    installHappyHandlers();
+    nav.state.search = "image_id=2";
+    const controlDetail = {
+      ...DETAIL,
+      status: "HEALTHY",
+      crops: [],
+      runs: [
+        {
+          ...DETAIL.runs[0],
+          crop_id: null,
+          verdict: "healthy",
+          confidence: "0.93",
+          detail: { healthy_control_sample: true },
+        },
+      ],
+      findings: [
+        {
+          ...DETAIL.findings[0],
+          crop_id: null,
+          label: "Routine quality-control review",
+          evaluation_kind: "HEALTHY_CONTROL",
+          confidence: "0.93",
+          severity: null,
+          region: null,
+          note: "Neutral review sample; assess the photo without a model-supplied label.",
+        },
+      ],
+    };
+    server.use(
+      http.get("/api/screening/images/2", () => HttpResponse.json(controlDetail)),
+    );
+
+    renderPage();
+
+    expect(await screen.findAllByText("Quality-control review")).toHaveLength(2);
+    expect(
+      screen.getByText(
+        "The model outcome and confidence are hidden until this neutral quality-control review is completed.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "No visible abnormality" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visible abnormality found" })).toBeInTheDocument();
+    expect(screen.queryByText("confidence 93%")).not.toBeInTheDocument();
+    expect(screen.queryByText(/anthropic · claude-gate-1/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Neutral review sample; assess the photo without a model-supplied label.")).not.toBeInTheDocument();
   });
 
   it("renders a failed provider run with its fixed reason code, never raw errors", async () => {
@@ -459,6 +525,56 @@ describe("ScreeningPage", () => {
         expect(sonner.success).toHaveBeenCalledWith("Dataset exported (2 records)."),
       );
     } finally {
+      delete urlStatics.createObjectURL;
+      delete urlStatics.revokeObjectURL;
+      anchorClick.mockRestore();
+    }
+  });
+
+  it("suppresses a dataset download that resolves after the farm scope changes", async () => {
+    installHappyHandlers();
+    let releaseExport!: () => void;
+    let exportStarted!: () => void;
+    const started = new Promise<void>((resolve) => { exportStarted = resolve; });
+    const gate = new Promise<void>((resolve) => { releaseExport = resolve; });
+    server.use(
+      http.get("/api/screening/export", async () => {
+        exportStarted();
+        await gate;
+        return HttpResponse.json({
+          farm_id: 1,
+          generated_at: "2026-09-19T05:30:00Z",
+          record_count: 2,
+          records: [],
+        });
+      }),
+    );
+    const urlStatics = URL as unknown as {
+      createObjectURL?: unknown;
+      revokeObjectURL?: unknown;
+    };
+    const createObjectURL = vi.fn(() => "blob:stale");
+    urlStatics.createObjectURL = createObjectURL;
+    urlStatics.revokeObjectURL = vi.fn();
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    try {
+      renderPage();
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Export dataset" }));
+      await started;
+
+      setCurrentFarmId("2");
+      releaseExport();
+      await settle();
+
+      expect(anchorClick).not.toHaveBeenCalled();
+      expect(createObjectURL).not.toHaveBeenCalled();
+      expect(sonner.success).not.toHaveBeenCalled();
+      expect(sonner.error).not.toHaveBeenCalled();
+    } finally {
+      setCurrentFarmId("1");
       delete urlStatics.createObjectURL;
       delete urlStatics.revokeObjectURL;
       anchorClick.mockRestore();

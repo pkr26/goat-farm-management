@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { Fraunces, Inter, JetBrains_Mono, Noto_Sans_Telugu } from "next/font/google";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { APP_NAME } from "@/lib/brand";
+import { LANGUAGE_COOKIE_KEY, type Language } from "@/lib/i18n/config";
 
 // Nonce-based CSP (src/proxy.ts, M-1 2026-09-20): Next.js stamps the nonce on
 // its scripts during server rendering, which only happens for dynamically
@@ -48,15 +49,21 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   // The proxy minted this request's CSP nonce; next-themes' inline theme
   // bootstrap must carry it too or the policy blocks it (M-1, 2026-09-20).
-  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const [headerStore, cookieStore] = await Promise.all([headers(), cookies()]);
+  const nonce = headerStore.get("x-nonce") ?? undefined;
+  const cookieLanguage = cookieStore.get(LANGUAGE_COOKIE_KEY)?.value;
+  const initialLanguage: Language | null =
+    cookieLanguage === "en" || cookieLanguage === "te" ? cookieLanguage : null;
   return (
     <html
-      lang="en"
+      lang={initialLanguage ?? "en"}
       suppressHydrationWarning
       className={`${inter.variable} ${fraunces.variable} ${jetbrainsMono.variable} ${notoSansTelugu.variable}`}
     >
       <body className="min-h-screen bg-background text-foreground antialiased">
-        <Providers nonce={nonce}>{children}</Providers>
+        <Providers nonce={nonce} initialLanguage={initialLanguage}>
+          {children}
+        </Providers>
       </body>
     </html>
   );

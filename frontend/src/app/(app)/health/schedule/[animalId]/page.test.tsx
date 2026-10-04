@@ -127,7 +127,8 @@ describe("VaccinationSchedulePage", () => {
     expect(overdue.closest("tr")).toHaveClass("bg-destructive/[0.04]");
     expect(upcoming.closest("tr")).not.toHaveClass("bg-destructive/[0.04]");
     expect((await tableScope()).getByText("Done").closest("tr")).not.toHaveClass("bg-destructive/[0.04]");
-    expect((await tableScope()).getByText("Something Else")).toBeInTheDocument();
+    // Unknown backend codes must not leak an unlocalized humanized wire value.
+    expect((await tableScope()).getByText("Unknown")).toBeInTheDocument();
   });
 
   it("shows the empty state when no templates apply", async () => {

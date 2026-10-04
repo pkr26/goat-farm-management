@@ -16,13 +16,14 @@ Every delivery passes through, in order:
    claim is durable and visible to every other session, so two concurrent
    sessions can never both send the same paid SMS, and a crash mid-fan-out
    can no longer roll back earlier recipients' settled rows for a next-tick
-   re-send — each recipient's outcome commits before the next begins. A
+   re-send — each recipient's outcome commits independently. A
    loser reads the winner's row, waiting out an in-flight SENDING so both
    callers learn the settled outcome;
-4. the per-farm daily cap — counts every claimed-or-settled row (SENDING
-   claims are committed before any send, so the count is exact for this
-   session AND for any concurrent one — 2026-09-28 audit, N1);
-5. the provider send — the outcome lands in the log either way.
+4. the per-farm daily cap — a short farm-row lock serializes claim + count,
+   so concurrent recipient work cannot over- or under-fill the cap;
+5. the provider send — global/per-farm semaphores bound concurrency, the
+   claim transaction is already closed, and the outcome lands through a
+   fresh short settlement transaction either way.
 
 A claim left in SENDING by a crash settles the slot for the day without a
 delivery: the safe side for paid SMS (no double-send), at the price of one
@@ -42,18 +43,22 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, cast
+from weakref import WeakKeyDictionary
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from ...core.config import Settings
+from ...db import get_sessionmaker
 from ...models import (
     Farm,
     FarmMembership,
@@ -73,6 +78,52 @@ from .providers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _DeliveryLimiters:
+    """Process-local admission for the supported single-replica topology."""
+
+    global_slots: asyncio.BoundedSemaphore
+    farm_slots: dict[int, asyncio.BoundedSemaphore]
+    per_farm_limit: int
+
+
+_delivery_limiters_by_loop: WeakKeyDictionary[
+    asyncio.AbstractEventLoop, dict[tuple[int, int], _DeliveryLimiters]
+] = WeakKeyDictionary()
+
+
+def _delivery_limiters(settings: Settings) -> _DeliveryLimiters:
+    loop = asyncio.get_running_loop()
+    signature = (
+        settings.notifications_delivery_concurrency,
+        settings.notifications_per_farm_delivery_concurrency,
+    )
+    by_signature = _delivery_limiters_by_loop.setdefault(loop, {})
+    limiters = by_signature.get(signature)
+    if limiters is None:
+        limiters = _DeliveryLimiters(
+            global_slots=asyncio.BoundedSemaphore(signature[0]),
+            farm_slots={},
+            per_farm_limit=signature[1],
+        )
+        by_signature[signature] = limiters
+    return limiters
+
+
+@asynccontextmanager
+async def delivery_slot(settings: Settings, farm_id: int) -> AsyncIterator[None]:
+    """Bound total provider work and noisy-neighbour fan-out per farm."""
+
+    limiters = _delivery_limiters(settings)
+    farm_slots = limiters.farm_slots.setdefault(
+        farm_id, asyncio.BoundedSemaphore(limiters.per_farm_limit)
+    )
+    # Take the farm slot first: a noisy farm waiting for its own allowance
+    # must not occupy a global slot and head-of-line block another tenant.
+    async with farm_slots, limiters.global_slots:
+        yield
 
 
 @dataclass(frozen=True)
@@ -141,9 +192,14 @@ async def _wait_for_claim_to_settle(db: AsyncSession, log_id: int, settings: Set
             )
         ).scalar_one()
         if row.status != "SENDING":
+            await db.commit()
             return row.status
         if asyncio.get_running_loop().time() >= deadline:
+            await db.commit()
             return row.status
+        # Do not pin a pooled connection while another sender is waiting on
+        # the SMS provider. The next poll starts a new, short transaction.
+        await db.commit()
         await asyncio.sleep(0.1)
 
 
@@ -174,7 +230,7 @@ async def _send_with_retry(
     raise last_exc
 
 
-async def send_notification(
+async def _send_notification_admitted(
     db: AsyncSession,
     settings: Settings,
     provider: NotificationProvider,
@@ -243,6 +299,10 @@ async def send_notification(
             await db.commit()
 
     await _adopt_legacy_claim()
+    # Serialize the short claim/cap decision for a farm. This keeps the cap
+    # exact even when multiple recipient coroutines run concurrently, while
+    # releasing the row lock before any provider I/O.
+    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
 
     async def _claim() -> int | None:
         """INSERT ... ON CONFLICT DO NOTHING claim of the day-dedupe slot.
@@ -292,6 +352,7 @@ async def send_notification(
             )
         ).scalar_one_or_none()
         if existing is not None:
+            await db.commit()
             return SendOutcome(status="SKIPPED_QUIET", fresh=False)
         claimed_id = await _claim()
         if claimed_id is None:
@@ -333,33 +394,37 @@ async def send_notification(
             status=await _wait_for_claim_to_settle(db, loser_row.id, settings),
             fresh=False,
         )
-    # Commit the claim BEFORE any send: the SENDING row becomes durable and
-    # farm-wide visible, so (a) a crash mid-send settles the slot without a
-    # delivery — the documented safe side for paid SMS — and (b) a crash
-    # mid-fan-out can never roll back earlier recipients' settled rows for a
-    # next-tick re-send (2026-09-29 audit).
+    # The cap check shares the short farm-row critical section with the
+    # claim. Commit releases both the farm lock and the pooled connection
+    # before the provider is called.
+    sent_today = await _farm_send_count_today(db, farm.id, local_date, claimed_id)
+    if sent_today >= settings.notifications_farm_daily_cap:
+        await db.execute(
+            update(NotificationLog)
+            .where(NotificationLog.id == claimed_id)
+            .values(status="SKIPPED_CAP", error="farm daily cap reached")
+        )
+        await db.commit()
+        return SendOutcome(status="SKIPPED_CAP", fresh=True)
     await db.commit()
-    log = await db.get(NotificationLog, claimed_id)
-    if log is None:  # pragma: no cover — the row this loop just inserted
-        raise RuntimeError("claimed notification row vanished before settle")
 
     async def settle(
         status: str, message_id: str | None = None, error: str | None = None
     ) -> SendOutcome:
-        log.status = status
-        log.provider_message_id = message_id
-        # Provider payloads can echo the recipient's number (MSG91); it never
-        # belongs in the durable log.
-        log.error = None if error is None else redact_phone_numbers(error)[:500]
-        # Commit EVERY status write so the outcome is durable before the next
-        # recipient begins and the per-farm daily cap is exact across
-        # sessions (2026-09-28 audit, N1; 2026-09-29 durability pass).
-        await db.commit()
+        # Settlement deliberately uses a fresh short transaction. The caller
+        # session is transaction-free throughout provider I/O, so a slow SMS
+        # request cannot occupy a backend-pool connection.
+        async with get_sessionmaker()() as settle_db:
+            log = await settle_db.get(NotificationLog, claimed_id, with_for_update=True)
+            if log is None:  # pragma: no cover — durable claim cannot vanish
+                raise RuntimeError("claimed notification row vanished before settle")
+            log.status = status
+            log.provider_message_id = message_id
+            # Provider payloads can echo the recipient's number (MSG91); it never
+            # belongs in the durable log.
+            log.error = None if error is None else redact_phone_numbers(error)[:500]
+            await settle_db.commit()
         return SendOutcome(status=status, fresh=True)
-
-    sent_today = await _farm_send_count_today(db, farm.id, local_date, log.id)
-    if sent_today >= settings.notifications_farm_daily_cap:
-        return await settle("SKIPPED_CAP", error="farm daily cap reached")
 
     try:
         result: DeliveryResult = await _send_with_retry(
@@ -371,6 +436,36 @@ async def send_notification(
     if result.ok:
         return await settle("SENT", message_id=result.message_id)
     return await settle("FAILED", error=result.error)
+
+
+async def send_notification(
+    db: AsyncSession,
+    settings: Settings,
+    provider: NotificationProvider,
+    *,
+    farm: Farm,
+    recipient: NotificationRecipient,
+    alert_class: str,
+    message: str,
+    payload: str,
+    now_local: datetime | None = None,
+    outbox_id: int | None = None,
+) -> SendOutcome:
+    """One bounded delivery; callers fan out safely through this boundary."""
+
+    async with delivery_slot(settings, farm.id):
+        return await _send_notification_admitted(
+            db,
+            settings,
+            provider,
+            farm=farm,
+            recipient=recipient,
+            alert_class=alert_class,
+            message=message,
+            payload=payload,
+            now_local=now_local,
+            outbox_id=outbox_id,
+        )
 
 
 # --- the daily digest -------------------------------------------------------
@@ -470,39 +565,56 @@ async def run_digest_for_farm(
     now = now_local or datetime.now(ZoneInfo(farm.timezone))
     reference = now.date()
     payload_day = reference.isoformat()
-    recipients = list(
+    recipient_ids = list(
         (
             await db.execute(
-                select(NotificationRecipient).where(
+                select(NotificationRecipient.id).where(
                     NotificationRecipient.farm_id == farm.id,
                     NotificationRecipient.daily_digest.is_(True),
                 )
             )
         ).scalars()
     )
-    sent = skipped = 0
-    for recipient in recipients:
-        message = await _digest_text_for_recipient(db, farm, recipient, reference)
-        if message is None:
-            # Inactive membership: no SMS at all (2026-09-29 audit).
-            skipped += 1
-            continue
-        outcome = await send_notification(
-            db,
-            settings,
-            provider,
-            farm=farm,
-            recipient=recipient,
-            alert_class="DAILY_DIGEST",
-            message=message,
-            payload=f"digest:{payload_day}",
-            now_local=now_local,
-        )
-        if outcome.status == "SENT" and outcome.fresh:
-            sent += 1
-        else:
-            skipped += 1
     await db.commit()
+
+    async def send_one(recipient_id: int) -> SendOutcome | None:
+        async with delivery_slot(settings, farm.id), get_sessionmaker()() as delivery_db:
+            delivery_farm = await delivery_db.get(Farm, farm.id)
+            recipient = await delivery_db.get(NotificationRecipient, recipient_id)
+            if delivery_farm is None or recipient is None:
+                return None
+            message = await _digest_text_for_recipient(
+                delivery_db, delivery_farm, recipient, reference
+            )
+            if message is None:
+                # Inactive membership: no SMS at all (2026-09-29 audit).
+                await delivery_db.rollback()
+                return None
+            return await _send_notification_admitted(
+                delivery_db,
+                settings,
+                provider,
+                farm=delivery_farm,
+                recipient=recipient,
+                alert_class="DAILY_DIGEST",
+                message=message,
+                payload=f"digest:{payload_day}",
+                now_local=now_local,
+            )
+
+    results = await asyncio.gather(
+        *(send_one(recipient_id) for recipient_id in recipient_ids),
+        return_exceptions=True,
+    )
+    first_error = next((result for result in results if isinstance(result, BaseException)), None)
+    sent = sum(
+        1
+        for result in results
+        if isinstance(result, SendOutcome) and result.status == "SENT" and result.fresh
+    )
+    skipped = len(results) - sent - int(first_error is not None)
+    if first_error is not None:
+        raise first_error
     return DigestSummary(farm_id=farm.id, sent=sent, skipped=skipped)
 
 
@@ -629,10 +741,10 @@ async def notify_alert_class(
     }.get(alert_class)
     if column is None:
         raise ValueError(f"Not an alert class: {alert_class!r}")
-    recipients = list(
+    recipient_ids = list(
         (
             await db.execute(
-                select(NotificationRecipient)
+                select(NotificationRecipient.id)
                 .join(FarmMembership, FarmMembership.id == NotificationRecipient.membership_id)
                 .join(User, FarmMembership.user_id == User.id)
                 .where(
@@ -645,23 +757,38 @@ async def notify_alert_class(
             )
         ).scalars()
     )
-    sent = 0
-    for recipient in recipients:
-        outcome = await send_notification(
-            db,
-            settings,
-            provider,
-            farm=farm,
-            recipient=recipient,
-            alert_class=alert_class,
-            message=message,
-            payload=payload,
-            now_local=now_local,
-        )
-        if outcome.status == "SENT" and outcome.fresh:
-            sent += 1
     await db.commit()
-    return sent
+
+    async def send_one(recipient_id: int) -> SendOutcome | None:
+        async with delivery_slot(settings, farm.id), get_sessionmaker()() as delivery_db:
+            delivery_farm = await delivery_db.get(Farm, farm.id)
+            recipient = await delivery_db.get(NotificationRecipient, recipient_id)
+            if delivery_farm is None or recipient is None:
+                return None
+            return await _send_notification_admitted(
+                delivery_db,
+                settings,
+                provider,
+                farm=delivery_farm,
+                recipient=recipient,
+                alert_class=alert_class,
+                message=message,
+                payload=payload,
+                now_local=now_local,
+            )
+
+    results = await asyncio.gather(
+        *(send_one(recipient_id) for recipient_id in recipient_ids),
+        return_exceptions=True,
+    )
+    first_error = next((result for result in results if isinstance(result, BaseException)), None)
+    if first_error is not None:
+        raise first_error
+    return sum(
+        1
+        for result in results
+        if isinstance(result, SendOutcome) and result.status == "SENT" and result.fresh
+    )
 
 
 async def kidding_watch_daily(

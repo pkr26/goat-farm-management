@@ -46,12 +46,12 @@ export default function WorkerLoginPage() {
   const router = useRouter();
   const { signIn, signOut, farmId, farms, selectFarm, getFarms } = useAuth();
   const [tabletFarmId, setTabletFarmId] = useState<number | null>(null);
+  const [offlineShiftAvailable, setOfflineShiftAvailable] = useState(false);
   const [selected, setSelected] = useState<RosterEntry | null>(null);
   const [rosterPages, setRosterPages] = useState<{ farmId: number | null; cursors: number[] }>({ farmId: null, cursors: [0] });
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [offlineShiftAvailable, setOfflineShiftAvailable] = useState(false);
   // Manager setup state: the tablet starts unpinned, a manager/owner signs in
   // once (password + optional TOTP/recovery code) and picks the farm.
   const [setupStep, setSetupStep] = useState<SetupStep | null>(null);
@@ -419,7 +419,7 @@ export default function WorkerLoginPage() {
           )}
           <Button
             variant="ghost"
-            className="w-full"
+            className="h-11 w-full"
             onClick={() => void cancelSetup()}
           >
             {t("common.cancel")}
@@ -461,7 +461,7 @@ export default function WorkerLoginPage() {
             <Button
               type="button"
               variant="ghost"
-              className="w-full"
+              className="h-11 w-full"
               onClick={() => void cancelSetup()}
             >
               {t("common.cancel")}
@@ -518,7 +518,7 @@ export default function WorkerLoginPage() {
             <Button
               type="button"
               variant="ghost"
-              className="w-full"
+              className="h-11 w-full"
               onClick={() => void cancelSetup()}
             >
               {t("common.cancel")}
@@ -536,7 +536,7 @@ export default function WorkerLoginPage() {
           description={t("worker.needFarm.description")}
         >
           <Button
-            className="mt-2"
+            className="mt-2 h-11"
             data-testid="worker-setup-start"
             onClick={() => {
               setError(null);
@@ -566,7 +566,7 @@ export default function WorkerLoginPage() {
             title={t("common.somethingWentWrong")}
             description={t("worker.login.loadFailed")}
           >
-            <Button variant="outline" onClick={() => void rosterQuery.refetch()}>
+            <Button className="h-11" variant="outline" onClick={() => void rosterQuery.refetch()}>
               {t("worker.login.retry")}
             </Button>
           </EmptyState>
@@ -609,7 +609,7 @@ export default function WorkerLoginPage() {
         </nav>}
         {/* Unpinning is a destructive action on a shared tablet: it needs a
             deliberate confirm, not one stray tap (2026-09-28 audit, W2). */}
-        <Button variant="ghost" onClick={() => setUnpinOpen(true)}>
+        <Button className="h-11" variant="ghost" onClick={() => setUnpinOpen(true)}>
           {t("worker.login.backToFarms")}
         </Button>
         <Dialog open={unpinOpen} onOpenChange={setUnpinOpen}>
@@ -621,11 +621,12 @@ export default function WorkerLoginPage() {
               {t("worker.login.unpinBody")}
             </p>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setUnpinOpen(false)}>
+              <Button className="h-11" variant="outline" onClick={() => setUnpinOpen(false)}>
                 {t("common.cancel")}
               </Button>
               <Button
                 variant="destructive"
+                className="h-11"
                 onClick={confirmUnpin}
                 data-testid="worker-unpin-confirm"
               >
@@ -697,7 +698,7 @@ export default function WorkerLoginPage() {
 
       <Button
         variant="ghost"
-        className="w-full"
+        className="h-11 w-full"
         onClick={backToRoster}
       >
         {/* No glyph decorations in UI copy — the title alone is the back

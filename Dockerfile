@@ -2,7 +2,9 @@
 #   docker build -t goatfarm-backend .
 #   docker run -e GOATFARM_DATABASE_URL=postgresql+asyncpg://... goatfarm-backend
 # Migrations run as a separate release job; this image serves the API as a
-# non-root user and can also be invoked with `alembic upgrade head` by that job.
+# non-root user and can also be invoked with `alembic upgrade head` by that job
+# when it supplies the explicit, separately privileged
+# GOATFARM_MIGRATION_DATABASE_URL.
 # The CMD hard-codes --workers 1 (the auth rate limiter is in-memory, per
 # process — multi-worker would silently multiply every limit). Also set
 # GOATFARM_ENVIRONMENT=production, GOATFARM_COOKIE_SECURE=true,

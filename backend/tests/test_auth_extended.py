@@ -247,6 +247,7 @@ async def test_register_sets_refresh_cookie(client: httpx.AsyncClient) -> None:
 def test_production_refresh_cookie_is_host_bound(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings(
         environment="production",
+        auth_rate_limit_enabled=True,
         cookie_secure=True,
         cors_origins=["https://app.example.com"],
         allowed_hosts=["api.example.com"],

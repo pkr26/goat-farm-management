@@ -820,6 +820,8 @@ describe("DiseaseCheckDialog upload contracts", () => {
     );
     await user.click(await screen.findByRole("button", { name: /upload photo/i }));
     await waitFor(() => expect(capture.s3).toBe(1));
+    toastMock.success.mockClear();
+    toastMock.error.mockClear();
     await user.click(screen.getByRole("button", { name: /finish & process/i }));
     expect(await screen.findByText("Finishing…")).toBeInTheDocument();
     expect(onFinished).not.toHaveBeenCalled();
@@ -828,6 +830,48 @@ describe("DiseaseCheckDialog upload contracts", () => {
     await waitFor(() => expect(onFinished).toHaveBeenCalled());
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(toastMock.success).toHaveBeenCalled();
+  });
+
+  it("does not finish, toast, or refresh after the walkthrough unmounts", async () => {
+    const capture = { uploads: [] as Array<Record<string, unknown>>, s3: 0 };
+    stubHappyPath(capture);
+    let releaseSubmit = () => {};
+    const submitGate = new Promise<void>((resolve) => {
+      releaseSubmit = resolve;
+    });
+    server.use(
+      http.post("/api/screening/batches/9/submit", async () => {
+        await submitGate;
+        return HttpResponse.json({}, { status: 200 });
+      }),
+    );
+    const onOpenChange = vi.fn();
+    const onFinished = vi.fn();
+    const user = userEvent.setup();
+    const view = renderWithProviders(
+      <DiseaseCheckDialog open onOpenChange={onOpenChange} onFinished={onFinished} />,
+      createTestQueryClient(),
+    );
+
+    await pickBucketAndChoose(
+      user,
+      browserGradeFile(new Uint8Array([1]), "f.jpg", "image/jpeg"),
+    );
+    await user.click(await screen.findByRole("button", { name: /upload photo/i }));
+    await waitFor(() => expect(capture.s3).toBe(1));
+    toastMock.success.mockClear();
+    toastMock.error.mockClear();
+    await user.click(screen.getByRole("button", { name: /finish & process/i }));
+    expect(await screen.findByText("Finishing…")).toBeInTheDocument();
+
+    view.unmount();
+    releaseSubmit();
+    await settle();
+
+    expect(onFinished).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(toastMock.success).not.toHaveBeenCalled();
+    expect(toastMock.error).not.toHaveBeenCalled();
   });
 });
 

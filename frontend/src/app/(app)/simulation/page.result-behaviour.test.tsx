@@ -275,7 +275,7 @@ const SNAPSHOT = {
 };
 
 const STALE_SNAPSHOT =
-  "The editor was reloaded while the herd snapshot was loading. Click “Use current herd” again to apply it.";
+  "The editor changed while the herd snapshot was loading. Click “Use current herd” again to replace it deliberately.";
 
 /** Breeds + defaults + scenario list; the run POST returns `runResult`. */
 function registerApiHandlers(

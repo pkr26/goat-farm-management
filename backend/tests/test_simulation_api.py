@@ -987,6 +987,118 @@ async def test_farm_calibration_uses_operational_biology_market_and_cost_records
     } <= evidence_paths
 
 
+async def test_conception_calibration_flattens_only_conception_parity(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    farm_id = int(headers["X-Farm-Id"])
+    does = [
+        await make_historical_animal(
+            client, headers, tag=f"CAL-CON-{index}", sex="F", purchase_price=None, weight_kg=30
+        )
+        for index in range(5)
+    ]
+    buck = await make_historical_animal(
+        client, headers, tag="CAL-CON-B", sex="M", purchase_price=None, weight_kg=35
+    )
+    async with get_sessionmaker()() as db:
+        for index, doe in enumerate(does):
+            bred_on = date.today() - timedelta(days=90 + index)
+            confirmed = index < 4
+            db.add(
+                BreedingRecord(
+                    farm_id=farm_id,
+                    doe_id=doe["id"],
+                    buck_id=buck["id"],
+                    breeding_date=bred_on,
+                    ultrasound_date=bred_on + timedelta(days=35),
+                    ultrasound_result_date=bred_on + timedelta(days=35),
+                    ultrasound_done=True,
+                    pregnant=confirmed,
+                    expected_kidding_date=(bred_on + timedelta(days=150) if confirmed else None),
+                    outcome="CONFIRMED_PREGNANT" if confirmed else "FAILED",
+                )
+            )
+        await db.commit()
+
+    response = await client.get("/api/simulation/calibration", headers=headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    parity = body["assumptions"]["reproduction"]["parity_multipliers"]
+    evidence = {item["path"] for item in body["evidence"]}
+    assert parity["conception_rate"] == [1.0]
+    assert len(parity["litter_size"]) > 1
+    assert "reproduction.parity_multipliers.conception_rate" in evidence
+    assert "reproduction.parity_multipliers.litter_size" not in evidence
+
+
+async def test_litter_calibration_flattens_only_litter_parity(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    farm_id = int(headers["X-Farm-Id"])
+    does = [
+        await make_historical_animal(
+            client, headers, tag=f"CAL-LIT-{index}", sex="F", purchase_price=None, weight_kg=30
+        )
+        for index in range(5)
+    ]
+    buck = await make_historical_animal(
+        client, headers, tag="CAL-LIT-B", sex="M", purchase_price=None, weight_kg=35
+    )
+    async with get_sessionmaker()() as db:
+        for index, doe in enumerate(does):
+            # The services predate the 12-month evidence window while their
+            # kiddings fall inside it. This isolates litter evidence from the
+            # conception sample without constructing an impossible pregnancy.
+            bred_on = date.today() - timedelta(days=400 + index)
+            breeding = BreedingRecord(
+                farm_id=farm_id,
+                doe_id=doe["id"],
+                buck_id=buck["id"],
+                breeding_date=bred_on,
+                ultrasound_date=bred_on + timedelta(days=35),
+                ultrasound_result_date=bred_on + timedelta(days=35),
+                ultrasound_done=True,
+                pregnant=True,
+                expected_kidding_date=bred_on + timedelta(days=150),
+                outcome="CONFIRMED_PREGNANT",
+            )
+            db.add(breeding)
+            await db.flush()
+            kidding = KiddingRecord(
+                farm_id=farm_id,
+                doe_id=doe["id"],
+                date=bred_on + timedelta(days=150),
+                breeding_record_id=breeding.id,
+            )
+            db.add(kidding)
+            await db.flush()
+            db.add(
+                KidEntry(
+                    farm_id=farm_id,
+                    kidding_record_id=kidding.id,
+                    sex="F" if index % 2 == 0 else "M",
+                    status="ALIVE",
+                )
+            )
+        await db.commit()
+
+    response = await client.get(
+        "/api/simulation/calibration",
+        params={"lookback_months": 12},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    parity = body["assumptions"]["reproduction"]["parity_multipliers"]
+    evidence = {item["path"] for item in body["evidence"]}
+    assert parity["litter_size"] == [1.0]
+    assert len(parity["conception_rate"]) > 1
+    assert "reproduction.parity_multipliers.litter_size" in evidence
+    assert "reproduction.parity_multipliers.conception_rate" not in evidence
+
+
 async def test_farm_calibration_known_dob_mortality_exposure_starts_at_purchase(
     client: httpx.AsyncClient,
 ) -> None:

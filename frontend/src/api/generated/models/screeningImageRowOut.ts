@@ -26,4 +26,5 @@ export interface ScreeningImageRowOut {
   created_at: string;
   latest_run?: ScreeningRunOut | null;
   pending_findings?: number;
+  pending_healthy_controls?: number;
 }

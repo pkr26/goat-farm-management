@@ -123,6 +123,15 @@ describe("simulationFieldHelp — species-aware body copy", () => {
     );
   });
 
+  it("describes the engine's actual sire-limited natural-service behavior", () => {
+    const bucks = simulationFieldHelp("herd.bucks", goat)!.help.body;
+    const autoPurchase = simulationFieldHelp("herd.auto_purchase_bucks", goat)!.help.body;
+
+    expect(`${bucks} ${autoPurchase}`).not.toMatch(/\bAI\b|unlimited/i);
+    expect(bucks).toContain("0 bucks and auto-purchase off, no females can be served");
+    expect(autoPurchase).toContain("0 bucks means zero service capacity");
+  });
+
 });
 
 describe("simulationFieldHelp — risk variables", () => {

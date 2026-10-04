@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Download, KeyRound, Trash2 } from "lucide-react";
+import { Download, KeyRound, LogOut, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -10,6 +10,8 @@ import { z } from "zod";
 import { useChangePasswordApiAuthChangePasswordPost } from "@/api/generated/endpoints";
 import type { AccountDeleteIn, AccountExportOut } from "@/api/generated/models";
 import { Button } from "@/components/ui/button";
+import { LanguageToggle } from "@/components/language-toggle";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   Dialog,
   DialogContent,
@@ -473,7 +475,7 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
           <Button
             variant="ghost"
             size="sm"
-            className={passwordOnly ? "h-11 gap-2" : "gap-2 px-1.5 font-normal"}
+            className={passwordOnly ? "h-11 gap-2" : "gap-1.5 px-1 font-normal"}
             style={passwordOnly ? { minHeight: 44 } : undefined}
             data-testid={passwordOnly ? "worker-change-password" : undefined}
             aria-label={passwordOnly ? t("account.password.change") : t("account.triggerAria", { name: name || email })}
@@ -487,7 +489,7 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
         >
           {(name || email).trim().slice(0, 2).toUpperCase()}
         </span>
-        <span className="hidden max-w-32 truncate md:inline">{name || email}</span>
+        <span className="hidden max-w-32 truncate xl:inline">{name || email}</span>
         </>}
         <KeyRound aria-hidden className="size-3.5 text-muted-foreground" />
       </DialogTrigger>
@@ -499,6 +501,25 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
           <p className="font-medium">{name || email}</p>
           {name && <p className="text-muted-foreground">{email}</p>}
         </div>
+        {!passwordOnly && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border p-2 sm:hidden">
+            <LanguageToggle />
+            <ThemeToggle />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground"
+              aria-label={t("common.logout")}
+              onClick={() => {
+                close();
+                void signOut();
+              }}
+            >
+              <LogOut aria-hidden="true" />
+            </Button>
+          </div>
+        )}
         {!passwordOnly && <section className="space-y-2" aria-labelledby="account-data-heading">
           <h3 id="account-data-heading" className="text-sm font-medium">
             {t("account.export.heading")}

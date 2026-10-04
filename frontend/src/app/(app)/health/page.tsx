@@ -34,6 +34,7 @@ import {
   type HealthBulkTargetPreviewOut,
   type HealthEventIn,
   type HealthEventOut,
+  type ListTasksApiTasksGetParams,
   type TaskOut,
 } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
@@ -533,7 +534,10 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
   const deepLinkedTaskIdValue = positiveIdString(deepLinkedTaskIdParam);
   const deepLinkedTaskId =
     deepLinkedTaskIdValue === null ? null : Number(deepLinkedTaskIdValue);
-  const tasksQuery = useListTasksApiTasksGet(undefined, {
+  const dueTaskListParams: ListTasksApiTasksGetParams = {
+    view: "worker",
+  };
+  const tasksQuery = useListTasksApiTasksGet(dueTaskListParams, {
     query: { enabled: canManage && canViewTasks && open },
   });
   const exactTaskQuery = useGetTaskApiTasksTaskIdGet(deepLinkedTaskId ?? 0, {

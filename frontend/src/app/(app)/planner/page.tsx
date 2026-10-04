@@ -1423,7 +1423,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
              * and flows read as label/value pairs instead. */}
             <div className="space-y-2 md:hidden">
               {report.stage_plan.map((row) => (
-                <div key={row.month} className="space-y-2 rounded-xl border bg-card p-3 shadow-xs">
+                <div key={row.year_month} className="space-y-2 rounded-xl border bg-card p-3 shadow-xs">
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="font-medium">{formatYearMonth(row.year_month)}</span>
                     <span className="tabular-nums font-medium">
@@ -1493,7 +1493,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                 </TableHeader>
                 <TableBody>
                   {report.stage_plan.map((row) => (
-                    <TableRow key={row.month}>
+                    <TableRow key={row.year_month}>
                       <TableCell>{formatYearMonth(row.year_month)}</TableCell>
                       <TableCell>{formatHead(row.female_kids)}</TableCell>
                       <TableCell>{formatHead(row.male_kids)}</TableCell>

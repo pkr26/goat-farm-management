@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { useT } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth-context";
 import { endOfflineShift, readOfflineShift, type OfflineShift } from "@/lib/worker-offline-shift";
-import { OutboxReviewRequiredError, persistWorkerOperation, readWorkerOutbox, type WorkerOperation } from "@/lib/worker-outbox";
+import { OutboxReviewRequiredError, persistOfflineWorkerDraft, readWorkerOutbox, type WorkerOperation } from "@/lib/worker-outbox";
+import { formatFarmDateTime } from "@/lib/format";
 
 /** A bounded snapshot for the ongoing shift. It grants no API authority:
  * every operation waits for real authentication by its original worker. */
@@ -55,10 +56,10 @@ export default function OfflineWorkerPage() {
       const current = await readOfflineShift();
       if (!current || current.actorScope !== snapshot.actorScope || current.farmScope !== snapshot.farmScope ||
         current.expiresAt !== snapshot.expiresAt) { setSnapshot(null); return; }
-      await persistWorkerOperation(`/api/tasks/${id}/${kind}`,
+      await persistOfflineWorkerDraft(`/api/tasks/${id}/${kind}`,
         kind === "skip" ? JSON.stringify({ reason: t("worker.skipReason") }) : undefined, snapshot);
-      setSaved((previous) => new Map(previous).set(id, "pending"));
-      toast.info(t("worker.queuedToast"));
+      setSaved((previous) => new Map(previous).set(id, "review"));
+      toast.info(t("worker.offlineDraftSaved"));
     } catch (error) { setStorageError(true); toast.error(t(error instanceof OutboxReviewRequiredError ? "worker.receipts.review" : "worker.queueFull")); }
     finally { setBusy((previous) => { const next = new Set(previous); next.delete(id); return next; }); }
   }
@@ -75,7 +76,7 @@ export default function OfflineWorkerPage() {
     {storageError && <p role="alert" className="text-destructive">{t("worker.queueFull")}</p>}
     {snapshot ? <>
       <p className="font-semibold">{snapshot.farmName} · {snapshot.workerName}</p>
-      <p className="text-sm text-muted-foreground">{t("worker.offlineShift.checked", { date: new Date(snapshot.verifiedAt).toLocaleString() })}</p>
+      <p className="text-sm text-muted-foreground">{t("worker.offlineShift.checked", { date: formatFarmDateTime(new Date(snapshot.verifiedAt).toISOString()) })}</p>
       <ul className="space-y-3">
         {snapshot.tasks.map((task) => <li key={task.id} data-testid={`offline-duty-${task.id}`} className="rounded-lg border bg-card p-4">
           <h2 className="font-semibold">{task.title}</h2>

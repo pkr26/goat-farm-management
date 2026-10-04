@@ -191,7 +191,7 @@ test.describe("screening review", () => {
 
     // Vet confirms the finding through the real review mutation (stubbed 200).
     await page.getByRole("button", { name: "Confirm", exact: true }).click();
-    await expect(page.getByText("Reviewed")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Reviewed", { exact: true })).toBeVisible({ timeout: 15_000 });
 
     // A second reviewer racing the same verdict gets the 409 conflict, and
     // the page answers with its own conflict message — never raw server text.

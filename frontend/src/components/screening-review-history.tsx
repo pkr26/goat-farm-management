@@ -7,9 +7,11 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/lib/i18n";
 import { formatFarmDateTime } from "@/lib/format";
+import { useEnumLabel } from "@/lib/enum-labels";
 
 export function ScreeningReviewHistory({ findingId }: { findingId: number }) {
   const t = useT();
+  const enumLabel = useEnumLabel();
   const [open, setOpen] = useState(false);
   const [offset, setOffset] = useState(0);
   const query = useFindingReviewHistoryApiScreeningFindingsFindingIdReviewsGet(
@@ -30,7 +32,9 @@ export function ScreeningReviewHistory({ findingId }: { findingId: number }) {
         {history.reviews.map((review) => <li key={review.revision} className="rounded border p-2">
           <p>{t("screening.review.historyEntry", { revision: review.revision,
             author: review.reviewed_by_id, date: formatFarmDateTime(review.reviewed_at) })}</p>
-          <StatusBadge status={review.status} />
+          <StatusBadge status={review.status}>
+            {enumLabel("screeningReviewStatus", review.status)}
+          </StatusBadge>
           {review.review_note ? <p className="mt-1">{review.review_note}</p> : null}
         </li>)}
       </ol>

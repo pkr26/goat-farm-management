@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
 from .. import metrics
+from ..audit import security_event
 from ..core.config import get_settings
 from ..deps import (
     CurrentFarm,
@@ -78,15 +79,9 @@ from ..utils import utcnow
 router = APIRouter(prefix="/api/team", tags=["team"], responses=COMMON_ERROR_RESPONSES)
 logger = logging.getLogger("goatfarm.team")
 
-# Security-event trail for team administration (RT-B-3): one info line per
-# successful mutation, attributed to the acting principal, so credential
-# resets, role rewrites and deactivations leave a durable log record even
-# before an append-only DB table exists. Never log secret material — only
-# ids and the action summary.
-audit_log = logging.getLogger("goatfarm.audit")
-
 
 def _audit_event(
+    db: AsyncSession,
     event: str,
     *,
     farm_id: int,
@@ -94,14 +89,14 @@ def _audit_event(
     summary: str,
     targets: dict[str, int | str | bool | None],
 ) -> None:
-    fields = " ".join(f"{name}={value!r}" for name, value in targets.items())
-    audit_log.info(
-        "security_event event=%r farm_id=%r actor_id=%r %s — %s",
+    """Queue the event inside the mutation transaction; log it as projection."""
+    security_event(
         event,
-        farm_id,
-        actor_id,
-        fields,
         summary,
+        session=db,
+        farm_id=farm_id,
+        actor_id=actor_id,
+        **targets,
     )
 
 
@@ -1098,6 +1093,7 @@ async def _create_worker_after_idempotency_gate(
         # of a committed creation does not log a second "provisioned" event
         # for the one worker that exists (P3, 2026-09-20 audit).
         _audit_event(
+            db,
             "team.worker.create",
             farm_id=farm.id,
             actor_id=user.id,
@@ -1183,8 +1179,8 @@ async def change_role(
     _guard_role_scope(role, perms, user, farm)
     previous_role_id = membership.role_id
     membership.role = role
-    await db.commit()
     _audit_event(
+        db,
         "team.worker.role_change",
         farm_id=farm.id,
         actor_id=user.id,
@@ -1196,6 +1192,7 @@ async def change_role(
             "to_role_id": role.id,
         },
     )
+    await db.commit()
     return _membership_out(
         membership,
         await _reset_password_policy_for_membership(db, membership),
@@ -1237,8 +1234,8 @@ async def set_worker_status(
     # history rewrite is needed; role peers gain operational fallback only
     # while this membership is inactive. Assigning the requested value makes
     # transport/application retries a no-op instead of a second inversion.
-    await db.commit()
     _audit_event(
+        db,
         "team.worker.status_change",
         farm_id=farm.id,
         actor_id=user.id,
@@ -1250,6 +1247,7 @@ async def set_worker_status(
             "to_is_active": membership.is_active,
         },
     )
+    await db.commit()
     return _membership_out(
         membership,
         await _reset_password_policy_for_membership(db, membership),
@@ -1311,6 +1309,7 @@ async def reset_password(
         await revoke_user_sessions(db, membership.user_id)
         await db.flush()
         _audit_event(
+            db,
             "team.worker.password_reset",
             farm_id=farm.id,
             actor_id=user.id,
@@ -1383,6 +1382,7 @@ async def reset_pin(
         await revoke_user_sessions(db, membership.user_id)
         await db.flush()
         _audit_event(
+            db,
             "team.worker.pin_reset",
             farm_id=farm.id,
             actor_id=user.id,
@@ -1477,8 +1477,8 @@ async def set_notification_prefs(
     recipient.feed_reorder = payload.feed_reorder
     recipient.movement_restriction = payload.movement_restriction
     recipient.verified = payload.verified
-    await db.commit()
     _audit_event(
+        db,
         "team.worker.notification_prefs",
         farm_id=farm.id,
         actor_id=user.id,
@@ -1486,6 +1486,7 @@ async def set_notification_prefs(
         # The worker's phone number is PII: only ids belong in this stream.
         targets={"membership_id": membership.id},
     )
+    await db.commit()
     return _prefs_out(recipient)
 
 
@@ -1548,19 +1549,21 @@ async def create_role(
     )
     db.add(role)
     try:
+        await db.flush()
+        _audit_event(
+            db,
+            "team.role.create",
+            farm_id=farm.id,
+            actor_id=user.id,
+            summary="created custom role",
+            targets={"role_id": role.id},
+        )
         await db.commit()
     except IntegrityError:  # concurrent create with the same name
         await db.rollback()
         raise HTTPException(
             status_code=400, detail="A role with that name already exists."
         ) from None
-    _audit_event(
-        "team.role.create",
-        farm_id=farm.id,
-        actor_id=user.id,
-        summary="created custom role",
-        targets={"role_id": role.id, "role_name": role.name},
-    )
     return _role_out(role, 0)
 
 
@@ -1607,6 +1610,14 @@ async def update_role(
         _clean_permissions(payload.permissions, perms, preserve=role.permission_set())
     )
     role.revision += 1
+    _audit_event(
+        db,
+        "team.role.update",
+        farm_id=farm.id,
+        actor_id=user.id,
+        summary="updated role name/description/permissions",
+        targets={"role_id": role.id, "revision": role.revision},
+    )
     try:
         await db.commit()
     except IntegrityError:  # concurrent rename collided with another role
@@ -1614,13 +1625,6 @@ async def update_role(
         raise HTTPException(
             status_code=400, detail="Name is required and must be unique on this farm."
         ) from None
-    _audit_event(
-        "team.role.update",
-        farm_id=farm.id,
-        actor_id=user.id,
-        summary="updated role name/description/permissions",
-        targets={"role_id": role.id, "role_name": role.name, "revision": role.revision},
-    )
     return _role_out(role, await _member_count(db, role.id))
 
 
@@ -1668,12 +1672,13 @@ async def delete_role(
             ),
         )
     role.deleted_at = utcnow()
-    await db.commit()
     _audit_event(
+        db,
         "team.role.delete",
         farm_id=farm.id,
         actor_id=user.id,
         summary="tombstoned custom role",
-        targets={"role_id": role.id, "role_name": role.name},
+        targets={"role_id": role.id},
     )
+    await db.commit()
     return Response(status_code=204)

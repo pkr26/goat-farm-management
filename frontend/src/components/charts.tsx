@@ -65,9 +65,9 @@ export function Donut({
         role="img"
         aria-label={
           total > 0
-            ? `Distribution: ${visibleSlices
-                .map((s) => `${s.label} ${s.value}`)
-                .join(", ")}`
+            ? t("charts.distribution", {
+                items: visibleSlices.map((s) => `${s.label} ${s.value}`).join(", "),
+              })
             : t("common.noData")
         }
       >

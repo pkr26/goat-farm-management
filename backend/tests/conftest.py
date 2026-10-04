@@ -32,9 +32,16 @@ ADMIN_URL = "postgresql://localhost:5432/postgres"
 TEST_URL = f"postgresql+asyncpg://localhost:5432/{TEST_DB}"
 
 os.environ["GOATFARM_DATABASE_URL"] = TEST_URL  # before any app import
+# Alembic deliberately refuses the application's implicit/default target. The
+# suite creates this guarded throwaway database above, so name it explicitly as
+# the one migration target too.
+os.environ["GOATFARM_MIGRATION_DATABASE_URL"] = TEST_URL
 # The suite logs in/registers constantly from one client — the auth rate
 # limiter stays off globally; its tests re-enable it per-test (monkeypatch).
 os.environ["GOATFARM_AUTH_RATE_LIMIT_ENABLED"] = "false"
+# The roster is privacy-safe by default. Tests that exercise the explicitly
+# provisioned shared-tablet product opt into it at the test deployment level.
+os.environ["GOATFARM_WORKER_ROSTER_ENABLED"] = "true"
 
 from app.db import Base, get_engine, get_sessionmaker, reset_engine  # noqa: E402
 from app.main import create_app  # noqa: E402

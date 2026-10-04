@@ -39,30 +39,34 @@ afterEach(() => vi.unstubAllGlobals());
 it("requires a current saved shift and preserves the reconnect route", async () => {
   mount();
   expect(await screen.findByText(/No current saved shift is available/)).toBeVisible();
-  expect(screen.getByRole("link", { name: "Sign in to reconnect and send" })).toHaveAttribute("href", "/worker/login");
+  expect(screen.getByRole("link", { name: "Sign in to review offline drafts" })).toHaveAttribute("href", "/worker/login");
   expect(screen.queryByRole("button", { name: "Complete" })).toBeNull();
 });
 
-it("records a manual duty durably, retains it after reload and never completes linked forms", async () => {
+it("records a manual duty as an untrusted draft and never completes linked forms", async () => {
   await saveOfflineShift(shift); setAccessToken(null); setCurrentFarmId(null);
   const first = mount();
   expect(await screen.findByText("East Farm · Ravi")).toBeVisible();
   expect(screen.getByText(/This duty needs its linked form/)).toBeVisible();
   fireEvent.click(screen.getByTestId("offline-complete-41"));
-  await waitFor(() => expect(toastInfo).toHaveBeenCalledTimes(1));
-  expect(await readWorkerOutbox(shift)).toMatchObject([{ path: "/api/tasks/41/complete", state: "pending", actorScope: "7", farmScope: "3" }]);
+  await waitFor(() => expect(toastInfo).toHaveBeenCalledWith(
+    "Draft saved — sign in as this worker to review and confirm it before sending.",
+  ));
+  expect(await readWorkerOutbox(shift)).toMatchObject([{ path: "/api/tasks/41/complete", state: "review", reason: "offline-untrusted", actorScope: "7", farmScope: "3" }]);
   first.unmount(); mount();
-  expect(await screen.findByText("Waiting to send")).toBeVisible();
+  expect(await screen.findByText("Needs review — kept on this tablet")).toBeVisible();
   expect(screen.queryByTestId("offline-complete-41")).toBeNull();
 });
 
 it("retains skipped duties with their reason and original scope", async () => {
   await saveOfflineShift(shift); mount();
   fireEvent.click(await screen.findByTestId("offline-skip-41"));
-  await waitFor(() => expect(toastInfo).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(toastInfo).toHaveBeenCalledWith(
+    "Draft saved — sign in as this worker to review and confirm it before sending.",
+  ));
   const rows = await readWorkerOutbox(shift);
   expect(rows).toHaveLength(1);
-  expect(rows[0]).toMatchObject({ path: "/api/tasks/41/skip", state: "pending", actorScope: "7", farmScope: "3" });
+  expect(rows[0]).toMatchObject({ path: "/api/tasks/41/skip", state: "review", reason: "offline-untrusted", actorScope: "7", farmScope: "3" });
   expect(JSON.parse(rows[0]!.body!)).toHaveProperty("reason");
 });
 

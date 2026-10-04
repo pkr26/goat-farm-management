@@ -55,7 +55,7 @@ function ScheduleStatusBadge({ status }: { status: string }) {
         </StatusBadge>
       );
     default:
-      return <StatusBadge status={status} />;
+      return <StatusBadge status={status}>{t("common.unknown")}</StatusBadge>;
   }
 }
 

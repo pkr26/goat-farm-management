@@ -14,17 +14,26 @@ from app.db import get_engine
 from .conftest import BACKEND_DIR, TEST_DB
 
 
-async def _alembic(*args: str) -> subprocess.CompletedProcess[str]:
+async def _alembic(*args: str, succeeds: bool = True) -> subprocess.CompletedProcess[str]:
+    migration_env = os.environ.copy()
+    # Every database used by this module is created and destroyed by the test
+    # session. Crossing the legacy-review cutover after a deliberate downgrade
+    # is therefore the rehearsed/quiesced case that the production gate asks
+    # operators to acknowledge.
+    migration_env["GOATFARM_MIGRATION_WRITES_QUIESCED"] = "true"
     result = await asyncio.to_thread(
         subprocess.run,
         [sys.executable, "-m", "alembic", *args],
         cwd=BACKEND_DIR,
-        env=os.environ.copy(),
+        env=migration_env,
         check=False,
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    if succeeds:
+        assert result.returncode == 0, result.stdout + result.stderr
+    else:
+        assert result.returncode != 0, result.stdout + result.stderr
     return result
 
 
@@ -38,6 +47,12 @@ async def _alembic(*args: str) -> subprocess.CompletedProcess[str]:
         ("d4e5f6a7b8c9", "ix_bucket_moves_animal_moved_id_desc", "bucket_moves"),
         ("bd201c1cdc1b", "ix_transactions_farm_date_id", "transactions"),
         ("bd201c1cdc1b", "ix_health_events_farm_date_id", "health_events"),
+        ("fb2c3d4e5f6a", "ix_tasks_farm_terminal_finished_id", "tasks"),
+        (
+            "fd4e5f6a7b8c",
+            "ix_screening_images_raw_cleanup_due",
+            "screening_images",
+        ),
     ],
 )
 async def test_online_index_upgrade_rebuilds_same_named_invalid_remnant(
@@ -100,3 +115,143 @@ async def test_online_index_upgrade_rebuilds_same_named_invalid_remnant(
         assert rebuilt["indexed_table"] == expected_table
     finally:
         await connection.close()
+
+
+async def test_terminal_history_upgrade_rebuilds_valid_wrong_definition() -> None:
+    """A name-only IF NOT EXISTS match must not stamp the wrong index."""
+    await get_engine().dispose()
+    await _alembic("downgrade", "fb2c3d4e5f6a")
+
+    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    try:
+        await connection.execute(
+            "CREATE INDEX CONCURRENTLY ix_tasks_farm_terminal_finished_id ON tasks (id)"
+        )
+    finally:
+        await connection.close()
+
+    await _alembic("upgrade", "head")
+
+    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    try:
+        definition = await connection.fetchval(
+            """
+            SELECT pg_get_indexdef(indexrelid)
+            FROM pg_index
+            WHERE indexrelid = 'ix_tasks_farm_terminal_finished_id'::regclass
+            """
+        )
+        assert definition is not None
+        assert "farm_id" in definition
+        assert "CASE" in definition
+        assert "status" in definition
+        assert "skipped_at" in definition
+        assert "completed_at" in definition
+        assert "WHERE" in definition
+    finally:
+        await connection.close()
+
+
+async def test_terminal_history_upgrade_preserves_valid_cross_table_collision() -> None:
+    """A migration retry must not delete a valid unrelated schema object."""
+    await get_engine().dispose()
+    await _alembic("downgrade", "fb2c3d4e5f6a")
+
+    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    try:
+        await connection.execute(
+            "CREATE INDEX CONCURRENTLY ix_tasks_farm_terminal_finished_id "
+            "ON bucket_definitions (id)"
+        )
+    finally:
+        await connection.close()
+
+    failed = await _alembic("upgrade", "head", succeeds=False)
+    assert "refusing to drop an unrelated schema object" in failed.stderr
+
+    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    try:
+        indexed_table = await connection.fetchval(
+            """
+            SELECT indexed.relname
+            FROM pg_class AS idx
+            JOIN pg_index AS i ON i.indexrelid = idx.oid
+            JOIN pg_class AS indexed ON indexed.oid = i.indrelid
+            WHERE idx.relname = 'ix_tasks_farm_terminal_finished_id'
+            """
+        )
+        assert indexed_table == "bucket_definitions"
+        await connection.execute("DROP INDEX CONCURRENTLY ix_tasks_farm_terminal_finished_id")
+    finally:
+        await connection.close()
+
+    await _alembic("upgrade", "head")
+
+
+async def test_raw_cleanup_due_upgrade_rebuilds_valid_wrong_definition() -> None:
+    """A name-only match cannot hide a wrong due-queue index."""
+    await get_engine().dispose()
+    await _alembic("downgrade", "fd4e5f6a7b8c")
+
+    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    try:
+        await connection.execute(
+            "CREATE INDEX CONCURRENTLY ix_screening_images_raw_cleanup_due ON screening_images (id)"
+        )
+    finally:
+        await connection.close()
+
+    await _alembic("upgrade", "head")
+
+    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    try:
+        definition = await connection.fetchval(
+            """
+            SELECT pg_get_indexdef(indexrelid)
+            FROM pg_index
+            WHERE indexrelid = 'ix_screening_images_raw_cleanup_due'::regclass
+            """
+        )
+        assert definition is not None
+        normalized = " ".join(str(definition).lower().split())
+        assert "raw_cleanup_next_attempt_at" in normalized
+        assert "raw_cleanup_completed_at is null" in normalized
+        assert "raw_cleanup_next_attempt_at is not null" in normalized
+    finally:
+        await connection.close()
+
+
+async def test_raw_cleanup_due_upgrade_preserves_valid_cross_table_collision() -> None:
+    """Retry recovery must never drop a valid unrelated index."""
+    await get_engine().dispose()
+    await _alembic("downgrade", "fd4e5f6a7b8c")
+
+    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    try:
+        await connection.execute(
+            "CREATE INDEX CONCURRENTLY ix_screening_images_raw_cleanup_due "
+            "ON bucket_definitions (id)"
+        )
+    finally:
+        await connection.close()
+
+    failed = await _alembic("upgrade", "head", succeeds=False)
+    assert "refusing to drop an unrelated schema object" in failed.stderr
+
+    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    try:
+        indexed_table = await connection.fetchval(
+            """
+            SELECT indexed.relname
+            FROM pg_class AS idx
+            JOIN pg_index AS i ON i.indexrelid = idx.oid
+            JOIN pg_class AS indexed ON indexed.oid = i.indrelid
+            WHERE idx.relname = 'ix_screening_images_raw_cleanup_due'
+            """
+        )
+        assert indexed_table == "bucket_definitions"
+        await connection.execute("DROP INDEX CONCURRENTLY ix_screening_images_raw_cleanup_due")
+    finally:
+        await connection.close()
+
+    await _alembic("upgrade", "head")

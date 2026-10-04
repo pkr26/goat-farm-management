@@ -22,7 +22,8 @@ with pnpm 9 (`corepack enable`).
 cd backend
 uv sync --locked --extra dev           # creates backend/.venv from uv.lock
 createdb goatfarm                      # once
-./.venv/bin/alembic upgrade head
+GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://localhost:5432/goatfarm \
+  ./.venv/bin/alembic upgrade head
 ./.venv/bin/uvicorn app.main:app --reload --port 8000
 
 # 2. Frontend (new terminal)
@@ -93,6 +94,14 @@ is the only implementation); `GOATFARM_RATE_LIMIT_BACKEND` accepts only
 `memory` and startup fails with this same explanation for anything else, so a
 multi-replica deployment cannot boot into silently multiplied limits — a
 shared backend (e.g. Redis) is the future fix if multi-process is ever needed.
+The supported production Compose file declares one backend replica and the API
+holds PostgreSQL advisory lock `718204615` on a dedicated connection for its
+entire serving lifetime. A second API process/container therefore fails startup
+even if an orchestrator overrides the manifest. Do not bypass that lease; move
+every process-local admission control to a shared backend before scaling. The
+API database endpoint must preserve session affinity for that dedicated
+connection; transaction-pooled proxies are not part of the supported topology
+(use a direct PostgreSQL endpoint or session pooling).
 Argon2 hashing and
 verification run off the event loop in a dedicated, queue-free pool bounded by
 `GOATFARM_ARGON2_WORKER_THREADS` (two by default); excess password work gets a
@@ -119,7 +128,11 @@ development fallback is rejected in production. Keep this secret distinct
 from JWT, database, and user-password secrets. The same known fallback is also
 rejected from the verification-only previous-key list.
 
-Production releases must set `GOATFARM_MIGRATION_DATABASE_URL` to a
+Every online Alembic invocation must set `GOATFARM_MIGRATION_DATABASE_URL`
+explicitly, including development and tests; the writable localhost application
+default is never an implicit migration target. Alembic prints only the sanitized
+host/port/database and current→head revision set before it acquires its writer
+lock. Production releases must set the URL to a
 separately privileged database identity used only by Alembic. The long-running
 API should use a credential without schema/DDL privileges. Compose supplies
 only that URL—not the API credential—to the migration job. Alembic uses a
@@ -130,11 +143,9 @@ cookie/JWT/HMAC settings. Libpq backup and restore jobs enforce the same
 production mode. Modes such as `require` encrypt the wire but can leave the
 server unauthenticated when no trusted root is configured. Migrations do **not** inherit the
 request-path `GOATFARM_DB_STATEMENT_TIMEOUT_MS` budget: the Alembic connection
-applies `GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS` instead, `0` (unbounded) by
-default, because a table rewrite, a constraint validation, or a `CREATE INDEX
-CONCURRENTLY` (which waits for every concurrent transaction to drain)
-legitimately runs far longer than any request may, and cancelling one aborts
-the release job. A fixed 10-second `lock_timeout` still applies, so DDL that
+applies `GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS` instead, 900000 ms (15
+minutes) by default. Raise that finite bound only after measuring a rehearsal.
+A fixed 10-second `lock_timeout` still applies, so DDL that
 cannot acquire its lock fails fast instead of queueing behind live traffic.
 
 Offline migration support boundary: `alembic --sql` rejects ranges crossing
@@ -164,7 +175,11 @@ preflights and backfills, constraint validation, session cleanup, and non-concur
 creation. First rehearse the complete upgrade against a current restored copy,
 record its runtime and lock impact, take a verified backup, quiesce application
 writes, and give one migration job exclusive ownership until `alembic check`
-passes. Resume API replicas only after that succeeds.
+passes. An upgrade crossing `f9a3b7c1d5e2` or the screening privacy-state
+backfill `fd4e5f6a7b8c` on an existing database refuses to run unless
+`GOATFARM_MIGRATION_WRITES_QUIESCED=true`; the preflight reports the eligible
+legacy-review row count so the rehearsal and production facts can be recorded.
+Resume the API and screening worker only after the migration succeeds.
 
 ## Auth & tenancy model
 
@@ -315,15 +330,18 @@ in `vitest.config.ts` fail the job), `pnpm build`, `pnpm audit`; Playwright
 against the real frontend, API, and PostgreSQL; and builds both application
 containers. A separate pinned-action security workflow runs CodeQL,
 full-history secret scanning, produces SPDX SBOMs for the backend, frontend,
-and deployed Compose infrastructure images, and fails on error/high CodeQL or
+repository-built hardened edge, and deployed PostgreSQL image, and fails on error/high CodeQL or
 fixable high/critical image vulnerabilities. Pushing a `v*` tag triggers
 `.github/workflows/release.yml`, which
-builds both images for `linux/amd64` and `linux/arm64`, runs the
+requires successful push CI **and Security** runs for the exact tagged SHA,
+builds all three images for `linux/amd64` and `linux/arm64`, runs the
 per-architecture Trivy fixable-HIGH/CRITICAL gate **before anything is
 published**, pushes
 the multi-arch manifests to ghcr.io with SLSA provenance and SPDX SBOM
-attestations, and cuts a GitHub release with the per-architecture SPDX SBOMs
-and the published image digests attached.
+attestations, keyless-signs the immutable manifest digests, and cuts a one-shot
+GitHub release with signed checksums, per-architecture SPDX SBOMs, and the
+published image digests attached. Existing release/image version tags are
+refused; changed bits require a new version.
 Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 The three tooling bootstraps that resolve from a registry at run time are
 themselves hash-pinned, not merely version-pinned: uv via
@@ -434,7 +452,7 @@ decoding again and the version is added to the safe set.
   repository-root `.env.example` to `.env` for that local stack. For a real
   single-host deployment, use the separate
   `docker-compose.production.yml` **by itself** (never merge it with the local
-  file). It has no `db` service, requires immutable backend/frontend image
+  file). It has no `db` service, requires immutable backend/frontend/edge image
   digests, mounts the database CA into migration/API/worker only, and mounts
   JWT PEMs into the API only. Point its complete separately privileged
   `GOATFARM_DATABASE_URL` and `GOATFARM_MIGRATION_DATABASE_URL` values at the
@@ -455,6 +473,8 @@ decoding again and the version is added to the safe set.
   GOATFARM_BACKEND_IMAGE_DIGEST=sha256:<published-backend-manifest-digest>
   GOATFARM_FRONTEND_IMAGE_REPOSITORY=ghcr.io/<owner>/goatfarm-frontend
   GOATFARM_FRONTEND_IMAGE_DIGEST=sha256:<published-frontend-manifest-digest>
+  GOATFARM_EDGE_IMAGE_REPOSITORY=ghcr.io/<owner>/goatfarm-edge
+  GOATFARM_EDGE_IMAGE_DIGEST=sha256:<published-edge-manifest-digest>
   GOATFARM_DB_CA_FILE=/secure/goatfarm-postgres-ca.pem
   GOATFARM_JWT_SECRET_DIR=/secure/goatfarm-jwt
   GOATFARM_COMPOSE_ENV_FILE=/secure/goatfarm.production.env
@@ -543,14 +563,13 @@ decoding again and the version is added to the safe set.
     -f docker-compose.production.yml up -d
   ```
 
-  Do not replace the digest variables with mutable tags. Read the two
+  Do not replace the digest variables with mutable tags. Read the three
   multi-architecture manifest digests from the GitHub release published by the
   gated release workflow; the release notes pin the exact digests the workflow
-  scanned, and the images carry provenance and SBOM build attestations, but
-  neither the release nor the images is cryptographically signed — the
-  integrity mechanism is the pinned `sha256:` digests themselves (compose
-  refuses to render without them), not a signature to verify (2026-10-01
-  audit, 09-4). The production manifest constructs `repository@sha256:...`,
+  scanned. The images carry provenance/SBOM attestations and keyless Sigstore
+  signatures; the release contains a signed `SHA256SUMS` bundle. Verify both
+  with the exact issuer/repository/workflow identity commands in `SECURITY.md`
+  before updating the manifest. The production manifest constructs `repository@sha256:...`,
   while local/staging examples below may use a release tag for convenience.
   Supported Alembic and restore jobs share a database advisory lock, so two
   release/restore writers fail closed instead of racing. This protocol cannot
@@ -678,14 +697,15 @@ decoding again and the version is added to the safe set.
 - **Registry-based local/staging single-host deploys.** Pushing a `v*` tag runs
   `.github/workflows/release.yml`: it builds
   `ghcr.io/<owner>/goatfarm-backend:vX.Y.Z` and
-  `ghcr.io/<owner>/goatfarm-frontend:vX.Y.Z` for `linux/amd64` and
+  `ghcr.io/<owner>/goatfarm-frontend:vX.Y.Z` plus the hardened
+  `ghcr.io/<owner>/goatfarm-edge:vX.Y.Z` for `linux/amd64` and
   `linux/arm64` (so ARM hosts — including Apple-Silicon machines — pull a
   native manifest), gates each architecture on the same
   fixable-HIGH/CRITICAL Trivy policy as the security workflow **before
   publishing anything**, pushes the multi-arch manifests with SLSA provenance
   and SPDX SBOM attestations attached via buildx, and creates a GitHub
-  release carrying the four per-architecture SPDX SBOM files and the
-  published image digests (tags containing a pre-release suffix such as
+  release carrying the six per-architecture SPDX SBOM files, signed checksums,
+  and published image digests (tags containing a pre-release suffix such as
   `-rc1` publish as GitHub pre-releases). On the deployment host, point
   Compose at the published tags instead of local builds (`docker login
   ghcr.io` first — packages are private by default):
@@ -707,6 +727,9 @@ decoding again and the version is added to the safe set.
     frontend:
       build: !reset null
       image: ghcr.io/<owner>/goatfarm-frontend:vX.Y.Z
+    edge:
+      build: !reset null
+      image: ghcr.io/<owner>/goatfarm-edge:vX.Y.Z
   ```
 
   ```bash
@@ -813,6 +836,12 @@ cap. Clinical screening and movement alerts enter a durable outbox in the
 same transaction as their domain change. Quiet hours and caps defer these
 events; cross-day recipient dedupe prevents a deferred event becoming a new
 paid attempt. A crashed dispatcher has a five-minute lease before recovery.
+Outbox, digest and periodic-alert schedules run independently so a slow class
+cannot block the others. Provider work is bounded by
+`GOATFARM_NOTIFICATIONS_DELIVERY_CONCURRENCY` globally and
+`GOATFARM_NOTIFICATIONS_PER_FARM_DELIVERY_CONCURRENCY` per farm; database
+claim transactions end before network I/O and settlements use fresh short
+transactions.
 SENDING and FAILED attempts with possible provider acceptance remain settled
 for operator review; unknown SMS outcomes are not automatically sent again.
 External delivery is not guaranteed exactly once. Recipient phones
@@ -843,6 +872,8 @@ other definitive rejections remain visible for review. Operations older than
   Exactly one credential per worker: a password (force-rotated via the
   must-change fence) or a tablet PIN — never both; a PIN-only worker's web
   password is an unguessable random hash, so the web login door stays shut.
+  Production requires the full 12-digit PIN length; shorter legacy PINs are
+  rejected at sign-in until an owner rotates them.
 - A PIN never bypasses the second factor (TOTP-active accounts get 403) and
   never admits an owner (owners hold no membership). Login-grade throttling:
   per (IP, farm, membership) plus a farm-wide spray scope at 10×.
@@ -850,12 +881,12 @@ other definitive rejections remain visible for review. Operations older than
   the tablet's first screen works without a session. Tradeoff: the DISPLAY
   NAMES of PIN-enabled workers are enumerable per farm id — names only, never
   emails or roles (a worker provisioned without a name is listed as
-  "Worker \<membership_id\>"), hard-throttled per IP (30/5 min). Deployments
-  with no shared tablets can close the enumeration oracle entirely:
-  `GOATFARM_WORKER_ROSTER_ENABLED=false` (default true) makes the endpoint
-  answer 404 before any roster row is read. The tablet sign-in flow depends
-  on the roster (its tap-to-sign-in screen has no manual id entry), so only
-  turn this off on sites where no tablet will ever use worker PIN login.
+  "Worker \<membership_id\>"), hard-throttled per IP (30/5 min). The roster
+  is off by default: `GOATFARM_WORKER_ROSTER_ENABLED=false` makes
+  the endpoint answer 404 before any roster row is read. A provisioned shared
+  tablet deployment must explicitly opt in with `true`. The tablet sign-in
+  flow depends on the roster (its tap-to-sign-in screen has no manual id
+  entry).
 - Shared-device discipline: "End shift" removes credentials, views and the
   active cached shift while preserving unresolved actor/farm-scoped actions.
   They are visible and replayable only after the original worker signs in to
@@ -864,9 +895,11 @@ other definitive rejections remain visible for review. Operations older than
 - An online, authorized board may save a minimal, credential-free snapshot
   for an ongoing 12-hour shift. `/worker/offline` can reopen it in the same
   browser tab after a connectivity-loss reload; it grants no API authority.
-  Only cached manual duties can be recorded until real sign-in returns.
-  Linked forms need connectivity. Logout, a rejected refresh, expiry, or loss
-  of the per-tab shift marker closes this capability without deleting work.
+  Cached manual-duty actions are saved as untrusted drafts and are never
+  replayed automatically. The original worker must sign in to the same farm,
+  inspect each draft, and explicitly confirm it before delivery. Linked forms
+  need connectivity. End shift or loss of the per-tab marker closes the
+  cached view without deleting already-saved work.
 - v1 out of scope: worker-native simplified forms, Background Sync/push, QR
   badges. PIN sessions are restricted to their issuing membership and farm.
 
@@ -1028,14 +1061,97 @@ idempotency rows, accepting that clients must retry with a new key. Migration
 `f4e5f6a7b8c9` performs this purge once for every pre-HMAC worker-create row;
 its deletion is intentionally not reversed by downgrade.
 
+### Runtime data retention
+
+Production requires `GOATFARM_RETENTION_SWEEP_ENABLED=true`. Each pass is
+farm-keyset-paged and transaction-bounded. Defaults retain screening image
+chains for 180 days, empty screening-batch anchors for 365 days, daily provider
+budgets/call receipts for 90 days, completed notification outbox/log evidence
+for 400 days, and terminal tasks for 365 days. Adjust these only against the
+deployment's retry, audit, clinical, and privacy obligations. The append-only
+security-event ledger and long-term weight/feeding facts are deliberately
+outside this purge policy.
+
+Screening removal is a durable three-phase saga. First, PostgreSQL commits a
+per-image tombstone containing the exact raw, normalized, and crop key
+manifest and updates the image's same-row `retention_tombstoned_at` fence in
+the same transaction. Worker claims, reviews, exports, owner totals, and
+presigning all exclude that fence, including a request that began waiting on
+the image lock before the tombstone committed. Second,
+retention idempotently removes every version/delete marker for each unshared
+key and verifies both the current key and version listing are absent. Legacy
+derivative keys still referenced anywhere in the bucket (including another
+farm's legacy row) are recorded as preserved.
+New normalized and crop derivatives use image/crop-identity-scoped `v2` keys,
+so a new chain cannot start referencing a legacy key while it is being purged.
+Only after that outcome is durably acknowledged does a separate transaction
+remove the relational chain and its tombstone. An object error leaves a
+`PENDING` intent with attempt metadata; a crash after object success retries
+the safe idempotent purge; a SQL/commit failure during finalization leaves an
+`OBJECTS_DELETED` intent that finalizes later without calling S3 again. Do not
+manually delete rows from `screening_retention_deletions`: its restrictive FK
+is the recovery boundary. Operators should alert on repeated
+`OBJECT_STORE_DELETE_FAILED`, `CONFIGURED_BUCKET_MISMATCH`, or
+`INVALID_MANIFEST` error codes and fix the cause; the next enabled retention
+pass resumes them automatically. Failed intents use a durable five-minute
+base, capped 24-hour exponential `next_attempt_at` backoff, never pin newer
+ready intents solely by id, and per-farm unfinished manifests are capped at
+`retention_delete_batch_size * retention_max_batches_per_farm`. Each dispatch
+purges at most one object key and one 1,000-entry version page, commits that
+per-key cursor, and keeps successful partial-page work immediately eligible
+inside the finite sweep budget rather than misreporting it as a provider
+failure or delaying it until the next daily pass.
+
+The API process uses the verified permanent-delete primitive for retention and
+post-presign-expiry raw cleanup; the screening worker uses it for immediate
+raw cleanup after a derivative is durable. If those processes have separate
+roles, both roles need these permissions:
+
+- On the bucket ARN: `s3:GetBucketVersioning`; plus `s3:ListBucketVersions`
+  and `s3:ListBucket` constrained with `s3:prefix` to both the configured raw
+  namespace (`${GOATFARM_SCREENING_S3_PREFIX}/*`, default `raw/*`) and the
+  fixed derivative namespace (`screening/*`). Include every historical raw
+  prefix still referenced by database rows after a prefix change. `ListBucket`
+  is required so HEAD of an absent key returns a verifiable not-found response
+  instead of 403.
+- On object ARNs for both namespaces (and any retained historical raw
+  namespace), for example `arn:aws:s3:::BUCKET/raw/*` and
+  `arn:aws:s3:::BUCKET/screening/*`:
+  `s3:DeleteObject`, `s3:DeleteObjectVersion`, and `s3:GetObject` (the
+  authorization used by HEAD).
+
+Do not grant only current-object delete: that leaves recoverable historical
+versions and prevents the database saga from truthfully acknowledging erasure.
+
+The retry queue is observable without exposing object keys:
+
+```sql
+SELECT status, COALESCE(last_error, 'NONE') AS last_error,
+       count(*) AS intents, min(next_attempt_at) AS next_due,
+       max(failure_count) AS max_consecutive_failures,
+       min(updated_at) AS oldest_update
+FROM screening_retention_deletions
+GROUP BY status, COALESCE(last_error, 'NONE')
+ORDER BY status, last_error;
+```
+
+Investigate any `PENDING` row whose `updated_at` remains older than two sweep
+intervals. Restore bucket access/configuration or repair a demonstrably invalid
+manifest under an audited maintenance procedure, then let the normal sweep
+retry it. Never manually promote a row to `OBJECTS_DELETED` or remove it: that
+would bypass verified absence and destroy the recovery boundary.
+
 ### Backups and disaster recovery
 
 Run `backend/scripts/backup.sh` nightly against production and store the dump
 off-host. The script writes `pg_dump` into a private same-filesystem temporary
 directory, proves that `pg_restore --list` can parse it, then publishes the
-archive and its exact-name SHA-256 sidecar. Each archive name includes an
+archive, its exact-name SHA-256 sidecar, and a bound `.recovery.json`
+whole-system inventory. Each archive name includes an
 unpredictable run suffix, so independently locked hosts cannot race on one S3
-object key. A destination-wide lock prevents overlapping jobs, and failure
+object key. Local and S3 publication write the sidecars first and the archive
+last as the commit marker, so a lister never sees a candidate archive before
+its recovery metadata is durable. A destination-wide lock prevents overlapping jobs, and failure
 traps remove plaintext, unpublished files, and the owned lock. `GOATFARM_BACKUP_KEEP`
 retains the newest 30 **local** dumps by default. Configure an S3 lifecycle
 rule (including noncurrent-version expiry if bucket versioning is enabled) for
@@ -1043,6 +1159,26 @@ the same approved retention period; the backup job's retention pruning never
 deletes remote copies because a writer cannot safely infer ownership of
 objects from another host (a failed run does remove its *own* partially
 published objects — see the credential scoping below).
+
+A database dump is not an application recovery point by itself. Production
+backup refuses to run without `GOATFARM_RECOVERY_INVENTORY_FILE` naming a fresh,
+unbound inventory created by `backend/scripts/recovery_inventory.py capture`.
+That inventory records an independently recoverable, versioned screening-object
+manifest/recovery-point receipt and escrow receipts plus non-secret SHA-256
+identities for JWT, TOTP encryption, idempotency HMAC, database CA, and backup
+GPG material. `backup.sh` binds those facts to the exact encrypted archive
+name/digest before local or off-site publication. The screening bucket must
+keep version history/replication at least as long as a database restore point
+can reference its objects. Privacy-retention deletion is intentional and is
+not a promise that an already-expired image will be recoverable.
+
+Each identity covers the complete material needed at that recovery point, not
+only the currently active scalar: `jwt_public` includes every retained
+previous verification key, `totp_encryption` and `idempotency_hmac` include
+their active and previous-key rings, and `backup_gpg` covers the decrypting
+private key plus the trusted signing identity. Prefer a versioned
+secret-manager bundle identity and escrow receipt; if `--key-file` is used,
+point it at a canonical recovery-bundle manifest containing the whole ring.
 
 Production and S3 backups must be both signed and encrypted with GPG. Pin the
 signing key by its complete 40- or 64-hex fingerprint; do not use a mutable
@@ -1053,7 +1189,7 @@ database and object-storage credentials.
 
 **Off-site credential scoping (2026-09-16 audit, INFRA-5; corrected
 2026-09-17).** The nightly job needs exactly three verbs, and only on the one
-backup prefix: `s3:PutObject` (the archive + sidecar upload),
+backup prefix: `s3:PutObject` (archive + checksum + recovery-inventory upload),
 `s3:ListBucket` on the bucket — constrain it with an `s3:prefix` condition
 to the backup prefix (the never-overwrite collision check runs *before any
 upload*, so a PutObject-only credential fails every run closed), and
@@ -1073,24 +1209,37 @@ allowed set is the migration chain from that revision onward, decided by
 chain membership (Alembic ids are random hex — they must never be compared
 as strings), maintained in `backend/scripts/restore_floor.sh` and kept in
 sync with the migration chain by test. To migrate such an archive, restore
-it into a scratch database, run `alembic upgrade head` (which re-purges),
-and dump/restore that database.
+it into a scratch database, set `GOATFARM_MIGRATION_DATABASE_URL` to that exact
+scratch target, run `alembic upgrade head` (which re-purges), and dump/restore
+that database.
 
 **Quarterly drill.** Rehearse the whole path (backup → tamper → checksum
-refusal → clean restore → non-empty refusal) against production-shaped
-infrastructure and record the wall-clock time — it is your real RTO.
+refusal → clean restore → exact object-version recovery → escrowed key
+identity verification → non-empty refusal) against production-shaped
+infrastructure. Open representative raw/normalized/crop objects referenced by
+the restored database, exercise a deliberately retention-expired pointer, and
+record the wall-clock time — it is your real whole-system RTO.
 
 ```bash
+# Omit GOATFARM_DB_SSLROOTCERT_PATH only when the database certificate chains
+# to the host's normal public trust store.
 GOATFARM_DATABASE_URL='postgresql+asyncpg://user:pass@host/goatfarm' \
 GOATFARM_DB_SSLMODE=verify-full \
-# Set this too when the database uses a private CA:
-# GOATFARM_DB_SSLROOTCERT_PATH=/run/secrets/goatfarm-postgres-ca.pem \
+GOATFARM_DB_SSLROOTCERT_PATH=/run/secrets/goatfarm-postgres-ca.pem \
 GOATFARM_ENVIRONMENT=production \
 GOATFARM_BACKUP_GPG_RECIPIENT='RECIPIENT_KEY_FINGERPRINT' \
 GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT='SIGNING_KEY_FINGERPRINT' \
 GOATFARM_BACKUP_S3_URI='s3://company-backups/goatfarm' \
+GOATFARM_RECOVERY_INVENTORY_FILE='/secure/goatfarm-recovery-unbound.json' \
 ./backend/scripts/backup.sh /var/backups/goatfarm
 ```
+
+Generate that unbound file immediately before the job from the object
+replica/inventory receipt and secret-manager escrow receipts. Use
+`--check-s3-versioning` in production; `capture --help` lists the six required
+`--key-file`/`--identity` and matching `--escrow-receipt` names. The executable
+systemd timers, freshness check, Prometheus scrape/rules, alert acceptance
+exercise, and off-host log-sink boundary are in `ops/README.md`.
 
 Both scripts read `GOATFARM_ENVIRONMENT`, `GOATFARM_DB_SSLMODE`, and an optional
 `GOATFARM_DB_SSLROOTCERT_PATH` — the application settings that gate TLS and the signed/encrypted-artifact
@@ -1135,12 +1284,18 @@ PID-file, ownership-file, and exact-content snapshots are checked across every
 quarantine move; a raced replacement is restored only with an exclusive
 no-overwrite rename, and the new run fails closed. Cleanup similarly removes
 only the exact directory identity it published. Alert on any non-zero backup
-exit and on a missing daily artifact; an upload failure keeps the complete local
-backup and makes a best-effort removal of any remote partial.
+exit and on a missing complete archive/checksum/inventory set; an upload
+failure keeps the complete local
+backup and makes a best-effort removal of any remote partial. The supplied
+freshness checker does not trust filename presence: it hashes the newest
+candidate, validates the exact checksum record and bound recovery inventory,
+and reports any newer rejected sets through the node-exporter textfile metric.
 
-The baseline target is a 24-hour recovery-point objective (nightly full
-backup) and recovery within four hours. Enable PostgreSQL WAL archiving and
-point-in-time recovery when a tighter recovery point is required.
+The baseline database and required screening-object target is a 24-hour
+recovery-point objective and whole-system recovery within four hours. The
+object-store receipt may assert a tighter target, never a looser one. Enable
+PostgreSQL WAL archiving and point-in-time recovery when a tighter database
+recovery point is required.
 
 Restore only into a newly created, empty database. The helper accepts exactly
 one checksum record bound to the archive basename, authenticates an encrypted
@@ -1152,7 +1307,8 @@ routines, types, extensions, extra schemas, or other namespaced user objects
 anywhere in the target—not only public tables. `pg_restore` runs in one
 transaction, and a separate post-restore query requires exactly one
 well-formed Alembic revision marker. Production restores reject plaintext
-archives.
+archives and archives without a valid bound `.recovery.json` sidecar. The
+sidecar archive digest is rechecked before any target database connection.
 
 Inject `GOATFARM_RESTORE_DATABASE_URL` through the process supervisor or
 secret manager. Do not put the credential-bearing URL on the restore command
@@ -1160,10 +1316,11 @@ line (or type its value directly into shell history); the script accepts only
 the archive path as a positional argument.
 
 ```bash
+# Omit GOATFARM_DB_SSLROOTCERT_PATH only when the database certificate chains
+# to the host's normal public trust store.
 GOATFARM_RESTORE_CONFIRM=goatfarm_restore_test \
 GOATFARM_DB_SSLMODE=verify-full \
-# Set this too when the database uses a private CA:
-# GOATFARM_DB_SSLROOTCERT_PATH=/run/secrets/goatfarm-postgres-ca.pem \
+GOATFARM_DB_SSLROOTCERT_PATH=/run/secrets/goatfarm-postgres-ca.pem \
 GOATFARM_ENVIRONMENT=production \
 GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT='SIGNING_KEY_FINGERPRINT' \
 ./backend/scripts/restore.sh /secure/goatfarm-2026-08-08.dump.gpg
@@ -1191,8 +1348,13 @@ GOATFARM_DB_SSLMODE=verify-full \
 ```
 
 Run and document a restore drill at least quarterly. After that migration,
-verify `alembic current`, representative row counts, `/readyz`, authentication,
-and the core animal/health/feeding/finance screens; record the elapsed time
+verify `alembic current` with the same explicit
+`GOATFARM_MIGRATION_DATABASE_URL`, representative row counts, `/readyz`, authentication,
+and the core animal/health/feeding/finance screens. Authenticate an account
+whose restored TOTP ciphertext predates the incident, verify a token with the
+restored JWT identity, replay one retained idempotency record using the
+restored HMAC ring, and fetch representative exact object versions from the
+inventory before recording the elapsed time
 against the four-hour recovery target. Treat a failed Alembic sanity check as
 an unusable restore requiring operator investigation. The helper removes its
 passfile, source snapshot, GPG status, and private decrypted archive on every
@@ -1308,7 +1470,7 @@ list of currently held animals.
 - Gestation **150 days** (kidding window 145–155); ultrasound scan at
   breeding + 32 days; heat cycle 21 days. Kidding records are accepted only
   within 100–200 days of the breeding date.
-- Breeding-ready doe: female, ≥10 months, ≥22 kg, not pregnant, in
+- Breeding-ready doe: female, ≥12 months, ≥22 kg, not pregnant, in
   FOUNDATION / FEMALE_KIDS / RESTING. Two consecutive failed cycles →
   cull candidate.
 - Weaning at day 60 (doe → RESTING; kids → MALE_KIDS / FEMALE_KIDS by sex).
@@ -1331,7 +1493,8 @@ list of currently held animals.
   supplement line. RESTING switches MAINTENANCE_75_25 → FLUSH_70_30 at day
   10; MALE_KIDS switch LACTATING_60_40 → FATTENING_50_50 at day 91; creep
   feed ramps 0.1/0.2/0.3 kg by age band from day 14.
-- Core vaccines: FMD (6-monthly, Sep/Mar), PPR (3-yearly), ET (annual,
+- Core vaccines: FMD (6-monthly, Sep/Mar), PPR (annual app default; confirm the
+  local veterinary/public-health programme before deployment), ET (annual,
   pre-monsoon), HS (first dose 6 months), Goat Pox, TT, plus pre-kidding
   ET+TT 4–6 weeks before due date. Deworming every 6 months (June/January).
   Finance tracks a per-animal insurance register (renewal duties spawn
@@ -1346,7 +1509,7 @@ backend/
                      request IDs, /healthz + /readyz, prod-safety validation)
     core/config.py   Pydantic settings (GOATFARM_* env vars)
     db.py            Async engine/session (autoflush=False, pre-ping), Base
-    models/          48 tables, domain enums, computed properties — split per
+    models/          51 tables, domain enums, computed properties — split per
                      domain (enums, constants, core, animals, breeding, …)
     services/        All domain flows + state guards — split per domain
                      (animals, breeding, kidding, health, tasks, feeding,
@@ -1425,24 +1588,38 @@ frontend/
   Treat any future "email reset" feature as a security regression requiring
   MFA first — an impostor cannot talk anyone into restoring access today
   precisely because no such mechanism exists.
-- **Structured security events** (2026-09-16 audit, DET-1/2) are emitted on
-  the `goatfarm.audit` logger with the prefix `security_event`:
-  `auth.refresh.family_revoked` (refresh-cookie replay/theft detection —
-  alert on this), `auth.token.invalid` (tampered/malformed access token),
-  `auth.token.version_mismatch` (reuse of a revoked token generation),
-  `rbac.denied` (authenticated request missing a permission), and
-  `planner.dpr.download`. A periodic `auth rate-limit 429 summary` line
-  aggregates blocked attempts per scope every five minutes.
+- **Structured security events** (2026-09-16 audit, DET-1/2) are committed to
+  the database's append-only `security_events` ledger in the same transaction
+  as the state change they describe. PostgreSQL rejects row updates/deletes;
+  a post-commit projection is emitted on the `goatfarm.audit` logger with the
+  prefix `security_event`. Durable events include real state changes such as
+  `auth.refresh.family_revoked` (refresh-cookie replay caused a family
+  revocation — alert on this), password/TOTP lifecycle changes, recovery-code
+  use, account export/deletion, and `planner.dpr.download`.
+
+  Request failures are deliberately different: an attacker can repeat them
+  without changing state, so they never allocate append-only rows or force
+  audit commits. A fixed-cardinality process-memory counter emits one
+  `security_signal_started` line when an interval opens and at most one
+  `security_signal_summary` per signal every five minutes. The allowlist is
+  limited to invalid or revoked-generation access tokens, worker-PIN failures,
+  TOTP challenge/disable/secret failures, and RBAC denials; ordinary token
+  expiry is excluded and attacker-controlled values are never log labels.
+  The periodic `auth rate-limit 429 summary` likewise aggregates blocked
+  attempts per scope. Treat the table as the source of truth for durable state
+  transitions, include it in protected backups, and ship both log streams to
+  the deployment's immutable SIEM with monitored delivery; Compose's bounded
+  local JSON log rotation is not an audit-retention system.
 - **Scaling multiplies per-process budgets** (GOV-2): the auth rate ledgers
   and simulation semaphore/CPU budget are per-process. Durable maintenance
   checkpoints coordinate their own jobs; they do not coordinate those other
   admission limits. One process is pinned by the shipped Dockerfile
   (`--workers 1`), and production **refuses to boot** when a
   `UVICORN_WORKERS`/`WEB_CONCURRENCY` override requests more than one
-  worker (any other launcher must enforce the single-process budget
-  itself) — do not horizontally scale backend containers behind a load
-  balancer without first moving those budgets to Postgres; each replica
-  multiplies the limits.
+  worker. The production manifest declares one replica, and a PostgreSQL
+  session advisory lease makes any second API replica fail closed even when a
+  launcher ignores that declaration. Do not horizontally scale backend
+  containers without first moving those budgets to a shared implementation.
 - **Worker data retention position (DPDP)** (GOV-1): a departing worker's
   account identity is scrubbed (tombstone), but their *contributions* to farm
   records (task attribution, transaction authorship, free-text they wrote)
@@ -1474,8 +1651,22 @@ something to see.
   `GOATFARM_SCREENING_POLL_INTERVAL_SECONDS`, claims registered rows fairly
   across farms (plus retry-eligible PROCESSING/ERROR rows), normalizes each
   photo to a bounded derivative (EXIF stripped, longest edge
-  `GOATFARM_SCREENING_IMAGE_MAX_EDGE_PX`), skips byte-identical duplicates,
-  and runs the gate model. Everything is farm-scoped and per-image
+  `GOATFARM_SCREENING_IMAGE_MAX_EDGE_PX`). Before any provider call, it durably
+  stores that derivative and permanently deletes every version/delete marker
+  of the raw upload. A failed raw deletion stops provider disclosure and
+  retries from the sanitized derivative. That eager delete does not mark the
+  raw key clean: the original presigned form can recreate it until expiry.
+  Every upload therefore retains an indexed cleanup obligation due at the
+  exact form expiry plus one hour of clock/final-write slack. The API's
+  minute-scale maintenance saga claims finite `FOR UPDATE SKIP LOCKED` pages,
+  permanently re-purges and verifies the key, then acknowledges it in a
+  separate transaction. A crash after object success safely repeats the
+  idempotent purge; capped backoff continues independently of the model retry
+  ceiling. This also covers uploads that stop as abandoned, invalid,
+  oversized, duplicate, or attempt-exhausted. Provider APIs receive only the
+  sanitized derivative. All retained derivatives/crops are covered by the
+  finite runtime retention sweep below. The worker skips byte-identical
+  duplicates and runs the gate model. Everything is farm-scoped and per-image
   committed, so one bad photo never blocks the batch. Claims commit
   durably under `FOR UPDATE SKIP LOCKED` (two workers can never double-
   screen a photo), and PENDING rows whose forms expire are swept in bounded

@@ -145,7 +145,7 @@ describe("AnimalsPage mutation hardening", () => {
   async function openImportDialog(user: User, reason = "Paper herd register import") {
     const dialog = await openCreateDialog(user);
     await pickOption(user, within(dialog).getByLabelText("Source *"), "Historical born-on-farm import");
-    await user.type(within(dialog).getByLabelText("Historical import reason *"), reason);
+    if (reason) await user.type(within(dialog).getByLabelText("Historical import reason *"), reason);
     return dialog;
   }
 
@@ -347,6 +347,61 @@ describe("AnimalsPage mutation hardening", () => {
       await waitFor(() => expect(within(dialog).getByRole("alert")).toBeInTheDocument());
       expect(seller).toHaveAttribute("aria-invalid", "true");
       expect(seller).toHaveAttribute("aria-describedby", "create-seller-error");
+      expect(postCalls).toBe(0);
+    });
+
+    it("links every invalid purchased-animal date, price, and notes field", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<AnimalsPage />);
+      await screen.findByText("3 animals");
+      const dialog = await openCreateDialog(user);
+      await pickOption(user, within(dialog).getByLabelText("Source *"), "Purchased");
+      const cases = [
+        ["Date of birth", "2099-01-01", "create-dob-error"],
+        ["Estimated DOB", "2099-01-01", "create-estimated-dob-error"],
+        ["Purchase date", "2099-01-01", "create-purchase-date-error"],
+        ["Purchase price (₹)", "-1", "create-purchase-price-error"],
+        ["Notes", "N".repeat(4001), "create-notes-error"],
+      ] as const;
+      for (const [label, value] of cases) {
+        fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
+      }
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+      await waitFor(() => expect(within(dialog).getAllByRole("alert").length).toBeGreaterThan(0));
+      expect(cases.filter(([, , errorId]) => dialog.querySelector(`#${errorId}`) === null)).toEqual([]);
+      for (const [label, , errorId] of cases) {
+        const field = within(dialog).getByLabelText(label);
+        expect(field).toHaveAttribute("aria-invalid", "true");
+        expect(field).toHaveAttribute("aria-describedby", errorId);
+        expect(dialog.querySelector(`#${errorId}`)).toHaveAttribute("role", "alert");
+      }
+      expect(postCalls).toBe(0);
+    });
+
+    it("links historical-import reason, birth-weight, and weight-date errors", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<AnimalsPage />);
+      await screen.findByText("3 animals");
+      const dialog = await openImportDialog(user, "");
+      fireEvent.change(within(dialog).getByLabelText("Date of birth"), { target: { value: "2020-01-01" } });
+      fireEvent.change(within(dialog).getByLabelText("Birth weight (kg)"), { target: { value: "0" } });
+      fireEvent.change(within(dialog).getByLabelText("Entry weight (kg)"), { target: { value: "10" } });
+      fireEvent.change(within(dialog).getByLabelText("Entry weight date"), { target: { value: "2099-01-01" } });
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+      const cases = [
+        ["Historical import reason *", "create-historical-reason-error"],
+        ["Birth weight (kg)", "create-birth-weight-error"],
+        ["Entry weight date", "create-weight-date-error"],
+      ] as const;
+      await waitFor(() => expect(within(dialog).getAllByRole("alert").length).toBeGreaterThanOrEqual(cases.length));
+      for (const [label, errorId] of cases) {
+        const field = within(dialog).getByLabelText(label);
+        expect(field).toHaveAttribute("aria-invalid", "true");
+        expect(field).toHaveAttribute("aria-describedby", errorId);
+        expect(dialog.querySelector(`#${errorId}`)).toHaveAttribute("role", "alert");
+      }
       expect(postCalls).toBe(0);
     });
   });
