@@ -70,7 +70,6 @@ import { useSingleFlight } from "@/lib/use-single-flight";
 /** Deep-link ids arrive as raw query strings; anything that is not a positive
  * safe integer is ignored. */
 function parsePositiveId(raw: string | null): number | null {
-  // Stryker disable next-line ConditionalExpression: the regex rejects null (coerced "null") exactly like any non-digit string, so the === null arm never decides anything
   if (raw === null || !/^\d+$/.test(raw)) return null;
   const parsed = Number(raw);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
@@ -149,7 +148,6 @@ export function buildKiddingSchema(t: TFn, vocabulary: FarmVocabulary) {
       date: z
         .string()
         .regex(
-          // Stryker disable next-line Regex: hand-proven killed by the trailing-garbage schema tests in BOTH page.campaign.test.tsx and page.mutation.test.tsx — Stryker's related-test selection never includes them across runs; documented attribution artifact
           /^\d{4}-\d{2}-\d{2}$/,
           t("kidding.validation.dateInvalid"),
         )
@@ -170,7 +168,6 @@ export function buildKiddingSchema(t: TFn, vocabulary: FarmVocabulary) {
         .array(buildKidSchema(t, vocabulary))
         .min(
           1,
-          // Stryker disable next-line StringLiteral: hand-proven killed by the litter-bounds schema tests in BOTH test files (the en catalog renders At least one kid, asserted verbatim) — the same documented attribution artifact as the date regex below
           t("kidding.validation.youngMin", { young: t("kidding.noun.young") }),
         )
         // Species litter cap (goat ≤4) mirrors
@@ -178,7 +175,6 @@ export function buildKiddingSchema(t: TFn, vocabulary: FarmVocabulary) {
         // The wire schema's own ceiling (10) is looser on purpose.
         .max(
           vocabulary.facts.maxLitterSize,
-          // Stryker disable next-line StringLiteral: same litter-bounds hand-proof and artifact as the min message above
           t("kidding.validation.litterMax", {
             parturition: t("kidding.noun.parturition"),
             max: vocabulary.facts.maxLitterSize,
@@ -195,14 +191,12 @@ export function buildKiddingSchema(t: TFn, vocabulary: FarmVocabulary) {
         const path = ["kids", index, "mortality_reported_at"];
         if (!reported) {
           ctx.addIssue({
-            // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
             code: "custom",
             path,
             message: t("kidding.validation.mortalityRequired"),
           });
         } else if (reported < values.date) {
           ctx.addIssue({
-            // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
             code: "custom",
             path,
             message: t("kidding.validation.mortalityBeforeParturition", {
@@ -211,7 +205,6 @@ export function buildKiddingSchema(t: TFn, vocabulary: FarmVocabulary) {
           });
         } else if (reported > farmToday()) {
           ctx.addIssue({
-            // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
             code: "custom",
             path,
             message: t("kidding.validation.dateFuture"),
@@ -238,7 +231,6 @@ function buildKiddingSchemaFor(
   return buildKiddingSchema(t, vocabulary).superRefine((values, ctx) => {
     if (values.date && values.date < earliestDate) {
       ctx.addIssue({
-        // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
         code: "custom",
         path: ["date"],
         message: t("kidding.validation.dateBeforeWindow", {
@@ -249,7 +241,6 @@ function buildKiddingSchemaFor(
     }
     if (values.date && values.date > latestDate) {
       ctx.addIssue({
-        // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
         code: "custom",
         path: ["date"],
         message: t("kidding.validation.dateAfterWindow", {
@@ -272,7 +263,6 @@ function kidErrorMessage(
   index: number,
   field: "tag" | "birth_weight" | "mortality_reported_at",
 ): string | undefined {
-  // Stryker disable next-line OptionalChaining: each caller's render guard establishes errors.kids[index][field] exists, so both optional chains are redundant
   return errors.kids?.[index]?.[field]?.message;
 }
 
@@ -295,7 +285,6 @@ function isDiedKid(
   values: KiddingValues["kids"] | undefined,
   index: number,
 ): boolean {
-  // Stryker disable next-line OptionalChaining: useWatch resolves against defaultValues on the first render, so the array is never undefined (hand-proven: dropping the chain passes every dialog test)
   return values?.[index]?.status === "DIED";
 }
 
@@ -336,10 +325,9 @@ function RecordKiddingDialog({
   const youngNounCap = t("kidding.noun.youngCap");
   const triItems = triStateItems(t);
   const [formError, setFormError] = useState<string | null>(null);
-  // Computed per render, NOT memoized: the ceiling `min(gestation max,
-  // farmToday())` rolls forward at midnight, and a memo whose deps omit
-  // "today" kept a dialog held open across midnight on the old ceiling in
-  // both the schema and the input's min/max (2026-10-01 audit, 05-Info).
+  // Computed per render, NOT memoized: the ceiling `min(gestation max, farmToday())`
+  // rolls forward at midnight, and a memo whose deps omit "today" kept a dialog held
+  // open across midnight on the old ceiling in both the schema and the input's min/max.
   // addDays string math is trivial, and the dialog remounts per record
   // (key={activeRecord.id}) so the default date stays mount-fresh.
   const earliestKiddingDate = (() => {
@@ -347,7 +335,6 @@ function RecordKiddingDialog({
       breeding.breeding_date,
       vocabulary.facts.gestationWindowDays.min,
     );
-    // Stryker disable next-line ConditionalExpression, EqualityOperator: when the scan result equals the floor both arms return the same date, and when they differ > and >= agree — the boundary is not observable
     return breeding.ultrasound_result_date && breeding.ultrasound_result_date > minGestationDate ? breeding.ultrasound_result_date : minGestationDate;
   })();
   const latestKiddingDate = (() => {
@@ -355,7 +342,6 @@ function RecordKiddingDialog({
       breeding.breeding_date,
       vocabulary.facts.gestationWindowDays.max,
     );
-    // Stryker disable next-line EqualityOperator: when the ceiling equals today both arms return the same date, and otherwise < and <= agree
     return maxGestationDate < farmToday() ? maxGestationDate : farmToday();
   })();
   const resolver = useMemo(
@@ -402,7 +388,6 @@ function RecordKiddingDialog({
             ease: values.ease,
             placenta_passed: triStateToBool(values.placenta),
             mastitis_suspected: values.mastitis_suspected,
-            // Stryker disable next-line OptionalChaining: the notes input is registered unconditionally with a string default, so the value is never undefined
           notes: values.notes?.trim() ? values.notes.trim() : null,
             kids: values.kids.map((k) => {
               // KidIn forbids the neonatal-care keys entirely for a
@@ -410,7 +395,6 @@ function RecordKiddingDialog({
               // are omitted rather than nulled on that arm.
               if (k.status === "STILLBORN") {
                 return {
-                  // Stryker disable next-line OptionalChaining: the tag input is registered unconditionally with a string default, so the value is never undefined
                   tag: k.tag?.trim() ? k.tag.trim() : null,
                   sex: k.sex,
                   birth_weight: k.birth_weight ?? null,
@@ -419,7 +403,6 @@ function RecordKiddingDialog({
                 };
               }
               return {
-                // Stryker disable next-line OptionalChaining: the tag input is registered unconditionally with a string default, so the value is never undefined
                 tag: k.tag?.trim() ? k.tag.trim() : null,
                 sex: k.sex,
                 birth_weight: k.birth_weight ?? null,
@@ -439,8 +422,8 @@ function RecordKiddingDialog({
         onClose();
         onSaved();
       } catch (err) {
-        // L-26 (2026-09-17 audit): after a farm switch this stale failure must
-        // not paint another farm's dialog or toast its error.
+        // L-26: after a farm switch this stale failure must not paint another farm's
+        // dialog or toast its error.
         if (!stillOwnsFarm()) return;
         const message = mutationErrorMessage(err);
         setFormError(message);
@@ -452,7 +435,6 @@ function RecordKiddingDialog({
   return (
     <Dialog
       open
-      // Stryker disable next-line ConditionalExpression, LogicalOperator: the single-flight guard blocks a resubmission regardless, so the wider close-lock variants are defense-in-depth
     onOpenChange={(open) => !open && !isSubmitting && !createFlight.pending && onClose()}
     >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
@@ -879,7 +861,6 @@ function RecordKiddingDialog({
                   fields.length === 1 ? t("kidding.noun.young") : t("kidding.noun.youngPlural"),
               })}
               {breeding.kid_count_detected !== null &&
-                // Stryker disable next-line ConditionalExpression: the wire field is number|null, so undefined only arrives from malformed payloads the !== null guard already treats the same way for every rendered value
                 breeding.kid_count_detected !== undefined &&
                 breeding.kid_count_detected !== fields.length &&
                 t("kidding.dialog.detectedMismatch", { count: breeding.kid_count_detected })}
@@ -1030,10 +1011,9 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
   const fetchedPrefillRecord =
     prefillRecordQuery.data?.status === 200 ? prefillRecordQuery.data.data : undefined;
   const requestedRecord = pagedPrefillRecord ?? fetchedPrefillRecord;
-  // A 404 from the pregnancy endpoint IS the stale-link case: the record was
-  // resolved to another outcome or removed, so no explainer record can ever
-  // load. Treating it as a load error produced a destructive banner whose
-  // Retry could never succeed (2026-09-20 audit P2-19).
+  // A 404 from the pregnancy endpoint IS the stale-link case: the record was resolved
+  // to another outcome or removed, so no explainer record can ever load. Treating it as
+  // a load error produced a destructive banner whose Retry could never succeed.
   const deepLinkNotFound =
     prefillRecordQuery.isError &&
     prefillRecordQuery.error instanceof ApiError &&
@@ -1049,9 +1029,7 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
   // A deep link that resolved to a pregnancy that can no longer be recorded
   // used to vanish silently; keep the operator informed until cleared (L18).
   const staleDeepLink =
-    // Stryker disable next-line ConditionalExpression, LogicalOperator: the requestedRecord guard below stays undefined for every state the mutants unlock (view-only users never fetch the pregnancy; a null id never resolves it), so the conjunction is false either way
     canManage &&
-    // Stryker disable next-line ConditionalExpression: same layered-guard argument via requestedRecord
     requestedBreedingId !== null &&
     dismissedPrefillId !== requestedBreedingId &&
     (deepLinkNotFound ||
@@ -1062,7 +1040,6 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
     // Scope dismissal to one continuous URL intent. Query-only navigation can
     // clear the link and later revisit the same pregnancy without remounting
     // this page; retaining the old id forever would suppress that new visit.
-    // Stryker disable next-line ConditionalExpression: the always-true arm only calls setDismissedPrefillId(null) when the value is already null — a setState React bails out on without re-rendering
     if (requestedBreedingId === null && dismissedPrefillId !== null) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- URL intent teardown
       setDismissedPrefillId(null);
@@ -1084,12 +1061,9 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
         : Math.floor((payload.overdue_total - 1) / payload.overdue_limit) * payload.overdue_limit;
     // Recording a kidding can remove the last pregnancy from a due page.
     // Re-home only the queue whose exact total no longer contains its offset.
-    // Stryker disable next-line EqualityOperator: at equality the setter writes the value already held, a React no-op
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (historyOffset > lastHistoryOffset) setHistoryOffset(lastHistoryOffset);
-    // Stryker disable next-line EqualityOperator: at equality the setter writes the value already held, a React no-op
     if (upcomingOffset > lastUpcomingOffset) setUpcomingOffset(lastUpcomingOffset);
-    // Stryker disable next-line EqualityOperator: at equality the setter writes the value already held, a React no-op
     if (overdueOffset > lastOverdueOffset) setOverdueOffset(lastOverdueOffset);
   }, [historyOffset, overdueOffset, payload, upcomingOffset]);
 
@@ -1179,7 +1153,6 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
           <span className="text-muted-foreground">
             {deepLinkNotFound
               ? t("kidding.deepLink.notFound", {
-                  // Stryker disable next-line LogicalOperator: staleDeepLink requires a non-null id, so the 0 fallback never renders
                   id: requestedBreedingId ?? 0,
                 })
               : requestedRecord?.has_kidding
@@ -1318,7 +1291,6 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
             {canViewBreeding && (
               <Link
                 href="/breeding"
-                // Stryker disable next-line ObjectLiteral, StringLiteral: cva resolves variant "default" to the same classes as the fallback, and the sm size only changes padding classes no test observes (duties record-row precedent)
                 className={buttonVariants({ variant: "default", size: "sm" })}
               >
                 {t("kidding.upcoming.goToBreeding")}

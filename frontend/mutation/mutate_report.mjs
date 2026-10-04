@@ -1,8 +1,7 @@
 // Compatible latest-attempt folding. Historical percentages are not release evidence.
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { atomicJSON, digest, hash, inputs, latestCompatible, records } from "./mutate_identity.mjs";
-import { readFileSync } from "node:fs";
+import { atomicJSON, digest, hash, inputs, latestCompatible, readMutationArtifact, records } from "./mutate_identity.mjs";
 import { FRONTEND } from "./mutate_run.mjs";
 
 export function summarize(campaign, rows) {
@@ -24,10 +23,9 @@ export function summarize(campaign, rows) {
   return { campaignId: campaign.id, total: campaign.manifest.mutants.length, counts, sampled, scored: killed + survived, killed, survived, score: killed + survived ? killed / (killed + survived) : null, untrustedHistoricalRows: rows.filter((row) => row.campaignId !== campaign.id).length };
 }
 export function report({ root = FRONTEND, campaignId = null } = {}) {
-  const manifestBytes = readFileSync(path.join(root, "mutation/manifest.json"));
+  const manifestBytes = readMutationArtifact(root, "manifest.json");
   const manifest = JSON.parse(manifestBytes);
-  const coveragePath = path.join(root, "mutation/coverage-map.json");
-  const coverageBytes = readFileSync(coveragePath);
+  const coverageBytes = readMutationArtifact(root, "coverage-map.json");
   const coverage = JSON.parse(coverageBytes);
   const manifestSha = hash(manifestBytes);
   const coverageSha = hash(coverageBytes);

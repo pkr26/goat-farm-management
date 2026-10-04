@@ -254,8 +254,8 @@ async def get_image(
 ) -> ScreeningImageDetailOut:
     """One image's full review payload: bounded image URL, every run, every
     finding. Missing and cross-farm ids deliberately share one 404."""
-    # screening_images.id is bigint (2026-09-28 audit, D1): the int8 ceiling
-    # bounds the id guard now, not the lifted int4 MAX_INT32_ID.
+    # screening_images.id is bigint: the int8 ceiling bounds the id guard now, not the lifted int4
+    # MAX_INT32_ID.
     if not 1 <= image_id <= 9_223_372_036_854_775_807:
         raise HTTPException(status_code=404, detail="Screening image not found")
     image = (
@@ -280,18 +280,15 @@ async def get_image(
         raise HTTPException(status_code=404, detail="Screening image not found")
 
     settings = get_settings()
-    # Process-wide storage instance: constructing ScreeningStorage per
-    # request minted a fresh boto3 client (and TLS/session setup) on every
-    # detail view and upload registration for nothing (P3, 2026-09-20
-    # audit).
+    # Process-wide storage instance: constructing ScreeningStorage per request minted a fresh boto3
+    # client (and TLS/session setup) on every detail view and upload registration for nothing.
     storage = storage_for_settings(settings) if settings.screening_enabled else None
-    # SigV4 signing only — no network call, safe inside a request.
-    # L-3 (2026-09-20 audit): only the worker-produced immutable derivative is
-    # reviewable. The raw upload key stays client-writable until its presigned
-    # POST policy expires, so presigning it for a not-yet-normalized row would
-    # let the vet approve bytes the uploader can still swap — the same reason
-    # the dataset export refuses to emit raw keys. Rows without a derivative
-    # answer image_url=None and the client renders the processing state.
+    # SigV4 signing only — no network call, safe inside a request. L-3: only the worker-produced
+    # immutable derivative is reviewable. The raw upload key stays client-writable until its
+    # presigned POST policy expires, so presigning it for a not-yet-normalized row would let the vet
+    # approve bytes the uploader can still swap — the same reason the dataset export refuses to emit
+    # raw keys. Rows without a derivative answer image_url=None and the client renders the
+    # processing state.
     image_url = (
         storage.presign_get(image.normalized_key)
         if storage and image.normalized_key is not None
@@ -361,8 +358,8 @@ async def review_finding(
     The locked revision detects same-status edits and ABA transitions. Each
     accepted decision appends an audit event in the same transaction.
     """
-    # screening_findings.id is bigint (2026-09-28 audit, D1): the int8
-    # ceiling bounds the id guard now, like the image_id guard above.
+    # screening_findings.id is bigint: the int8 ceiling bounds the id guard now, like the image_id
+    # guard above.
     if not 1 <= finding_id <= 9_223_372_036_854_775_807:
         raise HTTPException(status_code=404, detail="Screening finding not found")
     image_id_for_finding = (
@@ -486,11 +483,9 @@ async def review_finding(
     await db.commit()
     await db.refresh(finding)
     if alertable_review:
-        # ITEM 4 alert hook: a vet-confirmed screening finding is the
-        # same-day signal the owner opted into. Best-effort, own session.
-        # (2026-10-01 audit, 01-4) the model-authored label is free text
-        # interpolated into the SMS body — URL-ish tokens are neutralized
-        # before they reach emit_alert.
+        # Alert hook: a vet-confirmed screening finding is the same-day signal the owner opted into.
+        # Best-effort, own session. the model-authored label is free text interpolated into the SMS
+        # body — URL-ish tokens are neutralized before they reach emit_alert.
         from ..services.notifications import emit_alert
 
         await emit_alert(
@@ -1138,8 +1133,8 @@ async def create_batch(
             )
         ).scalar_one()
         if open_batches >= MAX_OPEN_SCREENING_BATCHES_PER_FARM:
-            # A standing quota, not a request-rate throttle: 409 like every
-            # other capacity cap in the API (2026-09-28 audit, A4).
+            # A standing quota, not a request-rate throttle: 409 like every other capacity cap in
+            # the API.
             raise standing_quota(
                 detail=(
                     "Too many open screening walkthroughs for this farm; submit or let an "
@@ -1151,9 +1146,8 @@ async def create_batch(
         await db.flush()
         return ScreeningBatchOut(id=batch.id, created_at=batch.created_at, submitted_at=None)
 
-    # B5 (2026-09-21 audit): a retried walkthrough-open minted a second
-    # (third, …) open batch every time. The key is optional so existing
-    # keyless clients keep working; the claim is scoped to actor+farm+route
+    # A retried walkthrough-open minted a second (third, …) open batch every time. The key is
+    # optional so existing keyless clients keep working; the claim is scoped to actor+farm+route
     # like every other idempotent mutation.
     return await execute_idempotent(
         db,
@@ -1330,7 +1324,7 @@ async def request_upload(
             )
         ).scalar_one()
         if images_in_batch >= MAX_SCREENING_IMAGES_PER_BATCH:
-            # Standing per-walkthrough quota → 409 (2026-09-28 audit, A4).
+            # Standing per-walkthrough quota → 409.
             raise standing_quota(
                 detail=(
                     "A screening walkthrough may contain at most "
@@ -1349,8 +1343,8 @@ async def request_upload(
             )
         ).scalar_one()
         if in_flight >= MAX_IN_FLIGHT_SCREENING_IMAGES_PER_FARM:
-            # Standing in-flight quota → 409 (2026-09-28 audit, A4); 429 stays
-            # reserved for request-rate throttles that carry Retry-After.
+            # Standing in-flight quota → 409; 429 stays reserved for request-rate throttles that
+            # carry Retry-After.
             raise standing_quota(
                 detail=(
                     "Too many screening photos are already awaiting processing for this "
@@ -1418,11 +1412,10 @@ async def request_upload(
             expires_in_seconds=settings.screening_presign_expiry_seconds,
         )
 
-    # B5 (2026-09-21 audit): a retried form mint pre-registered a second
-    # PENDING image row every time. The key is optional so existing keyless
-    # clients keep working. A replay returns the ORIGINAL presigned form:
-    # once it has aged past its own expiry the client simply retries with a
-    # fresh key — the deduplication target is the image row, not the form.
+    # A retried form mint pre-registered a second PENDING image row every time. The key is optional
+    # so existing keyless clients keep working. A replay returns the ORIGINAL presigned form: once
+    # it has aged past its own expiry the client simply retries with a fresh key — the deduplication
+    # target is the image row, not the form.
     return await execute_idempotent(
         db,
         http_response=response,

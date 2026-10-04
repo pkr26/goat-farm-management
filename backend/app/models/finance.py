@@ -98,15 +98,9 @@ class Transaction(Base):
         Index("ix_transactions_related_animal_id", "related_animal_id"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
-    # farm_id single dropped (2026-09-28 audit index hygiene):
-    # ix_transactions_farm_date_id and the uq_transactions_farm_id_id
-    # candidate key both lead with farm_id, so the single was redundant even
-    # for the FK-enforcement/maintenance scans the 2026-09-21 review kept it
-    # for.
+    # The ledger and tenant-key indexes already cover farm-prefixed probes.
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
-    # No single-column date index: every ledger query is tenant-scoped and
-    # walks ix_transactions_farm_date_id (see the 2026-09-21 index-hygiene
-    # revision that dropped the redundant single).
+    # Tenant-scoped ledger queries use ix_transactions_farm_date_id.
     date: Mapped[date] = mapped_column(default=today)
     type: Mapped[str] = mapped_column(String(10))  # TransactionType enum
     category: Mapped[str] = mapped_column(String(20))  # TransactionCategory enum
@@ -152,13 +146,11 @@ Index(
 # Insurance register
 # ---------------------------------------------------------------------------
 
-# Server-owned policy lifecycle vocabulary (lowercase on the wire). The
-# register is append-style like the ledger: a row moves forward through
-# renewal and ends as lapsed/claimed, but is never edited into a different
-# fact or deleted — corrections happen by renewing, not rewriting.
-# "renewed" was never a real status value: renewal keeps a policy ACTIVE
-# with a new horizon and appends a premium row (services/finance.py).
-# Removed from the CHECK by cad1e2f3a4b5 (2026-09-20 audit P3).
+# Server-owned policy lifecycle vocabulary (lowercase on the wire). The register is append-style
+# like the ledger: a row moves forward through renewal and ends as lapsed/claimed, but is never
+# edited into a different fact or deleted — corrections happen by renewing, not rewriting. "renewed"
+# was never a real status value: renewal keeps a policy ACTIVE with a new horizon and appends a
+# premium row (services/finance.py). Removed from the CHECK by cad1e2f3a4b5.
 INSURANCE_POLICY_STATUSES: tuple[str, ...] = ("active", "lapsed", "claimed")
 INSURANCE_STATUS_ACTIVE = "active"
 INSURANCE_STATUS_CLAIMED = "claimed"
@@ -237,8 +229,7 @@ class InsurancePolicy(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # farm_id single dropped (2026-09-28 audit index hygiene): the
-    # ix_insurance_policies_farm_status_renewal composite and the
+    # farm_id single dropped: the ix_insurance_policies_farm_status_renewal composite and the
     # uq_insurance_policies_farm_id_id candidate key both lead with farm_id.
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
     animal_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"))
@@ -306,9 +297,8 @@ class InsurancePremium(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # farm_id single dropped (2026-09-28 audit index hygiene): the
-    # ix_insurance_premiums_farm_policy / _farm_recorded_on composites and
-    # the uq_insurance_premiums_farm_id_id candidate key lead with farm_id.
+    # farm_id single dropped: the ix_insurance_premiums_farm_policy / _farm_recorded_on composites
+    # and the uq_insurance_premiums_farm_id_id candidate key lead with farm_id.
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
     policy_id: Mapped[int] = mapped_column(ForeignKey("insurance_policies.id"))
     premium: Mapped[Decimal] = mapped_column(Numeric(12, 2))

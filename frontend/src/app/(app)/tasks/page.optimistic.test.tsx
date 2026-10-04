@@ -1,7 +1,7 @@
 /**
- * Optimistic task completion (2026-09 felt-speed win): tapping Complete
- * strikes the duty through before the POST settles, and a failed completion
- * rolls the board cache back so the row reads pending again with the error.
+ * Optimistic task completion: tapping Complete strikes the duty through before the
+ * POST settles, and a failed completion rolls the board cache back so the row reads
+ * pending again with the error.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";

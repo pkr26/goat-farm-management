@@ -1,12 +1,11 @@
 /**
- * Animal profile page — dialog branch coverage complementing page.test.tsx:
- * the per-field `aria-invalid` / `role="alert"` wiring of the Record weight,
- * Move bucket and Change status forms (clean and rejected), the weight date
- * boundary, the label and disabled states that hold for the whole submit
- * attempt, the bucket echoed by the closed Select trigger, and the
- * hidden-field cleanup that stops a stale sale or mortality value from
- * silently blocking a later status change — plus the estimated-DOB remedy
- * a DOB-less male sale must collect and carry (2026-09-20 audit P1-7).
+ * Animal profile page — dialog branch coverage complementing page.test.tsx: the
+ * per-field `aria-invalid` / `role="alert"` wiring of the Record weight, Move bucket
+ * and Change status forms (clean and rejected), the weight date boundary, the label
+ * and disabled states that hold for the whole submit attempt, the bucket echoed by
+ * the closed Select trigger, and the hidden-field cleanup that stops a stale sale or
+ * mortality value from silently blocking a later status change — plus the
+ * estimated-DOB remedy a DOB-less male sale must collect and carry.
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";

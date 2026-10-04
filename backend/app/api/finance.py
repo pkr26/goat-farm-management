@@ -100,9 +100,8 @@ async def _resolve_related_animal(
     """
     if animal_id is None:
         return None, None
-    # Same int4 band as every sibling lookup (L-8, 2026-09-20 audit): a
-    # zero/negative or above-ceiling id resolves to None instead of relying
-    # on the caller's schema bounds alone.
+    # Same int4 band as every sibling lookup: a zero/negative or above-ceiling id resolves to None
+    # instead of relying on the caller's schema bounds alone.
     linked = await db.get(Animal, animal_id) if 1 <= animal_id <= MAX_INT32_ID else None
     if linked is None or linked.farm_id != farm.id:
         raise HTTPException(status_code=400, detail="Related animal is not on this farm")
@@ -110,9 +109,8 @@ async def _resolve_related_animal(
 
 
 async def _locked_source_animal(db: DbSession, farm: CurrentFarm, animal_id: int) -> Animal:
-    # Band mirrors _resolve_related_animal (L-1/L-8, 2026-09-20 audit): a
-    # corrupt out-of-band source_id above the int4 PK ceiling must answer the
-    # ordinary 409, never an asyncpg DataError 500.
+    # Band mirrors _resolve_related_animal: a corrupt out-of-band source_id above the int4 PK
+    # ceiling must answer the ordinary 409, never an asyncpg DataError 500.
     animal = (
         await db.get(Animal, animal_id, with_for_update=True)
         if 1 <= animal_id <= MAX_INT32_ID

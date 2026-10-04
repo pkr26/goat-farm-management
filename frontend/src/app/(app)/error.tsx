@@ -3,7 +3,7 @@
 /** Route-level error boundary for the app shell — same tone as the pages'
  *  inline "Could not load …" states, plus a retry. Copy resolves from the
  *  stored language without the provider — this boundary must render even
- *  when the provider tree crashed (2026-09-28 audit, I3). */
+ *  when the provider tree crashed. */
 
 import { TriangleAlert } from "lucide-react";
 import { useEffect } from "react";

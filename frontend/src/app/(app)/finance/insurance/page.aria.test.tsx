@@ -1,9 +1,8 @@
 /**
- * Insurance register error-field wiring (2026-09-30 fresh mutation
- * campaign): every create-policy field and both renewal fields must carry
- * aria-invalid="true" plus an aria-describedby pointing at its own
- * role="alert" paragraph while a validation error is set — and neither
- * attribute once the field is clean.
+ * Insurance register error-field wiring: every create-policy field and both renewal
+ * fields must carry aria-invalid="true" plus an aria-describedby pointing at its own
+ * role="alert" paragraph while a validation error is set — and neither attribute
+ * once the field is clean.
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";

@@ -1,11 +1,10 @@
 /**
- * Account dialog TOTP error-field wiring (2026-09-30 fresh mutation campaign):
- * every password/code input in the four TOTP modes must carry
- * aria-invalid="true" and an aria-describedby pointing at its mode's
- * role="alert" error paragraph while an error is set — and neither attribute
- * once the error clears. Also pins the recovery-code reveal's copied flag:
- * it starts false on the first reveal and resets on dialog close, so a fresh
- * reveal never announces itself as already copied.
+ * Account dialog TOTP error-field wiring: every password/code input in the four TOTP
+ * modes must carry aria-invalid="true" and an aria-describedby pointing at its
+ * mode's role="alert" error paragraph while an error is set — and neither attribute
+ * once the error clears. Also pins the recovery-code reveal's copied flag: it starts
+ * false on the first reveal and resets on dialog close, so a fresh reveal never
+ * announces itself as already copied.
  */
 
 import { render, screen, waitFor, within } from "@testing-library/react";

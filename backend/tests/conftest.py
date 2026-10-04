@@ -209,7 +209,7 @@ async def _rotate_provisioned_password(response: httpx.Response) -> None:
 # backs them, so the key is the only replay defense). The test client injects
 # a fresh key when one is absent so existing call sites keep exercising the
 # business logic; the 422-on-keyless contract itself is pinned by dedicated
-# tests in test_redteam_remediation_2026_09_04.py, which empty this set via
+# tests in test_adversarial_regressions.py, which empty this set via
 # monkeypatch to send genuinely keyless requests.
 IDEMPOTENCY_REQUIRED_PATHS = {
     "/api/finance/new",

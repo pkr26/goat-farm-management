@@ -188,12 +188,11 @@ async def current_user(
     if user is None or user.deleted_at is not None:
         raise _unauthenticated("Account no longer exists")
     if user.token_version != claims.token_version:
-        # DET-2: a signature-valid token from a revoked generation — password
-        # change/reset, account deletion, or bearer logout. Reuse after those
-        # events is exactly the thief/forgotten-tab pattern worth alerting on.
-        # A stolen or forgotten client can replay this token without bound.
-        # Keep that hostile failure traffic in the fixed-cardinality counter;
-        # the credential change that revoked it already has a durable event.
+        # A signature-valid token from a revoked generation — password change/reset, account
+        # deletion, or bearer logout. Reuse after those events is exactly the thief/forgotten-tab
+        # pattern worth alerting on. A stolen or forgotten client can replay this token without
+        # bound. Keep that hostile failure traffic in the fixed-cardinality counter; the credential
+        # change that revoked it already has a durable event.
         await db.rollback()
         note_transient_security_signal("auth.token.version_mismatch")
         raise _unauthenticated("Session has been revoked")
@@ -553,7 +552,7 @@ async def active_membership(
 ) -> FarmMembership | None:
     """Load an active farm membership for the lock-free read path.
 
-    Mutating-request authorization never calls this (2026-09-28 audit, S3):
+    Mutating-request authorization never calls this:
     it uses the stricter Membership -> User -> Role helpers below so password
     reset, tombstoning, deactivation, and permission edits serialize without
     a lock inversion.

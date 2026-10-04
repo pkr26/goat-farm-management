@@ -38,10 +38,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }
       toastOptions={{
         classNames: {
-          // Status hues come from the app's semantic token ramp, never
-          // sonner's richColors palette — the library colors match neither
-          // the light nor the dark theme (2026-09-28 audit). Token utilities
-          // resolve per theme, so no dark: variants are needed here.
+          // Status hues come from the app's semantic token ramp, never sonner's
+          // richColors palette — the library colors match neither the light nor the
+          // dark theme. Token utilities resolve per theme, so no dark: variants are
+          // needed here.
           success: "border-success/40 bg-success-tint text-success-tint-foreground",
           info: "border-info/40 bg-info-tint text-info-tint-foreground",
           warning: "border-warning/40 bg-warning-tint text-warning-tint-foreground",

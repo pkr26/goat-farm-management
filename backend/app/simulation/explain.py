@@ -340,14 +340,12 @@ def build_metric_explanations(
             figures={"bcr": m.bcr},
         )
     )
-    # The averaging basis must be stated exactly as the engine computes it:
-    # principal-REPAYING years (the NABARD criterion), with the terminal
-    # balloon EXCLUDED exactly as the engine's _operating_principal does —
-    # counting the raw principal figure re-admitted the balloon-only horizon
-    # year the engine itself excludes (P3, 2026-09-20 audit). Interest-only
-    # moratorium years carry debt but no operating repayment period, and
-    # None also fires when every debt year is interest-only — the two None
-    # narratives below cover both.
+    # The averaging basis must be stated exactly as the engine computes it: principal-REPAYING years
+    # (the NABARD criterion), with the terminal balloon EXCLUDED exactly as the engine's
+    # _operating_principal does — counting the raw principal figure re-admitted the balloon-only
+    # horizon year the engine itself excludes. Interest-only moratorium years carry debt but no
+    # operating repayment period, and None also fires when every debt year is interest-only — the
+    # two None narratives below cover both.
     horizon_months = a.meta.horizon_months
     horizon_year = (horizon_months + 11) // 12
     # Same terminal-balance derivation the engine uses for its DSCR filter
@@ -543,10 +541,9 @@ def build_metric_explanations(
                 f"Cumulative cash flow first covers your {_inr(m.equity)} equity in "
                 f"{_year_of(m.payback_month)}."
                 + (
-                    # With a zero terminal value the liquidation attribution is
-                    # a false explanation (nothing was liquidated) — name the
-                    # final-month swing instead of printing "₹0 terminal
-                    # value" as if it closed anything (P3, 2026-09-20 audit).
+                    # With a zero terminal value the liquidation attribution is a false explanation
+                    # (nothing was liquidated) — name the final-month swing instead of printing "₹0
+                    # terminal value" as if it closed anything.
                     f" Recovery arrives only in the final month, and it is the terminal "
                     f"value of the closing assets ({_inr(m.terminal_value)}) — not operating "
                     "cash — that closes the gap: this is a payback by liquidation."
@@ -648,10 +645,9 @@ def _litter_expectation_paragraphs(a: SimulationAssumptions, nouns: SpeciesNouns
     table = r.parity_multipliers.litter_size
     maiden = r.litter_size * table[0]
     mature = r.litter_size * table[1] if len(table) > 1 else r.litter_size
-    # Guard on the computed expectation, not the raw litter_size: the parity
-    # table is what the engine applies, and testing the raw figure could
-    # suppress the paragraph for a herd whose parity multipliers DO produce
-    # multiples (or keep it for one whose table does not) (P3, 2026-09-20).
+    # Guard on the computed expectation, not the raw litter_size: the parity table is what the
+    # engine applies, and testing the raw figure could suppress the paragraph for a herd whose
+    # parity multipliers DO produce multiples (or keep it for one whose table does not) .
     if mature <= 1.0:
         return []
     # The 35-40% twins / 5-13% triplets bands are the Osmanabadi field record
@@ -883,11 +879,10 @@ def build_narrative_report(
     # a "profitable" plan that only works on unpaid labour should say so.
     family_labour_paragraphs: list[str] = []
     if a.costs.family_labour and a.herd.does > 0:
-        # The imputed cost the same flock would pay hired attendants, on the
-        # engine's OWN per-month labour basis (labour_units_for over each
-        # month's standing doe pool). The old static starting-does figure
-        # ignored the herd's growth and understated the forgone wage ~1.29x
-        # on defaults (P3, 2026-09-20 audit).
+        # The imputed cost the same flock would pay hired attendants, on the engine's OWN per-month
+        # labour basis (labour_units_for over each month's standing doe pool). The old static
+        # starting-does figure ignored the herd's growth and understated the forgone wage ~1.29x on
+        # defaults.
         imputed = (
             sum(
                 labour_units_for(
@@ -1068,10 +1063,9 @@ def build_narrative_report(
     if result.monte_carlo is not None:
         mc = result.monte_carlo
         risk = a.risk
-        # Describe only what this run actually toggled on: the adverse-event
-        # and within-run variation clauses read as guarantees when the
-        # probabilities are zero or the variation is disabled (P3,
-        # 2026-09-20 audit).
+        # Describe only what this run actually toggled on: the adverse-event and within-run
+        # variation clauses read as guarantees when the probabilities are zero or the variation is
+        # disabled.
         event_clauses = [
             f"{name} events"
             for name, probability in (
@@ -1102,9 +1096,8 @@ def build_narrative_report(
             f"loses money in {_pct(mc.prob_npv_negative)} of runs and runs short of operating "
             f"cash in {_pct(mc.prob_liquidity_shortfall)}.{events_sentence}"
         )
-        # The MC DSCR breach probability carries the same None contract as the
-        # deterministic min_dscr: unmeasurable (no principal-repaying year in
-        # any run), never a reassuring 0.0 (2026-10-01 audit, 08-H1).
+        # The MC DSCR breach probability carries the same None contract as the deterministic
+        # min_dscr: unmeasurable (no principal-repaying year in any run), never a reassuring 0.0.
         if mc.prob_dscr_below_one is None:
             risk_paragraphs.append(
                 "No Monte Carlo run contained a principal-repaying year, so the "

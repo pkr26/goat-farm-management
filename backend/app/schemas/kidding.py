@@ -32,10 +32,9 @@ class KidIn(StrictInputModel):
     birth_weight: NonNegativeWeightKgFloat | None = None
     status: KidStatusStr = "ALIVE"
     mortality_reported_at: PastOrTodayDate | None = None
-    # Neonatal care facts; None = not recorded. StrictBool, like every other
-    # mutating boolean: lax coercion would let 1/"true"/"off" silently pose as
-    # a recorded care fact instead of the 422 the strict-input contract
-    # promises (2026-10-01 audit, 04-3).
+    # Neonatal care facts; None = not recorded. StrictBool, like every other mutating boolean: lax
+    # coercion would let 1/"true"/"off" silently pose as a recorded care fact instead of the 422 the
+    # strict-input contract promises.
     colostrum_within_2h: StrictBool | None = None
     navel_dipped: StrictBool | None = None
     dam_rejected: StrictBool = False
@@ -70,16 +69,14 @@ class KiddingCreateIn(StrictInputModel):
     # headroom; >= the breeding date is checked in the router.
     date: PastOrTodayDate
     ease: KiddingEaseStr = "NORMAL"
-    # Postpartum care facts; None = not recorded. Parity is deliberately NOT
-    # accepted: it is server-derived from the doe's kidding history (like
-    # heat_cycle_number in breeding), so extra="forbid" rejects client input.
-    # StrictBool per the strict-input contract (2026-10-01 audit, 04-3).
+    # Postpartum care facts; None = not recorded. Parity is deliberately NOT accepted: it is
+    # server-derived from the doe's kidding history (like heat_cycle_number in breeding), so
+    # extra="forbid" rejects client input. StrictBool per the strict-input contract.
     placenta_passed: StrictBool | None = None
     mastitis_suspected: StrictBool = False
     notes: PostgresText | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
-    # Litter bound is the species ceiling (GOAT_PROFILE.max_litter_size = 4,
-    # enforced again by services.kidding), not an arbitrary round number
-    # (2026-09-28 audit).
+    # Litter bound is the species ceiling (GOAT_PROFILE.max_litter_size = 4, enforced again by
+    # services.kidding), not an arbitrary round number.
     kids: list[KidIn] = Field(min_length=1, max_length=GOAT_PROFILE.max_litter_size)
 
 
@@ -112,12 +109,10 @@ class KiddingRecordOut(BaseModel):
     mastitis_suspected: bool
     notes: str | None
     created_at: datetime
-    # The literal [] default is deliberate (2026-10-01 audit, 04-Info): it is
-    # aliasing-safe (Pydantic v2 deep-copies defaults) AND it is what emits
-    # the committed spec's `"default": []` — switching to the sibling
-    # default_factory idiom would silently drop that key from
-    # shared/openapi.json for zero behavioral gain, so the style inconsistency
-    # is documented instead of churned.
+    # The literal [] default is deliberate: it is aliasing-safe (Pydantic v2 deep-copies defaults)
+    # AND it is what emits the committed spec's `"default": []` — switching to the sibling
+    # default_factory idiom would silently drop that key from shared/openapi.json for zero
+    # behavioral gain, so the style inconsistency is documented instead of churned.
     kids: list[KidEntryOut] = []
     doe_tag: str | None = None
 

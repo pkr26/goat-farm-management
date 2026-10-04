@@ -1,10 +1,6 @@
 /**
- * Behavioural tests for the nonce-CSP proxy (M-1, 2026-09-20 audit). The
- * proxy sat at 0% coverage, pinned only by source-text greps (2026-09-28
- * audit, T2) — these exercise it end to end: a fresh base64 nonce is minted
- * per request onto BOTH the request headers (the signal Next.js uses to
- * nonce its own bootstrap scripts) and the response CSP, and the matcher
- * keeps API/health/static/service-worker/manifest/icon paths untouched.
+ * The proxy mints a fresh nonce for request scripts and response CSP while bypassing
+ * API, probe and static paths.
  */
 
 import { NextRequest } from "next/server";

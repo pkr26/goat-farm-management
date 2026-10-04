@@ -31,10 +31,9 @@ __all__ = [
 class PlannerTargetIn(StrictInputModel):
     """One sale target: ``count`` head of one class in one calendar month."""
 
-    # Years bounded to the engine's 1900-2200 calendar range, so a plan can
-    # never be stored with a date the engine rejects on every later run. The
-    # fourth alternative used to read 21[0-1]\d, silently excluding
-    # 2120-2199 inside the documented range (2026-09-28 audit).
+    # Years bounded to the engine's 1900-2200 calendar range, so a plan can never be stored with a
+    # date the engine rejects on every later run. The fourth alternative used to read 21[0-1]\d,
+    # silently excluding 2120-2199 inside the documented range.
     year_month: PostgresText = Field(pattern=r"^(19\d{2}|20\d{2}|21\d{2}|2200)-(0[1-9]|1[0-2])$")
     animal_class: Literal[
         "doe",
@@ -108,8 +107,8 @@ class PlannerPlanOut(BaseModel):
 class PlannerPlanListOut(BaseModel):
     """One bounded page of saved plans plus the full farm-scoped count."""
 
-    # Deliberate legacy name (2026-09-28 audit): siblings use domain nouns,
-    # but ``items`` is locked into the wire contract (see ScenarioListOut).
+    # Deliberate legacy name: siblings use domain nouns, but ``items`` is locked into the wire
+    # contract (see ScenarioListOut).
     items: list[PlannerPlanOut]
     total: int
     limit: int

@@ -1,7 +1,6 @@
 /**
- * Breeding + kidding outcome-dialog DOM caps (2026-10-01 campaign
- * follow-up): the pregnancy-loss notes box is bounded at 4 000 characters
- * and the kidding notes box is 2 rows.
+ * Breeding + kidding outcome-dialog DOM caps: the pregnancy-loss notes box is
+ * bounded at 4 000 characters and the kidding notes box is 2 rows.
  */
 
 import { screen, within } from "@testing-library/react";

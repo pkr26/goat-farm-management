@@ -116,7 +116,6 @@ export function RemotePicker(props: RemotePickerProps) {
   // example, when permissions or form state change). Close it on the next
   // task so the options cannot remain interactive behind a disabled trigger.
   useEffect(() => {
-    // Stryker disable next-line ConditionalExpression: when disabled clears again the picker is already closed, so the scheduled close is a no-op either way
     if (!disabled) return;
     const handle = window.setTimeout(() => {
       setOpen(false);
@@ -132,11 +131,9 @@ export function RemotePicker(props: RemotePickerProps) {
   const valueId = `${id}-picker-value`;
   // The disabled-close effect converges the open state within a task, so the
   // disabled operand never survives a frame.
-  // Stryker disable next-line ConditionalExpression, LogicalOperator: converges with the effect above within one task tick
   const dialogOpen = open && !disabled;
 
   function changeOpen(nextOpen: boolean) {
-    // Stryker disable next-line BooleanLiteral: a disabled picker never has the dialog open, so the second operand only guards an unreachable state
     if (!disabled || !nextOpen) setOpen(nextOpen);
   }
 
@@ -251,13 +248,11 @@ function RemotePickerDialog({
     debounceTimer.current = handle;
     return () => {
       window.clearTimeout(handle);
-      // Stryker disable next-line ConditionalExpression, EqualityOperator: the ref is only compared against the latest handle, so skipping or over-clearing it cannot change which timer fires
       if (debounceTimer.current === handle) debounceTimer.current = null;
     };
   }, [normalizedSearch]);
 
   const results = useInfiniteQuery({
-    // Stryker disable next-line StringLiteral: a cache namespace constant — renaming changes cache identity only, never a rendered result
     queryKey: [sourcePath, "remote-picker", ...cacheKey, debouncedSearch, boundedPageSize],
     queryFn: ({ pageParam, signal }) =>
       loadPage({
@@ -318,7 +313,6 @@ function RemotePickerDialog({
   const dialogId = `${id}-picker-dialog`;
   const listboxId = `${id}-picker-results`;
   const selectedDisplayedIndex = displayedOptions.findIndex((option) => option.value === value);
-  // Stryker disable next-line EqualityOperator: index 0 equals the fallback, so >= and > agree on every input
   const tabbableOptionIndex = selectedDisplayedIndex >= 0 ? selectedDisplayedIndex : 0;
 
   function choose(option: RemotePickerOption) {
@@ -329,7 +323,6 @@ function RemotePickerDialog({
   }
 
   function focusFirstOption() {
-    // Stryker disable next-line OptionalChaining: focusFirstOption only runs while the listbox is mounted, so the element always resolves
     document
       .getElementById(listboxId)
       ?.querySelector<HTMLElement>("[role='option']")
@@ -350,12 +343,10 @@ function RemotePickerDialog({
     else if (event.key === "ArrowUp") {
       nextIndex = currentIndex <= 0 ? options.length - 1 : currentIndex - 1;
     } else {
-      // Stryker disable next-line ConditionalExpression: at currentIndex -1 both arms compute 0, so the guard only documents intent
       nextIndex = currentIndex < 0 || currentIndex === options.length - 1 ? 0 : currentIndex + 1;
     }
     // Focus drives the roving cursor; tabIndex itself stays React-controlled
     // (imperative mutation drifted from the rendered state — L17).
-    // Stryker disable next-line OptionalChaining: nextIndex is computed within the options bounds, so it always addresses a live option
     options[nextIndex]?.focus();
   }
 
@@ -469,7 +460,6 @@ function RemotePickerDialog({
             variant="outline"
             disabled={results.isFetchingNextPage}
             onClick={() => {
-              // Stryker disable next-line ConditionalExpression: the button is disabled while fetching, so the guard is unreachable defense
               if (!results.isFetchingNextPage) void results.fetchNextPage();
             }}
           >

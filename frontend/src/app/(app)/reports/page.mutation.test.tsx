@@ -1,7 +1,7 @@
 /**
- * Reports page — mutation-hardening suite: status-key humanization, the
- * withheld cull total, truncated cull previews (with and without
- * breeding.view), and the two error retry paths.
+ * Reports page — regression suite: status-key humanization, the withheld cull total,
+ * truncated cull previews (with and without breeding.view), and the two error retry
+ * paths.
  */
 
 import { screen, waitFor } from "@testing-library/react";

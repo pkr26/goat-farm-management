@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Cross-farm owner console (ITEM 3, 2026-09-21 playbook): every farm the
+ * Cross-farm owner console: every farm the
  * caller owns on one screen — attention headlines ranked worst-first, and a
  * benchmark table for comparing farms against each other. A per-farm "Open"
  * switches the active farm context and lands on that farm's dashboard, so
@@ -157,8 +157,7 @@ export default function OwnerPage() {
                       )}
                     </td>
                     {/* month_net is a Decimal-pattern string on the wire —
-                     * route it through formatMoneyDecimal, never Number()
-                     * (2026-10-01 audit, 06-4). */}
+                     * route it through formatMoneyDecimal, never Number(). */}
                     <td className="table-numeric text-right">
                       {formatMoneyDecimal(farm.month_net)}
                     </td>

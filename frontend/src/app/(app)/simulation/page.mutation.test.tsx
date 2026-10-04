@@ -1,11 +1,5 @@
 /**
- * Mutation-hardening tests for the simulation page.
- *
- * Each test targets survivor clusters from reports/mutation/app2.json (Stryker
- * mutant ids are cited inline so the next run can verify the kills). The
- * emphasis is logic over cosmetics: URL paging state, the
- * species-sync effect, validation copy and dialog facts, run/scenario status
- * guards, staleness chips, formatting helpers, and payload construction.
+ * Simulation editor validation, assumptions and result contracts.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";

@@ -1,13 +1,6 @@
 /**
- * Boundary contracts from the 2026-09-23 deep-mutation campaign.
- *
- * The sibling suites assert outcomes; these pin the EXACT edges that survived
- * mutation: the refresh-payload guard arms (numeric/empty/whitespace tokens),
- * the actor-scope preservation arms of setAccessToken, the auth-failure
- * registration stack (at(-1) semantics, double-unregister, null reset), the
- * 499/500 transient boundary, single-flight dedup and release, the exact
- * 10 s / 60 s / 300 s request budgets, the healthz/readyz root-path allowlist,
- * and ApiError.code extraction.
+ * API-client boundary contracts cover refresh payloads, actor scopes, handler
+ * registration, retry classification, request budgets and error codes.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

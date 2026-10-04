@@ -4,18 +4,12 @@ Every event renders one grep/SIEM-friendly line::
 
     security_event event='auth.refresh.family_revoked' user_id=3 family_id=17 — …
 
-Targets are formatted with ``repr`` so attacker-supplied values can never
-contain raw newlines (log forging) — only ids, enums, and counts belong here,
-never PII or secret material. The 2026-09-16 audit (DET-1/DET-2) found the
-platform's strongest signals — refresh-token family revocation, JWT
-verification failures, RBAC denials, document downloads — were only visible
-as plain 401/403/404 status lines; this module gives them an alertable
-identity. Authenticated state transitions are durable; untrusted failure
-traffic is aggregated in fixed-cardinality process memory so an attacker
-cannot turn novel credentials into append-only database or log writes.
-``api/team.py``'s farm-scoped ``_audit_event`` predates this module and keeps
-its richer farm/actor framing; both durable paths emit the same
-``security_event`` prefix so one parser covers them.
+Targets use ``repr`` to escape newlines and prevent forged log records. Only
+ids, enums, and counts belong here; never PII or secret material. Committed
+authenticated state transitions have durable database events. Untrusted
+failure traffic uses fixed-cardinality process counters so novel credentials
+cannot force append-only database or log writes. Farm-scoped team events use
+the same ``security_event`` prefix for a shared parser.
 """
 
 from __future__ import annotations

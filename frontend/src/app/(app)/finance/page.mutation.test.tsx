@@ -1,16 +1,6 @@
 /**
- * Mutation-hardening tests for src/app/(app)/finance/page.tsx.
- *
- * Each describe pins a survivor cluster from the Stryker report:
- *  - month URL-param sanitisation (the /^\d{4}-\d{2}$/ contract);
- *  - the exact ledger URL write-through (router.replace(url, { scroll: false }))
- *    for month/type/category picks, ALL picks, the P&L shortcut and Clear;
- *  - re-syncing filter state when the URL changes underneath the page;
- *  - the correction consequence hint (copy, appearance and clearing);
- *  - blank feed-quantity staying optional ("" → undefined, not 0);
- *  - enum labels inside the correction selects and the "All …" options;
- *  - the stale-error guard after a dismissed add, and the permissions retry;
- *  - sort direction indicators and the sorting description line.
+ * Finance URL filters, correction consequences, optional quantities, retries and
+ * sorting.
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";

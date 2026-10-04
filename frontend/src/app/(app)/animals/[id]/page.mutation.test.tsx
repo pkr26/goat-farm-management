@@ -1,10 +1,10 @@
 /**
- * Animal profile mutation-hardening — pins behaviour the wider suites leave
- * open: discarding dialog drafts on cancel (weight/move/status), treating a
- * cleared numeric input as "unset" rather than 0, the health-event CTA's
- * permission gate and returnTo link, the permission-aware wording of the
- * weight empty state, exact em-dash fallbacks in the Details grid, the kids
- * card's humanised cells and copy, and the permissions dead-end's retry.
+ * Animal profile regression — pins behaviour the wider suites leave open: discarding
+ * dialog drafts on cancel (weight/move/status), treating a cleared numeric input as
+ * "unset" rather than 0, the health-event CTA's permission gate and returnTo link,
+ * the permission-aware wording of the weight empty state, exact em-dash fallbacks in
+ * the Details grid, the kids card's humanised cells and copy, and the permissions
+ * dead-end's retry.
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";

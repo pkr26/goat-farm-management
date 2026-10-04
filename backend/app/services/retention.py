@@ -8,9 +8,8 @@ short lock timeout; skipped child rows are never left for an unbounded cascade.
 
 Deliberate scope boundaries:
 
-* ``weight_records`` / ``feeding_records`` are explicitly OUT: the growth
-  curves and feed analytics ARE their long-term value (ITEM 9.1 lists them
-  only under a future archive-schema/partition design, not deletion).
+* Keep ``weight_records`` and ``feeding_records`` for long-term growth and
+  feed analytics. Their retention policy allows future archival, not deletion.
 * Screening deletion is a three-transaction saga: commit an exact-key
   tombstone, idempotently remove and verify objects, then remove the database
   chain. A crash at any boundary leaves enough durable state to retry safely.

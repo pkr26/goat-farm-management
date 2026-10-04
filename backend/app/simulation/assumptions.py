@@ -4,8 +4,7 @@ Every field carries a default, so ``SimulationAssumptions()`` is a complete,
 valid Osmanabadi stall-fed baseline unit (50 does + 2 bucks, 120 months).
 All sub-models forbid extra keys so API payloads fail loudly on typos.
 
-Default-preset DECISION RECORD (2026-10-01 audit, 08-M7 — decided
-2026-10-02): the defaults remain the sourced stress-conservative reference
+Default-preset DECISION RECORD: the defaults remain the sourced stress-conservative reference
 case; numeric re-baselining toward a "bankable" unit was evaluated and
 REJECTED on modeling-integrity grounds. Every price/cost input is pinned to
 a cited 2025-26 Telangana source, and the engine's own break-even search
@@ -499,11 +498,10 @@ class SalesAssumptions(_Group):
     @field_validator("monthly_meat_price_multipliers")
     @classmethod
     def _user_seasonality_normalizes_to_mean_one(cls, value: list[float]) -> list[float]:
-        # The default factory normalizes, but a user-supplied curve did not:
-        # a hand-written list averaging 1.1 silently redefined the base price
-        # 10% above the documented annual mean (P3, 2026-09-20 audit). Skip
-        # lists already at mean 1.0 (within float noise) so round trips stay
-        # bit-identical instead of oscillating in the last ULP.
+        # The default factory normalizes, but a user-supplied curve did not: a hand-written list
+        # averaging 1.1 silently redefined the base price 10% above the documented annual mean. Skip
+        # lists already at mean 1.0 (within float noise) so round trips stay bit-identical instead
+        # of oscillating in the last ULP.
         mean = sum(value) / len(value)
         if abs(mean - 1.0) > 1e-12:
             return _normalized_seasonality(value)
@@ -1033,8 +1031,8 @@ def min_feasible_sale_age(a: "SimulationAssumptions") -> int:
     ``<= sale_age - 1``.  Sensitivity and optimization mutate
     ``sale_age_months`` and re-validate the whole scenario, so a variant
     that lowers the sale age below the youngest male-grower event's age + 1
-    would raise a ValidationError on a scenario the user submitted as valid
-    (2026-09-20 audit P1-5).  Callers clamp their sale-age axes to this
+    would raise a ValidationError on a scenario the user submitted as valid.  Callers clamp their
+    sale-age axes to this
     floor.
     """
     return max(
@@ -1176,31 +1174,25 @@ class SimulationAssumptions(_Group):
                 }
             )
         elif self.sales.festival_sale_months is None:
-            # Every scenario is a meat scenario now, so the Bakrid calendar
-            # auto-fills for the run's own horizon — but only when that
-            # horizon actually contains a Bakrid month. An empty calendar
-            # stays None instead of materializing []: a frozen [] would be
-            # indistinguishable from the user's explicit "no festival
-            # months", and the re-anchor rule below deliberately respects
-            # that choice. Staying None keeps the auto-fill live, so
-            # extending the horizon past the lunar gap re-derives the
-            # festivals instead of carrying a silent nothing into the decade
-            # (2026-09-20 audit P2-8).
+            # Every scenario is a meat scenario now, so the Bakrid calendar auto-fills for the run's
+            # own horizon — but only when that horizon actually contains a Bakrid month. An empty
+            # calendar stays None instead of materializing []: a frozen [] would be
+            # indistinguishable from the user's explicit "no festival months", and the re-anchor
+            # rule below deliberately respects that choice. Staying None keeps the auto-fill live,
+            # so extending the horizon past the lunar gap re-derives the festivals instead of
+            # carrying a silent nothing into the decade.
             derived = bakrid_festival_months(self.meta.start_year_month, self.meta.horizon_months)
             if derived:
                 self.sales.festival_sale_months = derived
         else:
-            # Re-anchor a truncated auto-derived calendar. Shrinking the
-            # horizon prunes the list in place; auto-fill only ran when the
-            # value was None, so extending the horizon back never restored
-            # the pruned months — a decade plan permanently kept 2 of its 10
-            # Bakrid months (2026-09-20 audit P2-8). A list that is exactly
-            # the Bakrid calendar truncated to some shorter horizon (its
-            # months are the first k of the current chain) was auto-derived;
-            # re-derive it for the current horizon. An explicitly EMPTY list
-            # is the user's "no festival months" and is left untouched.
-            # A genuinely customized list (not a prefix of the chain) is
-            # likewise left untouched.
+            # Re-anchor a truncated auto-derived calendar. Shrinking the horizon prunes the list in
+            # place; auto-fill only ran when the value was None, so extending the horizon back never
+            # restored the pruned months — a decade plan permanently kept 2 of its 10 Bakrid months.
+            # A list that is exactly the Bakrid calendar truncated to some shorter horizon (its
+            # months are the first k of the current chain) was auto-derived; re-derive it for the
+            # current horizon. An explicitly EMPTY list is the user's "no festival months" and is
+            # left untouched. A genuinely customized list (not a prefix of the chain) is likewise
+            # left untouched.
             months = self.sales.festival_sale_months
             full = bakrid_festival_months(self.meta.start_year_month, self.meta.horizon_months)
             if months and set(months) == set(full[: len(months)]) and len(months) != len(full):

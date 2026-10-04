@@ -1,7 +1,7 @@
 /**
- * Feed recipes page — mutation-hardening suite: the empty recipe catalog,
- * species-aware allocation bucket labels, recipe card content, the recipe
- * load-error retry and the permissions-error retry.
+ * Feed recipes page — regression suite: the empty recipe catalog, species-aware
+ * allocation bucket labels, recipe card content, the recipe load-error retry and the
+ * permissions-error retry.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";

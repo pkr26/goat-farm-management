@@ -81,10 +81,7 @@ NON_APP_ENV_VARS = frozenset(
         "GOATFARM_EDGE_PUBLIC_SCHEME",
         "GOATFARM_EDGE_PROXY_IP",
         "GOATFARM_EDGE_MAX_BODY_SIZE",
-        # Auth flood-zone shaping (P2-15): consumed and grammar-validated by
-        # docker/edge-entrypoint.sh. Discovered 2026-09-22 missing from this
-        # allowlist — the guard was rejecting the very .env.example the repo
-        # ships.
+        # Edge rate-limit settings are validated by docker/edge-entrypoint.sh.
         "GOATFARM_EDGE_AUTH_RATE",
         "GOATFARM_EDGE_AUTH_BURST",
         "GOATFARM_DOCKER_SUBNET",
@@ -102,8 +99,8 @@ NON_APP_ENV_VARS = frozenset(
         "GOATFARM_DB_CA_FILE",
         "GOATFARM_JWT_SECRET_DIR",
         "GOATFARM_COMPOSE_ENV_FILE",
-        # Host-side directory bind-mounted (read-only) at /run/secrets/app for
-        # the file-delivered application secrets (2026-10-01 audit, 09-1).
+        # Host-side directory bind-mounted (read-only) at /run/secrets/app for the file-delivered
+        # application secrets.
         "GOATFARM_APP_SECRET_DIR",
         "GOATFARM_API_SECRET_DIR",
         "GOATFARM_MIGRATION_SECRET_DIR",
@@ -274,10 +271,9 @@ def _https_or_loopback_url(value: str, *, setting: str) -> str:
     if parsed.scheme != "https" and host not in _LOOPBACK_HOSTS:
         raise ValueError(f"{setting} {value!r} must use https:// (or an explicit loopback host)")
     try:
-        # urlsplit defers port parsing to this property; an out-of-range or
-        # non-numeric port ("https://host:99999") raises here, not at split.
-        # Reading it converts a boot-clean-but-broken URL into a boot failure
-        # (2026-09-20 audit P2-12 — sibling validators already read .port).
+        # urlsplit defers port parsing to this property; an out-of-range or non-numeric port
+        # ("https://host:99999") raises here, not at split. Reading it converts a
+        # boot-clean-but-broken URL into a boot failure.
         _port: int | None = parsed.port
     except ValueError as exc:
         raise ValueError(f"{setting} {value!r} has an invalid port: {exc}") from exc
@@ -314,7 +310,7 @@ def _invalid_db_ca_mode(path: Path | None, sslmode: DbSslMode) -> str | None:
 
 
 def _read_secret_file(path: Path, *, setting_name: str) -> str:
-    """Read and trim one file-delivered secret value (2026-10-01 audit, 09-1).
+    """Read and trim one file-delivered secret value.
 
     Production compose delivers the environment-borne secrets as read-only
     bind files under ``/run/secrets/app`` — the same mechanism the JWT PEMs
@@ -401,9 +397,8 @@ class MigrationSettings(BaseSettings):
     # Required only when the pending revision set contains a migration whose
     # lock/backfill contract explicitly needs application writes drained.
     migration_writes_quiesced: bool = False
-    # File-delivered URL variants (2026-10-01 audit, 09-1): when set, the
-    # read-only mounted file's trimmed content replaces the plain URL
-    # variable's value. See the Settings block for the delivery contract.
+    # File-delivered URL variants: when set, the read-only mounted file's trimmed content replaces
+    # the plain URL variable's value. See the Settings block for the delivery contract.
     database_url_file: Path | None = None
     migration_database_url_file: Path | None = None
 
@@ -428,11 +423,9 @@ class MigrationSettings(BaseSettings):
                 ("migration_database_url", "migration_database_url_file"),
             ),
         )
-        # File-delivered URLs win over their plain environment variables
-        # (2026-10-01 audit, 09-1) and must be substituted before the URL
-        # contract checks below read the value. The normalizer's error
-        # message names whichever route actually delivered the value
-        # (2026-10-02 audit), so a file-delivered URL's contract failure
+        # File-delivered URLs win over their plain environment variables and must be substituted
+        # before the URL contract checks below read the value. The normalizer's error message names
+        # whichever route actually delivered the value, so a file-delivered URL's contract failure
         # points the operator at the file knob, not the plain one.
         database_url_source = "GOATFARM_DATABASE_URL"
         if (
@@ -642,13 +635,11 @@ def _screening_configuration_problems(settings: ScreeningRuntimeSettings) -> lis
             settings.screening_openai_api_key
         ):
             missing.append("GOATFARM_SCREENING_OPENAI_API_KEY")
-    # The stale-claim horizon must cover one worst-case silent window:
-    # detection chain + one crop's gate chain + specialists + cross-check ≈
-    # (2 × providers + 6) provider timeouts.  A horizon shorter than that
-    # lets a second worker stale-reclaim a live row mid-cascade — duplicate
-    # runs, duplicate findings, double provider billing (2026-09-20 audit
-    # P2-10).  Leased row locks narrow the window but only this invariant
-    # removes the legal-but-pathological configurations outright.
+    # The stale-claim horizon must cover one worst-case silent window: detection chain + one crop's
+    # gate chain + specialists + cross-check ≈ (2 × providers + 6) provider timeouts.  A horizon
+    # shorter than that lets a second worker stale-reclaim a live row mid-cascade — duplicate runs,
+    # duplicate findings, double provider billing.  Leased row locks narrow the window but only this
+    # invariant removes the legal-but-pathological configurations outright.
     provider_count = max(1, len(settings.screening_provider_rotation))
     worst_cascade_seconds = (2 * provider_count + 6) * settings.screening_provider_timeout_seconds
     if settings.screening_stale_processing_after_seconds < worst_cascade_seconds:
@@ -805,7 +796,7 @@ class Settings(BaseSettings):
         default_factory=list, max_length=MAX_PREVIOUS_TOTP_ENCRYPTION_KEYS
     )
 
-    # --- File-delivered secrets (2026-10-01 audit, 09-1) --------------------
+    # --- File-delivered secrets --------------------
     # Optional container-side paths for the environment-borne secrets above.
     # When one is set, the mounted file's trimmed content takes precedence
     # over the plain environment variable; the plain variables keep working
@@ -958,15 +949,13 @@ class Settings(BaseSettings):
     screening_raw_cleanup_interval_seconds: int = Field(default=60, ge=10)
     screening_raw_cleanup_batch_size: int = Field(default=25, ge=1, le=500)
     screening_raw_cleanup_max_batches: int = Field(default=4, ge=1, le=100)
-    # ITEM 6 (2026-09-21 playbook): per-farm daily provider-call budget. The
-    # claim path measures spend as the farm's ScreeningRun rows for the
-    # current UTC day (every provider call records exactly one run) and
-    # leaves over-budget farms' photos PENDING until the next day — a stuck
-    # provider loop or a runaway backlog can never produce an unbounded
-    # bill. Counted per call, not per photo: a multi-crop cascade costs its
-    # real size.
+    # Per-farm daily provider-call budget. The claim path measures spend as the farm's ScreeningRun
+    # rows for the current UTC day (every provider call records exactly one run) and leaves
+    # over-budget farms' photos PENDING until the next day — a stuck provider loop or a runaway
+    # backlog can never produce an unbounded bill. Counted per call, not per photo: a multi-crop
+    # cascade costs its real size.
     screening_daily_call_budget_per_farm: int = Field(default=400, ge=1, le=100_000)
-    # --- Notifications (ITEM 4, 2026-09-21 playbook) --------------------------
+    # --- Notifications --------------------------
     # Off by default: without provider credentials the feature stays inert
     # (same fail-closed posture as screening). When enabled in production the
     # validator below refuses to boot without the MSG91 credentials.
@@ -999,7 +988,7 @@ class Settings(BaseSettings):
     notifications_delivery_concurrency: int = Field(default=8, ge=1, le=64)
     notifications_per_farm_delivery_concurrency: int = Field(default=2, ge=1, le=16)
 
-    # --- Worker tablet PIN login (ITEM 2, 2026-09-21 playbook) ---------------
+    # --- Worker tablet PIN login ---------------
     # Short numeric PINs are a convenience credential for a shared farm
     # tablet, scoped to one membership — never a replacement for the account
     # password. Production demands the longer floor below.
@@ -1097,8 +1086,8 @@ class Settings(BaseSettings):
     def _https_s3_endpoint_url(cls, value: str | None) -> str | None:
         """Every screening S3 request carries the SigV4 signature of
         GOATFARM_S3_SECRET_ACCESS_KEY, and the photo payloads are farm data:
-        a plaintext endpoint broadcast one and exposed the other (2026-09-17
-        audit L-5). Unset means AWS S3 proper and is unaffected."""
+        a plaintext endpoint broadcast one and exposed the other. Unset means AWS S3 proper and is
+        unaffected."""
         if value is None or value == "":
             return None
         return _https_or_loopback_url(value, setting="s3_endpoint_url")
@@ -1375,12 +1364,10 @@ class Settings(BaseSettings):
                 ("msg91_auth_key", "msg91_auth_key_file"),
             ),
         )
-        # File-delivered secrets (2026-10-01 audit, 09-1) are substituted
-        # FIRST, before any check below reads or normalizes the value they
-        # replace. A configured-but-unreadable file fails closed here in
-        # every environment, not only production. The URL normalizer's error
-        # message names whichever route actually delivered the value
-        # (2026-10-02 audit).
+        # File-delivered secrets are substituted FIRST, before any check below reads or normalizes
+        # the value they replace. A configured-but-unreadable file fails closed here in every
+        # environment, not only production. The URL normalizer's error message names whichever route
+        # actually delivered the value.
         if (
             value := _secret_file_value(
                 self.metrics_bearer_token_file, setting_name="GOATFARM_METRICS_BEARER_TOKEN_FILE"
@@ -1746,9 +1733,8 @@ class ScreeningWorkerSettings(BaseSettings):
     db_max_overflow: int = Field(default=2, ge=0)
     db_pool_timeout: int = Field(default=30, ge=1)
     db_statement_timeout_ms: int = Field(default=30_000, ge=1)
-    # File-delivered secret variants (2026-10-01 audit, 09-1): when set, the
-    # read-only mounted file's trimmed content replaces the plain variable's
-    # value. See the Settings block for the delivery contract.
+    # File-delivered secret variants: when set, the read-only mounted file's trimmed content
+    # replaces the plain variable's value. See the Settings block for the delivery contract.
     database_url_file: Path | None = None
     s3_access_key_id_file: Path | None = None
     s3_secret_access_key_file: Path | None = None
@@ -1764,13 +1750,11 @@ class ScreeningWorkerSettings(BaseSettings):
     screening_s3_prefix: str = Field(default="raw", min_length=1, max_length=100)
     screening_poll_interval_seconds: int = Field(default=300, ge=30)
     screening_max_images_per_cycle: int = Field(default=50, ge=1, le=1_000)
-    # ITEM 6 (2026-09-21 playbook): per-farm daily provider-call budget. The
-    # claim path measures spend as the farm's ScreeningRun rows for the
-    # current UTC day (every provider call records exactly one run) and
-    # leaves over-budget farms' photos PENDING until the next day — a stuck
-    # provider loop or a runaway backlog can never produce an unbounded
-    # bill. Counted per call, not per photo: a multi-crop cascade costs its
-    # real size.
+    # Per-farm daily provider-call budget. The claim path measures spend as the farm's ScreeningRun
+    # rows for the current UTC day (every provider call records exactly one run) and leaves
+    # over-budget farms' photos PENDING until the next day — a stuck provider loop or a runaway
+    # backlog can never produce an unbounded bill. Counted per call, not per photo: a multi-crop
+    # cascade costs its real size.
     screening_daily_call_budget_per_farm: int = Field(default=400, ge=1, le=100_000)
     screening_image_max_edge_px: int = Field(default=1_568, ge=256, le=4_096)
     screening_crop_detection_enabled: bool = True
@@ -1815,13 +1799,11 @@ class ScreeningWorkerSettings(BaseSettings):
     )
     @classmethod
     def _empty_secret_file_var_is_unset(cls, value: object) -> object:
-        # Same idiom as the Settings projection (2026-10-01 audit, 09-1):
-        # production compose always exports the worker's *_FILE knobs with
-        # `${...:-}` optional interpolation, so a plain-env deployment (the
-        # documented backward-compatible route) delivers empty strings —
-        # without this normalizer pydantic coerces "" to Path(".") and the
-        # worker container crash-loops at settings construction
-        # (2026-10-02 audit). Whitespace remains a real path.
+        # Same idiom as the Settings projection: production compose always exports the worker's
+        # *_FILE knobs with `${...:-}` optional interpolation, so a plain-env deployment (the
+        # documented backward-compatible route) delivers empty strings — without this normalizer
+        # pydantic coerces "" to Path(".") and the worker container crash-loops at settings
+        # construction. Whitespace remains a real path.
         return None if value == "" else value
 
     @field_validator("db_sslrootcert_path")
@@ -1867,11 +1849,9 @@ class ScreeningWorkerSettings(BaseSettings):
                 ("screening_openai_api_key", "screening_openai_api_key_file"),
             ),
         )
-        # File-delivered secrets (2026-10-01 audit, 09-1) are substituted
-        # before the URL contract check reads the value; a configured but
-        # unreadable file fails closed here in every environment. The
-        # normalizer's error names whichever route delivered the value
-        # (2026-10-02 audit).
+        # File-delivered secrets are substituted before the URL contract check reads the value; a
+        # configured but unreadable file fails closed here in every environment. The normalizer's
+        # error names whichever route delivered the value.
         database_url_source = "GOATFARM_DATABASE_URL"
         if (
             value := _secret_file_value(

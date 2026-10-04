@@ -41,9 +41,8 @@ def bucket_transition_error(
     to_bucket: str,
     *,
     context: TransitionContext = "manual",
-    # Required (B-small, 2026-09-21 audit): the old `or today()` fallback
-    # evaluated the deployment-default timezone, not the farm's business
-    # calendar. Every caller already passes the farm-resolved date.
+    # Required: the old `or today()` fallback evaluated the deployment-default timezone, not the
+    # farm's business calendar. Every caller already passes the farm-resolved date.
     reference_date: date,
     facts: TransitionFacts | None = None,
     resting_since: date | None = None,

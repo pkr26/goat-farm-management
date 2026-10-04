@@ -1,4 +1,10 @@
-Frontend mutation reports checked in before the 2026-10-03 harness repair are historical, untrusted measurements. No new full campaign score is claimed by this repair.
+# Frontend mutation testing
+
+Generate campaign inputs from the current checkout. Manifests, coverage maps,
+attempt logs and measurements are local outputs and CI artifacts; they are
+not committed. [CAMPAIGN.md](../../docs/archive/frontend-mutation/CAMPAIGN.md) and [EQUIVALENTS.md](../../docs/archive/frontend-mutation/EQUIVALENTS.md)
+retain historical investigation notes, whose measurements are untrusted.
+No current full campaign score is claimed.
 
 `.github/workflows/mutation.yml` now exercises real application mutants on
 relevant pull requests and weekly. It rebuilds the complete per-test coverage
@@ -18,6 +24,7 @@ node mutation/mutate_run.mjs --full --dry-run
 node mutation/mutate_run.mjs --smoke
 node mutation/mutate_run.mjs --full
 node mutation/mutate_report.mjs --dry-run
+node mutation/mutate_triage.mjs                  # current complete-selection survivors
 ```
 
 Generation records the original text of each edit. The runner and Vite transform both reject stale source fingerprints and edit spans; the runner validates syntax and jump/await/yield context in the complete changed file. Tests always run against an in-memory edit, never a rewritten source file. Keep source, tests, harness/configuration, dependency lock and patches stable during collection/execution; changes invalidate results.

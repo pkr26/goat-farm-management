@@ -1,5 +1,5 @@
 /**
- * English-literal scanner for the i18n gate (ITEM 5).
+ * English-literal scanner for the i18n gate.
  *
  * Shared by src/lib/i18n/gate.test.ts (the ratchet) and this script's CLI
  * mode (baseline regeneration). It scans every non-test .tsx file under
@@ -12,7 +12,7 @@
  *     plus camelCase copy props ending in Title/Description/Label/
  *     Placeholder/Message/HelperText (dialogTitle, searchLabel, …) — and
  *     the same attributes as TEMPLATE literals
- *     (`aria-label={\`Switch farm — current: ${farm}\`}`, 2026-09-29).
+ *     (`aria-label={\`Switch farm — current: ${farm}\`}`).
  *  3. String literals in JSX expression containers: `{"text"}`,
  *     `{busy ? "Saving…" : "Add"}`, `{ready && "Done."}` and template
  *     literal containers (`{\`${count} saved\`}`).
@@ -45,7 +45,7 @@ const NON_TEXTUAL =
   /^(?:[—–\-•.…:|,/()#%*0-9\s]+|EN|తెలుగు|Herdly|₹.*|kg|d)$/;
 
 // JSX text children: `>Some English copy<`. Punctuation beyond the original
-// audit set (ellipsis, sentence enders, parentheses) is included so a
+// copy punctuation set (ellipsis, sentence enders, parentheses) is included so a
 // trailing "…" can no longer hide a literal from the gate.
 const JSX_TEXT = />\s*([A-Z][A-Za-z0-9 ,'&%/—–….!?:()\-]{3,80})\s*</g;
 
@@ -67,7 +67,7 @@ const CAMEL_ATTRIBUTE = new RegExp(
 
 // The same copy attributes as template literals — the interpolated
 // aria-labels (`aria-label={\`Switch farm — current: ${farmName}\`}`) were a
-// proven scanner blind spot (2026-09-29 audit). Interpolation is stripped
+// proven scanner blind spot. Interpolation is stripped
 // before the prose filter, so `…current: ${farmName}\` still reads as copy.
 const TEMPLATE_ATTRIBUTE = new RegExp(
   `\\b(?:${ATTRIBUTE_NAMES})=\\{?\\\`([^\\\`]{4,200})\\\``,

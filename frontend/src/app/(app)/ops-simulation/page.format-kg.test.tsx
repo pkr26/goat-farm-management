@@ -1,8 +1,7 @@
 /**
- * Ops-simulation kilogram formatting (2026-10-01 campaign follow-up):
- * whole-kilogram shares print with NO decimals ("2", "1") while fractional
- * shares print exactly one ("1.2") — the formatter's whole/fractional split
- * pinned at both arms.
+ * Ops-simulation kilogram formatting: whole-kilogram shares print with NO decimals
+ * ("2", "1") while fractional shares print exactly one ("1.2") — the formatter's
+ * whole/fractional split pinned at both arms.
  */
 
 import { screen, within } from "@testing-library/react";

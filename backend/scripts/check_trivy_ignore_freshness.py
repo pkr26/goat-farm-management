@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Fail CI when the compose-image Trivy ignore file goes stale (L-5,
-2026-09-20 audit).
+"""Fail CI when the Compose image vulnerability exceptions go stale.
 
 `.trivyignore.compose-images` masks acknowledged CVEs in the digest-pinned
 third-party images (nginx, PostgreSQL) until upstream publishes rebuilt tags.
@@ -17,6 +16,7 @@ weekly policy; override with GOATFARM_TRIVY_IGNORE_MAX_AGE_DAYS for tests).
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from datetime import date, datetime, timedelta
@@ -49,9 +49,7 @@ def main() -> int:
     parser.add_argument(
         "--max-age-days",
         type=int,
-        default=int(
-            __import__("os").environ.get("GOATFARM_TRIVY_IGNORE_MAX_AGE_DAYS", DEFAULT_MAX_AGE_DAYS)
-        ),
+        default=int(os.environ.get("GOATFARM_TRIVY_IGNORE_MAX_AGE_DAYS", DEFAULT_MAX_AGE_DAYS)),
         help="maximum age of the refreshed marker before CI fails",
     )
     parser.add_argument(

@@ -1,15 +1,9 @@
 "use client";
 
 /**
- * Minimal dependency-free i18n layer (no next-intl: the audit's constraint is
- * a low-bandwidth bundle). One React context holds the language choice in
- * localStorage under a namespaced key; `useT()` resolves keys against the
- * Telugu catalog first and the English catalog as the universal fallback.
- *
- * Consumers that render without a provider (unit tests, storybook-ish
- * islands) get a default context that behaves exactly like English with a
- * no-op setter, so wiring a page to `useT()` can never crash a test that
- * predates the provider.
+ * A lightweight language context with a lazily loaded Telugu catalog and an English
+ * fallback. Persist the choice in localStorage and a server-readable cookie.
+ * Consumers outside the provider use English with a no-op setter.
  */
 
 import {
@@ -97,19 +91,17 @@ interface LanguageContextValue {
   t: TFn;
 }
 
-// Stryker disable ObjectLiteral, StringLiteral, ArrowFunction: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the providerless default is pinned by the campaign suite
 const defaultContextValue: LanguageContextValue = {
   language: "en",
   setLanguage: () => {},
   t: (key, vars) => translate("en", key, vars),
 };
-// Stryker restore ObjectLiteral, StringLiteral, ArrowFunction
 
 const LanguageContext = createContext<LanguageContextValue>(defaultContextValue);
 
 /** Reads the persisted language without React — for the route-state
  * boundaries (error/404/loading) that must render even when the provider
- * tree has crashed (2026-09-28 audit, I3). */
+ * tree has crashed. */
 function readStoredLanguageChoice(): Language | null {
   try {
     const stored = safeStorage("local")?.getItem(LANGUAGE_STORAGE_KEY);
@@ -171,7 +163,6 @@ export function LanguageProvider({
       });
   }, [initialLanguage]);
 
-  // Stryker disable ArrayDeclaration: a constant string dep never changes, so the effect still runs exactly once
   // Keep <html lang> truthful for screen readers and Telugu keyboard hints,
   // and mirror the choice into the module store so pure helpers (format.ts
   // date rendering, enum-labels defaults) follow the same language.
@@ -180,9 +171,7 @@ export function LanguageProvider({
     document.documentElement.lang = language;
     setActiveLanguage(language);
   }, [catalogReady, language]);
-  // Stryker restore ArrayDeclaration
 
-  // Stryker disable ArrayDeclaration: setLanguageState is stable and the body reads no reactive values, so a constant dep list cannot change it
   const setLanguage = useCallback((next: Language) => {
     const version = ++switchVersion.current;
     if (languageCatalogIsLoaded(next)) {
@@ -203,7 +192,6 @@ export function LanguageProvider({
         // matters on a cold offline visit where the Telugu chunk is not yet
         // in the service worker cache.
       });
-  // Stryker restore ArrayDeclaration
   }, []);
 
   const value = useMemo<LanguageContextValue>(

@@ -19,13 +19,12 @@ import { useCallback, useEffect, useRef } from "react";
 
 export type UrlStateUpdate = Record<string, string | number | null | undefined>;
 
-/** Mirror of backend schemas/common.py MAX_PAGE_OFFSET — the inclusive
- * ceiling every paginated endpoint enforces. URL offsets must never exceed
- * it or the API rejects the request with a 422 with no self-heal (error
- * responses never reach the recovery effects). Pinned to the backend value
- * by src/lib/backend-constants-parity.test.ts (2026-09-20 audit P2-16: a
- * drifted mirror let deep links 422 the API after the backend lowered the
- * constant). */
+/**
+ * Inclusive pagination ceiling shared with backend schemas/common.py. Clamp URL
+ * offsets before requesting data; a rejected 422 response cannot trigger pagination
+ * recovery. backend-constants-parity.test.ts checks that this value matches the
+ * backend.
+ */
 export const MAX_PAGE_OFFSET = 10_000;
 
 export function useUrlState() {

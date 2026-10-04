@@ -177,14 +177,12 @@ def _legacy_pbkdf2_parts(stored: str) -> tuple[int, bytes, str] | None:
         return None
     if algo != LEGACY_PBKDF2_PREFIX or not salt or not digest_hex:
         return None
-    # The rejection-time padding budget is also the verification ceiling:
-    # AUTH-1 (2026-09-16 audit) — verifying a hash above the budget makes
-    # every rejected login's cost grow linearly with the stored count, a
-    # remote account-classification oracle. Enforcing the documented
-    # invariant ("the budget must cover the highest iteration count actually
-    # imported") turns over-budget hashes into the same fast, full-budget
-    # rejection as any malformed hash. Deployments importing costlier hashes
-    # raise rejected_login_pbkdf2_work_budget with their import audit.
+    # The rejection-time padding budget is also the verification ceiling: verifying a hash above the
+    # budget makes every rejected login's cost grow linearly with the stored count, a remote
+    # account-classification oracle. Enforcing the documented invariant ("the budget must cover the
+    # highest iteration count actually imported") turns over-budget hashes into the same fast,
+    # full-budget rejection as any malformed hash. Deployments importing costlier hashes raise
+    # rejected_login_pbkdf2_work_budget with their import audit.
     ceiling = min(
         LEGACY_PBKDF2_MAX_ITERATIONS,
         get_settings().rejected_login_pbkdf2_work_budget,
@@ -293,7 +291,7 @@ async def verify_password_with_work_async(password: str, stored: str) -> tuple[b
     return await _run_password_work(lambda: _verify_password_with_work(password, stored))
 
 
-# --- TOTP recovery codes (ITEM 7, 2026-09-21 playbook) ----------------------
+# --- TOTP recovery codes ----------------------
 # Break-glass single-use codes for the TOTP second factor: they eliminate the
 # permanent-owner-lockout failure mode without weakening the no-email-recovery
 # stance. Format: 10 chars from a hand-copyable alphabet (no I/L/O/0/1) as
@@ -982,15 +980,14 @@ def decode_refresh_claims(token: str) -> RefreshClaims | None:
     )
 
 
-# --- TOTP second factor (RFC 6238, HUM-1 follow-up 2026-09-16) ------------
+# --- TOTP second factor (RFC 6238) ------------
 #
-# No new dependency: RFC 6238 is HMAC-SHA1 over a 30-second step with a
-# 6-digit truncation, expressible in a few lines of stdlib. The shared secret
-# is a 160-bit random value (base32). New records are AES-GCM encrypted under
-# an independent operator-managed AES-256 key, not JWT signing material. That
-# keeps TOTP usable across a JWT signing-key rotation. Raw v1 ciphertext is
-# retained only as a migration reader while its original active JWT signer is
-# still configured; successful TOTP use rewraps it into the versioned format.
+# No new dependency: RFC 6238 is HMAC-SHA1 over a 30-second step with a 6-digit truncation,
+# expressible in a few lines of stdlib. The shared secret is a 160-bit random value (base32). New
+# records are AES-GCM encrypted under an independent operator-managed AES-256 key, not JWT signing
+# material. That keeps TOTP usable across a JWT signing-key rotation. Raw v1 ciphertext is retained
+# only as a migration reader while its original active JWT signer is still configured; successful
+# TOTP use rewraps it into the versioned format.
 
 TOTP_STEP_SECONDS = 30
 TOTP_DIGITS = 6
@@ -1048,7 +1045,7 @@ def verify_totp_code(
     mark (the highest matched step, so drift backwards cannot re-open an
     older code)."""
     normalized = code.strip().replace(" ", "")
-    # str.isdigit() (the pre-2026-09-17 guard) also accepts non-ASCII digits
+    # str.isdigit() also accepts non-ASCII digits
     # such as '٥' or '５'. Those pass the length check, then blow up inside
     # hmac.compare_digest, which tolerates only ASCII str inputs — turning a
     # malformed guess into a TypeError/500. isascii() AND isdecimal() admits

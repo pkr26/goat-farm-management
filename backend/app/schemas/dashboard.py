@@ -121,10 +121,9 @@ class BucketReportRow(BaseModel):
 
 
 class BreedingStatsOut(BaseModel):
-    # None means the caller lacks breeding.view — withheld, not zero. The
-    # counts are breeding-derived aggregates like the rates beside them, so
-    # they cannot stay ungated while every sibling field is withheld (B4,
-    # 2026-09-21 audit).
+    # None means the caller lacks breeding.view — withheld, not zero. The counts are
+    # breeding-derived aggregates like the rates beside them, so they cannot stay ungated while
+    # every sibling field is withheld.
     total_records: int | None
     conception_rate: float | None
     first_cycle_rate: float | None

@@ -18,7 +18,7 @@ from .common import (
 # AI and AI_SEXED stay in the wire vocabulary, reserved for a future AI
 # workflow; today the goat-meat protocol is natural cover and
 # services.breeding.create_breeding_record rejects both by design (pinned by
-# test_ai_methods_refused_for_goats and test_red_m2_goat_farm_rejects_ai_service).
+# test_ai_methods_refused_for_goats and test_goat_farm_rejects_ai_service).
 BreedingMethodValue = Literal["NATURAL", "AI", "AI_SEXED"]
 
 
@@ -133,8 +133,8 @@ class BreedingRecordOut(BaseModel):
     loss_notes: str | None
     loss_recorded_by_id: int | None
     loss_recorded_at: datetime | None
-    # Entry timestamp: separates the day the service was keyed in from the
-    # (possibly backdated) breeding_date (2026-09-28 audit, D3).
+    # Entry timestamp: separates the day the service was keyed in from the (possibly backdated)
+    # breeding_date.
     created_at: datetime
     has_kidding: bool = False
     doe_tag: str | None = None
@@ -166,10 +166,9 @@ class BreedingCandidateOut(BaseModel):
     name: str | None
     age_months: int | None
     latest_weight_kg: float | None
-    # A cull-flagged doe is servable by the owner only (create_breeding_record
-    # 409s her for every other manager); the picker must show the flag so the
-    # operator can skip her instead of filling the form into a rejection
-    # (wave-5 note, 2026-09-20 audit).
+    # A cull-flagged doe is servable by the owner only (create_breeding_record 409s her for every
+    # other manager); the picker must show the flag so the operator can skip her instead of filling
+    # the form into a rejection.
     cull_candidate: bool = False
 
 

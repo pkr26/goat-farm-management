@@ -272,10 +272,9 @@ async def create_kidding(
             raise HTTPException(status_code=404, detail=NOT_FOUND)
         if br.kidding_record is not None:
             raise lifecycle_conflict(detail=ALREADY_KIDDED)
-        # A kidding only makes sense against an ultrasound-confirmed pregnancy —
-        # a forged request against a PENDING/FAILED/ABORTED breeding is rejected.
-        # 409 like ALREADY_KIDDED above: the breeding's lifecycle state, not the
-        # request shape, is what refuses this (2026-09-28 audit, A3).
+        # A kidding only makes sense against an ultrasound-confirmed pregnancy — a forged request
+        # against a PENDING/FAILED/ABORTED breeding is rejected. 409 like ALREADY_KIDDED above: the
+        # breeding's lifecycle state, not the request shape, is what refuses this.
         if br.outcome != BreedingOutcome.CONFIRMED_PREGNANT.value:
             raise lifecycle_conflict(detail="Kidding requires a confirmed pregnancy")
         try:
@@ -293,7 +292,7 @@ async def create_kidding(
             raise HTTPException(
                 status_code=400, detail="Kidding date cannot be before the breeding date"
             )
-        # Defense-in-depth (2026-09-23 verification): the breeding service's
+        # Defense in depth: the breeding service's
         # chronology fence keeps a service from predating the dam's birth, so
         # a legal kidding cannot predate it either. A legacy/imported row
         # whose DOB was edited after the fact must not be deliverable

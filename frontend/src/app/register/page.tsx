@@ -19,9 +19,8 @@ import { mapServerError } from "@/lib/server-error-phrases";
 import type { RegisterIn, TokenOut } from "@/api/generated/models";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
-/** Rebuilt per language so inline validation messages localize. Exported for
- * direct schema-level testing. */
-export function makeRegisterSchema(t: TFn) {
+/** Rebuild the schema per language so inline validation messages localize. */
+function makeRegisterSchema(t: TFn) {
   return z.object({
     name: z.string().max(120).optional(),
     email: z
@@ -42,7 +41,6 @@ export default function RegisterPage() {
   const { signIn } = useAuth();
   const t = useT();
   const [serverError, setServerError] = useState<string | null>(null);
-  // Stryker disable next-line BooleanLiteral: the mount effect below overwrites the initial value before any continuation can observe it
   const mounted = useRef(true);
   const submission = useSingleFlight();
   const registerSchema = useMemo(() => makeRegisterSchema(t), [t]);
@@ -52,14 +50,12 @@ export default function RegisterPage() {
     formState: { errors, isSubmitting },
   } = useForm<RegisterValues>({ resolver: zodResolver(registerSchema) });
 
-  // Stryker disable ArrayDeclaration: a constant string dep never changes, so the effect still runs exactly once
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
-  // Stryker restore ArrayDeclaration
 
   async function onSubmit(values: RegisterValues) {
     await submission.run(async () => {
@@ -67,7 +63,6 @@ export default function RegisterPage() {
       try {
         const payload = {
           ...values,
-          // Stryker disable next-line OptionalChaining: the name input is registered unconditionally, so the value is a string, never undefined
           name: values.name?.trim() || null,
         } satisfies RegisterIn;
         const body = await apiFetch<TokenOut>(
@@ -81,7 +76,6 @@ export default function RegisterPage() {
         await signIn(body.access_token, body.user);
         if (mounted.current) router.push("/farm-select");
       } catch (err) {
-        // Stryker disable next-line ConditionalExpression: the only guarded statement is setServerError, a no-op on an unmounted component
         if (!mounted.current) return;
         // Surface the server's own message for every API error (400 duplicate
         // email, 429 rate limit, 422 password policy, 5xx) — mapped through
@@ -165,9 +159,8 @@ export default function RegisterPage() {
               aria-describedby={
                 [
                   errors.password ? "register-password-error" : null,
-                  // The hint is requirements text, not decoration: associate
-                  // it so screen readers announce it with the field (B-small
-                  // a11y, 2026-09-21 audit).
+                  // The hint is requirements text, not decoration: associate it so
+                  // screen readers announce it with the field.
                   "register-password-hint",
                 ]
                   .filter(Boolean)

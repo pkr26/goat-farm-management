@@ -5,26 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupAction,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarInput,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuAction,
-  SidebarMenuBadge,
   SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarProvider,
-  SidebarRail,
-  SidebarSeparator,
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
@@ -64,7 +46,6 @@ function drawerState() {
 beforeEach(() => {
   viewport.isMobile = false;
 });
-
 describe("useSidebar", () => {
   it("names the missing provider instead of handing out a null context", () => {
     function Consumer() {
@@ -316,7 +297,7 @@ describe("Sidebar", () => {
   });
 });
 
-describe("SidebarTrigger and SidebarRail", () => {
+describe("SidebarTrigger", () => {
   it("toggles the sidebar from the trigger with no onClick of its own", async () => {
     const user = userEvent.setup();
     render(
@@ -349,166 +330,10 @@ describe("SidebarTrigger and SidebarRail", () => {
     expect(onClick.mock.calls[0][0]).toHaveProperty("type", "click");
     expect(sidebarState()).toBe("collapsed");
   });
-
-  it("toggles from the rail while keeping it out of the tab order", async () => {
-    const user = userEvent.setup();
-    const { container } = render(
-      <SidebarProvider>
-        <StateProbe />
-        <SidebarRail />
-      </SidebarProvider>,
-    );
-
-    const rail = container.querySelector('[data-slot="sidebar-rail"]');
-    // The rail is a pointer affordance; keyboard users get the trigger instead.
-    expect(rail).toHaveAttribute("tabindex", "-1");
-    expect(rail).toHaveAttribute("aria-label", "Toggle Sidebar");
-    await user.click(rail as HTMLElement);
-
-    expect(sidebarState()).toBe("collapsed");
-  });
 });
 
-describe("sidebar regions", () => {
-  it("renders every region with its slot and semantic element", () => {
-    const { container } = render(
-      <SidebarProvider>
-        <Sidebar collapsible="none">
-          <SidebarHeader>
-            <SidebarInput placeholder="Search animals" />
-          </SidebarHeader>
-          <SidebarSeparator />
-          <SidebarContent>
-            <SidebarGroup>
-              <SidebarGroupLabel>Herd</SidebarGroupLabel>
-              <SidebarGroupAction aria-label="Add group" />
-              <SidebarGroupContent>
-                <p>Group body</p>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </SidebarContent>
-          <SidebarFooter>
-            <p>Footer body</p>
-          </SidebarFooter>
-        </Sidebar>
-        <SidebarInset>
-          <p>Page body</p>
-        </SidebarInset>
-      </SidebarProvider>,
-    );
-    const slot = (name: string) => container.querySelector(`[data-slot="${name}"]`);
-
-    expect(slot("sidebar-header")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Search animals")).toHaveAttribute(
-      "data-sidebar",
-      "input",
-    );
-    expect(screen.getByRole("separator")).toHaveAttribute(
-      "data-slot",
-      "sidebar-separator",
-    );
-    expect(slot("sidebar-content")?.tagName).toBe("NAV");
-    expect(slot("sidebar-group")).toBeInTheDocument();
-    expect(screen.getByText("Herd")).toHaveAttribute(
-      "data-slot",
-      "sidebar-group-label",
-    );
-    expect(screen.getByRole("button", { name: "Add group" })).toHaveAttribute(
-      "data-slot",
-      "sidebar-group-action",
-    );
-    expect(screen.getByText("Group body").parentElement).toHaveAttribute(
-      "data-slot",
-      "sidebar-group-content",
-    );
-    expect(screen.getByText("Footer body").parentElement).toHaveAttribute(
-      "data-slot",
-      "sidebar-footer",
-    );
-    expect(screen.getByRole("main")).toHaveAttribute("data-slot", "sidebar-inset");
-    expect(screen.getByText("Page body")).toBeInTheDocument();
-  });
-
-  it("lets a caller swap the element the group label and action render", () => {
-    render(
-      <SidebarProvider>
-        <SidebarGroupLabel render={<h2 />} className="custom-label">
-          Herd
-        </SidebarGroupLabel>
-        <SidebarGroupAction render={<a href="#add-animal">Add</a>} />
-      </SidebarProvider>,
-    );
-
-    const label = screen.getByRole("heading", { level: 2, name: "Herd" });
-    expect(label).toHaveClass("custom-label");
-    expect(label).toHaveAttribute("data-sidebar", "group-label");
-    expect(screen.getByRole("link", { name: "Add" })).toHaveAttribute(
-      "data-sidebar",
-      "group-action",
-    );
-  });
-
-  it("renders the menu tree as a nested list", () => {
-    const { container } = render(
-      <SidebarProvider>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton>Animals</SidebarMenuButton>
-            <SidebarMenuAction aria-label="Add animal" />
-            <SidebarMenuBadge>12</SidebarMenuBadge>
-            <SidebarMenuSub>
-              <SidebarMenuSubItem>
-                <SidebarMenuSubButton href="/animals/does">Does</SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            </SidebarMenuSub>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarProvider>,
-    );
-    const slot = (name: string) => container.querySelector(`[data-slot="${name}"]`);
-
-    expect(slot("sidebar-menu")?.tagName).toBe("UL");
-    expect(slot("sidebar-menu-item")?.tagName).toBe("LI");
-    expect(screen.getByRole("button", { name: "Animals" })).toHaveAttribute(
-      "data-slot",
-      "sidebar-menu-button",
-    );
-    expect(screen.getByRole("button", { name: "Add animal" })).toHaveAttribute(
-      "data-slot",
-      "sidebar-menu-action",
-    );
-    expect(screen.getByText("12")).toHaveAttribute("data-slot", "sidebar-menu-badge");
-    expect(slot("sidebar-menu-sub")?.tagName).toBe("UL");
-    expect(slot("sidebar-menu-sub-item")?.tagName).toBe("LI");
-    expect(screen.getByRole("link", { name: "Does" })).toHaveAttribute(
-      "data-slot",
-      "sidebar-menu-sub-button",
-    );
-  });
-});
 
 describe("SidebarMenuButton", () => {
-  it("marks only the active item, at both menu levels", () => {
-    render(
-      <SidebarProvider>
-        <SidebarMenuButton isActive>Animals</SidebarMenuButton>
-        <SidebarMenuButton>Tasks</SidebarMenuButton>
-        <SidebarMenuSubButton isActive href="/animals/does">
-          Does
-        </SidebarMenuSubButton>
-        <SidebarMenuSubButton href="/animals/bucks">Bucks</SidebarMenuSubButton>
-      </SidebarProvider>,
-    );
-
-    expect(screen.getByRole("button", { name: "Animals" })).toHaveAttribute("data-active");
-    expect(screen.getByRole("button", { name: "Tasks" })).not.toHaveAttribute(
-      "data-active",
-    );
-    expect(screen.getByRole("link", { name: "Does" })).toHaveAttribute("data-active");
-    expect(screen.getByRole("link", { name: "Bucks" })).not.toHaveAttribute(
-      "data-active",
-    );
-  });
 
   it("maps the variant and size props onto the button classes", () => {
     render(
@@ -616,27 +441,6 @@ describe("SidebarMenuButton", () => {
     expect(document.querySelector('[data-slot="tooltip-content"]')).toBeNull();
     await waitFor(() =>
       expect(document.querySelector('[data-slot="tooltip-content"]')).toBeNull(),
-    );
-  });
-});
-
-describe("SidebarMenuAction", () => {
-  it("hides the action until hover only when asked to", () => {
-    render(
-      <SidebarProvider>
-        <SidebarMenuAction aria-label="Always visible" />
-        <SidebarMenuAction aria-label="On hover" showOnHover />
-      </SidebarProvider>,
-    );
-
-    const always = screen.getByRole("button", { name: "Always visible" });
-    expect(always).not.toHaveClass("md:opacity-0");
-
-    const onHover = screen.getByRole("button", { name: "On hover" });
-    expect(onHover).toHaveClass(
-      "md:opacity-0",
-      "group-hover/menu-item:opacity-100",
-      "group-focus-within/menu-item:opacity-100",
     );
   });
 });

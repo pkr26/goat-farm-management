@@ -114,10 +114,9 @@ function txTypeLabel(value: string, language: Language): string {
  * a shared link can never wedge the ledger into a filter the API rejects. */
 function monthFromParams(params: URLSearchParams): string {
   const raw = params.get("month");
-  // The same strict grammar the typing handler enforces: URL adoption must
-  // not accept month shapes (2026-99, 2026-00) the input itself can never
-  // produce, or a crafted link persists an invalid filter (RT-P11-1).
-  // Stryker disable next-line ConditionalExpression: the regex rejects null (coerced "null") exactly like any malformed string, so the !== null arm never decides anything
+  // The same strict grammar the typing handler enforces: URL adoption must not accept
+  // month shapes the input itself can never produce, or a crafted link persists an
+  // invalid filter (RT-P11-1).
   return raw !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(raw) ? raw : "";
 }
 
@@ -192,8 +191,8 @@ const SOURCE_LABEL_KEYS: Record<string, MessageKey> = {
  * when no weighed sale can price them). */
 function memoDescription(
   feedStock: number,
-  // null = withheld: the memo carries clinical death figures, so the backend
-  // gates it on health.view (2026-09-17) — same sentinel as dashboard/reports.
+  // null = withheld: the memo carries clinical death figures, so the backend gates it
+  // on health.view — same sentinel as dashboard/reports.
   mortality: MortalityMemoOut | null | undefined,
   t: TFn,
 ): string {
@@ -230,7 +229,6 @@ function buildCorrectionSchema(t: TFn) {
     // remain distinguishable from an intentional "0".
     amount: z.preprocess(
       (value) =>
-        // Stryker disable next-line ConditionalExpression: registered number inputs only ever yield "" or a numeric string — null/undefined never arrive, and the blank arm is pinned by the blank-correction campaign test
         value === "" || value === null || value === undefined
           ? undefined
           : Number(value),
@@ -242,7 +240,6 @@ function buildCorrectionSchema(t: TFn) {
     ),
     feed_quantity_kg: z.preprocess(
       (value) =>
-        // Stryker disable next-line ConditionalExpression: registered number inputs only ever yield "" or a numeric string — null/undefined never arrive
         value === "" || value === null || value === undefined ? undefined : Number(value),
       z
         .number()
@@ -300,7 +297,6 @@ function CorrectionDialog({
       reason: "",
     },
   });
-  // Stryker disable next-line LogicalOperator: the single-flight guard blocks a resubmission regardless, so one-flag disabling is defense-in-depth; both flags are also true together for the whole in-flight window
   const correctionBusy = isSubmitting || correctionFlight.pending;
   const type = useWatch({ control, name: "type" });
   const category = useWatch({ control, name: "category" });
@@ -324,9 +320,7 @@ function CorrectionDialog({
           type: values.type,
           category: values.category,
           amount: values.amount,
-          // Stryker disable next-line OptionalChaining: the notes input is registered unconditionally, so the value is a string, never undefined
           notes: values.notes?.trim() || null,
-          // Stryker disable ConditionalExpression, LogicalOperator: Number(NONE) is NaN and JSON serialization maps NaN to null (the null arm's wire value), and spreading {feed_quantity_kg: undefined} omits the key from the JSON body exactly like the empty spread
           related_animal_id:
             values.related_animal_id && values.related_animal_id !== NONE
               ? Number(values.related_animal_id)
@@ -336,7 +330,6 @@ function CorrectionDialog({
             ? { feed_quantity_kg: values.feed_quantity_kg }
             : {}),
         };
-        // Stryker restore ConditionalExpression, LogicalOperator
         await mutation.mutateAsync({
           transactionId: transaction.id,
           data: correctionPayload,
@@ -499,7 +492,6 @@ function CorrectionDialog({
                     dialogTitle={t("finance.correction.chooseAnimal")}
                     staticOptions={[{ value: NONE, label: t("common.none") }]}
                     selectedOption={
-                      // Stryker disable next-line ConditionalExpression: the picker only displays a selectedOption whose value matches the field value, and String(null) never matches NONE — the mutant's stub is never rendered
                       transaction.related_animal_id !== null
                         ? {
                             value: String(transaction.related_animal_id),
@@ -715,7 +707,6 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
 
   function openAddDialog() {
     reset(txnDefaults());
-    // Stryker disable next-line CallExpression: the close-time clear in onOpenChange (pinned by the escape-reopen campaign test) already guarantees a clean banner before any reopen
     setFormError(null);
     setOpen(true);
   }
@@ -724,7 +715,6 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
     await addFlight.run(async () => {
       const farmScope = captureFarmScope();
       setFormError(null);
-      // Stryker disable next-line UpdateOperator: a monotonically decreasing attempt counter mismatches a captured value exactly as reliably as an increasing one
       const attempt = ++addAttempt.current;
       try {
         await addMutation.mutateAsync({
@@ -733,9 +723,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
             type: values.type,
             category: values.category,
             amount: values.amount,
-            // Stryker disable next-line OptionalChaining: the notes input is registered unconditionally, so the value is a string, never undefined
             notes: values.notes?.trim() || null,
-            // Stryker disable ConditionalExpression, LogicalOperator: Number(NONE) is NaN and JSON serialization maps NaN to null — the same wire value the null arm produces
             related_animal_id:
               values.related_animal_id && values.related_animal_id !== NONE
                 ? Number(values.related_animal_id)
@@ -750,7 +738,6 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
         invalidateFarmData(queryClient);
         if (addAttempt.current !== attempt) return;
         setOpen(false);
-        // Stryker disable next-line CallExpression: openAddDialog re-applies txnDefaults() on every open, so the post-success reset is redundant
         reset(txnDefaults());
       } catch (err) {
         if (addAttempt.current !== attempt || !farmScope()) return;
@@ -804,9 +791,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
   const sortedTransactions = sort
     ? [...payload.transactions].sort((a, b) => {
         const dir = sort.direction === "asc" ? 1 : -1;
-        // Stryker disable next-line ArithmeticOperator: dir is always ±1, and x*±1 === x/±1 for every number
   if (sort.column === "date") return a.date.localeCompare(b.date) * dir;
-        // Stryker disable next-line ArithmeticOperator: dir is always ±1, and x*±1 === x/±1 for every number
   return (a.amount - b.amount) * dir;
       })
     : payload.transactions;
@@ -831,7 +816,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {/* The cards are ALL-TIME totals while the table below obeys the
          * URL filters — say so on the cards instead of letting a filtered
-         * ledger read as if it summed to them (P3, 2026-09-20 audit). */}
+         * ledger read as if it summed to them. */}
         <StatCard
           label={t("finance.totalIncome")}
           value={<span className="tabular-nums">{formatMoney(payload.total_income)}</span>}
@@ -979,7 +964,6 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
               // field, which resets the filter) so garbage never reaches the
               // API or the shareable URL — same guard as the planner.
               const value = e.target.value;
-              // Stryker disable next-line ConditionalExpression, Regex: the browser month picker (and jsdom's value sanitization) only ever yields a canonical YYYY-MM or the empty string, so the near-miss shapes this guard rejects cannot arrive at the handler
               if (value !== "" && !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return;
               setMonth(value);
               setOffset(0);
@@ -1088,7 +1072,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                   <span className="flex items-center gap-2">
                     {/* Localized children — the badge's humanize fallback is
                      * English-only, and the type filters ten lines up already
-                     * resolve through the txType family (2026-10-01 audit, 06-2). */}
+                     * resolve through the txType family. */}
                     <StatusBadge status={txn.type}>
                       {enumLabel("txType", txn.type, language)}
                     </StatusBadge>
@@ -1188,7 +1172,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                   <TableCell>{formatDate(txn.date)}</TableCell>
                   <TableCell>
                     {/* Localized children — same txType family as the mobile
-                     * card and the type filters (2026-10-01 audit, 06-2). */}
+                     * card and the type filters. */}
                     <StatusBadge status={txn.type}>
                       {enumLabel("txType", txn.type, language)}
                     </StatusBadge>
@@ -1281,7 +1265,6 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
           transaction={correcting}
           canViewAnimals={canViewAnimals}
           onClose={() =>
-            // Stryker disable next-line ArrowFunction, ConditionalExpression: setCorrecting(undefined/null) both render the dialog closed, and current is always the row that opened this dialog, so the id comparison is always true here
             setCorrecting((current) =>
               current?.id === correcting.id ? null : current,
             )
@@ -1298,11 +1281,8 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
           // The submission's continuation is guarded by `addAttempt` instead,
           // so a late resolve cannot close or reset a dialog the operator has
           // since reopened and started typing into.
-          // Stryker disable next-line BooleanLiteral, ConditionalExpression: running the block at open only moves the attempt bump before any submit can capture it (submits capture post-bump state), and the open-time error clear duplicates openAddDialog's
           if (!nextOpen) {
-            // Stryker disable next-line CallExpression: openAddDialog clears formError on every open, so skipping the close-time clear is unobservable
             setFormError(null);
-            // Stryker disable next-line AssignmentOperator: a monotonically decreasing attempt counter mismatches a captured value exactly as reliably as an increasing one
             addAttempt.current += 1;
           }
           setOpen(nextOpen);
@@ -1342,7 +1322,6 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                 <Select
                   value={wType}
                   onValueChange={(v) =>
-                    // Stryker disable next-line ObjectLiteral, BooleanLiteral: the type select only ever sets valid enum values, so shouldValidate never surfaces a different error state
                     setValue("type", v as TxnInput["type"], { shouldValidate: true })
                   }
                   items={typeItemsMap}
@@ -1364,7 +1343,6 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                 <Select
                   value={wCategory}
                   onValueChange={(v) =>
-                    // Stryker disable next-line ObjectLiteral, BooleanLiteral: the category select only ever sets valid enum values, so shouldValidate never surfaces a different error state
                     setValue("category", v as TxnInput["category"], { shouldValidate: true })
                   }
                   items={categoryItemsMap}
@@ -1441,9 +1419,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                 variant="outline"
                 disabled={isSubmitting || addFlight.pending}
                 onClick={() => {
-                  // Stryker disable next-line CallExpression: openAddDialog clears formError on every open, so the cancel-time clear is unobservable
                   setFormError(null);
-                  // Stryker disable next-line AssignmentOperator: a monotonically decreasing attempt counter mismatches a captured value exactly as reliably as an increasing one
                   addAttempt.current += 1;
                   setOpen(false);
                 }}

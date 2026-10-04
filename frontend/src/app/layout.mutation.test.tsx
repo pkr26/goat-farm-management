@@ -1,8 +1,7 @@
 /**
- * Root layout metadata — mutation-hardening: the exported Metadata object
- * (default title, per-page template, description) is what Next injects into
- * <head>; assert the exact strings so template/default swaps or blanked
- * descriptions cannot survive.
+ * Root layout metadata — regression: the exported Metadata object (default title,
+ * per-page template, description) is what Next injects into <head>; assert the exact
+ * strings so template/default swaps or blanked descriptions cannot survive.
  */
 
 import { describe, expect, it, vi } from "vitest";

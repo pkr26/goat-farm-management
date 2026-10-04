@@ -1,6 +1,6 @@
 /**
- * Account dialog TOTP section (2026-09-16): enrollment (password → secret →
- * activate), the active state, and disable — including error surfacing.
+ * Account dialog TOTP section: enrollment (password → secret → activate), the active
+ * state, and disable — including error surfacing.
  */
 
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";

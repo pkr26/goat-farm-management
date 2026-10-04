@@ -1,0 +1,383 @@
+/** Bootstrap failures, farm cache isolation, credential rotation and concurrent session teardown. */
+
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { AccountDialog } from "@/components/account-dialog";
+import { apiFetch, setAccessToken, setCurrentFarmId } from "@/lib/api-client";
+import { useAuth } from "@/lib/auth-context";
+import { farmToday } from "@/lib/format";
+import { IDEMPOTENCY_SESSION_STORAGE_KEY } from "@/lib/idempotent-request";
+import { TEST_USER, server } from "@/test/msw-server";
+import { renderWithProviders } from "@/test/render";
+
+const { pushMock, replaceMock } = vi.hoisted(() => ({
+  pushMock: vi.fn(),
+  replaceMock: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: pushMock, replace: replaceMock, prefetch: vi.fn() }),
+  usePathname: () => "/dashboard",
+  useSearchParams: () => new URLSearchParams(),
+  useParams: () => ({}),
+}));
+
+function Probe() {
+  const auth = useAuth();
+  return (
+    <div>
+      <span data-testid="loading">{String(auth.loading)}</span>
+      <span data-testid="user">{auth.user ? auth.user.email : "none"}</span>
+      <span data-testid="farmId">
+        {auth.farmId === null ? "none" : String(auth.farmId)}
+      </span>
+      <button onClick={() => auth.selectFarm(2)}>select-2</button>
+      <button onClick={() => auth.selectFarm(99, "America/Phoenix")}>
+        select-unlisted-phoenix
+      </button>
+      <button onClick={() => void auth.refreshFarms()}>refresh-farms</button>
+      <button onClick={() => void auth.signOut()}>sign-out</button>
+      <button
+        onClick={() =>
+          void auth
+            .signIn("signin-token", {
+              id: 9,
+              email: "worker@goatfarm.test",
+              name: "Worker",
+            })
+            .catch(() => undefined)
+        }
+      >
+        sign-in
+      </button>
+    </div>
+  );
+}
+
+describe("AuthProvider bootstrap — refresh failure handling", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    replaceMock.mockClear();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  it("network error during silent refresh still settles loading and redirects", async () => {
+    server.use(http.post("/api/auth/refresh", () => HttpResponse.error()));
+
+    renderWithProviders(<Probe />);
+
+    // A transient refresh outcome is retried with a short backoff before the
+    // bootstrap gives up (P3, 2026-09-20): budget the settle wait for the
+    // retry window instead of the old single-shot latency.
+    await waitFor(
+      () => expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+      { timeout: 5000 },
+    );
+    expect(screen.getByTestId("user")).toHaveTextContent("none");
+    // The redirect is a separate effect that fires the render AFTER loading
+    // flips — an immediate assertion races it (flaky).
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+  });
+
+  it("non-JSON 200 body during silent refresh still settles loading and redirects", async () => {
+    server.use(
+      http.post(
+        "/api/auth/refresh",
+        () =>
+          new HttpResponse("<html>proxy error</html>", {
+            status: 200,
+            headers: { "Content-Type": "text/html" },
+          }),
+      ),
+    );
+
+    renderWithProviders(<Probe />);
+
+    // Budget the retry window (see the network-error test above).
+    await waitFor(
+      () => expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+      { timeout: 5000 },
+    );
+    expect(screen.getByTestId("user")).toHaveTextContent("none");
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+  });
+
+  it("a farms failure after a valid refresh does not partially commit the user", async () => {
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json({ detail: "temporarily unavailable" }, { status: 503 }),
+      ),
+    );
+
+    renderWithProviders(<Probe />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+    );
+    expect(screen.getByTestId("user")).toHaveTextContent("none");
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+  });
+});
+
+describe("AuthProvider — query cache cleared on farm switch / sign-out", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    replaceMock.mockClear();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  it("selectFarm drops every cached query from the previous farm", async () => {
+    const { queryClient } = renderWithProviders(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+    );
+
+    // Stale entries keyed by bare URL, exactly like the real pages leave them.
+    queryClient.setQueryData(["/api/animals"], [{ id: 1, tag_number: "A-1" }]);
+    queryClient.setQueryData(["/api/auth/permissions"], {
+      is_owner: true,
+      permissions: [],
+    });
+    expect(queryClient.getQueryCache().getAll()).not.toHaveLength(0);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "select-2" }));
+
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  it("uses caller-provided timezone data when the selected farm is not in the cached list", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+    );
+    const instant = new Date("2026-08-10T02:00:00Z");
+    expect(farmToday(instant)).toBe("2026-08-10");
+
+    await user.click(
+      screen.getByRole("button", { name: "select-unlisted-phoenix" }),
+    );
+
+    expect(farmToday(instant)).toBe("2026-08-09");
+  });
+
+  it("signOut leaves the query cache empty for the next user", async () => {
+    server.use(
+      http.post("/api/auth/logout", () => HttpResponse.json({ ok: true })),
+    );
+    const { queryClient } = renderWithProviders(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent(
+        "owner@goatfarm.test",
+      ),
+    );
+
+    queryClient.setQueryData(["/api/animals"], [{ id: 1, tag_number: "A-1" }]);
+    expect(queryClient.getQueryCache().getAll()).not.toHaveLength(0);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "sign-out" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent("none"),
+    );
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  it("signOut clears persisted idempotency recovery material", async () => {
+    server.use(
+      http.post("/api/auth/logout", () => HttpResponse.json({ ok: true })),
+    );
+    renderWithProviders(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent(
+        "owner@goatfarm.test",
+      ),
+    );
+    window.sessionStorage.setItem(
+      IDEMPOTENCY_SESSION_STORAGE_KEY,
+      JSON.stringify([
+        {
+          version: 1,
+          digest: "a".repeat(64),
+          key: "f0b5319e-997c-43ae-b43f-03e4064984bf",
+          expiresAt: Date.now() + 60_000,
+        },
+      ]),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "sign-out" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent("none"),
+    );
+    expect(window.sessionStorage.getItem(IDEMPOTENCY_SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  it("clears the previous farm cache and persisted selection when all memberships disappear", async () => {
+    const { queryClient } = renderWithProviders(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId("farmId")).toHaveTextContent("1"),
+    );
+    queryClient.setQueryData(["/api/animals"], [{ id: 1, tag_number: "A-1" }]);
+    expect(localStorage.getItem("goatfarm.farmId")).toBe("1");
+
+    server.use(http.get("/api/auth/farms", () => HttpResponse.json([])));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "refresh-farms" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("farmId")).toHaveTextContent("none"),
+    );
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(localStorage.getItem("goatfarm.farmId")).toBe("revoked:1");
+  });
+});
+
+describe("AccountDialog — password change keeps the session's in-flight requests alive", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    replaceMock.mockClear();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  it("a request in flight across a password change still resolves", async () => {
+    let releaseAnimals: (() => void) | undefined;
+    const animalsGate = new Promise<void>((resolve) => {
+      releaseAnimals = resolve;
+    });
+    server.use(
+      http.post("/api/auth/change-password", () =>
+        HttpResponse.json({
+          access_token: "rotated-access-token",
+          token_type: "bearer",
+          user: TEST_USER,
+        }),
+      ),
+      http.get("/api/animals", async () => {
+        await animalsGate;
+        return HttpResponse.json([{ id: 1, tag_number: "G-001" }]);
+      }),
+    );
+
+    renderWithProviders(
+      <>
+        <Probe />
+        <AccountDialog name="Test Owner" email="owner@goatfarm.test" />
+      </>,
+    );
+    // The bootstrap's setAccessToken marks a genuine session boundary; the
+    // held request below must be issued under the settled session.
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent(
+        "owner@goatfarm.test",
+      ),
+    );
+
+    // A background query, still on the wire while the password changes.
+    const inFlight = apiFetch<Array<{ id: number; tag_number: string }>>(
+      "/api/animals",
+    ).then(
+      (data) => ({ outcome: "resolved" as const, data }),
+      (error: unknown) => ({
+        outcome: "rejected" as const,
+        name: error instanceof Error ? error.name : "unknown",
+      }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^Account/ }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("Current password for password change"),
+      "old-password-123",
+    );
+    await user.type(
+      within(dialog).getByLabelText("New password"),
+      "correct-horse-battery",
+    );
+    await user.type(
+      within(dialog).getByLabelText("Confirm new password"),
+      "correct-horse-battery",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+    // The dialog closes only after the mutation resolved and the rotated
+    // token was installed — the moment the epoch bump used to happen.
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+
+    releaseAnimals?.();
+    // Previously: {outcome: "rejected", name: "AuthSessionChangedError"} —
+    // the epoch bump aborted a same-actor request mid-flight.
+    await expect(inFlight).resolves.toEqual({
+      outcome: "resolved",
+      data: [{ id: 1, tag_number: "G-001" }],
+    });
+  });
+});
+
+describe("AuthProvider — establishSession must not tear down a newer session on a stale-request race", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    replaceMock.mockClear();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  it("a stale bootstrap farms response arriving after sign-in leaves the new session intact", async () => {
+    let releaseBootstrapFarms: (() => void) | undefined;
+    const bootstrapFarmsGate = new Promise<void>((resolve) => {
+      releaseBootstrapFarms = resolve;
+    });
+    let bootstrapFarmsRequested = false;
+
+    server.use(
+      // Only the bootstrap's own call is held; the sign-in call that races
+      // it must resolve immediately, exactly like the real slow-GET race.
+      http.get("/api/auth/farms", async () => {
+        if (!bootstrapFarmsRequested) {
+          bootstrapFarmsRequested = true;
+          await bootstrapFarmsGate;
+        }
+        return HttpResponse.json([
+          { id: 5, name: "Worker Farm", location: null, role: "worker" },
+        ]);
+      }),
+    );
+
+    renderWithProviders(<Probe />);
+    await waitFor(() => expect(bootstrapFarmsRequested).toBe(true));
+
+    // Sign in while the bootstrap's farms fetch is still held: this bumps
+    // the auth epoch and commits the second session via its own farms call.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "sign-in" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent(
+        "worker@goatfarm.test",
+      ),
+    );
+    expect(screen.getByTestId("farmId")).toHaveTextContent("5");
+
+    // The stale bootstrap response now lands under a superseded epoch and
+    // must not clear the session sign-in just established.
+    releaseBootstrapFarms?.();
+    await waitFor(() =>
+      expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+    );
+
+    expect(screen.getByTestId("user")).toHaveTextContent(
+      "worker@goatfarm.test",
+    );
+    expect(screen.getByTestId("farmId")).toHaveTextContent("5");
+  });
+});

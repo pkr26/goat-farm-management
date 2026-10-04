@@ -1,10 +1,6 @@
 /**
- * Public-shell route error boundary (login/register/farm-select/root hub):
- * logs once, explains, and offers the retry that re-runs the failed render.
- * The file sat at 0% coverage (2026-09-28 audit, T2); the (app) group's own
- * boundary is tested the same way in global-error.test.tsx's mould.
- * Copy resolves from the stored language without the provider (2026-09-28
- * audit, I3) — Telugu when herdly.language=te, English otherwise.
+ * Public-shell errors log once, resolve stored language without a provider and offer
+ * a retry.
  */
 
 import { render, screen } from "@testing-library/react";

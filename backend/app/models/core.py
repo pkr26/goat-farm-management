@@ -68,15 +68,14 @@ class User(Base):
     # tenant-local and is enforced by the membership lookup instead; it must
     # not log the same global account out of unrelated farms.
     token_version: Mapped[int] = mapped_column(default=0, server_default="0")
-    # TOTP second factor (HUM-1 follow-up, 2026-09-16). The secret is stored
-    # AES-GCM encrypted under a key derived from the JWT signing key — never
-    # plaintext. state: NULL = never enrolled, PENDING = enroll started but
-    # unconfirmed (not yet demanded at login), ACTIVE = demanded at login.
-    # last_step is the replay high-water mark (a used code never re-validates).
+    # TOTP second factor . The secret is stored AES-GCM encrypted under a key derived from the JWT
+    # signing key — never plaintext. state: NULL = never enrolled, PENDING = enroll started but
+    # unconfirmed (not yet demanded at login), ACTIVE = demanded at login. last_step is the replay
+    # high-water mark (a used code never re-validates).
     totp_secret_enc: Mapped[bytes | None]
     totp_state: Mapped[str | None] = mapped_column(String(7))
     totp_last_step: Mapped[int | None]
-    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    # UTC defaults also apply to direct SQL inserts.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
@@ -117,8 +116,7 @@ class TotpRecoveryCode(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column()
-    # UTC server default standardized by the housekeeping wave (2026-09-28
-    # audit, D7).
+    # UTC server default standardized by the housekeeping wave.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
@@ -130,9 +128,7 @@ class ConsumedMfaChallenge(Base):
     The single-use property (RFC 6238: the verifier MUST detect replay of a
     used one-time-password exchange) lives in the database, not process
     memory, so it survives restarts and holds under any future multi-replica
-    topology (2026-10-01 audit, 01-3 — decided 2026-10-02: durable storage
-    replaces the previously accepted per-process tradeoff). The claim rides
-    the login-success transaction — the insert commits exactly when the
+    topology. The claim rides the login-success transaction: it commits when the
     exchange succeeds, so a failed request never burns a challenge and a
     committed success is consumed forever. ``expires_at`` is the token's
     signed expiry; the verify path sweeps expired rows opportunistically, so
@@ -158,15 +154,14 @@ class Farm(Base):
         String(64), default="Asia/Kolkata", server_default="Asia/Kolkata"
     )
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
-    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    # UTC defaults also apply to direct SQL inserts.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
-    # Refresh is SQLAlchemy-layer only: ``onupdate`` covers ORM flushes AND
-    # Core ``update()`` statements, but ``server_onupdate`` emits no DDL and
-    # farms deliberately carries no DB trigger — no production writer
-    # targets it with raw SQL (2026-10-01 audit, 04-2). Display/audit
-    # metadata only, never a concurrency token.
+    # Refresh is SQLAlchemy-layer only: ``onupdate`` covers ORM flushes AND Core ``update()``
+    # statements, but ``server_onupdate`` emits no DDL and farms deliberately carries no DB trigger
+    # — no production writer targets it with raw SQL. Display/audit metadata only, never a
+    # concurrency token.
     updated_at: Mapped[datetime] = mapped_column(
         default=utcnow,
         onupdate=utcnow,
@@ -259,7 +254,7 @@ class Role(Base):
     # serializes writers; it cannot tell that a second editor built its full
     # permissions payload from stale state.
     revision: Mapped[int] = mapped_column(default=1, server_default="1")
-    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    # UTC defaults also apply to direct SQL inserts.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
@@ -299,18 +294,15 @@ class FarmMembership(Base):
 
     __tablename__ = "farm_memberships"
     __table_args__ = (
-        # Both orders stay (2026-09-28 audit review): (farm_id, user_id) is
-        # the tenant composite-FK target, and (user_id, farm_id) is the only
-        # index serving the user→farms affiliation lookups that carry no
-        # is_active predicate (api/auth.py's membership list, api/team.py's
-        # owns-other-farm probe) — the partial index below cannot serve
-        # those, so dropping this constraint would seq-scan them.
+        # Both orders stay: (farm_id, user_id) is the tenant composite-FK target, and (user_id,
+        # farm_id) is the only index serving the user→farms affiliation lookups that carry no
+        # is_active predicate (api/auth.py's membership list, api/team.py's owns-other-farm probe) —
+        # the partial index below cannot serve those, so dropping this constraint would seq-scan
+        # them.
         UniqueConstraint("user_id", "farm_id", name="uq_membership_user_farm"),
         UniqueConstraint("farm_id", "user_id", name="uq_farm_memberships_farm_user"),
-        # Tenant candidate key: notification_recipients' composite
-        # (farm_id, membership_id) FK targets it, so a recipient row can
-        # never point across farms (2026-09-29 audit, L2 — roles carries
-        # the same guard for the farm_role FK).
+        # Tenant candidate key: notification_recipients' composite (farm_id, membership_id) FK
+        # targets it, so a recipient row can never point across farms.
         UniqueConstraint("farm_id", "id", name="uq_farm_memberships_farm_id_id"),
         Index(
             "ix_farm_memberships_active_user_id_id",
@@ -335,14 +327,13 @@ class FarmMembership(Base):
     # externally registered accounts fail closed: their password may not be
     # rewritten by a farm manager.
     account_provisioned_by_farm: Mapped[bool] = mapped_column(default=False, server_default="false")
-    # Worker-tablet quick sign-in (ITEM 2, 2026-09-21 playbook): an Argon2id
-    # hash of this membership's short numeric PIN. Null on memberships that
-    # never opted into PIN login. The account password stays the account's
-    # real credential — a PIN is scoped to THIS membership and survives none
-    # of the account-level password machinery.
+    # Worker-tablet quick sign-in: an Argon2id hash of this membership's short numeric PIN. Null on
+    # memberships that never opted into PIN login. The account password stays the account's real
+    # credential — a PIN is scoped to THIS membership and survives none of the account-level
+    # password machinery.
     pin_hash: Mapped[str | None] = mapped_column(String(255))
     pin_updated_at: Mapped[datetime | None] = mapped_column()
-    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    # UTC defaults also apply to direct SQL inserts.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
@@ -399,7 +390,7 @@ class RefreshSession(Base):
     # token instead of falsely triggering family-wide theft revocation.
     replacement_jti: Mapped[str | None] = mapped_column(String(64))
     revoked_at: Mapped[datetime | None] = mapped_column()
-    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    # UTC defaults also apply to direct SQL inserts.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )

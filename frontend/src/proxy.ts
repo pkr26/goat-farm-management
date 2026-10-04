@@ -1,5 +1,5 @@
 /**
- * Per-request nonce Content-Security-Policy (M-1, 2026-09-20 audit).
+ * Per-request nonce Content-Security-Policy.
  *
  * Next.js 16's `proxy.ts` (the renamed `middleware.ts`) runs before every
  * matched page render: it mints a fresh nonce, sets the CSP on the REQUEST
@@ -56,8 +56,7 @@ export const config = {
      * `/readyz`) are JSON surfaces that need no CSP, and static assets
      * (`_next/static`, `_next/image`, favicon, the app-router icon) are
      * content-addressed. `api` is anchored (`api(?:/|$)`) so a future page
-     * route that merely STARTS with "api" ("/api-docs") is not swallowed
-     * (2026-09-28 audit).
+     * route that merely STARTS with "api" ("/api-docs") is not swallowed.
      * The service worker and manifest must be served with their own cache
      * semantics (see next.config.ts), never with a nonce CSP page response.
      * Prefetches are skipped so <Link> hover/proxy loads don't mint nonces.

@@ -191,13 +191,10 @@ class _RequestIdFilter(logging.Filter):
 
 
 def _configure_logging() -> None:
-    """Request ID in every log line; installs an INFO handler only when a
-    harness (uvicorn's log config, pytest) installed none.
+    """Add request IDs while respecting operator and test logging configuration.
 
-    An existing handler set owns the level: forcing root INFO overrode
-    pytest's WARNING capture and operator-configured uvicorn log levels,
-    contradicting the old "no-op" promise (P3, 2026-09-20 audit). The
-    request-ID filter is still added to whatever handlers exist.
+    Install an INFO handler only when no handlers exist. Existing handlers
+    retain their levels and receive the request-ID filter.
     """
     root = logging.getLogger()
     if not root.handlers:
@@ -561,7 +558,7 @@ async def _deleted_membership_cleanup_loop(
 
 
 async def _retention_sweep_loop() -> None:
-    """Daily data-retention sweep (2026-09-28 audit, ITEM 9.1).
+    """Daily data-retention sweep.
 
     Aged screening fact chains, operational ledgers, empty batch anchors, and
     long-terminal duties grow without bound otherwise. Development can disable
@@ -569,7 +566,7 @@ async def _retention_sweep_loop() -> None:
     itself commits per farm, so one interval's work is a series of small
     tenant transactions, never one unbounded delete. The FIRST sweep runs
     immediately on startup — enabling the feature is the operator asking for
-    a cleanup now, not after a full interval (2026-09-29 audit) — and each
+    a cleanup now, not after a full interval — and each
     pass opens its own session, so no pooled connection is held across the
     whole multi-farm sweep.
     """
@@ -908,12 +905,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # pair does not match. Development may generate its active pair here.
     validate_jwt_keypair()
     _enforce_production_private_key_mode()
-    # INFRA-1 (2026-09-16): with no trusted proxy configured, every client
-    # shares the socket peer's identity in the per-IP auth ledgers. Behind a
-    # direct edge/terminator that is the edge itself — one attacker can then
-    # 429 all registrations deployment-wide. The shipped compose wires the
-    # edge IP; a bare deployment (or one that adds an OUTER TLS terminator
-    # without extending GOATFARM_TRUSTED_PROXY_HOSTS) must hear about it.
+    # Without trusted proxy configuration, all forwarded clients share the
+    # proxy's rate-limit identity. Warn operators to configure every proxy hop.
     if settings.environment == "production" and not settings.trusted_proxy_hosts:
         logger.warning(
             "GOATFARM_TRUSTED_PROXY_HOSTS is empty in production: X-Forwarded-For "
@@ -1081,14 +1074,11 @@ async def request_validation_handler(_request: Request, exc: Exception) -> JSONR
 
 
 async def http_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
-    """Default HTTPException shape plus the machine-readable ``code``.
+    """Preserve HTTPException details and headers while adding a stable code.
 
-    ITEM 5 (2026-09-21 playbook): the four mapped statuses carry a stable
-    code so localized clients never parse English ``detail`` prose. The 409
-    conflict families carry their per-class code the same way (2026-09-29,
-    RFC 9457-style) — one status cannot separate a lifecycle conflict from a
-    standing quota from a stale revision. Detail and headers
-    (WWW-Authenticate, Retry-After, Idempotency-*) pass through unchanged.
+    Localized clients use codes rather than parsing English details. Conflict
+    codes distinguish lifecycle conflicts, standing quotas, and stale state
+    even though each uses HTTP 409.
     """
     status_code = getattr(exc, "status_code", 500)
     content: dict[str, Any] = {"detail": getattr(exc, "detail", None)}
@@ -1322,15 +1312,12 @@ def create_app() -> FastAPI:
         # with the default (trust nothing) a client can spoof the header but
         # it is ignored, so it can't steer the auth rate limiter.
         app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=trusted)
-    # add_middleware prepends, so this sits outside CORS and ProxyHeaders —
-    # but NOT outermost: the request_id middleware registered just below is
-    # the true outermost layer (2026-09-28 audit; this comment previously
-    # claimed TrustedHost was outermost). The security property that matters
-    # is preserved and verified: TrustedHost stays OUTSIDE CORS, so CORS's
-    # short-circuited preflight responses can never skip Host validation —
-    # the fingerprinting oracle on which hosts the app accepts (P3,
-    # 2026-09-20 audit). Every routed request is Host-checked before
-    # anything inside CORS sees it.
+    # add_middleware prepends, so this sits outside CORS and ProxyHeaders — but NOT outermost: the
+    # request_id middleware registered just below is the true outermost layer. The security property
+    # that matters is preserved and verified: TrustedHost stays OUTSIDE CORS, so CORS's
+    # short-circuited preflight responses can never skip Host validation — the fingerprinting oracle
+    # on which hosts the app accepts. Every routed request is Host-checked before anything inside
+    # CORS sees it.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
     def _route_template(request: Request) -> str:

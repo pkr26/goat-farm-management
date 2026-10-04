@@ -32,6 +32,7 @@ from mutate_identity import (
     digest_json,
     input_identity,
     latest_compatible,
+    read_artifact,
     read_results,
     sha_bytes,
     sha_file,
@@ -42,7 +43,6 @@ MUTDIR = BACKEND / "mutation"
 VENV_PY = BACKEND / ".venv" / "bin" / "python"
 
 SAMPLE_CAP = 60  # phase-1 sampled tests
-FULL_CAP = 400  # phase-2 escalation cap
 MODULE_LEVEL_FILE_SAMPLES = 3  # whole test files for module-level mutants
 
 
@@ -193,7 +193,9 @@ class Runner:
         self.inputs = input_identity(BACKEND)
         # Read each artifact once. Rechecking live hashes after parsing does
         # not catch an artifact replaced and restored during context loading.
-        manifest_bytes = (MUTDIR / "manifest.json").read_bytes()
+        manifest_bytes = read_artifact(
+            MUTDIR / "manifest.json", instruction="run python mutation/mutate_gen.py first"
+        )
         try:
             coverage_bytes = (BACKEND / ".coverage-mut").read_bytes()
             provenance_bytes = (BACKEND / ".coverage-mut.provenance.json").read_bytes()
@@ -535,7 +537,14 @@ def main() -> None:
         return todo[: args.limit] if args.limit else todo
 
     if args.dry_run:
-        todo = select_targets(json.loads((MUTDIR / "manifest.json").read_text()))
+        todo = select_targets(
+            json.loads(
+                read_artifact(
+                    MUTDIR / "manifest.json",
+                    instruction="run python mutation/mutate_gen.py first",
+                )
+            )
+        )
         print(
             json.dumps(
                 {

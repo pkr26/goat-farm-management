@@ -45,10 +45,10 @@ export function formatMoneyDecimal(value: string | null | undefined): string {
   return `${negative ? "-" : ""}₹${grouped}${fracPart === "00" ? "" : "." + fracPart}`;
 }
 
-/** Digit grouping that follows the active UI language (te-IN under Telugu,
- * en-IN otherwise) — the shared form of what used to be per-page
- * `new Intl.NumberFormat("en-IN")` copies (2026-09-28 audit: buckets grouped
- * English-only while simulation was already language-aware). */
+/**
+ * Digit grouping follows the active UI language: te-IN under Telugu, en-IN
+ * otherwise.
+ */
 export function formatNumber(
   value: number,
   options: Intl.NumberFormatOptions = {},
@@ -222,13 +222,12 @@ const MONTHS = [
  * already 6 Aug in IST, and every other datetime consumer (formatFarmDateTime,
  * the overdue logic via farmToday) already thinks in farm time — rendering
  * the string's wall date stranded this helper one calendar day behind them
- * for any future caller that passes a datetime (2026-10-01 audit, 07-L5). */
+ * for any future caller that passes a datetime. */
 export function formatDate(iso: string | null | undefined, lang?: "en" | "te"): string {
   if (!iso) return "—";
-  // Accept the documented date-only value, a syntactically complete ISO
-  // datetime suffix, and harmless trailing whitespace. Merely starting with
-  // date-shaped characters is not enough (`2026-08-05Tgarbage` and
-  // `2026-08-05 anything` are not ISO dates).
+  // Accept the documented date-only value, a syntactically complete ISO datetime
+  // suffix, and harmless trailing whitespace. Merely starting with date-shaped
+  // characters is not enough.
   const match = /^(\d{4})-(\d{1,2})-(\d{1,2})(T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?\s*$/.exec(
     iso,
   );

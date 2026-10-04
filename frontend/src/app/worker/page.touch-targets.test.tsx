@@ -1,10 +1,9 @@
 /**
- * Touch-target floor (2026-09-23 verification plan, category 15): every
- * interactive control on the worker tablet's duty board must carry a
- * ≥44 px hit area (min-h-11 = 2.75rem = 44px in the Tailwind scale). The
- * tablet is operated with fingers in a shed; a 32 px control is a
- * mis-tap generator. jsdom does not apply Tailwind, so the assertion pins
- * the classes that produce the size.
+ * Touch-target floor: every interactive control on the worker tablet's duty board
+ * must carry a ≥44 px hit area (min-h-11 = 2.75rem = 44px in the Tailwind scale).
+ * The tablet is operated with fingers in a shed; a 32 px control is a mis-tap
+ * generator. jsdom does not apply Tailwind, so the assertion pins the classes that
+ * produce the size.
  */
 
 import { screen } from "@testing-library/react";

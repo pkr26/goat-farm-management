@@ -3226,16 +3226,16 @@ def test_breakglass_runbook_targets_the_migration_service_not_a_missing_db() -> 
     backend image ships no psql. The documented path must be the shipped
     script through the one-shot migrate service (2026-09-22 external audit,
     low #5)."""
-    readme = (REPO_ROOT / "README.md").read_text()
+    runbook = (REPO_ROOT / "docs" / "security-operations.md").read_text()
     production_services = yaml.safe_load((REPO_ROOT / "docker-compose.production.yml").read_text())[
         "services"
     ]
     dockerfile = (REPO_ROOT / "Dockerfile").read_text()
 
     assert "db" not in production_services  # why `exec db psql` fails
-    assert "exec db psql" not in readme
-    assert "totp_breakglass.py --email" in readme
-    assert "run --rm --no-deps migrate" in readme
+    assert "exec db psql" not in runbook
+    assert "totp_breakglass.py --email" in runbook
+    assert "run --rm --no-deps migrate" in runbook
     # The script ships in the image the migrate service runs.
     assert "COPY backend/scripts/totp_breakglass.py ./scripts/totp_breakglass.py" in dockerfile
     assert "!backend/scripts/totp_breakglass.py" in (REPO_ROOT / ".dockerignore").read_text()
@@ -3585,9 +3585,9 @@ def test_production_compose_is_a_standalone_external_tls_topology() -> None:
     # A completed one-shot service can be reused by a later ``compose up``
     # even when its bind-mounted dotenv file changed. The runbook must execute
     # the guard explicitly on every rollout, not merely render Compose.
-    readme = (REPO_ROOT / "README.md").read_text()
-    assert "run --rm --no-deps config-guard" in readme
-    assert "config-guard:\n      build: !reset null" in readme
+    runbook = (REPO_ROOT / "docs" / "deployment.md").read_text()
+    assert "run --rm --no-deps config-guard" in runbook
+    assert "config-guard:\n    build: !reset null" in runbook
 
 
 def test_production_compose_delivers_secrets_by_read_only_file_mounts() -> None:

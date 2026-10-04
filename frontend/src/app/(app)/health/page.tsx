@@ -125,7 +125,7 @@ const NONE = "none";
 /** value → label map for the root `items` prop: without it, Base UI's
  * Select.Value renders the raw value in the closed trigger. The labels
  * resolve through the enum map in the active language — the raw codes used
- * to render verbatim here and in the option list (2026-10-01 audit, 05-2). */
+ * to render verbatim here and in the option list. */
 const routeItems = (language: "en" | "te"): Record<string, string> => ({
   [NONE]: "—",
   ...Object.fromEntries(ROUTES.map((r) => [r, enumLabel("adminRoute", r, language)])),
@@ -178,8 +178,7 @@ function EventAnimalLabel({
     );
   }
   if (event.animal_tag) return <>{event.animal_tag}</>;
-  // Batch/bucket fragments resolve through the catalog, not hardcoded
-  // English (2026-10-01 audit, 05-3).
+  // Batch/bucket fragments resolve through the catalog, not hardcoded English.
   if (event.purchase_batch_id)
     return <>{t("health.log.batchTarget", { id: event.purchase_batch_id })}</>;
   if (event.animal_id !== null) return <>#{event.animal_id}</>;
@@ -188,13 +187,13 @@ function EventAnimalLabel({
   return <span className="text-muted-foreground">{t("health.log.bucketWide")}</span>;
 }
 
-/** Exported for direct schema-level testing: the dialog's native date inputs
+/** Builds the exported schema used for direct testing: native date inputs
  * sanitize malformed values in the browser, so several guard branches are
  * unreachable through the UI alone. The messages resolve through the i18n
  * catalog, so the factory takes the caller's `t`; the exported `eventSchema`
  * below is the English instance the mounted page replaces with the active
  * language's. */
-export function buildEventSchema(t: TFn) {
+function buildEventSchema(t: TFn) {
   return z
   .object({
     scope: z.enum(["animal", "bucket", "batch"]),
@@ -216,7 +215,6 @@ export function buildEventSchema(t: TFn) {
     dose: z.string().max(60).optional(),
     route: z.enum([NONE, ...ROUTES] as [string, ...string[]]).optional(),
     vet_name: z.string().max(120).optional(),
-    // Stryker disable ConditionalExpression, StringLiteral: every blank-cost arm is equivalent — Number("") === 0 is finite, ≥ 0, persistable and ≤ MAX, so a blank passes all three refines with or without the === "" fast path (the payload maps a blank cost to null separately)
     cost: z
       .string()
       .refine(
@@ -232,7 +230,6 @@ export function buildEventSchema(t: TFn) {
         t("health.validation.costTooLarge"),
       )
       .optional(),
-    // Stryker restore ConditionalExpression, StringLiteral
     next_due_date: z.string().optional(),
     schedule_template_name: z.string().max(120).optional(),
     next_due_authority: z.string().max(120).optional(),
@@ -446,7 +443,6 @@ const EVENT_FORM_FIELDS: readonly string[] = Object.keys(eventDefaults());
 /** True when the field still holds exactly the prefilled hint (the operator
  *  did not edit it), so reverting the prefill may clear it. */
 function holdsPrefill(current: string | undefined, prefilled: string | undefined): boolean {
-  // Stryker disable next-line ConditionalExpression, StringLiteral: prefills only ever record defined hints, and even a hypothetical undefined hint fails the equality ((current ?? "") === undefined is always false), so both arms decline to clear; the ?? fallback exists only for TypeScript over the registered-string domain
   return prefilled !== undefined && (current ?? "") === prefilled;
 }
 
@@ -512,14 +508,12 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
   // page, exactly as the feeding ledger and the scenario pager do.
   useEffect(() => {
     const payload = eventsQuery.data?.status === 200 ? eventsQuery.data.data : undefined;
-    // Stryker disable next-line ConditionalExpression: an offset of 0 always no-ops downstream anyway — total > 0 returns at the range guard, and total === 0 yields lastOffset 0 === eventOffset, blocked by the equality guard below
     if (!payload || eventOffset === 0) return;
     if (eventOffset < payload.total) return;
     const lastOffset =
       payload.total === 0
         ? 0
         : Math.floor((payload.total - 1) / eventLimit) * eventLimit;
-    // Stryker disable next-line ConditionalExpression: the !== guard only skips a same-value setState that React bails out on without re-rendering or re-running this effect
     if (lastOffset !== eventOffset) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setEventOffset(lastOffset);
@@ -591,11 +585,10 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
   /** Controlled open state of the Advanced `<details>`: user toggles update
    *  it (never fought), and a failed submit with an error hidden inside the
    *  collapsed section forces it open (see ADVANCED_COMPLIANCE_FIELDS). */
-  // Stryker disable next-line BooleanLiteral: every path that opens the dialog (Add-event button, deep-link hydration) runs resetEventForm → setAdvancedOpen(false) before Radix mounts the <details>, so the initial state value never reaches the DOM
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   /** value → label map for the local task select. The due-date suffix
-   * resolves through the catalog (2026-10-01 audit, 05-3). */
+   * resolves through the catalog. */
   const taskItems: Record<string, string> = {
     [NONE]: t("common.none"),
     ...Object.fromEntries(
@@ -671,22 +664,17 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
    *  behind a modal backdrop. So the continuation must instead check that the
    *  session it is about to close and reset is still its own. */
   const submissionEpoch = useRef(0);
-  // Stryker disable next-line BooleanLiteral: a permanently-true mounted flag only skips guards that React 18 already no-ops (setState after unmount)
   const mounted = useRef(true);
 
-  // Stryker disable ArrayDeclaration: hook deps compare element-wise, and a constant junk list compares equal across renders — the effect still runs exactly once
   useEffect(() => {
     mounted.current = true;
     return () => {
-      // Stryker disable next-line BooleanLiteral: same React 18 no-op argument — the flag's only consumers gate post-unmount writes
       mounted.current = false;
       // A late preview/write cannot own state or navigation after this page
       // has gone away. This also covers ordinary same-farm navigation; the
       // farm epoch below covers the smaller pre-unmount switch window.
-      // Stryker disable next-line AssignmentOperator: a monotonically decreasing epoch counter mismatches a captured value exactly as reliably as an increasing one
     submissionEpoch.current += 1;
     };
-  // Stryker restore ArrayDeclaration
   }, []);
 
   useEffect(() => {
@@ -694,15 +682,13 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
     // must not fight the user's selection. A real schedule-param navigation,
     // however (including Back/Forward while Next reuses this page), is a new
     // URL intent and must replace the old mount-time value.
-    // Stryker disable next-line ConditionalExpression: requestedScheduleAnimalId derives from the same URL param (positiveIdString), so the effect can only re-run when that param changed — the compare-equal arm is unreachable
     if (previousScheduleAnimalParam.current === scheduleAnimalParam) return;
     previousScheduleAnimalParam.current = scheduleAnimalParam;
     setScheduleAnimalId(requestedScheduleAnimalId);
   }, [requestedScheduleAnimalId, scheduleAnimalParam]);
 
   /** Values the last linked duty prefilled — used to revert them when the
-   *  user switches back to "— none —" without clobbering manual edits
-   *. */
+   *  user switches back to "— none —" without clobbering manual edits. */
   const appliedPrefillRef = useRef<{
     scope?: EventValues["scope"];
     type?: EventValues["type"];
@@ -716,13 +702,11 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
     // look like an unchanged prefill and be cleared incorrectly.
     appliedPrefillRef.current = null;
     // Any submission still in flight belongs to the session ending here.
-    // Stryker disable next-line AssignmentOperator: a monotonically decreasing epoch mismatches a captured value exactly as reliably as an increasing one
     submissionEpoch.current += 1;
     setAdvancedOpen(false);
     // A duty lookup still in flight belongs to the dialog session being torn
     // down. Left armed, it resolves into the NEXT, unrelated session and
     // silently rewrites scope/target/type over what the operator just entered.
-    // Stryker disable next-line CallExpression: the resolver's task_id !== prefillTaskId arm consumes a late resolution in any fresh session (every reopen resets task_id to NONE), and a session that re-selects the same duty re-applies it through the select itself — where clearLinkedTaskPrefill first reverts, so user edits survive
     setPrefillTaskId(null);
     // The unresolved-duty warning belongs to the deep link that opened the
     // previous dialog. Left standing it re-appears on every later event and
@@ -753,11 +737,9 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
     }
     // Switching directly from one duty to another must not leave the first
     // duty's inferred product or disease attached to the second one.
-    // Stryker disable next-line ConditionalExpression: with no applied prefill the call is a harmless no-op (prev is null, so it early-returns right after a task_id write that is overwritten three lines later)
     if (appliedPrefillRef.current) clearLinkedTaskPrefill();
     setValue("task_id", taskIdStr);
     const task = linkableHealthTasks.find((t) => String(t.id) === taskIdStr);
-    // Stryker disable next-line ConditionalExpression: the local select only offers ids from this list and the deep-link resolver routes unknown ids to NONE, so the not-found arm is unreachable defense
     if (!task) return;
     const applied: NonNullable<typeof appliedPrefillRef.current> = {};
     if (task.animal_id) {
@@ -778,7 +760,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       applied.scope = "bucket";
       changeScope("bucket", true);
     }
-    // Stryker disable next-line ConditionalExpression: pendingHealthTasks and exactTask are both pre-filtered to VACCINE/DEWORMING (the only categories that can appear in linkableHealthTasks), so this check is tautological here
     if (task.category === "VACCINE" || task.category === "DEWORMING") {
       applied.type = task.category;
       setValue("type", task.category);
@@ -786,12 +767,10 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       // matches the vaccination templates. Don't overwrite text
       // the user already typed.
       const hints = taskPrefill(task);
-      // Stryker disable next-line StringLiteral: product_name is registered unconditionally, so getValues never yields undefined and the ?? "" fallback arm is dead
       if (hints.product_name && !(getValues("product_name") ?? "").trim()) {
         applied.product_name = hints.product_name;
         setValue("product_name", hints.product_name);
       }
-      // Stryker disable next-line StringLiteral: disease_target is registered unconditionally, so getValues never yields undefined and the ?? "" fallback arm is dead
       if (hints.disease_target && !(getValues("disease_target") ?? "").trim()) {
         applied.disease_target = hints.disease_target;
         setValue("disease_target", hints.disease_target);
@@ -808,9 +787,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
     // second time. User-edited values remain untouched below.
     appliedPrefillRef.current = null;
     if (!prev) return;
-    // Stryker disable next-line ConditionalExpression: a manual scope change funnels through changeScope → this function, so by the time the operator can pick "— none —" any live prefill was already cleared — with prev intact the scope still equals prev.scope
     if (resetTaskScope && prev.scope && getValues("scope") === prev.scope) {
-      // Stryker disable next-line BooleanLiteral: dropping the preserve flag would re-enter this function whose prev is already null — the same early return
       changeScope("animal", true);
     }
     if (prev.type && getValues("type") === prev.type) setValue("type", "VACCINE");
@@ -823,7 +800,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
   }
 
   function changeScope(nextScope: EventValues["scope"], preserveLinkedTask = false) {
-    // Stryker disable next-line CallExpression: every path through this function reaches a second clear — the !preserveLinkedTask arm calls clearLinkedTaskPrefill (which clears first thing), and the preserve arm only runs from applyTask, which cleared before calling
     setBulkPreview(null);
     setRecordError(null);
     if (!preserveLinkedTask) {
@@ -847,7 +823,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
         clearLinkedTaskPrefill();
       }
     }
-    // Stryker disable next-line ObjectLiteral, BooleanLiteral: the scope control only ever sets valid enum values, so shouldValidate never surfaces a different error state
     setValue("scope", nextScope, { shouldValidate: true });
     for (const [field, fieldScope] of [
       ["animal_id", "animal"],
@@ -863,7 +838,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
 
   function closeDeepLinkedDialog() {
     setRecordError(null);
-    // Stryker disable next-line CallExpression: every reopen path resets the scope to "animal", where the preview is never consulted, and any retarget clears it before a non-animal submit could read it
     setBulkPreview(null);
     if (returnTo) router.push(returnTo);
     else if (hasDeepLink) router.replace("/health");
@@ -882,7 +856,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       deepLinkHydratedRef.current = null;
       return;
     }
-    // Stryker disable next-line StringLiteral: an internal dedupe signature only needs an injective separator; its exact text is never rendered or sent
     const signature = `${create ? "create" : ""}|${taskId ?? ""}|${animalId ?? ""}|${batchId ?? ""}`;
     // Latch on the URL identity, not on `prefillTaskId`: that flag is cleared
     // both when resolution is consumed and when the dialog is reset. A
@@ -915,7 +888,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
   // only a fallback because it is a bounded window and cannot establish that
   // an absent id is inaccessible or stale.
   useEffect(() => {
-    // Stryker disable next-line ConditionalExpression: with prefillTaskId null the remaining guards consume-and-return identically (task_id is never null so the mismatch arm fires once tabs load; before that the !tabs arm returns)
     if (!prefillTaskId) return;
     // URL hydration and task resolution are separate effects. When navigation
     // changes task 1 -> task 2 while task 1 is unresolved, the hydration effect
@@ -927,7 +899,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
     if (
       !known &&
       canViewTasks &&
-      // Stryker disable next-line ConditionalExpression: the guards above pin prefillTaskId === deepLinkedTaskIdValue (a non-null param string), and deepLinkedTaskId is its Number() — never null on this path
       deepLinkedTaskId !== null &&
       !exactTaskQuery.isError &&
       !exactTaskQuery.data
@@ -974,7 +945,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       const previewMatchesSelection =
         bulkPreview?.scope === values.scope &&
         (!herdRoundDutyLinked || bulkPreview.round_component === values.disease_target) &&
-        // Stryker disable next-line ConditionalExpression: every retarget path (task select, scope radio, picker change) clears bulkPreview before the selection can differ from it, so a live preview never carries a different task than the selected one — the mismatch arm is unreachable defense
         bulkPreview.task_id === selectedTaskId &&
         (values.scope === "bucket"
           ? bulkPreview.bucket === values.bucket
@@ -994,16 +964,15 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 ...(selectedTaskId !== null ? { task_id: selectedTaskId } : {}),
         };
         setRecordError(null);
-        // Stryker disable next-line UpdateOperator: a monotonically decreasing epoch mismatches a captured value exactly as reliably as an increasing one
     const epoch = ++submissionEpoch.current;
         const stillOwnsFarm = captureFarmScope();
         try {
           const response = await previewMutation.mutateAsync({ data: target });
           if (response.status !== 200) {
-            // Contract drift guard: the preview endpoint promises 200. A
-            // success envelope with another status used to dead-end the
-            // first "Review targets" click with zero feedback — surface it
-            // exactly like a failed preview instead (2026-10-01 audit, 05-Info).
+            // Contract drift guard: the preview endpoint promises 200. A success
+            // envelope with another status used to dead-end the first "Review targets"
+            // click with zero feedback — surface it exactly like a failed preview
+            // instead.
             setRecordError(t("health.toast.reviewFailed"));
             return;
           }
@@ -1017,7 +986,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
             mounted.current &&
             stillOwnsFarm() &&
             submissionEpoch.current === epoch &&
-            // Stryker disable next-line ConditionalExpression: any scope retarget also unregisters/rewrites the target field, so the per-field comparison below rejects the stale preview on exactly the same inputs — the scope arm cannot differ alone
             currentScope === target.scope &&
             currentTaskId === selectedTaskId &&
             response.data.task_id === selectedTaskId &&
@@ -1045,7 +1013,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       }
       reviewedAnimalIds = bulkPreview.target_animal_ids;
     }
-    // Stryker disable ConditionalExpression, LogicalOperator: the optional-id ternaries' swapped variants land on the null arm or produce NaN (which JSON serializes to null — the same wire value), and real selections are pinned by the payload campaign tests
     const payload: HealthEventIn = {
       scope: values.scope,
       animal_id:
@@ -1060,7 +1027,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
           : null,
       date: values.date || null,
       type: values.type,
-      // Stryker disable OptionalChaining: every one of these inputs is registered unconditionally, so the values are strings, never undefined
       product_name: values.product_name?.trim() || null,
       disease_target: values.disease_target?.trim() || null,
       dose: values.dose?.trim() || null,
@@ -1086,12 +1052,10 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
         ? values.isolation_started_at || null
         : null,
       notes: values.notes?.trim() || null,
-      // Stryker restore OptionalChaining
       task_id: values.task_id && values.task_id !== NONE ? Number(values.task_id) : null,
       expected_animal_ids: reviewedAnimalIds,
     };
     setRecordError(null);
-    // Stryker disable next-line UpdateOperator: a monotonically decreasing epoch mismatches a captured value exactly as reliably as an increasing one
     const epoch = ++submissionEpoch.current;
     const stillOwnsFarm = captureFarmScope();
     try {
@@ -1117,9 +1081,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       // be a second one on top of the dismissal's own.
       if (!mounted.current || submissionEpoch.current !== epoch) return;
       setOpen(false);
-      // Stryker disable next-line CallExpression: every retarget path (scope radio, task select, picker change) clears bulkPreview before a new session could act on it, and a fresh session's scope is "animal" where the preview is never consulted
       setBulkPreview(null);
-      // Stryker disable next-line CallExpression: both Add-event and the deep-link hydration call resetEventForm before reopening, so the post-success reset only tightens an invisible closed-dialog window
       resetEventForm();
       if (returnTo) router.push(returnTo);
       else if (hasDeepLink) router.replace("/health");
@@ -1129,7 +1091,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
         !stillOwnsFarm() ||
         submissionEpoch.current !== epoch
       ) return;
-      // Stryker disable next-line StringLiteral: a live preview only exists for non-animal scopes (every retarget clears it before the scope can return to animal), so the "animal" comparison never decides anything on this line
       if (values.scope !== "animal") setBulkPreview(null);
       // A 422's per-field issues land inline on their inputs (the aria
       // wiring already renders those); only issues that match no form field
@@ -1141,8 +1102,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
         err,
         (field, message) => {
           mappedFields.push(field);
-          // Stryker disable next-line StringLiteral: nothing reads the RHF error type — the message drives every rendering (finance/breeding precedent)
-          // Stryker disable next-line StringLiteral: nothing reads the RHF error type — the message drives every rendering (finance/breeding precedent)
           setError(field as FieldPath<EventValues>, { type: "server", message });
         },
         EVENT_FORM_FIELDS,
@@ -1210,7 +1169,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
   // The confirm label only reads this when scope is non-animal AND a preview
   // is live; the hoist keeps that reachability explicit (an eager read with
   // optional chaining would mask a null dereference instead of pinning it).
-  // Stryker disable next-line LogicalOperator, StringLiteral: the || variant only matters when scope is "animal" with a live preview — every scope change clears bulkPreview first, so that arm (and the "animal" spelling, which no other scope equals) is unreachable
   const previewCount = scope !== "animal" && bulkPreview !== null ? bulkPreview.target_count : 0;
   const events = eventPayload.events;
 
@@ -1227,7 +1185,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
             <Button
               onClick={() => {
                 resetEventForm();
-                // Stryker disable next-line CallExpression: every dismissal path (onOpenChange → closeDeepLinkedDialog) already clears the banner, so the open-time clear is redundant
                 setRecordError(null);
                 setOpen(true);
               }}
@@ -1531,7 +1488,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                           // 422s while the duty stays linked.
                           disabled={herdRoundDutyLinked && value !== "bucket"}
                           onChange={() => {
-                            // Stryker disable next-line CallExpression: changeScope's setValue("scope", value) writes the same form state one line later — the RHF onChange is redundant
                             field.onChange(value);
                             changeScope(value);
                           }}
@@ -1557,7 +1513,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                       // RemotePicker fires even when the already-selected row
                       // is re-clicked to confirm it; only an actual change may
                       // unlink the duty and its prefills.
-                      // Stryker disable next-line StringLiteral: the picker rows carry animal ids only (no "none" option), so onValueChange never fires "" and the || "" arm is dead
                       if (v === (wAnimalId || "")) return;
                       clearLinkedTaskPrefill();
                       setRecordError(null);
@@ -1610,7 +1565,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                     value={wPurchaseBatchId || ""}
                     onValueChange={(v) => {
                       // Same-value confirmation must not unlink the duty.
-                      // Stryker disable next-line StringLiteral: the picker rows carry batch ids only (no "none" option), so onValueChange never fires "" and the || "" arm is dead
                       if (v === (wPurchaseBatchId || "")) return;
                       clearLinkedTaskPrefill();
                       setRecordError(null);
@@ -1646,9 +1600,8 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   >
                     {bulkPreview.target_animals.map((animal, index) => {
                       // Age at event time (index-aligned with the animals):
-                      // age-sensitive rules (first-dose windows, withdrawal
-                      // floors) are reviewable per animal, not invisible
-                      // (P3, 2026-09-20 audit).
+                      // age-sensitive rules (first-dose windows, withdrawal floors) are
+                      // reviewable per animal, not invisible.
                       const age = bulkPreview.target_animal_ages_months?.[index];
                       return (
                         <li key={animal.id}>
@@ -1707,7 +1660,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 <Select
                   value={wType}
                   onValueChange={(v) => {
-                    // Stryker disable next-line ObjectLiteral, BooleanLiteral: the select only ever sets valid enum values, so shouldValidate never surfaces a different error state (changeScope precedent)
                     setValue("type", v as EventValues["type"], { shouldValidate: true });
                   }}
                   items={eventTypeItems(language)}
@@ -1908,7 +1860,6 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                       name="schedule_template_name"
                       render={({ field }) => (
                         <Select
-                          // Stryker disable next-line StringLiteral: hand-proven equivalent — Base UI normalizes a non-matching fallback value through its internal selection state (placeholder when unset, selected label when set), exactly like the create-dialog's birth-type select
                           value={field.value ?? ""}
                           onValueChange={field.onChange}
                           disabled={templateOptions.length === 0}
@@ -2058,9 +2009,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                           if (!selected) {
                             unregister("authority_notified_at");
                             unregister("isolation_started_at");
-                            // Stryker disable next-line StringLiteral, CallExpression: the field was unregistered one line above, so skipping the write or writing under a garbage key both leave it undefined — and the payload maps undefined and "" to null alike
                             setValue("authority_notified_at", "");
-                            // Stryker disable next-line StringLiteral, CallExpression: same unregistered-field equivalence as the authority date
                             setValue("isolation_started_at", "");
                           }
                           field.onChange(selected);

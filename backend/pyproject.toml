@@ -21,13 +21,9 @@ dependencies = [
     "cryptography==50.0.0",
     "argon2-cffi==25.1.0",
     "prometheus-client==0.26.0",
-    # Disease-screening worker: S3 access (sync boto3, wrapped in threads),
-    # image normalization, and outbound vision-model calls (httpx moves from
-    # dev-only to runtime: production provider traffic now depends on it).
+    # Screening storage, image normalization, and vision-provider HTTP calls.
     "boto3==1.40.11",
-    # User-provided screening photos reach Pillow's native decoders. Keep the
-    # pinned release on the current patched line rather than relying on a
-    # transitive resolver upgrade.
+    # Pin the image decoder directly because it handles untrusted uploads.
     "Pillow==12.3.0",
     "httpx==0.28.1",
 ]
@@ -37,7 +33,6 @@ dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
-    "httpx==0.28.1",
     "ruff==0.16.1",
     "mypy==2.3.0",
     "types-PyYAML==6.0.12.20260906",
@@ -60,11 +55,7 @@ select = [
     "B",
     "ASYNC",
     "RUF",
-    # ITEM 10 (2026-09-21 playbook): audit-time breadth, adopted after
-    # triage. C4 = comprehension simplification, SIM = small simplifications,
-    # RET = consistent returns, PTH = pathlib over os.path, and the S rules
-    # that matter here (S101 asserts outside tests, S602 shell injection,
-    # S608 SQL string building in app code).
+    # Simplification, consistent returns, pathlib, and selected security checks.
     "C4",
     "SIM",
     "RET",
@@ -74,21 +65,7 @@ select = [
     "S608",
 ]
 ignore = [
-    # S105/S106 (hardcoded password name heuristics): every hit is a
-    # scope-name/reason-string CONSTANT (e.g. TEAM_PASSWORD_RESERVATION_SCOPE)
-    # — real secrets are env-driven with fail-closed validators, and the
-    # frontend's adversarial literal scan covers shipped-source secrets.
-    # S311: `random.Random` is deliberate everywhere (seeded, reproducible
-    # simulations); nothing security-sensitive uses it.
-    # S603/S607: subprocess calls with fixed argv through PATH — shell=True
-    # (S602) stays enabled, which is the actual injection boundary.
-    "S105",
-    "S106",
-    "S311",
-    "S603",
-    "S607",
-    # RUF001/002/003: display strings intentionally keep en/em-dashes and
-    # '×' from the v1 UI.
+    # UI text intentionally includes typographic dashes and multiplication signs.
     "RUF001",
     "RUF002",
     "RUF003",
@@ -97,13 +74,12 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Seed data tables are copied verbatim from v1; wrapping them would risk content drift.
 "app/seed.py" = ["E501"]
-# Tests: assert IS the assertion API; fixture passwords/keys are throwaway by
-# definition; S608 flags the literal SQL the DB layer tests deliberately run.
+# Tests use assertions and deliberately exercise literal database DDL.
 "tests/**" = ["S101", "S608"]
 # Alembic revisions are raw DDL by design.
 "alembic/versions/**" = ["S608"]
-# Operator scripts: document-shell subprocess calls with fixed argv.
-"scripts/**" = ["S603", "S607", "S608"]
+# Operator scripts build controlled database administration statements.
+"scripts/**" = ["S608"]
 
 [tool.mypy]
 python_version = "3.13"
@@ -133,36 +109,12 @@ testpaths = ["tests"]
 addopts = ["--strict-markers", "--strict-config"]
 
 [tool.coverage.run]
-# SQLAlchemy's AsyncSession bridges async/sync through greenlet: under the
-# default tracer, line events after each greenlet switch are silently lost,
-# which under-reported exactly the service-layer modules the tests drive the
-# hardest (services/kidding.py measured 23% app-wide while its suite plainly
-# exercised it — verified with a probe line). greenlet-aware tracing fixes
-# the attribution; the measured app-wide number only goes up, so the 75%
-# ratchet below stays honest.
+# AsyncSession switches through greenlet; trace both greenlet and thread work.
 concurrency = ["greenlet", "thread"]
-# Line coverage can report a fully covered conditional while one safety branch
-# (often the failure path) was never exercised. Keep the backend ratchet on
-# branch coverage too; CI passes --cov-branch explicitly for clarity.
+# Enforce branch coverage so untested failure paths affect the coverage gate.
 branch = true
 
 [tool.coverage.report]
-# Coverage ratchet floor for `pytest --cov=app --cov-branch` (ci.yml). Single-sourced here
-# so pytest-cov enforces the same floor for local instrumented runs as for CI
-# (the flag --cov-fail-under would override, not complement, this value).
-# Keep it at or below the measured app-wide coverage on main — raise it as
-# coverage improves, never above the measured value.
-# B7 (2026-09-21 audit): with branch = true coverage.py's headline TOTAL is
-# the COMBINED line+branch metric, not the branch figure alone — the old 85
-# evaluated the combined number while its comment claimed a branch floor, so
-# the ratchet was ~8 points weaker than documented.
-# T7 (2026-09-28 audit): the two recorded combined measurements are 92.48%
-# (MUTATION_TESTING_REPORT.md baseline run) and 92.54% (committed
-# backend/coverage.xml) — so headroom over this floor is ~0.5pt, which IS
-# the ordinary run-to-run fluctuation band. A failure here therefore means
-# coverage genuinely dropped below 92: that is the ratchet working, not
-# flake, and the remedy is to restore the coverage (or re-measure and
-# re-justify a lower floor in the same commit), never to re-run CI until it
-# passes. Re-measured 2026-09-28; the suite needs PostgreSQL, so hosts
-# without a database cannot re-derive the number — floor unchanged.
+# pytest-cov enforces this combined line-and-branch floor locally and in CI.
+# Raise it as measured coverage improves; do not retry a regression into passing.
 fail_under = 92

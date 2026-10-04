@@ -1,8 +1,7 @@
 /**
- * Farm-select page — mutation-hardening suite for the surviving branches:
- * the create-farm happy path (trimmed payload, form reset, navigation),
- * the empty-list hint, and the per-card type labels and timezone
- * fallbacks on the picker grid.
+ * Farm-select page — regression suite for the surviving branches: the create-farm
+ * happy path (trimmed payload, form reset, navigation), the empty-list hint, and the
+ * per-card type labels and timezone fallbacks on the picker grid.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";

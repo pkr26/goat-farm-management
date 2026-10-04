@@ -682,10 +682,8 @@ async def complete(
     perms: COMPLETE,
     idempotency_key: IdempotencyKey = None,
 ) -> TaskOut:
-    # ITEM 2 Phase 1 (2026-09-21 playbook): the tablet's offline queue retries
-    # this mutation; an optional Idempotency-Key turns a retry into the
-    # original response instead of a fresh 409 "not pending" (2026-09-28
-    # audit, A3 — wrong lifecycle state answers 409 everywhere).
+    # The tablet's offline queue retries this mutation; an optional Idempotency-Key turns a retry
+    # into the original response instead of a fresh 409 "not pending".
 
     async def mutate() -> TaskOut:
         # A recurrence inserts another Task and therefore starts with FARM. The
@@ -885,10 +883,8 @@ async def verify(
     perms: VERIFY,
     idempotency_key: IdempotencyKey = None,
 ) -> TaskOut:
-    # (2026-09-28 audit, A1): same tablet-offline retry story as complete/skip
-    # — an optional Idempotency-Key turns a retry into the original response
-    # instead of an unrecoverable bare 409 "not awaiting verification"
-    # (2026-09-28 audit, A3 — wrong lifecycle state answers 409 everywhere).
+    # same tablet-offline retry story as complete/skip — an optional Idempotency-Key turns a retry
+    # into the original response instead of an unrecoverable bare 409 "not awaiting verification".
 
     async def mutate() -> TaskOut:
         # Verifying a recurring verification-required duty is the transition that
@@ -961,10 +957,8 @@ async def reject(
     perms: VERIFY,
     idempotency_key: IdempotencyKey = None,
 ) -> TaskOut:
-    # (2026-09-28 audit, A1): same tablet-offline retry story as complete/skip
-    # — an optional Idempotency-Key replays the original response instead of a
-    # bare 409 once the duty is no longer awaiting verification (2026-09-28
-    # audit, A3 — wrong lifecycle state answers 409 everywhere).
+    # same tablet-offline retry story as complete/skip — an optional Idempotency-Key replays the
+    # original response instead of a bare 409 once the duty is no longer awaiting verification.
 
     async def mutate() -> TaskOut:
         # Reject is the other transition that can add a PENDING manual duty. Take

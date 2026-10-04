@@ -1,8 +1,7 @@
 /**
- * Locale-aware date rendering (2026-09 i18n campaign): with the active
- * language on Telugu, formatDate/formatFarmDateTime render through Intl
- * te-IN (Telugu month names); English sessions keep the hand-built
- * byte-identical output.
+ * Locale-aware date rendering: with the active language on Telugu,
+ * formatDate/formatFarmDateTime render through Intl te-IN (Telugu month names);
+ * English sessions keep the hand-built byte-identical output.
  */
 
 import { afterEach, describe, expect, it } from "vitest";

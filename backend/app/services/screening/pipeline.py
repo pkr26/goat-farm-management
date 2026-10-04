@@ -98,13 +98,9 @@ from .specialists import (
 logger = logging.getLogger(__name__)
 
 
-# B6 (2026-09-21 audit): tenant-facing error fields (ScreeningImage.error,
-# ScreeningRun.error) carry a fixed reason code, never raw exception text —
-# provider/S3 exceptions name endpoints, headers and HTTP topology, which is
-# operator detail a farm member has no need to see. Logs likewise use stable
-# reason codes and row IDs, never object keys or provider response text. These
-# strings are the complete set a tenant can ever observe; they must stay free
-# of interpolated values.
+# Tenant-facing errors expose only these fixed reason codes. Raw exceptions
+# may reveal endpoints, headers, object keys, or provider responses. Logs use
+# reason codes and row IDs for the same privacy boundary.
 class ScreeningErrorReason:
     PROVIDER_ERROR = "PROVIDER_ERROR"
     DOWNLOAD_FAILED = "DOWNLOAD_FAILED"
@@ -874,8 +870,8 @@ def _record_run(
     error: str | None = None,
     crop_id: int | None = None,
 ) -> ScreeningRun:
-    # One provider call = one run row, whatever its outcome: the spend
-    # metrics and the daily per-farm budget both count it here (ITEM 6).
+    # One provider call = one run row, whatever its outcome: the spend metrics and the daily
+    # per-farm budget both count it here.
     record_screening_provider_call(provider, run_status == ScreeningRunStatus.OK.value)
     return ScreeningRun(
         farm_id=image.farm_id,
@@ -1000,10 +996,9 @@ async def _detect_with_fallback(
             boxes = parse_detection_response(answer.text, max_crops)
         except (ProviderError, DetectionParseError) as exc:
             failures.append(provider.name)
-            # One provider call = one run row, whatever its outcome: a failed
-            # fallback attempt was paid and must count in the spend ledger and
-            # the daily budget here, not only the attempt that finally served
-            # (2026-10-01 audit, 02-3).
+            # One provider call = one run row, whatever its outcome: a failed fallback attempt was
+            # paid and must count in the spend ledger and the daily budget here, not only the
+            # attempt that finally served.
             db.add(
                 _record_run(
                     image,
@@ -1064,10 +1059,9 @@ async def _run_cascade(
     crop_id = crop.id if crop is not None else None
 
     def _record_failed_gate_attempt(name: str) -> None:
-        # One provider call = one run row, whatever its outcome: each fallback
-        # attempt that failed before another provider served the gate was paid
-        # and must count in the spend ledger and the daily budget individually,
-        # never only the attempt that finally served (2026-10-01 audit, 02-3).
+        # One provider call = one run row, whatever its outcome: each fallback attempt that failed
+        # before another provider served the gate was paid and must count in the spend ledger and
+        # the daily budget individually, never only the attempt that finally served.
         failed = rotation.provider_named(name)
         db.add(
             _record_run(
@@ -1159,11 +1153,9 @@ async def _run_cascade(
     # ---- specialists on the provider that served the gate ---------------
     serving = rotation.provider_named(gate_result.provider)
     specialist_conditions: list[tuple[int, str | None, SpecialistCondition]] = []
-    # Gate observations grouped by the specialist kind their region maps to:
-    # a failed specialist call falls back to exactly its own kind's
-    # observations, so a partial outage neither drops a missed region's
-    # finding nor overrides a specialist that did answer (2026-10-01
-    # audit, 02-2).
+    # Gate observations grouped by the specialist kind their region maps to: a failed specialist
+    # call falls back to exactly its own kind's observations, so a partial outage neither drops a
+    # missed region's finding nor overrides a specialist that did answer.
     observations_by_kind: dict[SpecialistKind, list[GateObservation]] = {}
     for observation in observations or []:
         observations_by_kind.setdefault(specialist_for_region(observation.region), []).append(
@@ -1278,8 +1270,7 @@ async def _run_cascade(
     # ---- cross-check from the next usable provider in the rotation -------
     # Skip whoever served the gate and whoever already failed it: the date's
     # blind primary+1 pick made the "second opinion" the serving fallback
-    # itself in 3-provider rotations, silently skipping the cross-check
-    # (P3, 2026-09-20 audit).
+    # itself in 3-provider rotations, silently skipping the cross-check.
     secondary = rotation.cross_checker_for(
         business_today, gate_result.provider, outcome.failed_providers
     )
@@ -1704,11 +1695,10 @@ async def _process_image(
             summary.skipped += 1
             return
         object_token = object_info.metadata.get("screening-token")
-        # compare_digest raises TypeError for non-ASCII str input, which an
-        # out-of-band bucket writer controls here; that must fall into the
-        # ordinary mismatch verdict instead of escaping as an unexpected
-        # pipeline failure that burns five retry cycles (L-2, 2026-09-20
-        # audit). Encode both sides so any byte value compares cleanly.
+        # compare_digest raises TypeError for non-ASCII str input, which an out-of-band bucket
+        # writer controls here; that must fall into the ordinary mismatch verdict instead of
+        # escaping as an unexpected pipeline failure that burns five retry cycles. Encode both sides
+        # so any byte value compares cleanly.
         stored_token_bytes = image.upload_token.encode("utf-8", "surrogatepass")
         object_token_bytes = (
             object_token.encode("utf-8", "surrogatepass") if object_token is not None else None

@@ -1,8 +1,7 @@
 /**
- * Animals create-dialog DOM caps (2026-10-01 campaign follow-up): breed
- * (60), the purchase seller name (120), the historical-import reason
- * (2 rows × 255 chars) and the notes box (2 rows × 255 chars) all bound
- * in the DOM at their schema limits.
+ * Animals create-dialog DOM caps: breed (60), the purchase seller name (120), the
+ * historical-import reason (2 rows × 255 chars) and the notes box (2 rows × 255
+ * chars) all bound in the DOM at their schema limits.
  */
 
 import { screen, within } from "@testing-library/react";

@@ -7,7 +7,7 @@
  * so apiFetchEnvelope repackages the parsed body with the response's REAL
  * status (201/204 included) and headers.
  *
- * KNOWN ORVAL 8 GAP (2026-09-17 audit L-7): the generator does not emit a
+ * KNOWN ORVAL 8 GAP: the generator does not emit a
  * typed parameter for HEADER arguments declared on body routes, so the
  * generated createFarmApiAuthFarmsPost carries no Idempotency-Key even
  * though the OpenAPI spec marks it required. The transport below papers
@@ -16,7 +16,7 @@
  * the generated SDK WITHOUT this mutator must add the header itself or the
  * backend answers 422. Re-check on orval upgrades.
  *
- * Drift tripwire (2026-10-01 audit, 04-4): every route the spec marks
+ * Drift tripwire: every route the spec marks
  * `Idempotency-Key: required` (currently six POSTs: auth/farms,
  * feeding/dispense, feeding/mix, feeding/inventory/{id}/add, finance/new,
  * purchases/new) MUST stay covered by isIdempotencyProtectedMutation in
@@ -39,7 +39,6 @@ const FREE_TEXT_QUERY_PARAMS = new Set(["q"]);
 
 function stripNullQueryValues(url: string): string {
   const queryStart = url.indexOf("?");
-  // Stryker disable next-line ConditionalExpression, UnaryOperator: a url without "?" has no query pairs to strip — URLSearchParams parses it as one path-shaped key with an empty value, so the loop changes nothing and the original url returns either way; and every request url starts with "/api", so the "?" index is never 1
   if (queryStart === -1) return url;
   const params = new URLSearchParams(url.slice(queryStart + 1));
   let changed = false;

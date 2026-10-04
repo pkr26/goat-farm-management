@@ -18,8 +18,8 @@ from app.models import Farm, ScreeningFinding, ScreeningFindingReview
 from app.utils import utcnow
 
 from .conftest import BACKEND_DIR
-from .test_clinical_quality_20261003 import _finding
 from .test_ops_migration_integrity import _admin, _alembic, _throwaway_name
+from .test_screening_clinical_integrity import _finding
 
 
 async def test_review_history_id_bound_returns_404_instead_of_database_overflow(

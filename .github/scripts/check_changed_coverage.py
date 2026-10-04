@@ -37,9 +37,7 @@ class FileCoverage:
 
 
 def _run_git(*args: str) -> str:
-    completed = subprocess.run(
-        ["git", *args], check=True, text=True, capture_output=True
-    )
+    completed = subprocess.run(["git", *args], check=True, text=True, capture_output=True)
     return completed.stdout
 
 
@@ -65,9 +63,7 @@ def load_cobertura(path: Path, source_root: str) -> dict[str, FileCoverage]:
         target = by_file[_repo_path(filename, source_root)]
         for line in class_node.findall("./lines/line"):
             number = int(line.attrib["number"])
-            target[number] = max(
-                target.get(number, 0), int(line.attrib.get("hits", "0"))
-            )
+            target[number] = max(target.get(number, 0), int(line.attrib.get("hits", "0")))
     return {
         filename: FileCoverage(
             frozenset(lines), frozenset(n for n, hits in lines.items() if hits > 0)
@@ -96,9 +92,7 @@ def load_istanbul(path: Path, source_root: str) -> dict[str, FileCoverage]:
             if not isinstance(start, dict) or not isinstance(start.get("line"), int):
                 continue
             raw_hits = statement_hits.get(statement_id, 0)
-            hits_by_line[start["line"]].append(
-                raw_hits if isinstance(raw_hits, int) else 0
-            )
+            hits_by_line[start["line"]].append(raw_hits if isinstance(raw_hits, int) else 0)
         result[_repo_path(filename, source_root)] = FileCoverage(
             frozenset(hits_by_line),
             frozenset(
@@ -111,16 +105,12 @@ def load_istanbul(path: Path, source_root: str) -> dict[str, FileCoverage]:
 
 
 def changed_files(base: str, roots: list[str]) -> list[str]:
-    output = _run_git(
-        "diff", "--name-only", "--diff-filter=ACMR", f"{base}...HEAD", "--", *roots
-    )
+    output = _run_git("diff", "--name-only", "--diff-filter=ACMR", f"{base}...HEAD", "--", *roots)
     return [line for line in output.splitlines() if line]
 
 
 def changed_lines(base: str, filename: str) -> set[int]:
-    diff = _run_git(
-        "diff", "--unified=0", "--diff-filter=ACMR", f"{base}...HEAD", "--", filename
-    )
+    diff = _run_git("diff", "--unified=0", "--diff-filter=ACMR", f"{base}...HEAD", "--", filename)
     lines: set[int] = set()
     for row in diff.splitlines():
         match = HUNK.match(row)
@@ -169,8 +159,7 @@ def main() -> int:
         for name in changed_files(args.base, args.roots)
         if not any(token in f"/{name}" for token in excludes)
         and (
-            not args.include_suffix
-            or any(name.endswith(suffix) for suffix in args.include_suffix)
+            not args.include_suffix or any(name.endswith(suffix) for suffix in args.include_suffix)
         )
     ]
 
@@ -181,9 +170,7 @@ def main() -> int:
     for filename in candidates:
         measured = coverage.get(filename)
         if measured is None:
-            errors.append(
-                f"{filename}: production file is absent from the coverage report"
-            )
+            errors.append(f"{filename}: production file is absent from the coverage report")
             continue
         whole_rate = _percentage(len(measured.covered), len(measured.executable))
         if whole_rate + 1e-9 < args.changed_file_min:

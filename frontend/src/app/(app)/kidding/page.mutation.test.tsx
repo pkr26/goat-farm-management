@@ -1,11 +1,6 @@
 /**
- * Kidding page mutation hardening (companion to page.record-guards.test.tsx):
- * pins the exact strings and branch outcomes that Stryker survivors hovered
- * on — the deep-link id vocabulary, the mortality-date validation messages,
- * the gestation ceiling message, tag/notes trimming in the POST payload, the
- * ultrasound reconciliation hint, kid status option labels, the mortality
- * field's DIED-only visibility, the stale deep-link notice, permission-gated
- * copy (breeding.view, kidding.manage) and the loading/error states.
+ * Kidding date and gestation validation, payload trimming, labels, deep links and
+ * permission gates.
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";

@@ -10,8 +10,7 @@ import { useT } from "@/lib/i18n";
  *  of the pinned highest-stakes phrases (duty conflicts, …); the fallback is
  *  the caller's — translated where the surface is wired to the language
  *  catalog (`t("common.somethingWentWrong")`). Every write surface renders
- *  through this hook (2026-09-22: the legacy non-hook variant that returned
- *  raw English server text was retired). */
+ *  through this hook so recognized server errors follow the active language. */
 export function useMutationError(): (err: unknown, fallback?: string) => string {
   const t = useT();
   return (err: unknown, fallback = t("common.somethingWentWrong")) =>

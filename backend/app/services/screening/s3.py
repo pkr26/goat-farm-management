@@ -8,11 +8,9 @@ screening credentials.
 
 from __future__ import annotations
 
-import logging
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Any, cast
 
 import boto3
@@ -20,8 +18,6 @@ from botocore.client import Config as BotoConfig
 from botocore.exceptions import BotoCoreError, ClientError
 
 from ...core.config import ScreeningRuntimeSettings
-
-logger = logging.getLogger(__name__)
 
 # Presigning is local SigV4 signing — no network round-trip — but boto3
 # still requires the credentials; an over-long expiry buys nothing.
@@ -117,7 +113,7 @@ class PresignedPost:
 
 
 class ScreeningStorage:
-    """List/download/upload/presign within one configured bucket."""
+    """Inspect, download, upload, presign, and delete within one bucket."""
 
     def __init__(self, settings: ScreeningRuntimeSettings) -> None:
         self._settings = settings
@@ -193,23 +189,6 @@ class ScreeningStorage:
             )
         return self._delete_client
 
-    def list_object_keys(self, prefix: str, max_keys: int) -> list[str]:
-        """Up to ``max_keys`` object keys under ``prefix`` (lexicographic)."""
-        client = self._ensure_client()
-        collected: list[str] = []
-        try:
-            paginator = client.get_paginator("list_objects_v2")
-            for page in paginator.paginate(
-                Bucket=self.bucket, Prefix=prefix, PaginationConfig={"MaxItems": max_keys}
-            ):
-                for item in page.get("Contents", []):
-                    collected.append(item["Key"])
-                if len(collected) >= max_keys:
-                    break
-        except (BotoCoreError, ClientError) as exc:
-            raise ScreeningStorageError(f"S3 list failed under {prefix!r}: {exc}") from exc
-        return collected[:max_keys]
-
     def object_info(self, key: str) -> ScreeningObjectInfo | None:
         """HEAD metadata, or ``None`` while a presigned upload is absent.
 
@@ -229,10 +208,9 @@ class ScreeningStorage:
                 ).items()
             }
             content_type = response.get("ContentType")
-            # ContentLength lives inside the error wrapper: an incompatible
-            # S3 implementation answering without it must surface as this
-            # module's ScreeningStorageError, not a raw KeyError that
-            # crashes the worker cycle (P3, 2026-09-20 audit).
+            # ContentLength lives inside the error wrapper: an incompatible S3 implementation
+            # answering without it must surface as this module's ScreeningStorageError, not a raw
+            # KeyError that crashes the worker cycle.
             info = ScreeningObjectInfo(
                 size=int(response["ContentLength"]),
                 etag=cast(str | None, response.get("ETag")),
@@ -252,11 +230,6 @@ class ScreeningStorage:
                 f"S3 head returned unusable metadata for {key!r}: {exc!r}"
             ) from exc
         return info
-
-    def object_size(self, key: str) -> int | None:
-        """Compatibility helper for callers interested only in size."""
-        info = self.object_info(key)
-        return None if info is None else info.size
 
     def download(
         self,
@@ -493,22 +466,9 @@ class ScreeningStorage:
         )
 
 
-@lru_cache
-def get_screening_storage() -> ScreeningStorage:
-    """Process-wide storage instance (the worker and each API replica)."""
-    from ...core.config import get_settings
-
-    return storage_for_settings(get_settings())
-
-
-# One boto3 client per Settings object, not per request: Settings itself is
-# lru-cached in production (one instance per process), while tests inject
-# their own instances through the API's get_settings seam — each gets its
-# own storage exactly once instead of minting a client on every call
-# (P3, 2026-09-20 audit). Settings is unhashable, so the cache is keyed on
-# id() with the object retained in the value (ids cannot be reused while
-# the reference lives) and bounded FIFO so a long test session does not
-# accumulate every injected settings instance.
+# Reuse one storage client per settings instance. Settings is unhashable, so
+# retain the instance alongside its id to prevent identity reuse. A bounded
+# FIFO cache limits retention when tests inject many settings instances.
 _STORAGE_CACHE_LIMIT = 32
 _STORAGE_BY_SETTINGS: dict[int, tuple[ScreeningRuntimeSettings, ScreeningStorage]] = {}
 

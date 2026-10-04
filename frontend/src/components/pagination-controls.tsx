@@ -24,21 +24,19 @@ export function PaginationControls({
   offset: number;
   onOffsetChange: (offset: number) => void;
   /** Localized record noun (callers pass t(...)); omitted renders the
-   * generic "records" noun from the catalog (2026-09-29 audit, I5 residue). */
+   * generic "records" noun from the catalog. */
   label?: string;
   /** Keep placeholder rows from dispatching another page transition while
    * the page they describe is no longer the one being requested. */
   disabled?: boolean;
 }) {
-  // Buttons, the landmark label, the range sentence and the fallback noun all
-  // resolve through the active language catalog (2026-09-28 audit, I5; the
-  // hardcoded "Showing … records" sentence was its 2026-09-29 residue).
+  // Buttons, the landmark label, the range sentence and the fallback noun all resolve
+  // through the active language catalog.
   const t = useT();
   if (!Number.isFinite(total) || total <= 0) return null;
   // The component is also a trust boundary: URL-derived state has reached it
   // as NaN/negative/fractional values in the wild. Sanitize instead of
   // rendering "Showing NaN–NaN" (L8).
-  // Stryker disable next-line ConditionalExpression, LogicalOperator, EqualityOperator: Infinity (the only differing input) clamps to the same rendered range via Math.min below, and the 0 case now normalizes through Math.max
   const safeLimit =
     Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;
   const safeOffset = sanitizeOffset(offset);

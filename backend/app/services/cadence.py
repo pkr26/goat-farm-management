@@ -375,8 +375,7 @@ async def _ensure_daily_feed_routine(db: AsyncSession, farm_id: int, reference: 
     PENDING-only probe would re-mint a same-day duplicate on every later
     sweep visit. The key is the server-owned title_key, never the free-text
     title: manual duties may reuse category FEED, and an operator-titled
-    copy of the routine's English fallback must not suppress the auto round
-    (2026-10-01 audit, 03-6).
+    copy of the routine's English fallback must not suppress the auto round.
     """
     already = await _task_exists(
         db,
@@ -404,8 +403,7 @@ async def _ensure_daily_water_check(db: AsyncSession, farm_id: int, reference: d
 
     Same any-status (title_key, due date) dedupe as the feed routine: today's
     completed/skipped copy must not be re-minted, yesterday's must not block
-    today's — and a manually titled lookalike never suppresses the auto round
-    (2026-10-01 audit, 03-6).
+    today's — and a manually titled lookalike never suppresses the auto round.
     """
     already = await _task_exists(
         db,
@@ -432,8 +430,8 @@ async def _ensure_feed_reorders(db: AsyncSession, farm_id: int, reference: date)
     """One reorder duty per ingredient stock row under its reorder level.
 
     Dedupe is PENDING-only on the server-owned reminder identity —
-    ``title_key == "feed_reorder"`` plus the ingredient in ``title_args``
-    (2026-10-01 audit, 03-6): a pending reminder already covers the purchase,
+    ``title_key == "feed_reorder"`` plus the ingredient in ``title_args``: a pending reminder
+    already covers the purchase,
     while a completed one means the stock was replenished (and the row should
     have left the under-level set) or is due for a fresh reminder. A manually
     titled lookalike duty can no longer suppress the auto alert.
@@ -463,11 +461,10 @@ async def _ensure_feed_reorders(db: AsyncSession, farm_id: int, reference: date)
             f"Reorder {item.ingredient}: {item.qty_on_hand:.0f} kg on hand "
             f"(reorder level {level:.0f} kg)"
         )
-        # Dedupe is PENDING-only on the server-owned identity of the reminder
-        # — title_key "feed_reorder" plus the ingredient in title_args
-        # (2026-10-01 audit, 03-6). The old free-text prefix match let any
-        # manually titled "Reorder {ingredient}: …" duty suppress the auto
-        # alert for as long as it stayed open.
+        # Dedupe is PENDING-only on the server-owned identity of the reminder — title_key
+        # "feed_reorder" plus the ingredient in title_args. The old free-text prefix match let any
+        # manually titled "Reorder {ingredient}: …" duty suppress the auto alert for as long as it
+        # stayed open.
         already = await _task_exists(
             db,
             farm_id,
@@ -651,13 +648,9 @@ async def ensure_cadence_farm_batch(
             # Release the advisory lock even for a farm with no new duties.
             await db.commit()
         except Exception:
-            # BIZ-2 (2026-09-16): one persistently failing farm must not
-            # starve every higher-id farm's cadence materialization forever
-            # (the whole keyset page aborted and the cursor reset each
-            # interval). Isolate the failure: roll this farm's partial work
-            # back, log loudly, and keep paging. The returned count stays
-            # the FETCHED count so the caller's short-page detection still
-            # sees the true end of the tenant list.
+            # Roll back only this farm's work and keep advancing the cursor,
+            # so a failing farm cannot starve later tenants. Return the fetched
+            # count to preserve the caller's short-page completion check.
             await db.rollback()
             _logger.exception(
                 "cadence materialization failed for farm_id=%s; skipping to "

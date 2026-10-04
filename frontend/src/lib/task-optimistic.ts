@@ -11,7 +11,7 @@
  * whole-board snapshots let a concurrent mutation's failure rollback clobber
  * another's optimistic strike-through: duty A's rollback restored A's
  * pre-patch snapshot, which predated duty B's patch, un-striking B while B's
- * write was still queued or in flight (2026-10-01 audit, 07-L1).
+ * write was still queued or in flight.
  */
 
 import type { QueryClient } from "@tanstack/react-query";
@@ -52,7 +52,7 @@ function replaceTaskInBoard(data: TaskTabsOut, replacement: TaskOut): TaskTabsOu
 
 /** Does the row still carry every value this patch wrote? A refetch may have
  * replaced the board with server truth between patch and rollback; that
- * truth outranks the snapshot (2026-10-01 audit, 07-L1). */
+ * truth outranks the snapshot. */
 function carriesPatch(task: TaskOut, patch: Partial<TaskOut>): boolean {
   return Object.entries(patch).every(
     ([field, value]) => task[field as keyof TaskOut] === value,

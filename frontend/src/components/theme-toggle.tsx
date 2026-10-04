@@ -25,9 +25,9 @@ export function ThemeToggle() {
   }, [resolvedTheme]);
 
   if (!mounted) {
-    // Placeholder keeps layout stable until the theme is known client-side.
-    // It does nothing yet, so it must not present as an ENABLED inert button
-    // (2026-09-28 audit): disabled keeps it out of the tab order and honest.
+    // Placeholder keeps layout stable until the theme is known client-side. It does
+    // nothing yet, so it must not present as an ENABLED inert button: disabled keeps it
+    // out of the tab order and honest.
     return <Button variant="ghost" size="icon" aria-label={t("theme.toggle")} disabled />;
   }
 

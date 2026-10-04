@@ -1,17 +1,6 @@
 /**
- * Worker-tablet PWA manifest (2026-09-28 audit, T2 — the file sat at 0%).
- * Pins the shape, including the tablet's straight-to-the-board start_url and
- * the W11 additions from the same audit: explicit id/scope, a maskable icon
- * purpose entry, and a background_color that is the app canvas token
- * (--background, oklch(0.988 0.005 95)) resolved to the hex the manifest
- * spec requires.
- *
- * The icon set is generated from the brand mark (scripts/generate-worker-icons.mjs):
- * the maskable entry is a DEDICATED asset whose whole glyph sits inside the
- * 66dp-of-108dp safe circle, and src/app/apple-icon.png (180×180, iOS
- * Add-to-Home-Screen ignores manifest icons) exists for real — both are
- * asserted on disk so a rename/regression cannot ship a manifest that
- * points at nothing.
+ * Worker PWA manifest entries and generated icons stay present, correctly scoped and
+ * suitable for launcher masks.
  */
 
 import { existsSync } from "node:fs";

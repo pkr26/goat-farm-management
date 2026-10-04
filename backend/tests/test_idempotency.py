@@ -580,7 +580,7 @@ async def test_finance_create_replays_conflicts_and_deduplicates_concurrently(
     # two "omitted" calls below are two distinct keyed mutations — two
     # independent ledger entries, each with its own claim. A genuinely
     # keyless request is pinned to 422 in
-    # test_redteam_remediation_2026_09_04.py.
+    # test_adversarial_regressions.py.
     omitted_one = await client.post(
         "/api/finance/new", json=finance_payload(amount=7), headers=owner
     )

@@ -21,9 +21,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   encodes STATE (done/destructive/tone), also emit a semantic attribute
   (`data-done`, `data-tone`, …) and write tests against THAT — assertions on
   Tailwind utilities (`line-through`, `bg-warning-tint`, …) break on every
-  restyle (2026-09-20 audit P3). Existing class-coupled assertions are being
+  restyle. Existing class-coupled assertions are being
   migrated opportunistically; do not add new ones.
-- **Fonts**: Inter (sans) + JetBrains Mono via `next/font` in `src/app/layout.tsx`; mapped to `--font-sans`/`--font-mono` tokens. Noto Sans Telugu is loaded alongside and swapped into the sans/heading stacks under `html:lang(te)` (Inter/Fraunces carry no Telugu glyphs).
+- **Fonts**: Inter (sans), Fraunces (headings) + JetBrains Mono via `next/font` in `src/app/layout.tsx`; mapped to `--font-sans`/`--font-mono` tokens. Noto Sans Telugu is loaded alongside and swapped into the sans/heading stacks under `html:lang(te)` (Inter/Fraunces carry no Telugu glyphs).
 
 ## Worker tablet surface (`src/app/worker/`)
 
@@ -37,11 +37,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   any other writer for that key.
 - Session gates: the worker shell (`src/app/worker/layout.tsx`) redirects
   signed-out sessions to the `/worker/login` PIN pad — never the manager's
-  `/login` form, since PIN-only workers hold no password (2026-09-28 audit,
-  W1). The signed-in-without-a-farm gate lives in `src/app/worker/page.tsx`,
+  `/login` form, since PIN-only workers hold no password. The signed-in-without-a-farm gate lives in `src/app/worker/page.tsx`,
   not the layout.
 - Duty actions for the shared board render through
-  `src/components/task-row-actions.tsx` (extracted 2026-09-22): extend that
+  `src/components/task-row-actions.tsx`: extend that
   component instead of forking a per-page copy. The worker board's DutyCard
   keeps its own offline-aware completion wrapper by design.
 - Duty mutations go through the offline-aware wrapper in
@@ -51,7 +50,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   handover. 409/other definitive 4xx become retained review receipts; expired
   pending writes require review. `End shift` preserves pending work and clears
   identity/query state. Never silently delete, evict or acknowledge an
-  uncommitted device write. `offline-queue.ts` is the legacy import format.
+  uncommitted device write. `offline-queue.ts` holds the compatibility storage key and action allowlist;
+  `worker-outbox.ts` validates and imports legacy data.
 - Test hooks are `data-testid` (`pin-key-*`, `complete-{id}`, `skip-{id}`,
   `worker-queue-depth`, `end-shift`) — the surface is Telugu-first, so
   aria-labels localize and testids stay stable.

@@ -1,8 +1,8 @@
 /**
- * Root global-error boundary: owns its <html>/<body> (the root layout is
- * not mounted when this boundary fires), logs once, and offers the retry
- * that re-runs the failed render. Copy and <html lang> come from the stored
- * language, resolved without the provider (2026-09-28 audit, I3).
+ * Root global-error boundary: owns its <html>/<body> (the root layout is not mounted
+ * when this boundary fires), logs once, and offers the retry that re-runs the failed
+ * render. Copy and <html lang> come from the stored language, resolved without the
+ * provider.
  */
 
 import { render, screen } from "@testing-library/react";

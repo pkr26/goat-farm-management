@@ -131,10 +131,8 @@ async def test_event_nan_cost_should_422_not_500(client: httpx.AsyncClient) -> N
     assert resp.status_code == 422, resp.text
 
 
-# FIXED — regression test
-# POST /api/purchases/new with `total_price: Infinity` — same serialization
-# crash as the NaN cost above (NonNegativeFloat catches it, the 422 response
-# body cannot be rendered). Expected 422, actual 500.
+# Infinite prices must produce a serializable validation response rather than
+# leaking the rejected value into a JSON body that cannot encode it.
 async def test_batch_infinite_price_should_422_not_500(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     transport = httpx.ASGITransport(app=create_app(), raise_app_exceptions=False)

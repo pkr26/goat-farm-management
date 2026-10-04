@@ -24,40 +24,21 @@ jobs:
           fetch-depth: 0
 
       - name: Applied Alembic revisions are immutable
-        # An in-place edit of an already-shipped revision desynchronizes
-        # every database that already applied it — c8f1d3a5e709's first
-        # variant silently rewrote ledger rows on databases that had not yet
-        # migrated, and databases that HAD migrated were left with no record
-        # of the change (2026-09-20 audit P2-14). New migrations are
-        # additions; modifying/renaming/deleting an existing
-        # backend/alembic/versions/*.py must ship as a NEW revision instead.
-        #
-        # Historical incident exemptions are retired; no applied revision
-        # is exempt from this gate.
+        # Applied revisions must remain identical across databases. Ship
+        # corrections as new revisions; no existing revision is exempt.
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             range="${{ github.event.pull_request.base.sha }}..HEAD"
           else
-            # A push can carry many commits: diff its whole span, not just
-            # the tip commit — an in-place revision edit inside an earlier
-            # commit of the same push otherwise escapes the gate
-            # (2026-09-28 audit, F4). github.event.before is the all-zeros
-            # sha on branch creation (no prior commit to diff against), so
-            # fall back to the tip-only range in that case — which means a
-            # branch-creating push that carries interior migration edits
-            # checks only its tip (known residual window, 2026-10-02 audit;
-            # main is never branch-created in practice, so this guards
-            # feature-branch pushes whose base check re-verifies the span).
+            # Check the complete push span. A branch-creation event has no
+            # prior commit, so it falls back to the tip; the pull-request
+            # check verifies the full span against its base.
             before="${{ github.event.before }}"
             if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
               range="HEAD~1..HEAD"
             else
-              # Fail CLOSED on an unresolvable before-sha (2026-09-29 audit):
-              # after a force-push the rewritten-away tip is not among the
-              # fetched refs, `git diff` would exit 2, and the historical
-              # `|| true` turned that into an empty diff — the gate passed
-              # while checking nothing, reopening the exact multi-commit
-              # escape F4 closed.
+              # A missing pre-push commit prevents a meaningful comparison.
+              # Fail instead of accepting an empty diff after a force push.
               if ! git cat-file -e "$before^{commit}" 2>/dev/null; then
                 echo "::error::github.event.before ($before) is not present in the checkout (force-push?) — cannot verify migration immutability. Re-run the workflow or push a fresh commit."
                 exit 1
@@ -145,33 +126,29 @@ jobs:
 
       - name: Ruff format check
         working-directory: backend
-        run: ruff format --check .
+        run: ruff format --check --config pyproject.toml . ../.github/scripts
 
       - name: Ruff lint
         working-directory: backend
-        run: ruff check .
+        run: ruff check --config pyproject.toml . ../.github/scripts
 
-      - name: mypy --strict (app + scripts)
+      - name: mypy --strict (app + scripts + CI tools)
         working-directory: backend
-        run: python -m mypy --strict app scripts
+        run: python -m mypy --strict app scripts ../.github/scripts
 
       - name: mypy --strict (mutation harness)
-        # The harness is 100k+ lines of executed-in-CI code; it stayed outside
-        # the strict gate until 2026-09-29 (audit T5) — 26 errors shipped
-        # silently.
+        # Execution and verification tooling follows the application's
+        # strict typing standard.
         working-directory: backend
         run: python -m mypy --strict mutation
 
       - name: Backend mutation harness contracts (isolated fixtures)
         working-directory: backend
-        run: python -m pytest -q tests/test_mutation_harness_20261003.py
+        run: python -m pytest -q tests/test_mutation_harness.py
 
       - name: mypy --strict over tests (zero-error gate)
-        # The original 1778-error ratchet reached zero on 2026-10-03.
-        # Both the strict run and the checked-in baseline must stay at zero;
-        # --update cannot accept new typing debt.
         working-directory: backend
-        run: python scripts/mypy_tests_ratchet.py
+        run: python -m mypy --strict tests
 
       - name: OpenAPI snapshot is current
         working-directory: backend
@@ -263,7 +240,7 @@ jobs:
             --output-file /tmp/goatfarm-requirements.txt
           # pip-audit is itself a bootstrap tool resolved from PyPI at run
           # time, so it gets the same treatment as uv: a fully hash-locked
-          # pin (pins/pip-audit.txt, transitive closure included) installed
+          # pin (pins/pip-audit.txt, including transitive dependencies) installed
           # with --require-hashes instead of a bare version pin.
           uv venv /tmp/pip-audit-venv
           uv pip install --python /tmp/pip-audit-venv/bin/python \
@@ -287,7 +264,7 @@ jobs:
         with:
           # Read the version from the repo file exactly as security.yml does,
           # so the gating CI jobs and the weekly audit cannot drift apart on
-          # an .nvmrc bump (2026-10-01 audit, 09-5).
+          # an .nvmrc bump.
           node-version-file: frontend/.nvmrc
 
       - name: Enable pnpm (pinned via packageManager)
@@ -432,7 +409,7 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          # Same single source of truth as security.yml (2026-10-01 audit, 09-5).
+          # Same single source of truth as security.yml.
           node-version-file: frontend/.nvmrc
 
       - name: Create runner Postgres role
@@ -476,7 +453,7 @@ jobs:
         # playwright.config.ts retries twice in CI, so a test that fails
         # twice and passes on the third attempt still exits 0 — a genuinely
         # racy product behavior could land on main as "passing" with only a
-        # reporter line (2026-10-01 audit, 10-2). The JSON reporter records
+        # reporter line. The JSON reporter records
         # every retried test with status "flaky"; this gate fails the job
         # on any of them, so retries can only shorten a run hit by
         # infrastructure noise, never mask a reproducible race. Local runs

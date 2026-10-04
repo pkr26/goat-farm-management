@@ -74,7 +74,7 @@ class MonthlyRow(BaseModel):
     tax: float  # cash tax paid in this month
     terminal_value: float  # closing livestock/assets/WC recovery, final month only
     debt_service: float  # ₹, interest + principal; the final month also carries
-    # the outstanding loan balance (terminal balloon, as principal) when the
+    # The outstanding loan balance (terminal balloon, as principal) when the
     # loan term outlives the horizon
     # ₹, revenues - opex - debt service (so the final month also carries the
     # outstanding loan balance when the loan term outlives the horizon).
@@ -268,11 +268,9 @@ class MonteCarloResult(BaseModel):
     npv_p95: float
     prob_npv_negative: float
     prob_liquidity_shortfall: float
-    # Share of runs whose weakest repaying year covered debt service below
-    # 1.0; None when NO run had a measurable DSCR (no principal-repaying year
-    # inside the horizon — long moratorium, short horizon, or no debt), the
-    # same None-means-unmeasurable contract as ViabilityMetrics.min_dscr
-    # (2026-10-01 audit, 08-H1).
+    # Share of runs whose weakest repaying year covered debt service below 1.0; None when NO run had
+    # a measurable DSCR (no principal-repaying year inside the horizon — long moratorium, short
+    # horizon, or no debt), the same None-means-unmeasurable contract as ViabilityMetrics.min_dscr.
     prob_dscr_below_one: float | None
     minimum_cash_p5: float
     minimum_cash_p50: float

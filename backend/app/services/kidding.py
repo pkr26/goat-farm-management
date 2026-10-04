@@ -42,8 +42,7 @@ class InputShapeError(ValueError):
     """A request whose own dates or counts cannot describe a real kidding.
 
     Input-shape validation, not a raced lifecycle state: routers map it to
-    422 while every other ValueError from ``record_kidding`` stays a 409
-    (2026-10-01 audit, 02-5).
+    422 while every other ValueError from ``record_kidding`` stays a 409.
     """
 
 
@@ -105,9 +104,8 @@ async def record_kidding(
     profile = GOAT_PROFILE
     gestation = (kidding_date - br.breeding_date).days
     if not profile.min_gestation_days <= gestation <= profile.max_gestation_days:
-        # As deterministic an input-shape error as an over-cap litter: the
-        # request's own date is absurd, no raced state is involved
-        # (2026-10-01 audit, 02-5).
+        # As deterministic an input-shape error as an over-cap litter: the request's own date is
+        # absurd, no raced state is involved.
         raise InputShapeError(
             f"Delivery date implies a {gestation}-day gestation — goat "
             f"gestation is ~{profile.gestation_days} days (accepted window "

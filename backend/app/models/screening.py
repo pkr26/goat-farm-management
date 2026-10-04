@@ -76,8 +76,8 @@ class ScreeningBatch(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # farm_id single dropped (2026-09-28 audit index hygiene): the
-    # ix_screening_batches_farm_created composite below leads with farm_id.
+    # farm_id single dropped: the ix_screening_batches_farm_created composite below leads with
+    # farm_id.
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
     created_by_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), index=True
@@ -198,15 +198,13 @@ class ScreeningImage(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    # farm_id single dropped (2026-09-28 audit index hygiene): the full
-    # (farm_id, status, created_at) composite below serves every farm-bounded
-    # scan and the farms-FK enforcement probe.
+    # farm_id single dropped: the full (farm_id, status, created_at) composite below serves every
+    # farm-bounded scan and the farms-FK enforcement probe.
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
     # Herd bucket (pen) the photo was taken in — from the upload flow or the
-    # raw/<farm>/<date>/<bucket>/ key segment; null for legacy whole-farm
-    # uploads that carried no bucket. String(20) like every other bucket
-    # column: the Bucket vocabulary tops out at 15 chars, so the historic
-    # String(30) was unified down (2026-09-28 audit).
+    # raw/<farm>/<date>/<bucket>/ key segment; null for legacy whole-farm uploads that carried no
+    # bucket. String(20) like every other bucket column: the Bucket vocabulary tops out at 15 chars,
+    # so the historic String(30) was unified down.
     bucket: Mapped[str | None] = mapped_column(String(20))
     batch_id: Mapped[int | None] = mapped_column(Integer)
     s3_bucket: Mapped[str] = mapped_column(String(MAX_S3_BUCKET_LENGTH))
@@ -264,14 +262,12 @@ class ScreeningImage(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
-    # Unlike animals/farms, this column IS the worker pipeline's lease and
-    # retry-backoff marker AND receives direct SQL UPDATEs in production (the
-    # pipeline's Core sweeps), so a column-scoped BEFORE UPDATE trigger
-    # refreshes it for out-of-band pipeline writers too (2026-10-01 audit,
-    # 04-2). Independent raw-cleanup fields and the retention tombstone are
-    # intentionally outside that trigger: their retries are not evidence that
-    # model processing is alive. App-layer writers still set the value via
-    # ``onupdate`` unless they explicitly preserve it for that bookkeeping.
+    # Unlike animals/farms, this column IS the worker pipeline's lease and retry-backoff marker AND
+    # receives direct SQL UPDATEs in production (the pipeline's Core sweeps), so a column-scoped
+    # BEFORE UPDATE trigger refreshes it for out-of-band pipeline writers too. Independent
+    # raw-cleanup fields and the retention tombstone are intentionally outside that trigger: their
+    # retries are not evidence that model processing is alive. App-layer writers still set the value
+    # via ``onupdate`` unless they explicitly preserve it for that bookkeeping.
     updated_at: Mapped[dt.datetime] = mapped_column(
         default=utcnow,
         onupdate=utcnow,
@@ -437,7 +433,7 @@ class ScreeningContentClaim(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(Integer)
-    # BigInteger: references the bigint screening_images.id (2026-09-28 audit, D1).
+    # BigInteger: references the bigint screening_images.id.
     image_id: Mapped[int] = mapped_column(BigInteger)
     sha256: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[dt.datetime] = mapped_column(
@@ -490,7 +486,7 @@ class ScreeningCrop(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     farm_id: Mapped[int] = mapped_column(Integer)
-    # BigInteger: references the bigint screening_images.id (2026-09-28 audit, D1).
+    # BigInteger: references the bigint screening_images.id.
     image_id: Mapped[int] = mapped_column(BigInteger)
     crop_index: Mapped[int] = mapped_column(Integer)
     box_x: Mapped[int] = mapped_column(Integer)
@@ -581,17 +577,16 @@ class ScreeningRun(Base):
             name="ck_screening_runs_latency_nonneg",
         ),
         Index("ix_screening_runs_image_created", "image_id", "created_at"),
-        # Cascade-reverse probe for the retention job (2026-09-28 audit, D6).
+        # Cascade-reverse probe for the retention job.
         Index("ix_screening_runs_farm_crop", "farm_id", "crop_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     farm_id: Mapped[int] = mapped_column(Integer)
-    # BigInteger: references the bigint screening_images.id (2026-09-28 audit, D1).
+    # BigInteger: references the bigint screening_images.id.
     image_id: Mapped[int] = mapped_column(BigInteger)
-    # Null for whole-photo runs (detection off, no goats found, or Phase ≤2
-    # rows); set when this run screened one detected goat.
-    # BigInteger: references the bigint screening_crops.id (2026-09-28 audit, D1).
+    # Null for whole-photo runs (detection off, no goats found, or Phase ≤2 rows); set when this run
+    # screened one detected goat. BigInteger: references the bigint screening_crops.id.
     crop_id: Mapped[int | None] = mapped_column(BigInteger)
     stage: Mapped[str] = mapped_column(String(20), default=ScreeningStage.GATE.value)
     run_status: Mapped[str] = mapped_column(String(10), default=ScreeningRunStatus.OK.value)
@@ -672,20 +667,19 @@ class ScreeningFinding(Base):
             "status",
             "created_at",
         ),
-        # Review list / image detail / dataset export join on the run
-        # (2026-09-28 audit, D6).
+        # Review list / image detail / dataset export join on the run.
         Index("ix_screening_findings_farm_run", "farm_id", "run_id"),
-        # Cascade-reverse probe for the retention job (2026-09-28 audit, D6).
+        # Cascade-reverse probe for the retention job.
         Index("ix_screening_findings_farm_crop", "farm_id", "crop_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     farm_id: Mapped[int] = mapped_column(Integer)
-    # BigInteger: references the bigint screening_runs.id (2026-09-28 audit, D1).
+    # BigInteger: references the bigint screening_runs.id.
     run_id: Mapped[int] = mapped_column(BigInteger)
-    # Which detected goat this finding belongs to; null for whole-photo
-    # findings. Denormalized from the run for direct review/export queries.
-    # BigInteger: references the bigint screening_crops.id (2026-09-28 audit, D1).
+    # Which detected goat this finding belongs to; null for whole-photo findings. Denormalized from
+    # the run for direct review/export queries. BigInteger: references the bigint
+    # screening_crops.id.
     crop_id: Mapped[int | None] = mapped_column(BigInteger)
     # Body region vocabulary is free-form English from the gate ("mouth",
     # "eye", "hoof", "udder", "skin", "general"); specialist findings keep

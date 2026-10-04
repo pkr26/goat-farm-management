@@ -228,11 +228,11 @@ services:
       # Boot-time cross-validation requires the stale-claim horizon to cover
       # (2 x providers + 6) x the provider timeout (config.py), so the pair
       # must stay tunable together: raising the timeout without the horizon
-      # makes the process refuse to boot (2026-09-28 audit, F3).
+      # makes the process refuse to boot.
       GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS: ${GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS:-120}
       GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS: ${GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS:-1800}
       # Mirror the production compose's newer-knob forwarding so notification
-      # and tablet-PIN tuning is exercisable locally (2026-09-28 audit, F7).
+      # and tablet-PIN tuning is exercisable locally.
       # Fallbacks are the Settings defaults (today's local behavior when
       # unset); production deliberately pins MAX_FARMS_PER_USER=25 and
       # WORKER_PIN_MIN_LENGTH=12.
@@ -340,8 +340,7 @@ services:
       GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM: ${GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM:-400}
       GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS: ${GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS:-120}
       # Must rise together with the timeout above: boot-time cross-validation
-      # requires this horizon to cover (2 x providers + 6) x the timeout
-      # (2026-09-28 audit, F3).
+      # requires this horizon to cover (2 x providers + 6) x the timeout.
       GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS: ${GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS:-1800}
       GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH: ${GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH:-/tmp/goatfarm-screening-worker.json}
       GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS: ${GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS:-900}
@@ -375,7 +374,7 @@ services:
       backend:
         condition: service_healthy
     environment:
-      # Per-request nonce CSP (M-1, 2026-09-20): the frontend's proxy.ts reads
+      # Per-request nonce CSP: the frontend's proxy.ts reads
       # these deployment-owned S3/MinIO origins at runtime, so the generic
       # image stays deployment-neutral. The edge entrypoint validates the same
       # values at boot; enable screening and the guard refuses to start
@@ -454,7 +453,7 @@ services:
       # container environment. Rendering this directly through Compose would
       # bypass the runtime syntax validator on a malformed size value.
       GOATFARM_EDGE_MAX_BODY_SIZE: ${GOATFARM_EDGE_MAX_BODY_SIZE:-1m}
-      # Auth flood-zone shaping (2026-09-20 audit P2-15): the rate/burst the
+      # Auth flood-zone shaping: the rate/burst the
       # edge applies to /api/auth/*, grammar-validated by edge-entrypoint.sh
       # before rendering.
       GOATFARM_EDGE_AUTH_RATE: ${GOATFARM_EDGE_AUTH_RATE:-5r/s}

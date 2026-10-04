@@ -334,24 +334,9 @@ def _scale(values: list[float], factor: float) -> list[float]:
     return [v * factor for v in values]
 
 
-_EVENT_LABELS = {
-    "doe": "doe(s)",
-    "buck": "buck(s)",
-    "female_kid": "female kid(s)",
-    "male_kid": "male kid(s)",
-    "female_weaner": "female weaner(s)",
-    "male_weaner": "male weaner(s)",
-    "female_grower": "female grower(s)",
-    "male_grower": "male grower(s)",
-}
-
 # Event-sale classes booked as adult disposals (cull pricing); the rest are
 # young-stock meat sales.
 _EVENT_ADULT_CLASSES = ("doe", "buck")
-
-# Event-purchase classes that establish the NLM breeding unit: adult does and
-# bucks directly, plus female young stock raised into the doe pipeline. Meat-
-# bound male young stock never joins the breeding unit and does not count.
 
 
 def _draw(pool: list[float], requested: float) -> float:
@@ -421,8 +406,7 @@ def labour_units_for(adult_females: float, family_labour: bool, heads_per_worker
     half a unit for any non-empty flock); family labour and an empty flock
     book zero cash labour.  The calibration splitter must divide the ledger's
     whole labour bill by the SAME unit count the engine multiplies by, or the
-    modelled bill drifts from the actual one by the ratio of the two bases
-    (2026-09-20 audit P2-4).
+    modelled bill drifts from the actual one by the ratio of the two bases.
     """
     if adult_females <= 0:
         return 0.0
@@ -854,11 +838,10 @@ def _run_core(
                     take = _draw(m_weaner, requested)
                     default_price = avg_kg * meat_price
                 elif event.animal_class == "female_grower":
-                    # Empty-chain boundary stock (afb == 6) stands at the
-                    # graduation boundary, so the no-composition fallback must
-                    # price it at the graduation weight — the same weight the
-                    # purchase path above and month-1 graduation apply — never
-                    # at a mid-class placement age (2026-10-01 audit, 08-M4).
+                    # Empty-chain boundary stock (afb == 6) stands at the graduation boundary, so
+                    # the no-composition fallback must price it at the graduation weight — the same
+                    # weight the purchase path above and month-1 graduation apply — never at a
+                    # mid-class placement age.
                     avg_kg = _pool_avg_weight(
                         f_grower, 6, g, doe_w, f_grower_mid_age if f_grower else afb
                     )
@@ -869,8 +852,7 @@ def _run_core(
                         f_boundary_grower -= take
                     default_price = avg_kg * meat_price
                 else:  # male_grower
-                    # Same graduation-boundary fallback for the sale_age == 6
-                    # empty chain (2026-10-01 audit, 08-M4).
+                    # Same graduation-boundary fallback for the sale_age == 6 empty chain.
                     avg_kg = _pool_avg_weight(
                         m_grower,
                         6,
@@ -1082,12 +1064,11 @@ def _run_core(
         # proportionally across the failed-service buckets; each bucket
         # conceives at the parity-weighted rate.
         ready_total = sum(svc)
-        # Pre-service breeding-pool size, for proportional doe-age-ledger
-        # scaling when repeat breeders are culled below. The denominator must
-        # span every live doe (lactating does included — they rejoin the
-        # service pool after weaning): omitting sum(lact) over-deflated the
-        # age ledger on every repeat-breeder cull and under-fired ~4% of
-        # max-age culls at defaults (2026-09-20 audit P2-5).
+        # Pre-service breeding-pool size, for proportional doe-age-ledger scaling when repeat
+        # breeders are culled below. The denominator must span every live doe (lactating does
+        # included — they rejoin the service pool after weaning): omitting sum(lact) over-deflated
+        # the age ledger on every repeat-breeder cull and under-fired ~4% of max-age culls at
+        # defaults.
         breeding_pool_before = (
             ready_total + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact)
         )
@@ -1365,15 +1346,12 @@ def _run_core(
         # DM first, and only the real shortfall is purchased at market price.
         storage_loss_kg_dm = fodder_stock_kg_dm * feed.fodder_storage_loss_fraction_monthly
         usable_opening_stock = fodder_stock_kg_dm - storage_loss_kg_dm
-        # Degenerate-input exception (2026-10-01 audit, 08-L8; physical flows
-        # added 2026-10-02 audit): a herd with ZERO dry-matter requirement (an
-        # empty farm — dm_kg is the PRE-grazing total, so a fully-grazing herd
-        # still counts) grows nothing: no crop, so no cultivation supply, no
-        # stock fill, no storage overflow and no "surplus" from a fodder
-        # program that would exist for no one. With any animals at all the
-        # requirement is positive and the acreage-has-a-downside rule below is
-        # untouched. Without this gate the empty run cost nothing (08-L8's
-        # money fix) yet still reported stock/waste/surplus flows from a
+        # Degenerate-input exception: a herd with ZERO dry-matter requirement (an empty farm — dm_kg
+        # is the PRE-grazing total, so a fully-grazing herd still counts) grows nothing: no crop, so
+        # no cultivation supply, no stock fill, no storage overflow and no "surplus" from a fodder
+        # program that would exist for no one. With any animals at all the requirement is positive
+        # and the acreage-has-a-downside rule below is untouched. Without this gate the empty run
+        # cost nothing (08-L8's money fix) yet still reported stock/waste/surplus flows from a
         # default-acreage crop nothing was growing to sell or spoil.
         cultivated_supply_kg_dm = (
             cultivated_green_supply_kg_dm_for_month(
@@ -2119,12 +2097,10 @@ def _run_core(
     )
 
 
-# Pass-count exports for the admission-control budget (2026-10-01 audit,
-# 08-L13): api.simulation._run_cost must derive its per-analysis pass counts
-# from these, so a future tuning of the loop (or a new analysis block) cannot
-# silently under-price admission. BREAK_EVEN_PASSES counts full engine
-# evaluations inside break_even_meat_price: the two endpoint probes plus the
-# bisection steps.
+# Pass-count exports for the admission-control budget: api.simulation._run_cost must derive its
+# per-analysis pass counts from these, so a future tuning of the loop (or a new analysis block)
+# cannot silently under-price admission. BREAK_EVEN_PASSES counts full engine evaluations inside
+# break_even_meat_price: the two endpoint probes plus the bisection steps.
 BREAK_EVEN_BISECTION_STEPS = 50
 BREAK_EVEN_PASSES = 2 + BREAK_EVEN_BISECTION_STEPS
 
@@ -2151,15 +2127,12 @@ def break_even_meat_price(a: SimulationAssumptions) -> float | None:
     if npv_at(upper_price) < 0.0:
         return None
     lo, hi = 0.0, upper_price
-    # Monotonicity assumption (documented per the 2026-10-01 audit, 08-L11):
-    # bisection is only guaranteed to find THE crossing while NPV is
-    # nondecreasing in meat price. Practically it is — a higher meat price
-    # lifts sales, cull and young-stock insurance value together, and every
-    # executed configuration has been monotone — but a future revenue line
-    # that falls as meat prices rise (e.g. a substitution effect) could make
-    # the profile non-monotone, in which case this loop may return a
-    # non-minimal crossing. 50 halvings of the schema ceiling give ~₹1e-6/kg
-    # precision, ample for the reported figure.
+    # Monotonicity assumption: bisection is only guaranteed to find THE crossing while NPV is
+    # nondecreasing in meat price. Practically it is — a higher meat price lifts sales, cull and
+    # young-stock insurance value together, and every executed configuration has been monotone — but
+    # a future revenue line that falls as meat prices rise (e.g. a substitution effect) could make
+    # the profile non-monotone, in which case this loop may return a non-minimal crossing. 50
+    # halvings of the schema ceiling give ~₹1e-6/kg precision, ample for the reported figure.
     for _ in range(BREAK_EVEN_BISECTION_STEPS):
         mid = (lo + hi) / 2.0
         if npv_at(mid) >= 0.0:

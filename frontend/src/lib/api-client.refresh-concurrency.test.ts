@@ -543,7 +543,7 @@ describe("queued cookie mutations across a session teardown", () => {
   });
 });
 
-describe("refresh payload guards — campaign kills", () => {
+describe("refresh payload guards — contracts", () => {
   beforeEach(() => {
     stubFifoLocks();
     setAccessToken(actorToken(1));
@@ -589,7 +589,7 @@ describe("refresh payload guards — campaign kills", () => {
   });
 });
 
-describe("auth-failure registration stack — campaign kills", () => {
+describe("auth-failure registration stack — contracts", () => {
   beforeEach(() => {
     stubFifoLocks();
     setAccessToken(actorToken(1));

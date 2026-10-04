@@ -81,10 +81,9 @@ class AnimalCreateIn(StrictInputModel):
     sex: Sex
     source: AnimalSourceStr
     current_bucket: BucketStr
-    # Empty means the species default breed (Osmanabadi), resolved
-    # server-side. The 60-char cap stays deliberately tighter than the
-    # animals.breed String(80) column: headroom for legacy/imported rows,
-    # while new API writes keep breed names terse (2026-09-28 audit).
+    # Empty means the species default breed (Osmanabadi), resolved server-side. The 60-char cap
+    # stays deliberately tighter than the animals.breed String(80) column: headroom for
+    # legacy/imported rows, while new API writes keep breed names terse.
     breed: PostgresText = Field(default="", max_length=60)
     coat_color: CoatColorStr | None = None
     horned: StrictBool | None = None
@@ -174,9 +173,8 @@ class AnimalOut(BaseModel):
     current_bucket: BucketStr
     status: AnimalStatusStr
     status_date: date | None
-    # The exit narrative + server advisories written with the status change;
-    # exposed so the stored note is retrievable, not write-only (P3,
-    # 2026-09-20 audit).
+    # The exit narrative + server advisories written with the status change; exposed so the stored
+    # note is retrievable, not write-only.
     status_notes: str | None
     sale_price: float | None
     # Operational sale fact (like latest_weight_kg); paired with sale_price in
@@ -238,8 +236,8 @@ class WeightRecordOut(BaseModel):
     weight_kg: float
     bcs: int | None
     notes: str | None
-    # Entry timestamp, exposed like every sibling Out so a backdated weighing
-    # is distinguishable from a same-day one (2026-09-28 audit, D3).
+    # Entry timestamp, exposed like every sibling Out so a backdated weighing is distinguishable
+    # from a same-day one.
     created_at: datetime
 
 

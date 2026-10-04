@@ -1,8 +1,7 @@
 /**
- * New-batch dialog aria wiring (2026-09-30 fresh mutation campaign): the
- * origin market, transport hours, individual-weights and seller-history
- * fields must carry aria-invalid plus their own describedby alert when the
- * review rejects them.
+ * New-batch dialog aria wiring: the origin market, transport hours,
+ * individual-weights and seller-history fields must carry aria-invalid plus their
+ * own describedby alert when the review rejects them.
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";

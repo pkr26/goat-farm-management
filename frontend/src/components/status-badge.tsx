@@ -54,10 +54,9 @@ const STATUS_TONES: Record<string, StatusTone> = {
   OVERDUE: "destructive",
   FAILED: "destructive",
   DEAD: "destructive",
-  // Screening run status: an errored cascade is adverse (the photo was not
-  // screened and needs attention/retry), not a neutral unknown — a neutral
-  // chip hid failed runs next to their flagged siblings (wave-5, 2026-09-20
-  // audit).
+  // Screening run status: an errored cascade is adverse (the photo was not screened and
+  // needs attention/retry), not a neutral unknown — a neutral chip hid failed runs next
+  // to their flagged siblings.
   ERROR: "destructive",
   // Vet review verdicts (the finding-level counterparts of CONFIRMED_/
   // REJECTED_OUTCOMES): a confirmed disease finding is adverse.

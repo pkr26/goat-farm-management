@@ -46,13 +46,12 @@ class SimulationScenario(Base):
     # prove which version they edited so one browser tab cannot silently erase
     # another tab's accepted changes.
     revision: Mapped[int] = mapped_column(default=1, server_default="1")
-    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    # UTC defaults also apply to direct SQL inserts.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
-    # ORM/SQLAlchemy-layer refresh only (onupdate); no DB trigger and no
-    # raw-SQL writers in production — concurrency is the revision column
-    # above (2026-10-01 audit, 04-2).
+    # ORM/SQLAlchemy-layer refresh only (onupdate); no DB trigger and no raw-SQL writers in
+    # production — concurrency is the revision column above.
     updated_at: Mapped[datetime] = mapped_column(
         default=utcnow,
         onupdate=utcnow,

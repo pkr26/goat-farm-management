@@ -12,11 +12,11 @@ BACKEND = Path(__file__).resolve().parent.parent
 MUTDIR = BACKEND / "mutation"
 sys.path.insert(0, str(MUTDIR))
 from mutate_final_pass import GAP_FILES  # noqa: E402
-from mutate_identity import read_results  # noqa: E402
+from mutate_identity import read_artifact, read_results  # noqa: E402
 from mutate_run import Runner  # noqa: E402
 
 
-def build_runner(workers: int, phase_timeout: float) -> type[Runner]:
+def build_runner(phase_timeout: float) -> type[Runner]:
     class VerifyRunner(Runner):
         def __init__(self, **kwargs: Any) -> None:
             super().__init__(phase_timeout=phase_timeout, **kwargs)
@@ -52,7 +52,14 @@ def main() -> None:
     parser.add_argument("--timeout", type=float, default=1200)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    manifest = {m["id"]: m for m in json.loads((MUTDIR / "manifest.json").read_text())}
+    manifest = {
+        m["id"]: m
+        for m in json.loads(
+            read_artifact(
+                MUTDIR / "manifest.json", instruction="run python mutation/mutate_gen.py first"
+            )
+        )
+    }
     latest = {r["id"]: r for r in read_results(MUTDIR / "results.jsonl")}
     target_ids = {
         mid for mid, r in latest.items() if r.get("status") == args.status and mid in manifest
@@ -61,7 +68,7 @@ def main() -> None:
         print(json.dumps({"targets": sorted(target_ids), "full": True, "writes": False}))
         return
     os.environ["MUTATE_FULL_PHASE"] = "1"
-    runner = build_runner(args.workers, args.timeout)(workers=args.workers, max_seconds=None)
+    runner = build_runner(args.timeout)(workers=args.workers, max_seconds=None)
     runner.results_path = MUTDIR / "verify_extremes.jsonl"
     try:
         runner.run([manifest[mid] for mid in sorted(target_ids)])

@@ -1,8 +1,7 @@
-/** bucket-sex.ts claims to mirror ck_animals_bucket_sex. It once mapped only
- * three of the six sex-restricted buckets, offering bucks pregnancy/delivery
- * move targets the server always refuses (2026-09-29 audit, L6). This test
- * reads the backend constraint and fails the moment either side moves
- * without the other — same pattern as backend-constants-parity.test.ts. */
+/**
+ * Sex-restricted bucket options match the backend animal constraint.
+ */
+
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";

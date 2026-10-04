@@ -1,8 +1,6 @@
 /**
- * Ops Simulation page — mutation-hunting suite. Each test pins a specific
- * derived behaviour of the page (arithmetic the UI computes client-side,
- * payload shaping, gating, formatting, day-badge logic) so Stryker mutants
- * in those paths cannot survive.
+ * Daily simulation arithmetic, request payloads, permission gates and timeline
+ * formatting.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";

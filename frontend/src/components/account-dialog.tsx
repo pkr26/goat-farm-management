@@ -71,9 +71,8 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
   const [totpCode, setTotpCode] = useState("");
   const [totpBusy, setTotpBusy] = useState(false);
   const [totpError, setTotpError] = useState<string | null>(null);
-  // ITEM 7 (2026-09-21 playbook): the one-time recovery-code reveal. Set the
-  // moment activation/regeneration answers, cleared with the dialog — the
-  // server can never show these again.
+  // One-time recovery-code reveal. Set the moment activation/regeneration
+  // answers, cleared with the dialog — the server can never show these again.
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [codesCopied, setCodesCopied] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
@@ -81,7 +80,6 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
   const [activeAction, setActiveAction] = useState<AccountAction | null>(null);
   const activeActionRef = useRef<AccountAction | null>(null);
   const dialogEpoch = useRef(0);
-  // Stryker disable next-line BooleanLiteral: the mount effect below overwrites the initial value before any continuation can observe it
   const mounted = useRef(true);
   const mutation = useChangePasswordApiAuthChangePasswordPost();
   // Rebuilt when the language changes so client-side validation messages
@@ -95,16 +93,12 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
     formState: { errors, isSubmitting },
   } = useForm<PasswordValues>({
     resolver: zodResolver(passwordSchema),
-    // Stryker disable next-line ObjectLiteral: undefined defaults are observably identical to empty strings for these always-empty fields
     defaultValues: { current_password: "", new_password: "", confirm_password: "" },
   });
 
-  // Stryker disable BlockStatement, ArrayDeclaration: an empty effect body leaves the already-true ref value in place, and a constant string dep still runs the effect exactly once
   useEffect(() => {
     mounted.current = true;
-    // Stryker disable next-line BlockStatement: unmount-only — the refs die with the instance
     return () => {
-      // Stryker disable BooleanLiteral, AssignmentOperator: unmount-only writes — the refs die with the instance
       mounted.current = false;
       // The dialog can disappear with the surrounding shell without close()
       // running. Invalidate late failures so they never target a dead
@@ -112,7 +106,6 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
       dialogEpoch.current += 1;
     };
   }, []);
-  // Stryker restore BlockStatement, ArrayDeclaration, BooleanLiteral, AssignmentOperator
 
   function beginAction(action: AccountAction) {
     // Disabled buttons update on the next render. The ref is the synchronous
@@ -125,7 +118,6 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
   }
 
   function finishAction(action: AccountAction) {
-    // Stryker disable next-line ConditionalExpression: a mismatched finish is unreachable — beginAction's ref lock serializes account actions
     if (activeActionRef.current !== action) return;
     activeActionRef.current = null;
     // setState after unmount is a React no-op; no mounted re-check needed.
@@ -136,7 +128,6 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
     // Async actions may settle after the user closes the dialog. Advance the
     // epoch so a late failure cannot repopulate an error that close() just
     // cleared and then surprise the user on the next open.
-    // Stryker disable next-line AssignmentOperator: every consumer compares epochs for equality only, and a monotonic decrease yields fresh distinct values exactly like the increment
     dialogEpoch.current += 1;
     setOpen(false);
     setServerError(null);
@@ -155,10 +146,9 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
   }
 
   async function enrollTotp() {
-    // Async actions may settle after the user closes the dialog (close()
-    // bumps the epoch and clears the enrollment); without the fence a late
-    // response resurrected a stale secret the server had already replaced
-    // (2026-09-17 re-audit).
+    // Async actions may settle after the user closes the dialog (close() bumps the
+    // epoch and clears the enrollment); without the fence a late response resurrected a
+    // stale secret the server had already replaced.
     const operationEpoch = dialogEpoch.current;
     setTotpBusy(true);
     setTotpError(null);
@@ -179,9 +169,9 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
         );
       }
     } finally {
-      // Always clear busy: a stale settle whose result was fenced off must
-      // not leave the reopened dialog's TOTP controls locked forever
-      // (2026-09-23 mutation campaign). Only the writes above need the fence.
+      // Always clear busy: a stale settle whose result was fenced off must not leave
+      // the reopened dialog's TOTP controls locked forever. Only the writes above need
+      // the fence.
       setTotpBusy(false);
     }
   }
@@ -214,9 +204,9 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
         );
       }
     } finally {
-      // Always clear busy: a stale settle whose result was fenced off must
-      // not leave the reopened dialog's TOTP controls locked forever
-      // (2026-09-23 mutation campaign). Only the writes above need the fence.
+      // Always clear busy: a stale settle whose result was fenced off must not leave
+      // the reopened dialog's TOTP controls locked forever. Only the writes above need
+      // the fence.
       setTotpBusy(false);
     }
   }
@@ -245,9 +235,9 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
         );
       }
     } finally {
-      // Always clear busy: a stale settle whose result was fenced off must
-      // not leave the reopened dialog's TOTP controls locked forever
-      // (2026-09-23 mutation campaign). Only the writes above need the fence.
+      // Always clear busy: a stale settle whose result was fenced off must not leave
+      // the reopened dialog's TOTP controls locked forever. Only the writes above need
+      // the fence.
       setTotpBusy(false);
     }
   }
@@ -279,9 +269,9 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
         );
       }
     } finally {
-      // Always clear busy: a stale settle whose result was fenced off must
-      // not leave the reopened dialog's TOTP controls locked forever
-      // (2026-09-23 mutation campaign). Only the writes above need the fence.
+      // Always clear busy: a stale settle whose result was fenced off must not leave
+      // the reopened dialog's TOTP controls locked forever. Only the writes above need
+      // the fence.
       setTotpBusy(false);
     }
   }
@@ -791,8 +781,7 @@ export function AccountDialog({ name, email, passwordOnly = false }: {
               {/* The only API-derived href in the app that never passed
                * safeAppPath: the backend contract is otpauth://, so anything
                * else is a tampered/compromised response and must render as
-               * inert text, never as a clickable javascript: link
-               * (2026-09-17 audit L-19). */}
+               * inert text, never as a clickable javascript: link. */}
               {totpEnrollment.otpauth_uri.startsWith("otpauth://") ? (
                 <a
                   className="block break-all rounded bg-muted/60 p-2 font-mono text-xs underline"

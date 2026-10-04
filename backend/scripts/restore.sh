@@ -262,12 +262,9 @@ fi
 # Validate archive structure before connecting to the target database.
 pg_restore --list "${RESTORE_ARCHIVE}" >/dev/null
 
-# INFRA-3 (2026-09-16, corrected 2026-09-17): refuse a backup whose schema
-# generation predates the idempotency-fingerprint purge BEFORE anything
-# touches the target database — the revision marker is read straight out of
-# the staged archive. Membership in the chain-ordered allowlist (never a
-# string comparison: Alembic ids are random hex) is decided by
-# restore_floor.sh.
+# Reject backups predating the idempotency-fingerprint purge before touching
+# the target database. restore_floor.sh checks the archive revision against
+# an ordered migration allowlist; hexadecimal revision IDs are not sortable.
 ALEMBIC_MARKER_DATA="${TMP_DIR}/alembic_version.data"
 restore_marker_status=0
 pg_restore --data-only --table=alembic_version \

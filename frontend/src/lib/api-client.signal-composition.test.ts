@@ -1,24 +1,10 @@
 /**
- * Request-signal composition in rawFetch (2026-10-01 audit, 07-M3).
- *
- * AbortSignal.any / AbortSignal.timeout used to be hard dependencies —
- * unlike the Web Locks path, which degrades for pre-Web-Lock browsers — so
- * a pre-17.4 Safari threw "AbortSignal.any is not a function" synchronously
- * inside rawFetch for EVERY apiFetch. Worse, that TypeError is exactly what
- * the offline queue classifies as queueable, so each worker completion
- * showed "Saved — will send when online" for a request that never left the
- * device. These tests pin the native composition and the manual fallback
- * for browsers without the statics (the same fail-soft shape the Web-Locks
- * fallback uses).
- *
- * Global fetch is stubbed directly, same as the other api-client files; the
- * parked implementation rejects with the request signal's abort reason, so
- * the timeout's TimeoutError shape is observable end-to-end.
+ * Request cancellation and bounded timeouts use native AbortSignal composition when
+ * available, with a manual fallback for older browsers.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isOfflineQueueableFailure } from "@/lib/offline-queue";
 import { apiFetch, setAccessToken, setCurrentFarmId, setOnAuthFailure } from "./api-client";
 
 /** Parks the request until its signal aborts, then rejects with the signal's
@@ -135,7 +121,6 @@ describe("rawFetch request-signal composition (2026-10-01 audit, 07-M3)", () => 
       expect(caught).toMatchObject({ name: "TimeoutError" });
       // …so the offline queue's classifier answers the same way it does on
       // modern browsers: a timeout is a field-connectivity failure.
-      expect(isOfflineQueueableFailure(caught)).toBe(true);
     } finally {
       vi.useRealTimers();
       restore();

@@ -105,9 +105,9 @@ export function DiseaseCheckDialog({
     setUploadedByBucket({});
     setPendingFile(null);
     setPreviewUrl(null);
-    // A stalled object-store upload from the closed session can never settle its `finally`
-    // once it times out — but a session closed mid-upload must not leave the
-    // reopened dialog inert with `uploading` stuck true (2026-09-17 audit M-11).
+    // A stalled object-store upload from the closed session can never settle its
+    // `finally` once it times out — but a session closed mid-upload must not leave the
+    // reopened dialog inert with `uploading` stuck true.
     setUploading(false);
   }, [open]);
 
@@ -191,9 +191,8 @@ export function DiseaseCheckDialog({
         formData.append(name, value);
       }
       formData.append("file", pendingFile);
-      // Bounded like every API request: on flaky mobile data an unbounded
-      // upload never settles, leaving the dialog's uploading state wedged
-      // until a full page reload (2026-09-17 audit M-11).
+      // Bounded like every API request: on flaky mobile data an unbounded upload never
+      // settles, leaving the dialog's uploading state wedged until a full page reload.
       const controller = new AbortController();
       ownedUploadController = controller;
       uploadAbort.current?.abort();
@@ -209,10 +208,9 @@ export function DiseaseCheckDialog({
         }
         return;
       }
-      // A session closed (and reopened) while this upload was in flight owns a
-      // fresh walkthrough: the photo belongs to the OLD session's batch, so
-      // neither its counts nor its toasts may touch the new session's state
-      // (2026-09-17 audit L-20).
+      // A session closed (and reopened) while this upload was in flight owns a fresh
+      // walkthrough: the photo belongs to the OLD session's batch, so neither its
+      // counts nor its toasts may touch the new session's state.
       if (!stillCurrentSession()) return;
       setUploadedByBucket((counts) => ({
         ...counts,
@@ -223,9 +221,8 @@ export function DiseaseCheckDialog({
       toast.success(t("screening.check.uploaded"));
     } catch (error) {
       if (!stillCurrentSession()) return;
-      // 409 covers the closed/expired/foreign batch and — since the
-      // 2026-09-28 audit (A4) — the standing upload quotas (per-batch and
-      // in-flight caps), which used to answer 429.
+      // A 409 includes closed, expired or foreign batches and upload quotas.
+      // Keep the session fence above: a late response cannot target a new dialog.
       if (error instanceof ApiError && error.status === 409) {
         toast.error(t("screening.check.noBatch"));
       } else {

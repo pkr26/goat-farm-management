@@ -46,7 +46,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
@@ -546,32 +545,6 @@ describe("Tooltip", () => {
     await waitFor(() => {
       expect(slot("tooltip-content")).toHaveAttribute("data-side", "right");
     });
-  });
-});
-
-describe("Separator", () => {
-  it("defaults to a horizontal rule and announces its orientation", () => {
-    render(<Separator />);
-
-    const separator = screen.getByRole("separator");
-    expect(separator).toHaveAttribute("data-slot", "separator");
-    expect(separator).toHaveAttribute("data-orientation", "horizontal");
-    expect(separator).toHaveAttribute("aria-orientation", "horizontal");
-    expect(separator).toHaveClass(
-      "shrink-0",
-      "bg-border",
-      "data-horizontal:h-px",
-      "data-vertical:w-px",
-    );
-  });
-
-  it("switches to a vertical rule when asked", () => {
-    render(<Separator orientation="vertical" className="mx-2" />);
-
-    const separator = screen.getByRole("separator");
-    expect(separator).toHaveAttribute("data-orientation", "vertical");
-    expect(separator).toHaveAttribute("aria-orientation", "vertical");
-    expect(separator).toHaveClass("mx-2");
   });
 });
 

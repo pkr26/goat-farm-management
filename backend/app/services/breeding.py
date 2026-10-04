@@ -50,7 +50,7 @@ class BreedingChronologyError(ValueError):
 
     A deterministic chronology fact about the request, not a raced lifecycle
     state — routers map it to 422 like every other chronology fence, while
-    genuine state conflicts stay 409 (2026-10-01 audit, 02-6).
+    genuine state conflicts stay 409.
     """
 
 
@@ -100,10 +100,9 @@ def _latest_weight_as_of(reference_date: date) -> ColumnElement[float]:
         .scalar_subquery()
     )
     effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
-    # The model twin falls back to the birth weight when the DOB is unknown
-    # (an unknown birth cannot be in the future); SQL NULL <= date is NULL,
-    # so the unknown-DOB case needs its own branch or the twins silently
-    # disagree (2026-10-01 audit, 02-4).
+    # The model twin falls back to the birth weight when the DOB is unknown (an unknown birth cannot
+    # be in the future); SQL NULL <= date is NULL, so the unknown-DOB case needs its own branch or
+    # the twins silently disagree.
     birth_weight_available = case(
         (effective_dob.is_(None), Animal.birth_weight),
         (effective_dob <= reference_date, Animal.birth_weight),
@@ -1122,13 +1121,11 @@ async def mark_aborted(
             # not a health clearance or an operator-requested movement.
             allow_restricted_reclassification=True,
         )
-        # B3 (2026-09-21 audit): an abortion is the third RESTING entry, and
-        # the only one that never prompted the next service — the doe silently
-        # dropped off the breeding board. Her rest starts at the loss, so the
-        # re-breeding duty follows the same flush window as weaning and the
-        # no-survivor postpartum recovery. The helper re-dates any still-open
-        # REBREED duty instead of stacking a second one, and a later service
-        # completes the prompt (see record_breeding).
+        # an abortion is the third RESTING entry, and the only one that never prompted the next
+        # service — the doe silently dropped off the breeding board. Her rest starts at the loss, so
+        # the re-breeding duty follows the same flush window as weaning and the no-survivor
+        # postpartum recovery. The helper re-dates any still-open REBREED duty instead of stacking a
+        # second one, and a later service completes the prompt (see record_breeding).
         await _schedule_rebreed(
             db,
             br.farm_id,

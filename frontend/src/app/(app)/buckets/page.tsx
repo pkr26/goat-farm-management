@@ -35,7 +35,7 @@ import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
  * what they configured, and the API stores/dispenses it at 0.001 kg. Render
  * every digit that survives storage and trim trailing zeros: `toFixed(1)`
  * reported a bucket set to 1.25 kg/head as "1.2". Grouping follows the
- * active UI language (2026-09-28 audit — was hardcoded en-IN). */
+ * active UI language. */
 const RATION_FORMAT_OPTIONS: Intl.NumberFormatOptions = { maximumFractionDigits: 3 };
 
 /** The register link is backend-supplied: safeAppPath rejects foreign
@@ -159,7 +159,6 @@ function BucketsPageContent({ perms }: { perms: PermissionsState }) {
   const t = useT();
   const allowed = can("buckets.view");
   const canViewAnimals = can("animals.view");
-  // Stryker disable next-line ObjectLiteral: PermissionGate refuses to mount this page without buckets.view, so `allowed` is always true by the time this hook runs
   const query = useBucketsBoardApiBucketsGet({ query: { enabled: allowed } });
   const rows = query.data?.status === 200 ? query.data.data : undefined;
 
@@ -177,7 +176,7 @@ function BucketsPageContent({ perms }: { perms: PermissionsState }) {
       ) : query.isError ? (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">
-            {/* (2026-09-28 audit, H6): backend details render through the
+            {/*: backend details render through the
              * language catalog, never as raw English server prose. */}
             {query.error instanceof ApiError
               ? mapServerError(t, query.error.detail, query.error.status, query.error.code)

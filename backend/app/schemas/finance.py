@@ -118,9 +118,8 @@ class MortalityMemoOut(BaseModel):
 
 class FinanceOut(BaseModel):
     transactions: list[TransactionOut]
-    # Deliberate legacy name (2026-09-28 audit): every sibling paginated
-    # envelope calls this field ``total``, but the wire contract is locked —
-    # renaming would break existing clients for cosmetics.
+    # Deliberate legacy name: every sibling paginated envelope calls this field ``total``, but the
+    # wire contract is locked — renaming would break existing clients for cosmetics.
     transactions_total: int
     limit: int
     offset: int
@@ -166,19 +165,17 @@ class InsurancePolicyIn(StrictInputModel):
     # start_date it may lie ahead (the renewal duty is spawned from it).
     renewal_date: date
     animal_id: BoundedId | None = None  # API verifies same-farm existence
-    # insurance_policies.notes Text — the 255-char API cap is deliberate
-    # narrative terseness, not the column width (Text is unbounded); the
-    # missing max_length let a longer narrative reach the column and surface
-    # as a raw 500 (P3, 2026-09-20 audit; comment corrected 2026-09-28).
+    # insurance_policies.notes Text — the 255-char API cap is deliberate narrative terseness, not
+    # the column width (Text is unbounded); the missing max_length let a longer narrative reach the
+    # column and surface as a raw 500.
     notes: PostgresText | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
     def _renewal_horizon_bounds(self) -> "InsurancePolicyIn":
         if self.renewal_date < self.start_date:
             raise ValueError("renewal_date cannot be before start_date")
-        # Same five-year bound as the renewal path (BIZ-3, 2026-09-16):
-        # registration books one non-prorated premium for the whole span, so
-        # longer cover must arrive as successive renewals, not one distant
+        # Same five-year bound as the renewal path : registration books one non-prorated premium for
+        # the whole span, so longer cover must arrive as successive renewals, not one distant
         # horizon booked at creation.
         if (self.renewal_date - self.start_date).days > _MAX_POLICY_SPAN_DAYS:
             raise ValueError(

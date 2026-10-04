@@ -58,7 +58,7 @@ services:
     <<: *service-hardening
     mem_limit: 128m
     cpus: 0.25
-    # Precedence probes (2026-10-02 audit): Compose interpolates shell
+    # Precedence probes: Compose interpolates shell
     # environment ahead of --env-file, so a shell export of a plain secret
     # alongside a file-route env file forwarded BOTH routes to consumers
     # while the guard — reading the file alone — saw only one. These
@@ -121,8 +121,8 @@ services:
         condition: service_completed_successfully
     environment:
       # The DDL-role URL arrives either as this plain value or from the
-      # read-only mounted file named by GOATFARM_MIGRATION_DATABASE_URL_FILE
-      # (2026-10-01 audit, 09-1), which keeps the inline password out of
+      # read-only mounted file named by GOATFARM_MIGRATION_DATABASE_URL_FILE,
+      # which keeps the inline password out of
       # docker inspect. The config-guard preflight refuses an env file that
       # sets both or neither; the app fails closed on an unusable value.
       GOATFARM_MIGRATION_DATABASE_URL: '${GOATFARM_MIGRATION_DATABASE_URL:-}'
@@ -164,7 +164,7 @@ services:
     environment:
       # Each remaining secret arrives either as its plain environment value
       # (backward compatible) or from the read-only mounted file named by its
-      # *_FILE container path (2026-10-01 audit, 09-1) — the delivery the JWT
+      # *_FILE container path — the delivery the JWT
       # PEMs and database CA already use, keeping the values out of docker
       # inspect and /proc/<pid>/environ. A set file path takes precedence;
       # the config-guard preflight refuses an env file that delivers a
@@ -228,7 +228,7 @@ services:
       # The API runs the same boot-time screening cross-validation as the
       # worker (the horizon must cover (2 x providers + 6) x the timeout), so
       # it needs the identical pair — an operator override that reaches only
-      # the worker would boot-fail the API (2026-09-28 audit, F3).
+      # the worker would boot-fail the API.
       GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS: ${GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS:-120}
       GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS: ${GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS:-1800}
       # Farm cap for the 20-farm owner operation (ITEM 0/8).
@@ -306,8 +306,8 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      # Same dual-mode secret delivery as the backend (2026-10-01 audit,
-      # 09-1): a set *_FILE container path wins over the plain value; the
+      # Same dual-mode secret delivery as the backend: a set *_FILE
+      # container path wins over the plain value; the
       # worker receives only the secrets its image-processing role needs.
       GOATFARM_DATABASE_URL: '${GOATFARM_WORKER_DATABASE_URL:-}'
       GOATFARM_DATABASE_URL_FILE: '${GOATFARM_WORKER_DATABASE_URL_FILE:-}'
@@ -344,8 +344,7 @@ services:
       GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM: ${GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM:-400}
       GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS: ${GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS:-120}
       # Must rise together with the timeout above: boot-time cross-validation
-      # requires this horizon to cover (2 x providers + 6) x the timeout
-      # (2026-09-28 audit, F3).
+      # requires this horizon to cover (2 x providers + 6) x the timeout.
       GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS: ${GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS:-1800}
       GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH: ${GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH:-/tmp/goatfarm-screening-worker.json}
       GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS: ${GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS:-900}
@@ -375,7 +374,7 @@ services:
       backend:
         condition: service_healthy
     environment:
-      # Per-request nonce CSP (M-1, 2026-09-20): the frontend's proxy.ts reads
+      # Per-request nonce CSP: the frontend's proxy.ts reads
       # these deployment-owned S3/MinIO origins at runtime, so the generic
       # registry image stays deployment-neutral. Optional here and validated
       # by the edge entrypoint: a deployment with screening enabled refuses
@@ -422,7 +421,7 @@ services:
       GOATFARM_EDGE_PUBLIC_SCHEME: https
       GOATFARM_EDGE_BIND_HOST: 127.0.0.1
       GOATFARM_EDGE_MAX_BODY_SIZE: ${GOATFARM_EDGE_MAX_BODY_SIZE:-1m}
-      # Auth flood-zone shaping (2026-09-20 audit P2-15): the zone keys on
+      # Auth flood-zone shaping: the zone keys on
       # the rightmost X-Forwarded-For entry the trusted terminator appends;
       # the rate/burst are operator-tunable per deployment and validated by
       # edge-entrypoint.sh before rendering.

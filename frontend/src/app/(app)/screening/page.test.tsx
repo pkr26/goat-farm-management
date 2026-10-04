@@ -1,10 +1,9 @@
 /**
- * Screening review page — the marquee AI feature's only UI, which sat at 0%
- * coverage behind the global thresholds (B8, 2026-09-21 audit). Covers the
- * provider scoreboard arithmetic, the queue table and its accessible detail
- * trigger, the vet review flow (success + optimistic-concurrency conflict),
- * status filters, deep-link detail failure, list failure, and the dataset
- * export download.
+ * Screening review page — the marquee AI feature's only UI, which sat at 0% coverage
+ * behind the global thresholds. Covers the provider scoreboard arithmetic, the queue
+ * table and its accessible detail trigger, the vet review flow (success +
+ * optimistic-concurrency conflict), status filters, deep-link detail failure, list
+ * failure, and the dataset export download.
  */
 
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";

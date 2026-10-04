@@ -7,8 +7,8 @@ export type PermissionCheck = (permission: string) => boolean;
  * dashboard, so `/dashboard` must never be assumed as a universal home. */
 export const PERMISSION_LANDING_ROUTES = [
   { permission: "dashboard.view", href: "/dashboard" },
-  // Field-first accounts (tasks.complete without dashboard.view) land on the
-  // tablet board (ITEM 2, 2026-09-21 playbook).
+  // Field-first accounts (tasks.complete without dashboard.view) land on the tablet
+  // board.
   { permission: "tasks.view", href: "/worker" },
   { permission: "animals.view", href: "/animals" },
   { permission: "buckets.view", href: "/buckets" },
@@ -42,9 +42,8 @@ const APP_ROUTE_PERMISSIONS = [
   { path: "/breeding", permission: "breeding.view" },
   { path: "/kidding", permission: "kidding.view" },
   { path: "/health", permission: "health.view" },
-  // The screening review queue rides the health permission family: without
-  // this entry a returnTo of /screening failed route resolution and was
-  // silently dropped (wave-5 note, 2026-09-20 audit).
+  // The screening review queue rides the health permission family: without this entry a
+  // returnTo of /screening failed route resolution and was silently dropped.
   { path: "/screening", permission: "health.view" },
   { path: "/feeding", permission: "feeding.view" },
   { path: "/purchases", permission: "purchases.view" },
@@ -103,7 +102,6 @@ function resolveAppPath(
   const safe = safeAppPath(raw);
   if (!safe) return null;
   const rawPath = safe.split(/[?#]/, 1)[0];
-  // Stryker disable next-line ConditionalExpression, LogicalOperator: safeAppPath already rejected percent-encoded pathnames, so the % operand is unreachable defense-in-depth
   if (rawPath.includes("%") || rawPath.includes("\\")) return null;
 
   const url = new URL(safe, "https://goatfarm.invalid");
@@ -112,7 +110,6 @@ function resolveAppPath(
   // `/tasks/../finance`). A return destination is user-controlled URL state,
   // so accept only its already-canonical spelling instead of silently
   // changing which module was requested.
-  // Stryker disable next-line ConditionalExpression: safeAppPath already rejects any spelling that changes under URL canonicalization, so this re-check can never fire
   if (path !== rawPath) return null;
   const special = MANAGE_ROUTE_PERMISSIONS.find(
     ({ path: root }) => path === root || path.startsWith(`${root}/`),
@@ -158,7 +155,6 @@ export function permittedAppPathFromList(
   // can still contain one. Treat that spelling as the same id-free route and
   // preserve its query/hash instead of mistaking it for a record detail URL.
   const pathWithoutTrailingSlash =
-    // Stryker disable next-line ConditionalExpression, EqualityOperator: a length-1 path is always "/", which never resolves past resolveAppPath's route lookup, so both the > operand and the >= swap only differ on unreachable input
     resolved.path.length > 1 && resolved.path.endsWith("/")
       ? resolved.path.slice(0, -1)
       : resolved.path;

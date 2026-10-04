@@ -6,11 +6,10 @@ import { Providers } from "@/components/providers";
 import { APP_NAME } from "@/lib/brand";
 import { LANGUAGE_COOKIE_KEY, type Language } from "@/lib/i18n/config";
 
-// Nonce-based CSP (src/proxy.ts, M-1 2026-09-20): Next.js stamps the nonce on
-// its scripts during server rendering, which only happens for dynamically
-// rendered pages — a statically prerendered shell has no request headers to
-// read a nonce from. Every route under this layout therefore renders per
-// request.
+// Nonce-based CSP: Next.js stamps the nonce on its scripts during server rendering,
+// which only happens for dynamically rendered pages — a statically prerendered shell
+// has no request headers to read a nonce from. Every route under this layout therefore
+// renders per request.
 export const dynamic = "force-dynamic";
 
 const inter = Inter({
@@ -47,8 +46,8 @@ export const metadata: Metadata = {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  // The proxy minted this request's CSP nonce; next-themes' inline theme
-  // bootstrap must carry it too or the policy blocks it (M-1, 2026-09-20).
+  // The proxy minted this request's CSP nonce; next-themes' inline theme bootstrap must
+  // carry it too or the policy blocks it.
   const [headerStore, cookieStore] = await Promise.all([headers(), cookies()]);
   const nonce = headerStore.get("x-nonce") ?? undefined;
   const cookieLanguage = cookieStore.get(LANGUAGE_COOKIE_KEY)?.value;

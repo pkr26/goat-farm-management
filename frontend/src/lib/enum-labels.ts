@@ -13,7 +13,6 @@ import { useCallback } from "react";
 import { getActiveLanguage } from "@/lib/active-language";
 import { useLanguage, type Language } from "@/lib/i18n";
 
-// Stryker disable next-line Regex: the chained .filter(Boolean) below already drops the empty strings a single-character split would produce, so the greedy quantifier never changes the result
 const SEPARATOR_RUN = /[_\s-]+/;
 
 function titleCase(value: string): string {
@@ -30,9 +29,9 @@ function titleCase(value: string): string {
 const SIMPLE_LABELS: Record<string, Record<string, string>> = {
   sex: { M: "Male", F: "Female" },
   source: { BORN: "Born on farm", PURCHASED: "Purchased" },
-  // `status` also carries INACTIVE for the team register's membership chip:
-  // the team page fed StatusBadge "ACTIVE"/"INACTIVE" with no children, so
-  // Telugu readers got the English humanize fallback (2026-10-01 audit, 06-2).
+  // `status` also carries INACTIVE for the team register's membership chip: the team
+  // page fed StatusBadge "ACTIVE"/"INACTIVE" with no children, so Telugu readers got
+  // the English humanize fallback.
   status: {
     ACTIVE: "Active",
     SOLD: "Sold",
@@ -72,19 +71,18 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
   },
   txType: { INCOME: "Income", EXPENSE: "Expense" },
   // Duty-board lifecycle (tasks.TaskOut.status). The Completed tab and the
-  // purchase-batch open-task list rendered the raw wire codes ("SKIPPED",
-  // "VERIFIED", "PENDING") because StatusBadge's humanize fallback never runs
-  // once children are supplied (2026-10-01 audit, 06-1).
+  // purchase-batch open-task list rendered the raw wire codes ("SKIPPED", "VERIFIED",
+  // "PENDING") because StatusBadge's humanize fallback never runs once children are
+  // supplied.
   taskStatus: {
     PENDING: "Pending",
     DONE: "Done",
     SKIPPED: "Skipped",
     VERIFIED: "Verified",
   },
-  // Health event administration routes (healthEventInRoute). Vets know the
-  // Latin abbreviations, so they ride along with the expansion; the raw
-  // SCREAMING_SNAKE codes used to render verbatim in the route select and the
-  // event log (2026-10-01 audit, 05-2).
+  // Health event administration routes (healthEventInRoute). Vets know the Latin
+  // abbreviations, so they ride along with the expansion; the raw SCREAMING_SNAKE codes
+  // used to render verbatim in the route select and the event log.
   adminRoute: {
     SC: "SC (subcutaneous)",
     IM: "IM (intramuscular)",
@@ -116,8 +114,8 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
     REBREED: "Re-breed",
     BUCK_ROTATION: "Buck rotation",
     INSURANCE: "Insurance",
-    // Daily trough round (cadence-generated): missing here leaked the raw
-    // English enum into the Telugu UI (P3, 2026-09-20 audit).
+    // Daily trough round (cadence-generated): missing here leaked the raw English enum
+    // into the Telugu UI.
     WATER: "Water trough",
   },
   // Coded mortality causes (animals.mortality_cause_code). The three
@@ -203,7 +201,7 @@ const BUCKET_LABELS: Record<string, string> = {
  * Telugu labels. Worker-facing kinds carry a full map so their pages never
  * leak English codes; anything still missing falls back to the English
  * label (never the raw code), matching the i18n catalog's fallback
- * contract. Honesty note (P3, 2026-09-20 audit): this completeness is NOT
+ * contract. Honesty note: this completeness is NOT
  * mechanically pinned for every vocabulary — mortality causes, the five
  * screening vocabularies and role preset codes rely on the fallback chain,
  * so treat an untested kind as English-fallback, not Telugu-complete.
@@ -410,7 +408,6 @@ export function enumLabel(
   }
   // The insurance lifecycle arrives lowercase from the API; the maps above
   // stay SCREAMING_CASE like every sibling kind, so retry upper-cased.
-  // Stryker disable next-line OptionalChaining: every EnumKind has a SIMPLE_LABELS entry, so the kind lookup never yields undefined
   return (
     SIMPLE_LABELS[kind]?.[value] ?? SIMPLE_LABELS[kind]?.[value.toUpperCase()] ?? titleCase(value)
   );

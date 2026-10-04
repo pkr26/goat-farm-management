@@ -1,8 +1,7 @@
 /**
- * src/components/section-nav.tsx: the shared section nav (2026-09-28 audit,
- * I5 — formerly the line-identical FeedingNav/FinanceNav twins). Covers the
- * tab lists' catalog labels, hrefs, the aria-current / visual treatment that
- * mark exactly the active tab, and the Telugu render of labels + landmark.
+ * src/components/section-nav.tsx: the shared section nav. Covers the tab lists'
+ * catalog labels, hrefs, the aria-current / visual treatment that mark exactly the
+ * active tab, and the Telugu render of labels + landmark.
  */
 
 import { render, screen, within } from "@testing-library/react";

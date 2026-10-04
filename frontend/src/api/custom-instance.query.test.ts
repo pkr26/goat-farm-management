@@ -1,8 +1,7 @@
 /**
- * custom-instance query stripping, first-pair precision (2026-09-30 fresh
- * mutation campaign): `slice(queryStart + 1)` must skip ONLY the "?" —
- * slicing one character deeper decapitates the first query key ("a=1"
- * becomes "=1"), so a "null"-valued first param is no longer recognised
+ * custom-instance query stripping, first-pair precision: `slice(queryStart + 1)`
+ * must skip ONLY the "?" — slicing one character deeper decapitates the first query
+ * key ("a=1" becomes "=1"), so a "null"-valued first param is no longer recognised
  * while the URL that goes on the wire silently changes shape.
  */
 

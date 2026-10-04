@@ -331,9 +331,7 @@ async def dashboard(
                 InsurancePolicy.policy_number,
                 InsurancePolicy.insurer,
                 InsurancePolicy.renewal_date,
-                # Per-animal policies must serialize their animal_id too (it
-                # was selected away and always serialized as None — P3,
-                # 2026-09-20 audit).
+                # Per-animal policies must serialize their animal_id too.
                 InsurancePolicy.animal_id,
                 Animal.tag_number.label("animal_tag"),
             )

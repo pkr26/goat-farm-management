@@ -87,7 +87,7 @@ def _months_between(start: date, end: date) -> float:
 
 def _class_boundary(dob: date, age_months: int) -> date:
     """Age-class boundary in the SAME 30.44-day convention the exposure
-    lengths are measured in (2026-10-01 audit, 08-M5).
+    lengths are measured in.
 
     ``add_months`` clamps to calendar month ends, so a February-born animal's
     "3-month" boundary landed 2-3 days off the 3 x 30.44-day count the
@@ -137,12 +137,11 @@ def _isotonic_fit(points: list[tuple[int, float]]) -> list[tuple[int, float]]:
     return [(age, total / count) for total, count, ages in blocks for age in ages]
 
 
-#: How far a farm's own measurements may stretch or shrink the preset's shape
-#: outside the observed age range. The rescale multiplies the *whole* tail, so
-#: leaving it unbounded let a single mis-keyed weight ("250" for 25.0 kg) push
-#: derived points past the schema ceiling and turn every later calibration
-#: request into a 500. A 4x band still lets a genuinely heavier or lighter
-#: flock reshape the preset well beyond breed variation.
+# How far a farm's own measurements may stretch or shrink the preset's shape outside the observed
+# age range. The rescale multiplies the *whole* tail, so leaving it unbounded let a single mis-keyed
+# weight ("250" for 25.0 kg) push derived points past the schema ceiling and turn every later
+# calibration request into a 500. A 4x band still lets a genuinely heavier or lighter flock reshape
+# the preset well beyond breed variation.
 _CURVE_RESCALE_BAND = (0.25, 4.0)
 
 
@@ -721,14 +720,12 @@ async def calibrate_farm_assumptions(
                 "kid_entries",
             )
 
-    # Class mortality is measured as deaths per animal-month at risk. Counting
-    # heads instead put survivors in whatever class they had aged into by the
-    # reference date while their class-mates' deaths stayed behind, so the two
-    # transient classes (post-weaning kid, grower) could report a death count
-    # larger than the population it was divided by. Exposure accumulates in
-    # DAYS over 30.44-day class boundaries and converts to animal-months once
-    # at the end, keeping boundaries and denominator in a single convention
-    # (2026-10-01 audit, 08-M5).
+    # Class mortality is measured as deaths per animal-month at risk. Counting heads instead put
+    # survivors in whatever class they had aged into by the reference date while their class-mates'
+    # deaths stayed behind, so the two transient classes (post-weaning kid, grower) could report a
+    # death count larger than the population it was divided by. Exposure accumulates in DAYS over
+    # 30.44-day class boundaries and converts to animal-months once at the end, keeping boundaries
+    # and denominator in a single convention.
     mortality_exposure_days: dict[str, float] = defaultdict(float)
     mortality_animals: dict[str, int] = defaultdict(int)
     mortality_deaths: dict[str, int] = defaultdict(int)
@@ -1086,12 +1083,10 @@ async def calibrate_farm_assumptions(
     # an unviable project look financeable. The span reads the full-window
     # minimum above, so it stays correct even when the per-row scan truncated.
     if true_first_expense is not None:
-        # ceil(), not round()+1: the +1 counted the first month inclusive,
-        # which over-counted by a full month at exact whole-month spans (a
-        # 12.0-month ledger divided by 13 understated every recurring cost
-        # by ~8%) and at halves that round up (P3, 2026-09-20 audit). Ceil
-        # already treats any elapsed fraction as one more covered month and
-        # the max() keeps a same-month ledger at one month.
+        # ceil(), not round()+1: the +1 counted the first month inclusive, which over-counted by a
+        # full month at exact whole-month spans (a 12.0-month ledger divided by 13 understated every
+        # recurring cost by ~8%) and at halves that round up. Ceil already treats any elapsed
+        # fraction as one more covered month and the max() keeps a same-month ledger at one month.
         observed_months = max(1, ceil(_months_between(true_first_expense, reference_date)))
         cost_months = min(lookback_months, observed_months)
     else:

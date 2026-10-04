@@ -17,10 +17,8 @@ permissions:
   contents: read
 
 jobs:
-  # 2026-09-16 audit (remediation log P3): pip-audit/pnpm-audit previously ran
-  # only on push/PR in ci.yml, so NEW advisories against pinned versions were
-  # invisible until the next code change (Dependabot aside). This job closes
-  # the weekly gap on the existing Security schedule.
+  # Recheck pinned dependencies weekly for advisories published after the
+  # last code change. Push and pull-request audits run in ci.yml.
   dependency-audit:
     name: Dependency advisories (pip + pnpm)
     if: github.event_name == 'schedule'
@@ -119,11 +117,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   trivy-ignore-freshness:
-    # L-5 (2026-09-20 audit): the compose-image ignore file masks
-    # acknowledged CVEs in digest-pinned third-party images under a weekly
-    # refresh policy nothing enforced. Fail every security run (push, PR,
-    # weekly) once its `# refreshed:` marker is older than the policy window
-    # so the suppressed-CVE debt stays bounded.
+    # Enforce the refresh window for acknowledged third-party image CVEs.
     name: Compose-image ignore file freshness
     runs-on: ubuntu-latest
     timeout-minutes: 5

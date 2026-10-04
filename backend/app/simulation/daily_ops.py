@@ -94,22 +94,18 @@ TIME_NIGHT_CLEAN = "20:15"
 # Heat-cycle wait after a failed pregnancy check before the doe is re-served
 # (operational does return to service on the next observed heat).
 _HEAT_CYCLE_DAYS = 21
-# Resting / dry-off + flush stay before returning to the breeding bucket
-# (seeded RESTING bucket rule: "Post-weaning does, ~30 days"). Restates the
-# domain re-breeding prompt (services._common.REBREED_AFTER_RESTING_DAYS =
-# 30 — the simulation layer must not import the services layer), floored at
-# the legal minimum GOAT_PROFILE.min_rest_flush_days so a shortened prompt
-# could never project a re-breed the API would still block (2026-09-28 audit).
+# Resting / dry-off + flush stay before returning to the breeding bucket (seeded RESTING bucket
+# rule: "Post-weaning does, ~30 days"). Restates the domain re-breeding prompt
+# (services._common.REBREED_AFTER_RESTING_DAYS = 30 — the simulation layer must not import the
+# services layer), floored at the legal minimum GOAT_PROFILE.min_rest_flush_days so a shortened
+# prompt could never project a re-breed the API would still block.
 _RESTING_FLUSH_DAYS = max(30, GOAT_PROFILE.min_rest_flush_days)
-# Young-stock class windows in days, anchoring the post-weaning hazards to the
-# monthly engine's class boundaries (2026-10-01 audit, 08-M3): the weaner
-# class spans weaning day (GOAT_PROFILE.weaning_days = 60) to the grower
-# boundary (6 months), and weaned stock past 6 months still growing in a kids
-# pen is a grower. The whole-phase weaner rate is converted over the window
-# the class actually covers — weaning→6 months ≈ 123 days — NOT the 3-month
-# "3-5 m" label: spreading it over 91 days while the window is 123 compounded
-# the phase rate to ~1.35x its configured value (5% nominal → ~6.7% effective,
-# 2026-10-02 audit).
+# Young-stock class windows in days, anchoring the post-weaning hazards to the monthly engine's
+# class boundaries: the weaner class spans weaning day (GOAT_PROFILE.weaning_days = 60) to the
+# grower boundary (6 months), and weaned stock past 6 months still growing in a kids pen is a
+# grower. The whole-phase weaner rate is converted over the window the class actually covers —
+# weaning→6 months ≈ 123 days — NOT the 3-month "3-5 m" label: spreading it over 91 days while the
+# window is 123 compounded the phase rate to ~1.35x its configured value.
 _GROWER_AGE_DAYS = round(6 * DAYS_PER_MONTH)
 _WEANER_WINDOW_DAYS = _GROWER_AGE_DAYS - GOAT_PROFILE.weaning_days
 # Maximum doe age before the age cull fires (mirrors CullingAssumptions
@@ -129,8 +125,7 @@ class DailyOpsResultCapExceeded(ValueError):
     per-building feeding/occupancy, plus a journey per animal) far beyond the
     starting head the input cap prices; the caller — who knows the ceiling it
     wants to enforce on materialized/serialized output — turns this into a
-    clean input rejection (2026-10-01 audit, 08-M6: the memory bound is an
-    enforced ceiling, not a priced heuristic).
+    clean input rejection.
     """
 
     def __init__(self, head_days: int, cap: int) -> None:
@@ -269,14 +264,12 @@ class DailyOpsParams(BaseModel):
     abortion_rate: float = Field(default=0.02, ge=0.0, le=1.0)
     kid_pre_weaning_mortality: float = Field(default=0.15, ge=0.0, le=1.0)
     adult_annual_mortality: float = Field(default=0.05, ge=0.0, le=1.0)
-    # Young-stock survival after weaning, mirroring the monthly engine's class
-    # rates (MortalityAssumptions) instead of jumping straight from the
-    # pre-weaning hazard to the adult hazard the day a kid is weaned
-    # (2026-10-01 audit, 08-M3). ``kid_post_weaning_mortality`` is a
-    # WHOLE-PHASE rate over the 3-month weaner class (3-5 months, the same
-    # convention as the monthly engine's kid_post_weaning);
-    # ``grower_annual_mortality`` is an annual rate for weaned stock past
-    # 6 months still growing in the kids pens.
+    # Young-stock survival after weaning, mirroring the monthly engine's class rates
+    # (MortalityAssumptions) instead of jumping straight from the pre-weaning hazard to the adult
+    # hazard the day a kid is weaned. ``kid_post_weaning_mortality`` is a WHOLE-PHASE rate over the
+    # 3-month weaner class (3-5 months, the same convention as the monthly engine's
+    # kid_post_weaning); ``grower_annual_mortality`` is an annual rate for weaned stock past 6
+    # months still growing in the kids pens.
     kid_post_weaning_mortality: float = Field(default=0.05, ge=0.0, le=1.0)
     grower_annual_mortality: float = Field(default=0.04, ge=0.0, le=1.0)
     failed_services_before_cull: int = Field(
@@ -629,12 +622,11 @@ class _DailyOpsRun:
             self.params.kid_pre_weaning_mortality, _PROFILE.weaning_days
         )
         self.adult_hazard = _daily_hazard(self.params.adult_annual_mortality, 365)
-        # Weaned young stock keeps its own class hazards, mirroring the monthly
-        # engine's kid_post_weaning (whole-phase weaner rate over weaning→6
-        # months) and grower (annual) rates instead of facing the adult hazard
-        # from the weaning day on (2026-10-01 audit, 08-M3). Past 6 months a
-        # weaned animal still in a kids pen is a grower. Both windows anchor to
-        # DAYS_PER_MONTH like every other age conversion here.
+        # Weaned young stock keeps its own class hazards, mirroring the monthly engine's
+        # kid_post_weaning (whole-phase weaner rate over weaning→6 months) and grower (annual) rates
+        # instead of facing the adult hazard from the weaning day on. Past 6 months a weaned animal
+        # still in a kids pen is a grower. Both windows anchor to DAYS_PER_MONTH like every other
+        # age conversion here.
         self.weaner_hazard = _daily_hazard(
             self.params.kid_post_weaning_mortality, _WEANER_WINDOW_DAYS
         )
@@ -814,11 +806,9 @@ class _DailyOpsRun:
             members = groups[(building, recipe, band)]
             display = RECIPE_DISPLAY.get(recipe, recipe)
             if recipe == "CREEP":
-                # Price the whole band at its MEAN member age, not the first
-                # (tag-sorted) member's age (2026-10-01 audit, 08-L14): a
-                # band straddling a ramp step used to price every member at
-                # whichever tag happened to sort first, gram-shifting the
-                # band's total by up to one ramp step.
+                # Price the whole band at its MEAN member age, not the first (tag-sorted) member's
+                # age: a band straddling a ramp step used to price every member at whichever tag
+                # happened to sort first, gram-shifting the band's total by up to one ramp step.
                 mean_age_days = sum(member.age_days(day) for member in members) // len(members)
                 kg_per_head = creep_daily_kg(mean_age_days)
                 display = f"{display} ({band})"
@@ -1321,11 +1311,10 @@ class _DailyOpsRun:
                 continue
             doe.bred_day = day
             doe.assigned_buck = buck.tag
-            # A starter that arrived mid-pregnancy carries a start-gestation
-            # milestone_floor so passed milestones do not retro-fire; every
-            # later pregnancy must start from a clean slate or her whole
-            # breeding life suppresses PREGNANCY_LATE/DELIVERY/vaccine
-            # milestones that predate her arrival (2026-09-20 audit P1-4).
+            # A starter that arrived mid-pregnancy carries a start-gestation milestone_floor so
+            # passed milestones do not retro-fire; every later pregnancy must start from a clean
+            # slate or her whole breeding life suppresses PREGNANCY_LATE/DELIVERY/vaccine milestones
+            # that predate her arrival.
             doe.milestone_floor = -1
             doe.moved_to_late = False
             doe.vaccine_primary_done = False
@@ -1428,13 +1417,11 @@ class _DailyOpsRun:
         for animal in sorted(self._active(), key=lambda a: a.tag):
             if animal.bucket != Bucket.RECOVERY.value:
                 continue
-            # Dams and postpartum does are female-only, but DEPENDENT KIDS
-            # may be male (a starter buck kid housed with its dam is exactly
-            # what dependent_kid describes). Filtering the whole loop on
-            # sex == "F" stranded male starter kids in RECOVERY for life —
-            # no feed line after the creep window and kid mortality hazard
-            # forever (2026-09-20 audit P2-6) — so each branch guards its
-            # own precondition instead.
+            # Dams and postpartum does are female-only, but DEPENDENT KIDS may be male (a starter
+            # buck kid housed with its dam is exactly what dependent_kid describes). Filtering the
+            # whole loop on sex == "F" stranded male starter kids in RECOVERY for life — no feed
+            # line after the creep window and kid mortality hazard forever — so each branch guards
+            # its own precondition instead.
             if animal.sex == "F" and animal.kidding_day is not None and animal.kids_with_dam:
                 if day >= animal.kidding_day + _PROFILE.weaning_days:
                     self._record(
@@ -1518,13 +1505,11 @@ class _DailyOpsRun:
 
     def _mortality(self, day: int) -> None:
         for animal in sorted(self._active(), key=lambda a: a.tag):
-            # Class hazards mirror the monthly engine (2026-10-01 audit,
-            # 08-M3): dependent kids face the pre-weaning phase rate; weaned
-            # stock in the kids pens faces the weaner (3-5 m) then grower
-            # (6 m+) class rates; everything else — breeding does, bucks — is
-            # adult. One draw per animal per day is consumed regardless of the
-            # class, so the seeded stream (and every other animal's draws) is
-            # unchanged; only the threshold each class compares against moves.
+            # Class hazards mirror the monthly engine: dependent kids face the pre-weaning phase
+            # rate; weaned stock in the kids pens faces the weaner (3-5 m) then grower (6 m+) class
+            # rates; everything else — breeding does, bucks — is adult. One draw per animal per day
+            # is consumed regardless of the class, so the seeded stream (and every other animal's
+            # draws) is unchanged; only the threshold each class compares against moves.
             growing_pen = animal.bucket in (
                 Bucket.MALE_KIDS.value,
                 Bucket.FEMALE_KIDS.value,
@@ -1637,11 +1622,10 @@ class _DailyOpsRun:
                 )
             self._cleaning_round(day, TIME_NIGHT_CLEAN, "night (after the night feed)")
             self.days[day - 1].occupancy = self._occupancy()
-            # Enforce the output-side ceiling on the STANDING herd, births
-            # included, as it grows — not merely on the input head the request
-            # started with (2026-10-01 audit, 08-M6). Aborting mid-run bounds
-            # the materialized DayRecord/journey graph too, and the charge the
-            # caller already booked prices the real CPU spent.
+            # Enforce the output-side ceiling on the STANDING herd, births included, as it grows —
+            # not merely on the input head the request started with. Aborting mid-run bounds the
+            # materialized DayRecord/journey graph too, and the charge the caller already booked
+            # prices the real CPU spent.
             self.result_head_days += len(self._active())
             if (
                 self.max_result_head_days is not None
@@ -2080,6 +2064,6 @@ def run_daily_ops(
     ``max_result_head_days`` is the caller's hard output-side ceiling on
     standing head-days (births included); exceeding it aborts the run with
     ``DailyOpsResultCapExceeded`` instead of materializing an unbounded
-    result (2026-10-01 audit, 08-M6).
+    result.
     """
     return _DailyOpsRun(payload, max_result_head_days=max_result_head_days).run()

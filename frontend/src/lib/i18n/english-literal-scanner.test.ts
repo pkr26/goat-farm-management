@@ -1,11 +1,6 @@
 /**
- * Fixture tests for the English-literal scanner (AUDIT_REPORT_2026-09-28,
- * H7 — the 2026-09-28 expansion that taught the gate to see JSX expression
- * containers, camelCase copy props, default parameters, toasts and zod
- * messages). Each case pins both what the scanner MUST catch (the
- * categories the audit showed escaping) and what it must NOT flag (codes,
- * CSS, identifiers, catalog keys — false positives pollute the baseline
- * permanently).
+ * English-copy scanner fixtures cover JSX expressions, copy props, defaults, toasts
+ * and validation messages while excluding identifiers and catalog keys.
  */
 
 import { describe, expect, it } from "vitest";

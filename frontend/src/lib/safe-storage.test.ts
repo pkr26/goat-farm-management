@@ -1,6 +1,5 @@
 /**
- * safeStorage: the one guarded Web-Storage accessor (2026-09-28 audit dedup
- * — previously four-plus private copies of the same fail-closed guard).
+ * Blocked storage and missing browser realms return null without throwing.
  */
 
 import { describe, expect, it, vi } from "vitest";

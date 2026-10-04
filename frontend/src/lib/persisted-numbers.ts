@@ -7,12 +7,11 @@ export const MIN_PERSISTED_MONEY = 0.005;
 export const MIN_PERSISTED_KG_MESSAGE = "Quantity must be at least 0.0005 kg";
 export const MIN_PERSISTED_MONEY_MESSAGE = "Amount must be ₹0 or at least ₹0.005";
 
-/** Render stock-ledger quantities without hiding gram-scale values.  Keep one
- * decimal for ordinary whole-kilogram readings while preserving all three
- * decimals the API stores when they are significant. Digit grouping follows
- * the active UI language through the shared formatNumber (te-IN under
- * Telugu) instead of a hardcoded en-IN — the exact class the 2026-09-28
- * audit fixed for every sibling surface (2026-10-01 audit, 07-L4). */
+/**
+ * Render stock-ledger quantities with language-aware grouping. Keep one decimal for
+ * whole-kilogram readings and up to three decimals so gram-scale values remain
+ * visible.
+ */
 export function formatPersistedKg(value: number): string {
   if (!Number.isFinite(value)) return "—";
   return formatNumber(value, {

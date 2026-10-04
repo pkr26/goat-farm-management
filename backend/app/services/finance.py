@@ -42,13 +42,12 @@ class PolicyAlreadyClaimedError(ValueError):
     """The register's terminal state conflict (API maps it to 409, not 422).
 
     Subclasses ValueError so existing callers that treat every service
-    validation error uniformly keep working; the type — not the message
-    text — carries the status decision (P3, 2026-09-20 audit: the old
-    `"already been claimed" in str(exc)` substring dispatch)."""
+    validation error uniformly keep working; the exception type carries the
+    status decision independently of its message text."""
 
 
-# BIZ-3 (2026-09-16): one renewal books one non-prorated premium row, so the
-# covered span needs a bound — five years, renewed successively for longer.
+# Each renewal books one non-prorated premium. Bound its span at five years;
+# longer coverage requires successive renewals.
 MAX_RENEWAL_SPAN_DAYS = 5 * 366
 
 LIFETIME_PNL_FEED_NOTE = (
@@ -142,9 +141,8 @@ async def monthly_pnl(db: AsyncSession, farm: Farm, n_months: int = 12) -> list[
 
     rows = sorted(months.values(), key=lambda r: r["month"], reverse=True)
     for row in rows:
-        # money(), not round(): the ledger's ROUND_HALF_UP must round these
-        # totals too — Python's half-even round() disagrees on exact-half
-        # paise (2026-09-28 audit).
+        # money(), not round(): the ledger's ROUND_HALF_UP must round these totals too — Python's
+        # half-even round() disagrees on exact-half paise.
         row["income"] = money(row["income"])
         row["expense"] = money(row["expense"])
         row["net"] = money(row["income"] - row["expense"])
@@ -189,9 +187,7 @@ async def _spawn_renewal_task(
 
     A renewal date inside the 30-day lead gets no task: the lead-adjusted due
     date has already arrived (or would arrive today), and a duty may never be
-    born overdue — a backdated duty would only bury the register's real work
-    (2026-10-01 audit, 03-2; the old guard tested the renewal date itself, so
-    a 14-day horizon minted a duty already 16 days overdue). The duty names
+    born overdue — a backdated duty would only bury the register's real work. The duty names
     the policy number (herd-level rows have no animal to link) and carries
     the animal for per-animal policies.
     """
@@ -332,11 +328,8 @@ async def create_insurance_policy(
         raise ValueError("Policy start date cannot be in the future")
     if renewal_date < start_date:
         raise ValueError("Policy renewal date cannot be before its start date")
-    # BIZ-3 (2026-09-16) creation twin of the renewal-path cap: registration
-    # books ONE non-prorated premium row for the whole start→renewal span, so
-    # a decades-distant renewal_date would buy that cover for a single
-    # premium exactly as an oversized renewal would — the register is
-    # append-only, so the horizon must arrive by successive renewals here too.
+    # Registration books one premium for the entire initial coverage span,
+    # so apply the same five-year bound used for later renewals.
     if (renewal_date - start_date).days > MAX_RENEWAL_SPAN_DAYS:
         raise ValueError(
             "A policy can cover at most five years — renew successively for longer cover"
@@ -368,9 +361,8 @@ async def create_insurance_policy(
         recorded_by_id=created_by_id,
     )
     if renewal_date > reference:
-        # The lead gate itself lives in _spawn_renewal_task (2026-10-01
-        # audit, 03-2): a horizon inside the 30-day lead is legal cover but
-        # no longer spawns an already-overdue duty.
+        # The lead gate itself lives in _spawn_renewal_task: a horizon inside the 30-day lead is
+        # legal cover but no longer spawns an already-overdue duty.
         await _spawn_renewal_task(db, farm.id, policy, reference)
     return policy
 
@@ -425,10 +417,8 @@ async def renew_insurance_policy(
                 "A renewal date must be later than the current renewal date to reactivate cover"
             )
         return policy
-    # BIZ-3 (2026-09-16): the register books ONE non-prorated premium row per
-    # renewal — an arbitrarily distant horizon would book a decades-long span
-    # for a single premium. Bound the covered span at five years; longer
-    # cover is successive renewals, matching how insurers actually issue.
+    # One renewal books one premium; extending coverage further requires
+    # another renewal rather than an arbitrarily distant paid-through date.
     if (renewal_date - policy.renewal_date).days > MAX_RENEWAL_SPAN_DAYS:
         raise ValueError(
             "A renewal can extend coverage by at most five years — renew "
@@ -451,9 +441,8 @@ async def renew_insurance_policy(
         recorded_by_id=recorded_by_id,
     )
     if renewal_date > recorded_on:
-        # Same lead gate as creation (2026-10-01 audit, 03-2): renewing
-        # inside the final 30 days of a still-renewable window must not mint
-        # a duty that is overdue the moment it appears.
+        # Same lead gate as creation: renewing inside the final 30 days of a still-renewable window
+        # must not mint a duty that is overdue the moment it appears.
         await _spawn_renewal_task(db, farm.id, policy, recorded_on)
     return policy
 
@@ -480,9 +469,9 @@ async def claim_insurance_policy(
         raise PolicyAlreadyClaimedError("This policy has already been claimed")
     if claim_date < policy.start_date:
         raise ValueError("Claim date cannot be before the policy start date")
-    # B2 (2026-09-21 audit): a claim is an event inside the covered window.
-    # Lapsed status alone is not the boundary — the animal's death can post-date
-    # the lapse — but a claim DATED past the renewal horizon was never covered.
+    # A claim is an event inside the covered window. Lapsed status alone is not the boundary — the
+    # animal's death can post-date the lapse — but a claim DATED past the renewal horizon was never
+    # covered.
     if claim_date > policy.renewal_date:
         raise ValueError("Claim date cannot be after the policy's renewal date")
     policy.status = INSURANCE_STATUS_CLAIMED

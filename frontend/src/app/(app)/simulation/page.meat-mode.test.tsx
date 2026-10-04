@@ -1,8 +1,7 @@
 /**
- * Simulation page — meat-mode fields (2026-09 final contract): the editor
- * exposes the surplus-milk side-line, the weaning/growth-regime selects, the
- * NLM subsidy toggle and the per-class water planning rates, while the
- * results surface the water demand figures.
+ * Simulation page — meat-mode fields: the editor exposes the surplus-milk side-line,
+ * the weaning/growth-regime selects, the NLM subsidy toggle and the per-class water
+ * planning rates, while the results surface the water demand figures.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";

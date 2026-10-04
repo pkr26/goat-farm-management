@@ -103,14 +103,12 @@ function buildPolicySchema(t: TFn) {
         .positive(t("insurance.validation.sumInsuredPositive"))
         .max(MAX_AMOUNT, t("insurance.validation.sumInsuredMax", { max: formatMoney(MAX_AMOUNT) }))
         .refine(isPersistableNonnegativeMoney, t("insurance.validation.moneyMin")),
-      // Blank must stay distinguishable from a real ₹0: z.coerce.number() maps
-      // a cleared number input ("") to 0, which would silently register the
-      // required premium as ₹0 in the append-only register (2026-09-17 audit
-      // M-13; same hazard the ledger-correction schema documents). The renewal
-      // dialog's deliberate blank-means-keep-current is a different control.
+      // Blank must stay distinguishable from a real ₹0: z.coerce.number() maps a
+      // cleared number input ("") to 0, which would silently register the required
+      // premium as ₹0 in the append-only register. The renewal dialog's deliberate
+      // blank-means-keep-current is a different control.
       premium: z.preprocess(
         (raw) =>
-          // Stryker disable next-line ConditionalExpression: registered number inputs only ever yield "" or a numeric string — null/undefined never arrive, and the blank arm is the behavior this pin exists for
           raw === "" || raw === null || raw === undefined ? undefined : Number(raw),
         z
           .number({ error: t("insurance.validation.premiumRequired") })
@@ -220,11 +218,9 @@ function AddPolicyDialog({
     <Dialog
       open
       onOpenChange={(nextOpen) => {
-        // As the comment always claimed: never block dismissal on an
-        // in-flight write — the continuation is guarded by the single-flight
-        // and farm-scope fences instead (the busy guard contradicted the
-        // comment and wedged the dialog shut on a slow request; P3,
-        // 2026-09-20 audit).
+        // As the comment always claimed: never block dismissal on an in-flight write —
+        // the continuation is guarded by the single-flight and farm-scope fences
+        // instead.
         if (!nextOpen) reset(policyDefaults());
         onClose();
       }}
@@ -1040,9 +1036,8 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
           <PaginationControls
             total={payload.total}
             // The echoed limit, not the request constant — every sibling pager
-            // (finance/purchases/tasks/feeding) passes payload.limit so the
-            // math tracks whatever the server actually applied
-            // (2026-10-01 audit, 06-7).
+            // (finance/purchases/tasks/feeding) passes payload.limit so the math tracks
+            // whatever the server actually applied.
             limit={payload.limit}
             offset={offset}
             onOffsetChange={setOffset}

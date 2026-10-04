@@ -70,14 +70,12 @@ async def bakrid_hold_advisory(db: AsyncSession, farm: Farm) -> dict[str, Any] |
         return None
     window_start = add_months(festival, -BAKRID_HOLD_WINDOW_MONTHS)
     effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
-    # Both window edges must use clamped month arithmetic (2026-10-01 audit,
-    # 03-5). window_start already does (utils.add_months clamps the day to
-    # the month's end), but PostgreSQL interval month-addition overflows the
-    # day FORWARD (May 31 + 9 months → March 2/3, not the clamped Feb 28/29),
-    # so the finish edge — the same window's other boundary — disagreed with
-    # its Python twin on month-end births. The SQL equivalent of add_months:
-    # shift the month START, then take the day no later than that month's
-    # last day.
+    # Both window edges must use clamped month arithmetic. window_start already does
+    # (utils.add_months clamps the day to the month's end), but PostgreSQL interval month-addition
+    # overflows the day FORWARD (May 31 + 9 months → March 2/3, not the clamped Feb 28/29), so the
+    # finish edge — the same window's other boundary — disagreed with its Python twin on month-end
+    # births. The SQL equivalent of add_months: shift the month START, then take the day no later
+    # than that month's last day.
     finish_month_start = func.date_trunc("month", effective_dob) + func.make_interval(
         0, MEAT_SALE_AGE_MONTHS[1]
     )
@@ -269,10 +267,9 @@ async def ready_to_move_suggestions(
         context.c.latest_effective_date,
         created_local_date,
     )
-    # RESTING→BREEDING readiness: the dry-off + flush program. Single-sourced
-    # with the REBREED duty's rest window so the board's "ready" hint and the
-    # scheduled re-breeding prompt can never disagree (B-small, 2026-09-21
-    # audit: this was an independent hard-coded 30).
+    # RESTING→BREEDING readiness: the dry-off + flush program. Single-sourced with the REBREED
+    # duty's rest window so the board's "ready" hint and the scheduled re-breeding prompt can never
+    # disagree.
     resting_ready = bucket_started_local_date <= reference_date - timedelta(
         days=REBREED_AFTER_RESTING_DAYS
     )

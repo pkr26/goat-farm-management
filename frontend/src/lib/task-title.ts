@@ -2,9 +2,8 @@
  * Localized rendering for auto-generated duty titles.
  *
  * Task payloads carry `title_key` + `title_args` alongside the legacy English
- * `title` (the backend emits them for all 40 generated duty types — see
- * audit_reports/2026-09-14/task_title_keys.md — on TaskOut and
- * QuarantineScheduleTaskOut; manual duties have title_key null). When the key
+ * `title` on TaskOut and QuarantineScheduleTaskOut. Manual duties have
+ * title_key null. When the key
  * exists in the catalog, the title renders in the worker's language via
  * `taskGen.<key>` with argument interpolation; anything else — a missing
  * field, an unknown key, a manual duty — falls back to `task.title`
@@ -24,7 +23,7 @@ import en, { type MessageKey } from "@/lib/i18n/en";
 import { translate, type Language } from "@/lib/i18n";
 
 /** The wire shape the backend contract adds to TaskOut. Optional throughout:
- * the fields are absent until the backend ships them. */
+ * older payloads may omit these fields. */
 export interface TaskTitleSource {
   title: string;
   title_key?: string | null;

@@ -1,11 +1,6 @@
 /**
- * Feed inventory page — mutation-hardening suite. Targets the exact
- * branches the Stryker report flagged as surviving: the optional-price
- * preprocess (blank → null payload), the derived-expense ceilings, the
- * a11y wiring of the add-stock/mix error paragraphs (aria-invalid /
- * aria-describedby / element ids), in-flight submit labels, recipe-picker
- * value→label mapping and dialog reset, shortage clearing on close,
- * permission-gated buttons and the permission error/retry paths.
+ * Inventory quantity and price validation, accessible errors, recipe labels and
+ * dialog resets.
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";

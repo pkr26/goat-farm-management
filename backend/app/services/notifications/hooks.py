@@ -1,4 +1,4 @@
-"""Call-site alert hooks (ITEM 4, 2026-09-21 playbook).
+"""Call-site alert hooks.
 
 Clinical mutations enqueue their alert in the domain transaction. After
 commit, ``emit_alert`` attempts that durable event immediately; the minute
@@ -36,10 +36,9 @@ async def emit_alert(farm_id: int, alert_class: str, message: str, payload: str)
         # domain write; its failure is logged, never propagated.
         logger.exception("notification alert %s for farm %s failed", alert_class, farm_id)
     finally:
-        # One provider per alert must not leak its httpx transport — close the
-        # owned client like the digest loop does at shutdown (2026-09-28
-        # audit, N3). Providers without a transport (console, test doubles)
-        # carry no aclose and are skipped.
+        # One provider per alert must not leak its httpx transport — close the owned client like the
+        # digest loop does at shutdown. Providers without a transport (console, test doubles) carry
+        # no aclose and are skipped.
         aclose = getattr(provider, "aclose", None)
         if aclose is not None:
             with suppress(Exception):

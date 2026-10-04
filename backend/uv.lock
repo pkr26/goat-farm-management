@@ -509,7 +509,6 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "asyncpg-stubs" },
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -528,7 +527,6 @@ requires-dist = [
     { name = "cryptography", specifier = "==50.0.0" },
     { name = "fastapi", specifier = "==0.141.1" },
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "httpx", marker = "extra == 'dev'", specifier = "==0.28.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==2.3.0" },
     { name = "pillow", specifier = "==12.3.0" },
     { name = "prometheus-client", specifier = "==0.26.0" },

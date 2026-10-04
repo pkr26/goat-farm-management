@@ -1,7 +1,6 @@
 /**
- * Login page — mutation-hardening suite: returnTo deep-link handling,
- * the mounted-guard happy path, the 401 message and the network-failure
- * fallback.
+ * Login page — regression suite: returnTo deep-link handling, the mounted-guard
+ * happy path, the 401 message and the network-failure fallback.
  */
 
 import { screen, waitFor } from "@testing-library/react";

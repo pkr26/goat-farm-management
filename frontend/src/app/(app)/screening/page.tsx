@@ -177,8 +177,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
       anchor.download = `screening-dataset-${new Date().toISOString().slice(0, 10)}.json`;
       anchor.click();
       URL.revokeObjectURL(url);
-      // One/many split — "(1 records)" read as a bug in a vet-facing toast
-      // (2026-09-17 audit L-22).
+      // One/many split — "(1 records)" read as a bug in a vet-facing toast.
       toast.success(
         result.data.record_count === 1
           ? t("screening.export.done_one", { count: result.data.record_count })
@@ -231,9 +230,9 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
       setReviewNotes((notes) => { const next = { ...notes }; delete next[findingId]; return next; });
       void queryClient.invalidateQueries({ queryKey: [`/api/screening/findings/${findingId}/reviews`] });
       toast.success(t("screening.review.reviewed"));
-      // Reviews feed the provider scoreboard's accuracy columns; refetch it
-      // with the same refresh so a just-rendered verdict is reflected
-      // immediately instead of after the next poll (P3, 2026-09-20 audit).
+      // Reviews feed the provider scoreboard's accuracy columns; refetch it with the
+      // same refresh so a just-rendered verdict is reflected immediately instead of
+      // after the next poll.
       await Promise.all([detailQuery.refetch(), listQuery.refetch(), statsQuery.refetch()]);
     } catch (error) {
       if (!stillOwnsFarm()) return;
@@ -393,7 +392,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
           ) : detailQuery.isError ? (
             /* A deep-linked ?image_id= that 403/404s (deleted, rotated out,
              * another farm's) must surface WHY it is empty and offer a way
-             * back — not a silent blank panel (2026-09-17 audit M-14). */
+             * back — not a silent blank panel. */
             <div role="alert" className="space-y-3">
               <p className="text-sm text-destructive">
                 {detailQuery.error instanceof ApiError
@@ -654,7 +653,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
               description={t("screening.list.loadFailed")}
             >
               {/* The failure state needs the retry control its label used to
-               * only describe (2026-09-17 audit M-14). */}
+               * only describe. */}
               <Button
                 type="button"
                 variant="outline"
@@ -686,13 +685,11 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                     {rows.map((row) => (
                       <tr
                         key={row.id}
-                        // A row is a row: role="button" on <tr> broke the
-                        // screen-reader table semantics (B-small a11y,
-                        // 2026-09-21 audit). The status cell's real button is
-                        // the keyboard/screen-reader path to the review
-                        // detail; the row click stays a pointer-only
-                        // convenience that defers to the button when it is
-                        // the actual target.
+                        // A row is a row: role="button" on <tr> broke the screen-reader
+                        // table semantics. The status cell's real button is the
+                        // keyboard/screen-reader path to the review detail; the row
+                        // click stays a pointer-only convenience that defers to the
+                        // button when it is the actual target.
                         className="cursor-pointer"
                         onClick={(event) => {
                           if ((event.target as HTMLElement).closest("button")) return;

@@ -255,13 +255,10 @@ async def plan_sales(
             ),
         )
     horizon = min(240, max(payload.assumptions.meta.horizon_months, max(offsets), 12))
-    # Priced like the sale planner plus the one extra deterministic pass the
-    # stage plan needs: the before-evaluation and the stage run (the 2), plus
-    # — when gap closing is on — close_gaps' worst case of one initial
-    # evaluation, one engine pass per iteration, and the zero-progress
-    # rollback re-evaluation (B9, 2026-09-21 audit: the old flat 9 dropped
-    # the rollback pass and drifted from the loop's real bound), then the
-    # requested risk replays.
+    # Priced like the sale planner plus the one extra deterministic pass the stage plan needs: the
+    # before-evaluation and the stage run (the 2), plus — when gap closing is on — close_gaps' worst
+    # case of one initial evaluation, one engine pass per iteration, and the zero-progress rollback
+    # re-evaluation, then the requested risk replays.
     close_gaps_passes = 2 + CLOSE_GAPS_MAX_ITERATIONS if payload.close_gaps else 0
     cost = (2 + close_gaps_passes + payload.risk_runs) * horizon
 
@@ -279,12 +276,10 @@ async def plan_sales(
                 )
             )
         except ValidationError as exc:
-            # The planner composes new event documents inside the worker; a
-            # plan that cannot be represented inside the schema (event-cap or
-            # head-count ceilings) is a client-input problem, not a 500. Keep
-            # only JSON-serializable fields (2026-09-28 audit, A5): raw errors
-            # carry the rejected document under "input"/"ctx", against the
-            # global 422 handler's no-reflect policy.
+            # The planner composes new event documents inside the worker; a plan that cannot be
+            # represented inside the schema (event-cap or head-count ceilings) is a client-input
+            # problem, not a 500. Keep only JSON-serializable fields: raw errors carry the rejected
+            # document under "input"/"ctx", against the global 422 handler's no-reflect policy.
             errors = [
                 {key: value for key, value in error.items() if key in ("type", "loc", "msg")}
                 for error in exc.errors(include_url=False)
@@ -510,8 +505,8 @@ async def plan_dpr(
         return await _offload(build)
 
     markdown = await _with_run_limits(farm_id, user_id, run)
-    # DET-2: loan documents leaving the system are worth a durable trail —
-    # the DPR is the artifact banks consume and the file INJ-1 targeted.
+    # loan documents leaving the system are worth a durable trail — the DPR is the artifact banks
+    # consume and the file INJ-1 targeted.
     security_event(
         "planner.dpr.download",
         "DPR loan document downloaded",

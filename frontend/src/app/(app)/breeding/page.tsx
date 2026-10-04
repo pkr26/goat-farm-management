@@ -81,7 +81,6 @@ import { PageSkeleton } from "@/components/skeletons";
 /** Deep-link ids arrive as raw query strings; anything that is not a positive
  * safe integer is ignored. */
 function parsePositiveId(raw: string | null): number | null {
-  // Stryker disable next-line ConditionalExpression: the regex rejects null (coerced "null") exactly like any non-digit string, so the === null arm never decides anything
   if (raw === null || !/^\d+$/.test(raw)) return null;
   const parsed = Number(raw);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
@@ -135,7 +134,6 @@ export const buildBreedingSchema = (t: TFn) =>
     breeding_date: z
       .string()
       .regex(
-        // Stryker disable next-line Regex: hand-proven killed by the trailing-garbage schema tests in BOTH page.campaign.test.tsx and page.mutation.test.tsx ("2026-01-01x" must fail) — Stryker's related-test selection never includes those tests across runs; documented attribution artifact
         /^\d{4}-\d{2}-\d{2}$/,
         t("breeding.validation.dateInvalid"),
       )
@@ -195,10 +193,8 @@ function NewBreedingDialog({
   // trigger showing the chosen animal instead of falling back to "Select doe".
   const [doeOption, setDoeOption] = useState<RemotePickerOption | null>(null);
   const [buckOption, setBuckOption] = useState<RemotePickerOption | null>(null);
-  // Stryker disable next-line LogicalOperator: the only reader is the === 0 branch below, which treats the mutant's null exactly like any non-zero count
   const eligibleDoeCount = candidateAvailability?.eligible_doe_count ?? null;
   const eligibleBuckCount = candidateAvailability?.eligible_buck_count ?? null;
-  // Stryker disable next-line ConditionalExpression: the null arm is redundant — (null > 0) is false exactly like the !== null guard, so both spellings yield the same boolean for every count
   const hasEligibleBuck = eligibleBuckCount !== null && eligibleBuckCount > 0;
   const localizedSchema = useMemo(() => buildBreedingSchema(t), [t]);
   const {
@@ -232,7 +228,6 @@ function NewBreedingDialog({
       setFormError(null);
         // Same-farm fence: the write keeps its captured X-Farm-Id, but this
       // continuation must not touch another farm's UI (M-2).
-      // Stryker disable next-line MethodExpression, OptionalChaining: the schema's .trim() already normalized the value before handleSubmit delivers it, and the input is registered unconditionally
       const semenSirePayload = values.method !== "NATURAL" ? { method: values.method, semen_sire_name: values.semen_sire_name?.trim() || null } : {};
       const stillOwnsFarm = captureFarmScope();
       try {
@@ -251,15 +246,13 @@ function NewBreedingDialog({
         reset(breedingDefaults());
         // Clear the lifted labels alongside the form values, or the next
         // breeding would open showing the animals this one used.
-        // Stryker disable next-line CallExpression: after the reset the field value no longer matches the lifted option, so the picker renders its placeholder regardless — the clears are defense-in-depth
         setDoeOption(null);
-        // Stryker disable next-line CallExpression: same value-match argument for the buck label
         setBuckOption(null);
         onOpenChange(false);
         onSaved();
       } catch (err) {
-        // L-26 (2026-09-17 audit): after a farm switch this stale failure must
-        // not paint another farm's form (inline or banner) or toast.
+        // L-26: after a farm switch this stale failure must not paint another farm's
+        // form (inline or banner) or toast.
         if (!stillOwnsFarm()) return;
         // A 422's per-field issues land inline on their inputs (the dialog
         // already renders field-level errors with aria wiring); only issues
@@ -267,7 +260,6 @@ function NewBreedingDialog({
         const unmapped = applyApiValidationToForm(
           err,
           (field, message) =>
-            // Stryker disable next-line StringLiteral: the RHF error type is internal metadata no surface branches on
             setError(field as FieldPath<BreedingValues>, { type: "server", message }),
           BREEDING_FORM_FIELDS,
         );
@@ -288,9 +280,7 @@ function NewBreedingDialog({
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        // Stryker disable next-line LogicalOperator: the single-flight guard blocks a resubmission regardless, so the wider close-lock is defense-in-depth
   if (!nextOpen && (isSubmitting || createFlight.pending)) return;
-        // Stryker disable next-line ConditionalExpression: Radix only fires onOpenChange for dismissals here (opening goes through the trigger's own handler), so the nextOpen arm never runs
         if (!nextOpen) setFormError(null);
         onOpenChange(nextOpen);
       }}
@@ -321,7 +311,6 @@ function NewBreedingDialog({
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} noValidate>
             <fieldset
-              // Stryker disable next-line LogicalOperator: the single-flight guard blocks a resubmission regardless, so one-flag disabling is defense-in-depth
               disabled={isSubmitting || createFlight.pending}
               className="space-y-4"
             >
@@ -344,7 +333,6 @@ function NewBreedingDialog({
                     value={field.value}
                     onValueChange={field.onChange}
                     onOptionChange={setDoeOption}
-                    // Stryker disable next-line ConditionalExpression: the picker only displays a selectedOption whose value matches the field's current value, so passing a stale option after a reset is unobservable
                 selectedOption={doeOption?.value === field.value ? doeOption : null}
                     placeholder={t("breeding.form.selectFemalePlaceholder", { noun: femaleNoun })}
                     dialogTitle={t("breeding.form.chooseFemaleTitle", { noun: femaleNoun })}
@@ -411,7 +399,6 @@ function NewBreedingDialog({
                       value={field.value}
                       onValueChange={field.onChange}
                       onOptionChange={setBuckOption}
-                      // Stryker disable next-line ConditionalExpression: the picker only displays a selectedOption whose value matches the field's current value, so passing a stale option after a reset is unobservable
                     selectedOption={buckOption?.value === field.value ? buckOption : null}
                       placeholder={t("breeding.form.selectMalePlaceholder", { noun: maleNoun })}
                       dialogTitle={t("breeding.form.chooseMaleTitle", { noun: maleNoun })}
@@ -470,7 +457,6 @@ function NewBreedingDialog({
               <Button
                 type="submit"
                 disabled={
-                  // Stryker disable next-line LogicalOperator: the single-flight guard blocks a resubmission regardless, so one-flag disabling is defense-in-depth
                   isSubmitting ||
                   createFlight.pending ||
                   (method === "NATURAL" && !hasEligibleBuck)
@@ -513,7 +499,6 @@ function UltrasoundDialog({
   // unchecked and the twins kid-count default only appears once the operator
   // explicitly checks it.
   const [pregnant, setPregnant] = useState(false);
-  // Stryker disable next-line StringLiteral: the initial value is never rendered (the count select only appears once Pregnant is checked, which seeds "2"), so any initial spelling is unobservable
   const [kidCount, setKidCount] = useState("");
   const [resultDate, setResultDate] = useState(farmToday());
   const [saving, setSaving] = useState(false);
@@ -534,7 +519,6 @@ function UltrasoundDialog({
   // here rather than after the operator has saved.
   const negativeResultGapDays =
     !pregnant && resultDate ? daysBetween(record.breeding_date, resultDate) : null;
-  // Stryker disable next-line ConditionalExpression: the null arm is redundant — (null > STANDING_HEAT_DAYS) is false exactly like the !== null guard, and every real gap value behaves identically
   const inUnobservableNegativeWindow = negativeResultGapDays !== null && negativeResultGapDays > STANDING_HEAT_DAYS && negativeResultGapDays < EARLIEST_RETURN_TO_HEAT_DAYS;
   const resultDateError = !resultDate
     ? t("breeding.ultrasound.validation.required")
@@ -542,10 +526,8 @@ function UltrasoundDialog({
       ? t("breeding.ultrasound.validation.tooEarly", { date: formatDate(earliestResultDate) })
       : resultDate > farmToday()
         ? t("breeding.ultrasound.validation.future")
-        // Stryker disable next-line ConditionalExpression: the null arm is redundant — (null > STANDING_HEAT_DAYS) is false exactly like the !== null guard, so both spellings yield null here
         : inUnobservableNegativeWindow
           ? t("breeding.ultrasound.validation.unobservable", {
-              // Stryker disable next-line LogicalOperator: the guard above establishes the gap is non-null, so the 0 fallback is unreachable
               days: negativeResultGapDays ?? 0,
               earliest: EARLIEST_RETURN_TO_HEAT_DAYS,
             })
@@ -556,14 +538,11 @@ function UltrasoundDialog({
     { length: vocabulary.facts.maxLitterSize },
     (_, index) => String(index + 1),
   );
-  // Stryker disable ConditionalExpression, StringLiteral: checking Pregnant seeds a valid count ("2") and the select only offers detectedOptions, so the error VALUE is unreachable through the dialog — defense against programmatic/legacy states only
   const kidCountError = pregnant && !detectedOptions.includes(kidCount)
     ? t("breeding.ultrasound.validation.youngCount", { young: t("breeding.noun.young") })
     : null;
-  // Stryker restore ConditionalExpression, StringLiteral
 
   async function onSubmit() {
-    // Stryker disable next-line ConditionalExpression, LogicalOperator: the Save button is disabled while either error exists, so the guard's error arms can only re-block a click that is already a no-op — the saveLock arm carries the real defense
     if (resultDateError || kidCountError || saveLock.current) return;
     saveLock.current = true;
     setSaving(true);
@@ -585,8 +564,8 @@ function UltrasoundDialog({
       onClose();
       onSaved();
     } catch (err) {
-      // L-26 (2026-09-17 audit): after a farm switch this stale failure must
-      // not paint another farm's dialog or toast its error.
+      // L-26: after a farm switch this stale failure must not paint another farm's
+      // dialog or toast its error.
       if (!stillOwnsFarm()) return;
       const message = mutationErrorMessage(err);
       setFormError(message);
@@ -667,7 +646,6 @@ function UltrasoundDialog({
               onCheckedChange={(checked) => {
                 const selected = checked === true;
                 setPregnant(selected);
-                // Stryker disable next-line StringLiteral: the unchecked arm only clears a value the payload ignores (kid_count is null unless pregnant), so its spelling is unobservable
                 setKidCount(selected ? "2" : "");
               }}
             />
@@ -734,7 +712,6 @@ function PregnancyLossDialog({
   const { language } = useLanguage();
   const t = useT();
   const mutationErrorMessage = useMutationError();
-  // Stryker disable next-line ConditionalExpression, EqualityOperator: when the two dates are equal both arms return the same date, and when they differ > and >= agree — the boundary is not observable
   const earliestLossDate = record.ultrasound_result_date && record.ultrasound_result_date > record.breeding_date ? record.ultrasound_result_date : record.breeding_date;
   const [lossDate, setLossDate] = useState(farmToday());
   const [cause, setCause] = useState<PregnancyLossInCause>(PregnancyLossInCause.UNKNOWN);
@@ -749,7 +726,6 @@ function PregnancyLossDialog({
         : null;
   const notesError =
     notes.length > 4_000 ? t("breeding.loss.validation.notesTooLong", { max: 4_000 }) : null;
-  // Stryker disable next-line LogicalOperator: both flags are true together for the whole in-flight window (the flight starts inside the submit handler)
   const saving = mutation.isPending || saveFlight.pending;
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -774,8 +750,8 @@ function PregnancyLossDialog({
         onClose();
         onSaved();
       } catch (err) {
-        // L-26 (2026-09-17 audit): after a farm switch this stale failure must
-        // not paint another farm's dialog or toast its error.
+        // L-26: after a farm switch this stale failure must not paint another farm's
+        // dialog or toast its error.
         if (!stillOwnsFarm()) return;
         const message = mutationErrorMessage(err);
         setFormError(message);
@@ -970,9 +946,7 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
   // A deep link that resolved to a record which is no longer PENDING used to
   // vanish silently; keep the operator informed until they clear it (L18).
   const staleDeepLink =
-    // Stryker disable next-line ConditionalExpression, LogicalOperator: the requestedRecord guards below stay false for every state the mutants unlock (view-only users never fetch the record; managers without a link have requestedRecord undefined), so the whole conjunction is false either way
     canManage &&
-    // Stryker disable next-line ConditionalExpression: same layered-guard argument — with the id null the record query never resolves and requestedRecord stays undefined
     requestedUltrasoundId !== null &&
     dismissedPrefillId !== requestedUltrasoundId &&
     !lossFor &&
@@ -985,7 +959,6 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
     // lifetime. Next can keep the page mounted while the query is cleared and
     // later navigate back to the same task URL. Without releasing the latch in
     // that gap, the second visit to the same record stayed silently dismissed.
-    // Stryker disable next-line ConditionalExpression: the mutant's always-true arm only calls setDismissedPrefillId(null) when the value is already null — a setState React bails out on without re-rendering
     if (requestedUltrasoundId === null && dismissedPrefillId !== null) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- URL intent teardown
       setDismissedPrefillId(null);
@@ -1096,7 +1069,6 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
         <div role="status" className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">
             {t("breeding.deepLink.notAwaiting", {
-              // Stryker disable next-line LogicalOperator: staleDeepLink requires a non-null id, so the 0 fallback never renders
               id: requestedUltrasoundId ?? 0,
               outcome: enumLabel("outcome", requestedRecord.outcome, language),
             })}

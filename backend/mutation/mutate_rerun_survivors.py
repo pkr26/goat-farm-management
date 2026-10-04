@@ -15,6 +15,7 @@ from typing import Any
 
 MUTDIR = Path(__file__).resolve().parent.parent / "mutation"
 sys.path.insert(0, str(MUTDIR))
+from mutate_identity import read_artifact  # noqa: E402
 from mutate_run import Runner  # noqa: E402
 
 REDO = {"SURVIVED", "NOT_COVERED", "RUN_ERROR", "INFRA_ERROR", "INCONCLUSIVE_TIMEOUT", "TIMEOUT"}
@@ -28,7 +29,11 @@ def main() -> None:
 
     results_path = MUTDIR / "results.jsonl"
     last: dict[str, dict[str, Any]] = {}
-    for line in results_path.read_text().splitlines():
+    for line in (
+        read_artifact(results_path, instruction="run a mutation campaign first")
+        .decode()
+        .splitlines()
+    ):
         try:
             rec = json.loads(line)
         except Exception:
@@ -39,7 +44,14 @@ def main() -> None:
     print(f"current verdicts: {dict(counts)}")
     print(f"will re-measure {len(redo_ids)} mutants ({', '.join(sorted(REDO))})")
 
-    manifest = {m["id"]: m for m in json.loads((MUTDIR / "manifest.json").read_text())}
+    manifest = {
+        m["id"]: m
+        for m in json.loads(
+            read_artifact(
+                MUTDIR / "manifest.json", instruction="run python mutation/mutate_gen.py first"
+            )
+        )
+    }
     todo = [manifest[mid] for mid in sorted(redo_ids) if mid in manifest]
     if args.dry_run:
         for m in todo[:8]:

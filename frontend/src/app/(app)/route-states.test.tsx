@@ -1,7 +1,8 @@
-/** The (app) route-state fallbacks: loading placeholder, error boundary
- *  (message + reset), and the permission-aware 404 recovery link. Copy
- *  resolves from the stored language without the provider (2026-09-28
- *  audit, I3): Telugu when herdly.language=te, English otherwise. */
+/**
+ * The (app) route-state fallbacks: loading placeholder, error boundary (message +
+ * reset), and the permission-aware 404 recovery link. Copy resolves from the stored
+ * language without the provider: Telugu when herdly.language=te, English otherwise.
+ */
 
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

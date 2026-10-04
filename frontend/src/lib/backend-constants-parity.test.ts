@@ -1,11 +1,7 @@
 /**
- * Pins every frontend mirror of a backend constant to the backend's actual
- * value, by reading the backend source. A drifted mirror used to let deep
- * links pass the client clamp and 422 the API with no self-heal
- * (MAX_PAGE_OFFSET stayed 1_000_000 after the backend lowered it to
- * 10_000 — 2026-09-20 audit P2-16); this test fails the suite the moment
- * either side moves without the other.
+ * Frontend mirrors of backend constants must match their source definitions.
  */
+
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";

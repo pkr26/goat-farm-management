@@ -130,8 +130,8 @@ class FeedingRecordOut(BaseModel):
     bucket: BucketStr
     recipe_code: str | None
     qty_kg: float
-    # Entry timestamp, exposed like every sibling Out so a backdated feeding
-    # is distinguishable from a same-day one (2026-09-28 audit, D3).
+    # Entry timestamp, exposed like every sibling Out so a backdated feeding is distinguishable from
+    # a same-day one.
     created_at: datetime
 
 

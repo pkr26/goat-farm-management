@@ -1,11 +1,6 @@
 /**
- * Mutation-hardening tests for the planner page. Each test pins behaviour
- * Stryker found unguarded: validation boundaries (month format, horizon
- * ceiling, count bounds), class-label capitalisation from the farm
- * vocabulary, NumberField commit/blur semantics, permission gates for the
- * herd/calibration basis, the breed-preset query contract, stale-report
- * flags, success-status gates and number formatting (null → "—", one
- * decimal for expected head counts).
+ * Planner validation bounds, number-input commits, farm vocabulary and
+ * reference-query permissions.
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";

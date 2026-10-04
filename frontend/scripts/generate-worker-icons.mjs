@@ -1,5 +1,5 @@
 /**
- * Worker-tablet PWA icon generator (2026-09-29).
+ * Worker-tablet PWA icon generator.
  *
  * One brand mark drives every raster: the goat-head glyph from
  * src/app/icon.svg (brand green #157344 canvas, off-white #f4faf6 stroke —

@@ -73,7 +73,7 @@ import { useEnumLabel } from "@/lib/enum-labels";
 import { useMutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
-import { translate, useT, type TFn } from "@/lib/i18n";
+import { useT, type TFn } from "@/lib/i18n";
 import { mapServerError } from "@/lib/server-error-phrases";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -84,7 +84,7 @@ const NONE = "none";
 type CredentialMode = "password" | "pin";
 
 /** A twelve-digit draft meets every deployment's supported minimum. */
-export function generateWorkerPin(): string {
+function generateWorkerPin(): string {
   let pin = "";
   while (pin.length < 12) {
     const random = crypto.getRandomValues(new Uint8Array(16));
@@ -124,9 +124,8 @@ function useInvalidateTeam() {
 
 /** Validation messages resolve through the i18n catalog, so each schema is
  * built by a factory taking the caller's `t`; the mounted dialogs rebuild
- * their resolver whenever the active language changes (health page pattern).
- * The exported English instances serve direct schema-level tests. */
-export function buildWorkerSchema(t: TFn, mode: CredentialMode = "password") {
+ * their resolver whenever the active language changes. */
+function buildWorkerSchema(t: TFn, mode: CredentialMode = "password") {
   return z.object({
     name: z.string().trim().max(120).optional(),
     email: z
@@ -140,20 +139,18 @@ export function buildWorkerSchema(t: TFn, mode: CredentialMode = "password") {
       : z.string().min(12, t("team.validation.passwordMin")).max(128, t("team.validation.passwordMax")),
   });
 }
-export const workerSchema = buildWorkerSchema((key, vars) => translate("en", key, vars));
-type WorkerValues = z.infer<typeof workerSchema>;
+type WorkerValues = z.infer<ReturnType<typeof buildWorkerSchema>>;
 
-export function buildResetSchema(t: TFn, mode: CredentialMode = "password") {
+function buildResetSchema(t: TFn, mode: CredentialMode = "password") {
   return z.object({
     password: mode === "pin"
       ? z.string().regex(/^\d{4,12}$/, t("team.pin.validation"))
       : z.string().min(12, t("team.validation.passwordMin")).max(128),
   });
 }
-export const resetSchema = buildResetSchema((key, vars) => translate("en", key, vars));
-type ResetValues = z.infer<typeof resetSchema>;
+type ResetValues = z.infer<ReturnType<typeof buildResetSchema>>;
 
-/** Mirrors the backend's phone pattern (^\+?[0-9]{10,19}$ — ITEM 4.6). */
+/** Mirrors the backend's phone pattern (^\+?[0-9]{10,19}$). */
 const PHONE_PATTERN = /^\+?[0-9]{10,19}$/;
 
 /** Per-worker SMS notification preferences. All six class booleans are sent
@@ -179,14 +176,13 @@ const ALERT_CLASSES = [
   { field: "movement_restriction", labelKey: "team.notifications.class.movement_restriction" },
 ] as const;
 
-export function buildRoleSchema(t: TFn) {
+function buildRoleSchema(t: TFn) {
   return z.object({
     name: z.string().trim().min(1, t("team.validation.nameRequired")).max(80),
     description: z.string().trim().max(255).optional(),
   });
 }
-export const roleSchema = buildRoleSchema((key, vars) => translate("en", key, vars));
-type RoleValues = z.infer<typeof roleSchema>;
+type RoleValues = z.infer<ReturnType<typeof buildRoleSchema>>;
 
 /** Every action is unusable in the UI unless its module's view permission is
  * also present. Keep this dependency visible and enforce it while roles are
@@ -203,8 +199,8 @@ const PERMISSION_DEPENDENCIES: Record<string, string> = {
   "purchases.manage": "purchases.view",
   "feeding.manage": "feeding.view",
   // milk.manage/milk.quality left the server vocabulary with the goat-only
-  // simplification; the dead entries are gone so nobody re-wires a role to a
-  // permission no endpoint checks (P3, 2026-09-20 audit).
+  // simplification; the dead entries are gone so nobody re-wires a role to a permission
+  // no endpoint checks.
   "tasks.create": "tasks.view",
   "tasks.complete": "tasks.view",
   "tasks.verify": "tasks.view",
@@ -233,7 +229,7 @@ interface WorkerControlsProps {
   protectedTarget: boolean;
   isOwner: boolean;
   onReset: (m: MembershipOut, release: () => void, mode: CredentialMode) => void;
-  /** Opens the per-worker notification preferences dialog (ITEM 4.6). */
+  /** Opens the per-worker notification preferences dialog. */
   onNotifications: (m: MembershipOut) => void;
   authority: TeamAuthority;
   /** Row and card render side by side — ids must not collide across them. */
@@ -609,8 +605,7 @@ function WorkerRow(props: WorkerControlsProps) {
         <WorkerRoleField m={m} controls={controls} isSelf={isSelf} protectedTarget={protectedTarget} />
       </TableCell>
       <TableCell>
-        {/* Localized children — the badge's humanize fallback is English-only
-         * (2026-10-01 audit, 06-2). */}
+        {/* Localized children — the badge's humanize fallback is English-only. */}
         <StatusBadge status={m.is_active ? "ACTIVE" : "INACTIVE"}>
           {enumLabel("status", m.is_active ? "ACTIVE" : "INACTIVE")}
         </StatusBadge>
@@ -641,8 +636,7 @@ function WorkerCard(props: WorkerControlsProps) {
     <div className="space-y-3 rounded-xl border bg-card p-3 shadow-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <WorkerIdentity m={m} />
-        {/* Localized children — same status family as the desktop row
-         * (2026-10-01 audit, 06-2). */}
+        {/* Localized children — same status family as the desktop row. */}
         <StatusBadge status={m.is_active ? "ACTIVE" : "INACTIVE"}>
           {enumLabel("status", m.is_active ? "ACTIVE" : "INACTIVE")}
         </StatusBadge>
@@ -1034,7 +1028,7 @@ function ResetPasswordDialog({
   );
 }
 
-/** Owner-managed SMS notification preferences for one worker (ITEM 4.6):
+/** Owner-managed SMS notification preferences for one worker:
  * phone number + per-alert-class opt-in toggles + the "verified with the
  * worker" assertion. GET is team.manage-wide, PUT is owner-only, so a
  * delegated manager gets a read-only view with a hint instead of a save. */

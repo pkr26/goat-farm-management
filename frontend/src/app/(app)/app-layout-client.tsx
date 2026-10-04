@@ -171,7 +171,6 @@ function AppSidebar({
   const t = useT();
   const beginNavigation = (href: string) => {
     onNavigate(href);
-    // Stryker disable next-line ConditionalExpression: the effect runs on mount (sheet already closed) and on isMobile transitions only, which jsdom cannot deliver
     if (isMobile) setOpenMobile(false);
   };
 
@@ -220,9 +219,8 @@ function AppSidebar({
       </SidebarContent>
       <SidebarFooter className="px-4 pb-4">
         {/* Full-strength muted token at text-xs: the /70 tint sat under 4.5:1
-            on the sidebar background (2026-09-21 audit), and the 0.68rem
-            microtext stayed sub-AA for permanent chrome copy (2026-09-28
-            audit — sidebar tagline). */}
+            on the sidebar background, and the 0.68rem
+            the tagline stays readable against the sidebar background. */}
         <p className="text-xs leading-relaxed text-muted-foreground">
           {t("shell.tagline")}
         </p>
@@ -332,7 +330,6 @@ function AppLayoutContent({
     router.replace("/farm-select");
   }, [loading, user, farmId, pathname, router]);
 
-  // Stryker disable next-line ConditionalExpression, LogicalOperator: while loading, user and farmId are still null (or commit in the same batched render), so the loading operand never changes the outcome
   if (loading || !user || !farmId) {
     return (
       <main className="flex min-h-screen items-center justify-center">
@@ -357,10 +354,9 @@ function AppLayoutContent({
       })).filter((group) => group.items.length > 0);
   const landingItem = visibleGroups[0]?.items[0];
   const landingHref = !permsLoading && !permsError ? firstPermittedPath(can) : null;
-  // Without a permitted module (or while permissions are unknown) the brand
-  // link still points somewhere safe, but its label must not promise a page —
-  // and the fallback is catalog copy, not hardcoded English (2026-10-01
-  // audit, 05-3).
+  // Without a permitted module (or while permissions are unknown) the brand link still
+  // points somewhere safe, but its label must not promise a page — and the fallback is
+  // catalog copy, not hardcoded English.
   const landingLabel =
     landingItem && !permsLoading && !permsError
       ? t(landingItem.labelKey)

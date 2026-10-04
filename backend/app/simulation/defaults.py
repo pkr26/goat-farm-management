@@ -52,7 +52,7 @@ def apply_system(a: SimulationAssumptions, system: System) -> SimulationAssumpti
     that also eat less purchased feed. Leaving the stall-fed weight table in
     place while granting the grazing discount priced semi-intensive plans as
     stall-fed sales on grazing costs, systematically optimistic in a
-    compounding direction (2026-09-20 audit P2-7).
+    compounding direction.
     """
     if system == "stall_fed":
         return a.model_copy(deep=True)
@@ -100,7 +100,7 @@ def osmanabadi(system: System = "stall_fed") -> SimulationAssumptions:
     horizon, and hold males finishing near a festival for the festival sale —
     the largest price event of the year is priced from month 1.
 
-    DECIDED (2026-10-01 audit, 08-M7 → decision 2026-10-02): this preset is
+    DECIDED: this preset is
     the sourced, stress-conservative REFERENCE unit, and it stays that way.
     Re-baselining toward a bankable-plausible unit was evaluated and rejected
     on modeling-integrity grounds — every input is cited, the unit needs

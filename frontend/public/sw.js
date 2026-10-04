@@ -1,15 +1,9 @@
-/* Herdly worker tablet service worker (ITEM 2 Phase 2, 2026-09-21 playbook).
+/* Worker tablet service worker.
  *
- * Network-only for /api (never serve stale operational data; a failed fetch
- * falls through to the caller so the offline queue can take over). The shell
- * HTML is network-first with a bounded wait: online tablets always
- * revalidate against the current deploy, a wedged-but-alive connection falls
- * back to the cached shell after NAV_TIMEOUT_MS instead of blanking the
- * tablet, and the cache is only the offline fallback, so a constant cache
- * name can never pin a tablet to its install-time build (2026-09-28 audit,
- * H1; 2026-09-29 timeout race). Hashed /_next/static/ assets are immutable
- * and stay cache-first. No opaque cross-origin caching; no push/sync (v1
- * out of scope).
+ * API requests remain network-only. Shell navigation revalidates against the
+ * current deployment, with a bounded wait before using the cached shell.
+ * Hashed Next assets are immutable and use cache-first reads. Cross-origin
+ * opaque responses, push and background sync are outside this worker's scope.
  */
 const CACHE = "herdly-worker-v3";
 const SHELL = ["/worker", "/worker/login", "/worker/offline", "/manifest.webmanifest"];
@@ -109,7 +103,7 @@ async function cacheCompleteShell(request, response) {
 
 self.addEventListener("install", (event) => {
   // A failed precache fails the install: activating a worker with no cached
-  // shell would silently strip offline capability (2026-09-28 audit, H1).
+  // shell would silently strip offline capability.
   event.waitUntil(
     caches
       .open(CACHE)

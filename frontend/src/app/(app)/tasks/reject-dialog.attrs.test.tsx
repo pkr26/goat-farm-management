@@ -1,8 +1,7 @@
 /**
- * Reject-dialog textarea attributes (2026-09-30 fresh mutation campaign):
- * the skip/reject reason box carries maxLength 255 (backend VARCHAR(255))
- * and a 3-row height — DOM attributes, not styling, so they are pinned
- * directly.
+ * Reject-dialog textarea attributes: the skip/reject reason box carries maxLength
+ * 255 (backend VARCHAR(255)) and a 3-row height — DOM attributes, not styling, so
+ * they are pinned directly.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";

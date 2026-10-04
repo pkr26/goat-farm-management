@@ -1,4 +1,4 @@
-"""Characters forbidden in user-supplied text (2026-09-16 audit, INJ-3/INJ-4).
+"""Characters forbidden in user-supplied text.
 
 Two layers share this module:
 
@@ -31,13 +31,13 @@ _BIDI_CONTROLS = frozenset(chr(code) for code in (*range(0x202A, 0x202F), *range
 # Invisible direction marks and the byte-order mark.
 _INVISIBLE_MARKS = frozenset("\u200e\u200f\ufeff")
 
-#: Characters no user-supplied text field may carry.
+# Characters no user-supplied text field may carry.
 FORBIDDEN_TEXT_CHARS: frozenset[str] = (
     _CONTROL_RANGE | _LINE_SEPARATORS | _BIDI_CONTROLS | _INVISIBLE_MARKS
 )
 
-#: Characters that must never appear single-line (headings, DPR title lines):
-#: the FORBIDDEN set plus the ASCII/C0 line breaks and NEL.
+# Characters that must never appear single-line (headings, DPR title lines): the FORBIDDEN set plus
+# the ASCII/C0 line breaks and NEL.
 SINGLE_LINE_BREAK_CHARS: frozenset[str] = FORBIDDEN_TEXT_CHARS | frozenset("\r\n")
 
 
@@ -46,8 +46,7 @@ def sanitize_single_line(value: str, *, replacement: str = " ") -> str:
 
     Used for strings interpolated into generated documents (the DPR loan
     file): a plan name carrying ``\\r\\n`` or U+2028 could otherwise forge
-    additional document sections or log-looking lines inside the artifact
-    (2026-09-16 audit, INJ-1).
+    additional document sections or log-looking lines inside the artifact.
     """
     cleaned = "".join(replacement if char in SINGLE_LINE_BREAK_CHARS else char for char in value)
     if replacement == " ":

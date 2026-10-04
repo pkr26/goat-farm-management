@@ -1,41 +1,18 @@
-"""Notification service (ITEM 4, 2026-09-21 playbook).
+"""SMS delivery with durable deduplication, quiet hours, and daily limits.
 
-Every delivery passes through, in order:
+Quiet-hour requests claim a SKIPPED_QUIET placeholder. Repeated requests reuse
+it; after quiet hours, delivery removes the placeholder and claims the slot
+again. Claims are unique by farm, recipient, class, payload, and local day,
+and commit before provider calls. Each recipient settles independently, so
+concurrent fan-out or a crash cannot roll back an earlier paid delivery.
 
-1. quiet hours (farm-local) — inside the window, a first touch CLAIMS the
-   slot and settles it as SKIPPED_QUIET, never sent (an alert is same-day
-   information); a repeat touch inside the same window reads the existing
-   placeholder back instead of delete/claim/settling it again, so a digest
-   minute inside the quiet window cannot churn writes all night
-   (2026-09-29 audit);
-2. placeholder cleanup — once the window has OPENED, the SKIPPED_QUIET row
-   holds the day's dedupe slot no longer and is deleted on re-entry;
-3. the dedupe CLAIM — ``INSERT ... ON CONFLICT DO NOTHING`` on
-   (farm, recipient, class, payload, local day) BEFORE any send, COMMITTED
-   before the send (2026-09-28 audit, N2; 2026-09-29 durability pass): the
-   claim is durable and visible to every other session, so two concurrent
-   sessions can never both send the same paid SMS, and a crash mid-fan-out
-   can no longer roll back earlier recipients' settled rows for a next-tick
-   re-send — each recipient's outcome commits independently. A
-   loser reads the winner's row, waiting out an in-flight SENDING so both
-   callers learn the settled outcome;
-4. the per-farm daily cap — a short farm-row lock serializes claim + count,
-   so concurrent recipient work cannot over- or under-fill the cap;
-5. the provider send — global/per-farm semaphores bound concurrency, the
-   claim transaction is already closed, and the outcome lands through a
-   fresh short settlement transaction either way.
+A short farm lock serializes the daily cap, while process semaphores bound
+provider concurrency outside database transactions. A crash that leaves a
+claim in SENDING consumes that day's slot rather than risking a duplicate SMS.
 
-A claim left in SENDING by a crash settles the slot for the day without a
-delivery: the safe side for paid SMS (no double-send), at the price of one
-missed alert for that fact that day.
-
-The daily digest aggregates each worker's duties due today (``task_scope``)
-into one SMS per opted-in recipient; alert callers pass a stable ``payload``
-whose hash IS the dedupe identity (e.g. "finding:42:CONFIRMED"). A recipient
-whose membership is inactive gets NO digest at all — not even a "no duties"
-SMS (2026-09-29 audit) — and no same-day alert either: every fan-out skips
-inactive memberships and tombstoned accounts the same way
-(2026-10-01 audit, 03-1).
+Digests combine each worker's due duties into one message. Alerts use a stable
+payload hash, such as ``finding:42:CONFIRMED``, for their dedupe identity. Both
+paths exclude inactive memberships and deleted accounts.
 """
 
 from __future__ import annotations
@@ -306,7 +283,7 @@ async def _send_notification_admitted(
 
     async def _claim() -> int | None:
         """INSERT ... ON CONFLICT DO NOTHING claim of the day-dedupe slot.
-        The claim runs BEFORE any send (2026-09-28 audit, N2) and its caller
+        The claim runs BEFORE any send and its caller
         commits it before the send: the ON CONFLICT arbitration makes exactly
         one session the sender, durably."""
         return (
@@ -339,11 +316,9 @@ async def _send_notification_admitted(
         ).scalar_one()
 
     if _in_quiet_hours(settings, now):
-        # First touch inside the window claims the slot and settles the
-        # SKIPPED_QUIET placeholder; a repeat touch reads it back WITHOUT
-        # delete/claim/settle — a digest minute inside the quiet window used
-        # to rewrite the placeholder every minute-tick all night
-        # (2026-09-29 audit).
+        # First touch inside the window claims the slot and settles the SKIPPED_QUIET placeholder; a
+        # repeat touch reads it back WITHOUT delete/claim/settle — a digest minute inside the quiet
+        # window used to rewrite the placeholder every minute-tick all night.
         existing = (
             await db.execute(
                 select(NotificationLog).where(
@@ -485,8 +460,7 @@ async def _digest_text_for_recipient(
 
     None means "do not send at all" — an inactive membership (deactivated
     worker, tombstoned account) gets NO digest SMS, not even a "no duties"
-    one: spending daily-cap budget on a deactivated worker is pure cost
-    (2026-09-29 audit)."""
+    one: spending daily-cap budget on a deactivated worker is pure cost."""
     from ...services.tasks import task_scope  # local import: avoids cycle at module load
 
     row = (
@@ -527,17 +501,14 @@ async def _digest_text_for_recipient(
     )
     if not titles:
         return f"Herdly {reference.isoformat()}: no duties today. Good work!"
-    # The headline must state the TRUE workload: a worker with 25 due duties
-    # used to be told "10 duties today" because the count was the capped
-    # sample, not the total (2026-10-01 audit, 03-4). The body stays capped.
+    # The headline must state the TRUE workload: a worker with 25 due duties used to be told "10
+    # duties today" because the count was the capped sample, not the total. The body stays capped.
     total = int((await db.execute(scoped.with_only_columns(func.count()))).scalar_one())
     parts = [f"Herdly {reference.isoformat()}: {total} duties today"]
     if overdue:
-        # The overdue count gets the same exact-total treatment as the
-        # headline (03-4's sibling defect, 2026-10-02 audit): the capped
-        # title sample above is for the "has any overdue?" gate, never for
-        # the number a worker plans their morning around — 25 overdue duties
-        # must not read as "10 overdue".
+        # The overdue count gets the same exact-total treatment as the headline: the capped title
+        # sample above is for the "has any overdue?" gate, never for the number a worker plans their
+        # morning around — 25 overdue duties must not read as "10 overdue".
         overdue_total = int(
             (
                 await db.execute(
@@ -587,7 +558,7 @@ async def run_digest_for_farm(
                 delivery_db, delivery_farm, recipient, reference
             )
             if message is None:
-                # Inactive membership: no SMS at all (2026-09-29 audit).
+                # Inactive membership: no SMS at all.
                 await delivery_db.rollback()
                 return None
             return await _send_notification_admitted(
@@ -634,8 +605,7 @@ async def farms_ready_for_digest(
     would attempt — holds a settled row for its local today. One recipient's
     settled row no longer settles the whole farm, so a crash after recipient
     1 of 5 leaves the farm ready for the remaining four, whose dedupe slots
-    are still unclaimed and therefore re-enter safely (never a duplicate —
-    2026-10-01 audit, 03-3). A farm with no deliverable recipients has no
+    are still unclaimed and therefore re-enter safely. A farm with no deliverable recipients has no
     digest work and never consumes a batch slot. Quiet-hours placeholders
     (SKIPPED_QUIET) do not settle a recipient's day — the digest fires once
     the window opens.
@@ -643,7 +613,7 @@ async def farms_ready_for_digest(
     Readiness and the settled-check run in SQL BEFORE the batch limit, so a
     farm that is already done never consumes a batch slot: with more farms
     than ``notifications_loop_batch_size``, the first page can no longer
-    permanently starve every farm after it (2026-09-29 audit). The limit
+    permanently starve every farm after it. The limit
     bounds ready digest FAN-OUT per tick, not the scan.
     """
     from sqlalchemy import and_, literal
@@ -725,12 +695,8 @@ async def notify_alert_class(
 ) -> int:
     """Fan an alert out to every recipient opted into its class.
 
-    Recipients whose membership is inactive (deactivated worker, tombstoned
-    account) get NO alert: deactivation only flips the membership flag and
-    the opted-in recipient row survives it, so without this guard — the same
-    one the digest path has carried since the 2026-09-29 audit — a removed
-    worker's phone keeps receiving paid SMS indefinitely
-    (2026-10-01 audit, 03-1).
+    Check membership and account activity at delivery time because opted-in
+    recipient rows survive membership deactivation.
     """
     column = {
         "SCREENING_FLAG": NotificationRecipient.screening_flags,

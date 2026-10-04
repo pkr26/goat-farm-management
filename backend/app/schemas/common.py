@@ -13,14 +13,12 @@ from ..utils import today
 # SQLite-era overflow guard kept: PG bigint is also 64-bit.
 MAX_ID = 2**62
 
-# Almost every primary key is a PG INTEGER (int4): an id above this cannot
-# exist on those tables. The exceptions are bigint — the screening fact
-# tables (images/crops/runs/findings) and idempotency_records.id — whose
-# routers guard with the int8 ceiling instead (2026-09-28 audit, D1).
-# BoundedId deliberately keeps the wider ceiling above so schema-valid but
-# impossible ids reach the routers, which answer with their documented
-# not-found/invalid-id 4xx instead of letting asyncpg raise an int32
-# DataError (500). Routers guard every int4 lookup with this bound.
+# Almost every primary key is a PG INTEGER (int4): an id above this cannot exist on those tables.
+# The exceptions are bigint — the screening fact tables (images/crops/runs/findings) and
+# idempotency_records.id — whose routers guard with the int8 ceiling instead. BoundedId deliberately
+# keeps the wider ceiling above so schema-valid but impossible ids reach the routers, which answer
+# with their documented not-found/invalid-id 4xx instead of letting asyncpg raise an int32 DataError
+# (500). Routers guard every int4 lookup with this bound.
 MAX_INT32_ID = 2**31 - 1
 # Offset pagination remains part of the current SPA contract. Bound it low:
 # deep offsets are a deep-scan DoS (every page re-scans and re-sorts the rows
@@ -58,18 +56,6 @@ def _not_future(value: date) -> date:
     # UTC — a strict `> today()` rejected their same-day entries with a 422.
     if value > today() + timedelta(days=1):
         raise ValueError("date cannot be in the future")
-    return value
-
-
-def _not_negative(value: float) -> float:
-    if value < 0:
-        raise ValueError("cannot be negative")
-    return value
-
-
-def _positive(value: float) -> float:
-    if value <= 0:
-        raise ValueError("must be positive")
     return value
 
 
@@ -137,8 +123,6 @@ def _postgres_text(value: str) -> str:
 FiniteFloat = Annotated[float, Field(strict=True), AfterValidator(_finite)]
 StrictInt = Annotated[int, Field(strict=True)]
 StrictBool = Annotated[bool, Field(strict=True)]
-NonNegativeFloat = Annotated[FiniteFloat, AfterValidator(_not_negative)]
-PositiveFloat = Annotated[FiniteFloat, AfterValidator(_positive)]
 # "Not in the future" tolerates one day past the UTC date so client timezones
 # east of UTC (e.g. IST, UTC+5:30) can submit their local "today" during the
 # hours when it is still tomorrow in UTC.
@@ -187,11 +171,10 @@ NonNegativeWeightKgFloat = Annotated[
 ]
 
 
-# Machine-readable error codes for the highest-stakes failure classes
-# (ITEM 5, 2026-09-21 playbook): clients map these through their locale
-# catalogs instead of matching English server prose. The code is derived
-# from the status only, so it is stable across wording changes; ``detail``
-# remains the human-readable (English) text and is always present.
+# Machine-readable error codes for the highest-stakes failure classes: clients map these through
+# their locale catalogs instead of matching English server prose. The code is derived from the
+# status only, so it is stable across wording changes; ``detail`` remains the human-readable
+# (English) text and is always present.
 ERROR_CODES_BY_STATUS: dict[int, str] = {
     401: "UNAUTHENTICATED",
     403: "PERMISSION_DENIED",
@@ -199,7 +182,7 @@ ERROR_CODES_BY_STATUS: dict[int, str] = {
     429: "RATE_LIMITED",
 }
 
-# Conflict codes (2026-09-29, RFC 9457-style ``code`` members): 409 covers
+# Conflict codes (RFC 9457-style ``code`` members): 409 covers
 # several failure families the status alone cannot separate, and the A3
 # convention moved every wrong-lifecycle and standing-quota answer onto it.
 # Per-class codes let localized clients branch on the family instead of
@@ -281,11 +264,10 @@ class RequestValidationErrorOut(BaseModel):
 # Annotated to match APIRouter's expected shape (dict[int | str, dict[str, Any]])
 # so the ~14 routers passing this to APIRouter(responses=...) stay strict-clean.
 COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
-    # 400 vs 409 vs 429 convention (2026-09-28 audit, A3/A4): 400 is the
-    # request itself being invalid against STABLE state (bad values); 409 is
-    # the resource's state refusing the transition — wrong lifecycle state,
-    # already-processed replay, race, or a standing quota; 429 is only ever a
-    # request-rate throttle and always carries Retry-After.
+    # 400 vs 409 vs 429 convention: 400 is the request itself being invalid against STABLE state
+    # (bad values); 409 is the resource's state refusing the transition — wrong lifecycle state,
+    # already-processed replay, race, or a standing quota; 429 is only ever a request-rate throttle
+    # and always carries Retry-After.
     400: {"model": ErrorOut, "description": "Bad request (invalid values against stable state)"},
     401: {"model": ErrorOut, "description": "Not authenticated"},
     403: {"model": ErrorOut, "description": "Authenticated but not permitted"},

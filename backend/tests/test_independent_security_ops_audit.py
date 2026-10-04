@@ -28,7 +28,7 @@ from app.services.notifications import service
 from app.services.notifications.outbox import dispatch_outbox_event
 
 from .conftest import OWNER_PW, owner_with_farm
-from .test_notification_quality_20261003 import _queued_alert
+from .test_notification_delivery_integrity import _queued_alert
 from .test_notifications import RecordingProvider
 
 

@@ -1,9 +1,6 @@
 /**
- * Generated duty titles (H1): a payload carrying title_key/title_args renders
- * through the taskGen catalog in the active language; missing fields, unknown
- * keys and manual duties fall back to the payload's own English title. Keys
- * and args follow the final backend contract (audit_reports/2026-09-14/
- * task_title_keys.md).
+ * Generated duty titles use the language catalog; missing keys and manual duties
+ * preserve the original title.
  */
 
 import { describe, expect, it } from "vitest";

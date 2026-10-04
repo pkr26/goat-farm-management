@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Worker tablet duty board (ITEM 2 Phase 2, 2026-09-21 playbook).
+ * Worker tablet duty board.
  *
  * Today + overdue duties as large cards with ≥44px targets. Completion is
  * offline-aware: persist each logical action before sending it and keep the
@@ -57,15 +57,13 @@ export function DutyCard({
   const t = useT();
   const { language } = useLanguage();
   const actionPath = permittedTaskActionPath(task.action_url, canOpenAction);
-  // Generated linked duties (purchase pickups, ultrasounds, weaning or moving
-  // a specific animal) answer a bare skip with a definitive refusal
-  // server-side — the manager board hides Skip for exactly these
-  // (taskSkipUnavailable); offering it here only recorded a write the server
-  // would refuse (2026-09-29 audit).
+  // Generated linked duties (purchase pickups, ultrasounds, weaning or moving a
+  // specific animal) answer a bare skip with a definitive refusal server-side — the
+  // manager board hides Skip for exactly these (taskSkipUnavailable); offering it here
+  // only recorded a write the server would refuse.
   const skippable = !taskSkipUnavailable(task);
-  // The farm's calendar day, not UTC: in the IST 00:00–05:30 window the UTC
-  // date is still yesterday and every duty due then lost its overdue badge
-  // (2026-09-28 audit — the tasks board compares the same way).
+  // The farm's calendar day, not UTC: in the IST 00:00–05:30 window the UTC date is
+  // still yesterday and every duty due then lost its overdue badge.
   const overdue = task.due_date < farmToday();
 
   return (
@@ -75,8 +73,7 @@ export function DutyCard({
     >
       <div className="flex items-start justify-between gap-2">
         {/* Auto-generated duties carry title_key/title_args — render them in
-         * the worker's language, falling back to the payload's English title
-         * (2026-09-28 audit, H5). */}
+         * the worker's language, falling back to the payload's English title. */}
         <p className="text-lg font-medium leading-snug">{resolveTaskTitle(task, language)}</p>
         {overdue ? (
           <StatusBadge status="ERROR">
@@ -141,9 +138,8 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
   const allowed = perms.can("tasks.view");
 
   const taskListParams: ListTasksApiTasksGetParams = {
-      // The board must never silently drop duties (2026-09-28 audit, W4):
-      // fetch up to the server cap and surface the "and N more" note below
-      // when the totals say more exist.
+      // The board must never silently drop duties: fetch up to the server cap and
+      // surface the "and N more" note below when the totals say more exist.
       active_limit: 200,
       today_offset: 0,
       overdue_offset: 0,
@@ -172,9 +168,9 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
   }, [payload, query.isError, user, farmId, farms, canComplete, language, t]);
 
   if (!allowed) {
-    // The tablet HAS a farm — this account simply lacks tasks.view. The old
-    // "No farm on this tablet" copy sent workers re-pinning a healthy tablet
-    // instead of asking for access (2026-09-28 audit).
+    // The tablet HAS a farm — this account simply lacks tasks.view. The old "No farm on
+    // this tablet" copy sent workers re-pinning a healthy tablet instead of asking for
+    // access.
     return (
       <EmptyState
         icon={ClipboardList}
@@ -191,24 +187,23 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
     if (requestScope === null) return;
     const farmScope = captureFarmScope();
     const path = `/api/tasks/${task.id}/${kind}`;
-    // NOT crypto.randomUUID(): that exists only in secure contexts, and this
-    // shell explicitly serves plain-http tablet origins — the direct call
-    // threw before the try block, so Complete/Skip silently no-opped
-    // (2026-10-01 audit, 05-1). The helper falls back to getRandomValues.
+    // NOT crypto.randomUUID(): that exists only in secure contexts, and this shell
+    // explicitly serves plain-http tablet origins — the direct call threw before the
+    // try block, so Complete/Skip silently no-opped. The helper falls back to
+    // getRandomValues.
     const idempotencyKey = randomIdempotencyKey();
-    // The skip reason is user-authored content (like a typed reason): persist
-    // it in the device's language rather than a fixed English string
-    // (2026-09-28 audit — "Tablet skip" was hardcoded English).
+    // The skip reason is user-authored content (like a typed reason): persist it in the
+    // device's language rather than a fixed English string.
     const body = kind === "skip" ? JSON.stringify({ reason: t("worker.skipReason") }) : undefined;
     const rollback = applyOptimisticTaskPatch(
       queryClient,
       task.id,
       kind === "complete" ? { status: "DONE" } : { status: "SKIPPED" },
     );
-    // A Set, not a single slot: overwriting one busy id used to re-enable
-    // another card's Complete/Skip mid-flight, so a second tap fired a fresh
-    // idempotency key and the server's pending check answered a spurious 409
-    // toast right after a success (2026-10-01 audit, 05-4).
+    // A Set, not a single slot: overwriting one busy id used to re-enable another
+    // card's Complete/Skip mid-flight, so a second tap fired a fresh idempotency key
+    // and the server's pending check answered a spurious 409 toast right after a
+    // success.
     setBusyIds((prev) => new Set(prev).add(task.id));
     let operation: WorkerOperation | null = null;
     try {
@@ -223,23 +218,22 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
         headers: { "Idempotency-Key": operation.idempotencyKey },
       }, requestScope);
       await settleWorkerOperation(operation.id, "sent");
-      // Fence the SUCCESS path too, not just the catch (2026-10-01 audit,
-      // 07-L2): after a farm-scope change (end-shift/farm switch) mid-flight,
-      // toasting "Marked done." and refetching the board under the new scope
-      // violates the fence contract every other write surface follows. The
-      // write itself is safe (it carried the captured X-Farm-Id).
+      // Fence the SUCCESS path too, not just the catch: after a farm-scope change
+      // (end-shift/farm switch) mid-flight, toasting "Marked done." and refetching the
+      // board under the new scope violates the fence contract every other write surface
+      // follows. The write itself is safe (it carried the captured X-Farm-Id).
       if (farmScope()) {
         if (kind === "complete") toast.success(t("worker.completedToast"));
         else toast.success(t("worker.skippedToast"));
         await query.refetch();
       }
     } catch (error) {
-      // Guard BEFORE any rollback: after a farm-scope change (farm switch,
-      // end-shift) the board cache was cleared, and restoring the pre-patch
-      // snapshots would resurrect the old scope's rows (2026-09-28 audit, W6).
+      // Guard BEFORE any rollback: after a farm-scope change (farm switch, end-shift)
+      // the board cache was cleared, and restoring the pre-patch snapshots would
+      // resurrect the old scope's rows.
       if (!farmScope()) {
-        // The write is deliberately discarded with the old scope — say so
-        // instead of vanishing with the strike-through (2026-09-29 audit).
+        // The write is deliberately discarded with the old scope — say so instead of
+        // vanishing with the strike-through.
         return;
       }
       if (operation === null) {
@@ -248,10 +242,9 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
         ![401, 408, 429].includes(error.status)) {
         await settleWorkerOperation(operation.id, "review", error.status === 409 ? "conflict" : "rejected", error.status);
         rollback();
-        // Route the server's answer through the error mapper — the common
-        // duty rejections ("Task is not pending", "not due yet", …) have
-        // Telugu phrases, and this Telugu-first surface must not render raw
-        // English prose (2026-09-28 audit, H6 residue; 2026-09-29 fix).
+        // Route the server's answer through the error mapper — the common duty
+        // rejections ("Task is not pending", "not due yet", …) have Telugu phrases, and
+        // this Telugu-first surface must not render raw English prose.
         toast.error(
           error instanceof ApiError
             ? mapServerError(t, error.detail, error.status, error.code)
@@ -269,8 +262,7 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
 
   const overdue = payload?.overdue ?? [];
   const today = payload?.today ?? [];
-  // Duties past the fetched page must surface as a count, never vanish
-  // silently (2026-09-28 audit, W4).
+  // Duties past the fetched page must surface as a count, never vanish silently.
   const hiddenDuties =
     Math.max(0, (payload?.overdue_total ?? 0) - overdue.length) +
     Math.max(0, (payload?.today_total ?? 0) - today.length);

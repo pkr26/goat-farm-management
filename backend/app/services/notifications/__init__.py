@@ -1,4 +1,4 @@
-"""Notifications subsystem (ITEM 4, 2026-09-21 playbook)."""
+"""Notifications subsystem."""
 
 from ...models.notifications import ALERT_CLASSES
 from .hooks import emit_alert

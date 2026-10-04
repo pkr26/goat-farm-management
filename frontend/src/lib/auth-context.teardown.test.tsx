@@ -8,6 +8,7 @@
  * revocation actually settles, so a failed revocation stays retryable.
  */
 
+import { IDBFactory } from "fake-indexeddb";
 import { useQuery } from "@tanstack/react-query";
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -18,14 +19,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch, setAccessToken, setCurrentFarmId } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { farmToday } from "@/lib/format";
+import { OFFLINE_QUEUE_STORAGE_KEY } from "@/lib/offline-queue";
 import {
-  clearOfflineQueueDrainBackoff,
-  drainOfflineQueue,
-  enqueueOfflineMutation,
-  offlineQueueDepth,
-  readOfflineQueue,
-  wipeOfflineQueue,
-} from "@/lib/offline-queue";
+  clearWorkerOutboxBackoff,
+  drainWorkerOutbox,
+  persistWorkerOperation,
+  readWorkerOutbox,
+} from "@/lib/worker-outbox";
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { settle } from "@/test/settle";
@@ -153,10 +153,8 @@ describe("AuthProvider teardown — module-level scopes reset with the session",
     replaceMock.mockClear();
     setAccessToken(null);
     setCurrentFarmId(null);
-    // The offline queue and its 429 gate are module state too — start every
-    // case from a clean slate so a failed assertion can't leak across tests.
-    wipeOfflineQueue();
-    clearOfflineQueueDrainBackoff();
+    vi.stubGlobal("indexedDB", new IDBFactory());
+    clearWorkerOutboxBackoff();
   });
 
   it("stops stamping the signed-out farm on later requests", async () => {
@@ -182,59 +180,33 @@ describe("AuthProvider teardown — module-level scopes reset with the session",
     expect(farmScope()).toBeNull();
   });
 
-  it("clears the offline queue's 429 drain backoff on sign-out", async () => {
-    // The Retry-After gate is module state next to the queue itself. Before
-    // the 2026-09-29 audit fix it survived session teardown, so a shared
-    // tablet's next worker inherited the previous session's throttle: their
-    // first drain sat behind a stale backoff for up to an hour.
+  it("clears the worker outbox's 429 backoff on sign-out", async () => {
     acceptLogout();
     const user = userEvent.setup();
     renderWithProviders(<Probe />);
     await expectLoaded();
 
-    const scopes = { actorScope: "7", farmScope: "3" };
-    expect(
-      enqueueOfflineMutation(
-        "/api/tasks/9/complete",
-        { method: "POST", body: "{}" },
-        scopes,
-      ),
-    ).toBe(true);
-
-    // First drain meets a 429 with a Retry-After hint: record kept, gate set.
-    const throttled = vi.fn(() =>
-      Promise.reject(
-        Object.assign(new Error("rate limited"), { status: 429, retryAfterSeconds: 3600 }),
-      ),
+    const scopes = { actorScope: "1", farmScope: "1" };
+    await persistWorkerOperation("/api/tasks/9/complete", "{}", scopes, "first-key");
+    const throttled = vi.fn().mockRejectedValue(
+      Object.assign(new Error("rate limited"), { status: 429, retryAfterSeconds: 3600 }),
     );
-    const throttledOutcome = await drainOfflineQueue(scopes, throttled);
+    expect((await drainWorkerOutbox(scopes, () => scopes, throttled)).remaining).toBe(1);
     expect(throttled).toHaveBeenCalledTimes(1);
-    expect(throttledOutcome.remaining).toBe(1);
 
-    // While gated, another drain must not touch the network at all.
-    const gated = vi.fn(() => Promise.resolve({ ok: true }));
-    await drainOfflineQueue(scopes, gated);
+    const gated = vi.fn().mockResolvedValue({});
+    await drainWorkerOutbox(scopes, () => scopes, gated);
     expect(gated).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "sign-out" }));
-    await waitFor(() =>
-      expect(screen.getByTestId("user")).toHaveTextContent("none"),
-    );
+    await waitFor(() => expect(screen.getByTestId("user")).toHaveTextContent("none"));
 
-    // The next actor's record must reach the network immediately — the
-    // previous session's Retry-After must not gate it.
-    const nextActor = { actorScope: "8", farmScope: "3" };
-    expect(
-      enqueueOfflineMutation(
-        "/api/tasks/10/complete",
-        { method: "POST", body: "{}" },
-        nextActor,
-      ),
-    ).toBe(true);
-    const sent = vi.fn(() => Promise.resolve({ ok: true }));
-    const outcome = await drainOfflineQueue(nextActor, sent);
+    const nextActor = { actorScope: "8", farmScope: "1" };
+    await persistWorkerOperation("/api/tasks/10/complete", "{}", nextActor, "next-key");
+    const sent = vi.fn().mockResolvedValue({});
+    expect((await drainWorkerOutbox(nextActor, () => nextActor, sent)).replayed).toBe(1);
     expect(sent).toHaveBeenCalledTimes(1);
-    expect(outcome.replayed).toBe(1);
+    expect((await readWorkerOutbox(scopes))[0]).toMatchObject({ state: "pending" });
   });
 
   it("returns date-only business rules to the default zone on sign-out", async () => {
@@ -296,116 +268,63 @@ describe("AuthProvider teardown — module-level scopes reset with the session",
   });
 });
 
-describe("AuthProvider teardown — offline queue survives session death, dies with sign-out (2026-10-01 audit, 07-H)", () => {
-  /** The signed-in test session's scopes (user 1 on farm 1). */
-  const SCOPES = { actorScope: "1", farmScope: "1" };
+describe("AuthProvider teardown — unresolved worker actions retain their owner", () => {
+  const scopes = { actorScope: "1", farmScope: "1" };
 
   beforeEach(() => {
     pushMock.mockClear();
     replaceMock.mockClear();
     setAccessToken(null);
     setCurrentFarmId(null);
-    wipeOfflineQueue();
-    clearOfflineQueueDrainBackoff();
+    vi.stubGlobal("indexedDB", new IDBFactory());
+    clearWorkerOutboxBackoff();
   });
 
-  it("a forced logout mid-drain keeps the queued write for redelivery after re-login", async () => {
-    let completions = 0;
+  it("keeps the original operation and key through a forced logout and re-login", async () => {
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+    await persistWorkerOperation("/api/tasks/9/complete", "{}", scopes, "field-key");
     server.use(
-      http.post("/api/tasks/9/complete", () => {
-        completions += 1;
-        return HttpResponse.json({ detail: "Expired" }, { status: 401 });
-      }),
-      // The refresh cookie is dead (expired family, or revoked by an owner
-      // password reset): the api client's rejected-refresh path owns the
-      // teardown from here.
+      http.post("/api/tasks/9/complete", () => HttpResponse.json({ detail: "Expired" }, { status: 401 })),
       http.post("/api/auth/refresh", () => new HttpResponse(null, { status: 401 })),
     );
 
-    renderWithProviders(<Probe />);
-    await expectLoaded();
-
-    // The worker's offline completion, scoped to the signed-in session.
-    expect(
-      enqueueOfflineMutation(
-        "/api/tasks/9/complete",
-        { method: "POST", body: "{}", headers: { "Idempotency-Key": "field-key" } },
-        SCOPES,
-      ),
-    ).toBe(true);
-
-    // Connectivity returns; the drain replays straight into the dead session.
-    // The 401 triggers refresh → rejected → onAuthFailure → clearSession —
-    // the exact path that used to wipeOfflineQueue() while the drain's own
-    // 401 branch was busy KEEPING the record.
-    const outcome = await drainOfflineQueue(SCOPES);
-    expect(completions).toBe(1);
-    expect(outcome).toEqual({ replayed: 0, remaining: 1, rejected: 0 });
-    expect(offlineQueueDepth()).toBe(1);
-    expect(readOfflineQueue()[0]?.headers["Idempotency-Key"]).toBe("field-key");
-
-    await waitFor(() =>
-      expect(screen.getByTestId("user")).toHaveTextContent("none"),
-    );
+    expect(await drainWorkerOutbox(scopes)).toEqual({ replayed: 0, remaining: 1, rejected: 0 });
+    await waitFor(() => expect(screen.getByTestId("user")).toHaveTextContent("none"));
     expect(replaceMock).toHaveBeenCalledWith("/login");
+    expect((await readWorkerOutbox(scopes))[0]).toMatchObject({ idempotencyKey: "field-key", state: "pending" });
 
-    // After re-login (the session re-establishes via the same cookie jar in
-    // a real flow), the SAME record is still deliverable.
-    const replay = vi.fn().mockResolvedValue({});
-    const redelivered = await drainOfflineQueue(SCOPES, replay);
-    expect(redelivered).toEqual({ replayed: 1, remaining: 0, rejected: 0 });
-    expect(replay.mock.calls[0]?.[0]).toBe("/api/tasks/9/complete");
+    setAccessToken("signed-in-again", 1);
+    setCurrentFarmId("1");
+    const send = vi.fn().mockResolvedValue({});
+    expect((await drainWorkerOutbox(scopes, () => scopes, send)).replayed).toBe(1);
+    expect(send.mock.calls[0][0]).toMatchObject({ path: "/api/tasks/9/complete", idempotencyKey: "field-key" });
   });
 
-  it("an explicit sign-out preserves unresolved duties for their original actor", async () => {
+  it("preserves unresolved duties and unimported legacy data on explicit sign-out", async () => {
     acceptLogout();
     const user = userEvent.setup();
     renderWithProviders(<Probe />);
     await expectLoaded();
-
-    expect(
-      enqueueOfflineMutation(
-        "/api/tasks/9/complete",
-        { method: "POST", body: "{}" },
-        SCOPES,
-      ),
-    ).toBe(true);
+    await persistWorkerOperation("/api/tasks/9/complete", "{}", scopes, "field-key");
+    const legacy = "legacy data awaiting import";
+    localStorage.setItem(OFFLINE_QUEUE_STORAGE_KEY, legacy);
 
     await user.click(screen.getByRole("button", { name: "sign-out" }));
-    await waitFor(() =>
-      expect(screen.getByTestId("user")).toHaveTextContent("none"),
-    );
-    // Identity and views are cleared; the departing worker's field work
-    // remains recoverable and actor-scoped after signing in again.
-    expect(offlineQueueDepth()).toBe(1);
+    await waitFor(() => expect(screen.getByTestId("user")).toHaveTextContent("none"));
+    expect(localStorage.getItem(OFFLINE_QUEUE_STORAGE_KEY)).toBe(legacy);
+    expect((await readWorkerOutbox(scopes))[0]).toMatchObject({ state: "pending", idempotencyKey: "field-key" });
   });
 
-  it("records preserved by a forced logout are never replayed under the next actor", async () => {
-    let completions = 0;
-    server.use(
-      http.post("/api/tasks/9/complete", () => {
-        completions += 1;
-        return HttpResponse.json({});
-      }),
-    );
+  it("never exposes or replays the previous actor's saved duty under the next actor", async () => {
+    await persistWorkerOperation("/api/tasks/9/complete", "{}", scopes, "previous-key");
+    const nextActor = { actorScope: "42", farmScope: "1" };
+    const send = vi.fn().mockResolvedValue({});
 
-    // What a dead session left behind: the previous worker's preserved write.
-    expect(
-      enqueueOfflineMutation(
-        "/api/tasks/9/complete",
-        { method: "POST", body: "{}", headers: { "Idempotency-Key": "prev-key" } },
-        SCOPES,
-      ),
-    ).toBe(true);
-
-    // The next worker on the shared tablet drains under a different actor.
-    const nextWorker = { actorScope: "42", farmScope: "1" };
-    const outcome = await drainOfflineQueue(nextWorker);
-    expect(completions).toBe(0);
-    expect(outcome).toEqual({ replayed: 0, remaining: 1, rejected: 0 });
-    // Skipped, not destroyed: the record waits for its owner (until the 72h
-    // TTL retires it) instead of replaying under the new session.
-    expect(readOfflineQueue()[0]?.headers["Idempotency-Key"]).toBe("prev-key");
+    expect(await drainWorkerOutbox(nextActor, () => nextActor, send)).toEqual({ replayed: 0, remaining: 0, rejected: 0 });
+    expect(send).not.toHaveBeenCalled();
+    expect(await readWorkerOutbox(nextActor)).toEqual([]);
+    expect((await readWorkerOutbox(scopes))[0]).toMatchObject({ idempotencyKey: "previous-key", state: "pending" });
   });
 });
 

@@ -1,7 +1,7 @@
 /**
- * Team page DOM caps (2026-10-01 campaign follow-up): the worker invite
- * form, the reset-password form, the notification phone field and the role
- * form all bound their text inputs in the DOM at the exact schema limits.
+ * Team page DOM caps: the worker invite form, the reset-password form, the
+ * notification phone field and the role form all bound their text inputs in the DOM
+ * at the exact schema limits.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";

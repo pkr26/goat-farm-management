@@ -26,10 +26,10 @@ export const FINANCE_TABS: SectionNavTab<FinanceTab>[] = [
   { href: "/finance/insurance", key: "insurance", labelKey: "finance.nav.insurance" },
 ];
 
-/** Section navigation for the tabbed section pages (feeding, finance) —
- * formerly the line-identical FeedingNav/FinanceNav twins (2026-09-28
- * audit, I5). Labels and the landmark name resolve through the active
- * language catalog. */
+/**
+ * Shared feeding and finance section navigation. Labels and the navigation landmark
+ * name resolve through the active language catalog.
+ */
 export function SectionNav<TabKey extends string>({
   tabs,
   active,

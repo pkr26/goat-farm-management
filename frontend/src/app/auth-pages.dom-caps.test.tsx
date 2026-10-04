@@ -1,10 +1,9 @@
 /**
- * Auth-surface DOM caps (2026-10-01 campaign follow-up): login (email 254,
- * password 128, TOTP code 11), register (name 120, email 254, password 128)
- * and the farm-select create form (name 120, location 120, timezone 64) all
- * bound their inputs in the DOM at the schema limits. The TOTP field only
- * renders while a challenge is outstanding, so the challenge response is
- * driven explicitly.
+ * Auth-surface DOM caps: login (email 254, password 128, TOTP code 11), register
+ * (name 120, email 254, password 128) and the farm-select create form (name 120,
+ * location 120, timezone 64) all bound their inputs in the DOM at the schema limits.
+ * The TOTP field only renders while a challenge is outstanding, so the challenge
+ * response is driven explicitly.
  */
 
 import { screen } from "@testing-library/react";

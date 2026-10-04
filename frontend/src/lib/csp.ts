@@ -1,4 +1,4 @@
-/** Nonce-based Content-Security-Policy construction (M-1, 2026-09-20 audit).
+/** Nonce-based Content-Security-Policy construction.
  *
  * The policy replaces the former edge header whose script allow-list carried
  * the inline escape hatch: a per-request nonce (see `src/proxy.ts`) lets
@@ -117,7 +117,7 @@ export function buildContentSecurityPolicy(options: CspOptions): string {
     "font-src 'self' data:",
     `connect-src 'self'${connectOrigins.length ? ` ${connectOrigins.join(" ")}` : ""}`,
     "object-src 'none'",
-    // Worker-tablet PWA (ITEM 2): the service worker and manifest are
+    // Worker-tablet PWA: the service worker and manifest are
     // first-party; no third-party worker or manifest may ever load.
     "worker-src 'self'",
     "manifest-src 'self'",

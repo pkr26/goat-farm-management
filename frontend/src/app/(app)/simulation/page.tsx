@@ -1032,9 +1032,7 @@ const DAIRY_HIDDEN_FIELDS = new Set([
   "sales.monthly_milk_price_multipliers",
   "sales.annual_milk_price_growth_rate",
   "sales.calf_milk_litres_per_day_per_calf",
-  // The retired male_calf_* keys too (they are in the backend's
-  // _RETIRED_DAIRY_FIELDS but were missing here, so a stale cached payload
-  // could still render/edit them — P3, 2026-09-20 audit).
+  // The retired male_calf_* keys too.
   "sales.male_calf_price_per_head",
   "sales.male_calf_sell_at_birth_fraction",
   "risk.disease_milk_yield_multiplier",
@@ -1110,11 +1108,11 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     every: 2,
     repeat: 6,
   });
-  // 2026-09-17 audit (L-23): the repeat-plan dialog's NumberInputs reported no
-  // validity, so "Generate rows" committed the stale last-valid drafts while
-  // the boxes displayed invalid ones. Dialog-local twin of invalidFields —
-  // deliberately separate, because the shared set gates Run/Save and counts
-  // "highlighted" editor fields, which dialog drafts are not.
+  // the repeat-plan dialog's NumberInputs reported no
+  // validity, so "Generate rows" committed the stale last-valid drafts while the boxes
+  // displayed invalid ones. Dialog-local twin of invalidFields — deliberately separate,
+  // because the shared set gates Run/Save and counts "highlighted" editor fields, which
+  // dialog drafts are not.
   const [recurrenceInvalid, setRecurrenceInvalid] = useState<Set<string>>(() => new Set());
   const [explanation, setExplanation] = useState<MetricExplanation | null>(null);
   /** The "?" dialog: one assumption term's explanation + unit/range/value. */
@@ -1162,10 +1160,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     setScenarioOffsetState(
       scenarioOffsetParamRef.current("scenarios", 0, 0, MAX_PAGE_OFFSET),
     );
-    // A URL-driven page change (back/forward, edited link) invalidates the
-    // rendered comparison: its rows belong to scenarios the operator may no
-    // longer be looking at, and a stale table under a new page reads as
-    // current (P3, 2026-09-20 audit).
+    // A URL-driven page change (back/forward, edited link) invalidates the rendered
+    // comparison: its rows belong to scenarios the operator may no longer be looking
+    // at, and a stale table under a new page reads as current.
     setCompareIds(null);
   }, [scenarioParamsKey]);
   const setScenarioOffset = useCallback(
@@ -1340,10 +1337,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     });
   }
 
-  // Validate LOADED values, not just typed ones (P3, 2026-09-20 audit): a
-  // calibrated/imported scenario can carry out-of-bounds numbers that the
-  // per-keystroke gate never sees because nobody typed them. Re-run the rule
-  // gate whenever fresh editor content lands.
+  // Validate LOADED values, not just typed ones: a calibrated/imported scenario can
+  // carry out-of-bounds numbers that the per-keystroke gate never sees because nobody
+  // typed them. Re-run the rule gate whenever fresh editor content lands.
   /* eslint-disable react-hooks/set-state-in-effect -- fresh editor content re-seeds the invalid-marker set */
   useEffect(() => {
     if (!assumptions) return;
@@ -3472,7 +3468,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
        * flight (its response replaces the editor, so late edits would be
        * silently overwritten). A background refetch — e.g. the one
        * calibration triggers by advancing submittedParams — must NOT freeze
-       * the editor (P3, 2026-09-20 audit): the explicit buttons already gate
+       * the editor: the explicit buttons already gate
        * their own pending state. */}
       <fieldset
         disabled={defaultsQuery.isFetching && explicitDefaultsPending}
@@ -3861,7 +3857,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             <Button variant="outline" onClick={() => setRecurrenceOpen(false)}>
               {t("common.cancel")}
             </Button>
-            {/* L-23 (2026-09-17 audit): NumberInput commits only valid drafts,
+            {/* L-23: NumberInput commits only valid drafts,
              * so clicking Generate with an invalid box would commit the stale
              * last-valid value instead — hold the button until every dialog
              * input reports valid. */}

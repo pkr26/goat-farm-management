@@ -1,7 +1,10 @@
 import { IDBFactory, IDBObjectStore } from "fake-indexeddb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { currentRequestScope, setAccessToken, setCurrentFarmId } from "@/lib/api-client";
-import { OFFLINE_QUEUE_STORAGE_KEY } from "@/lib/offline-queue";
+import {
+  isOfflineQueueableMutation,
+  OFFLINE_QUEUE_STORAGE_KEY,
+} from "@/lib/offline-queue";
 import {
   clearAcceptedWorkerReceipts, clearWorkerOutboxBackoff, confirmOfflineWorkerDraft,
   discardOfflineWorkerDraft, drainWorkerOutbox, persistOfflineWorkerDraft, persistWorkerOperation,
@@ -57,6 +60,14 @@ beforeEach(() => {
 });
 
 describe("durable worker actions", () => {
+  it("queues only exact idempotent task mutations", () => {
+    expect(isOfflineQueueableMutation("/api/tasks/1/complete", "POST")).toBe(true);
+    expect(isOfflineQueueableMutation("/api/tasks/2/skip", "POST")).toBe(true);
+    expect(isOfflineQueueableMutation("/api/tasks/1/complete", "GET")).toBe(false);
+    expect(isOfflineQueueableMutation("/api/tasks/1/complete/extra", "POST")).toBe(false);
+    expect(isOfflineQueueableMutation("/api/finance/transactions", "POST")).toBe(false);
+  });
+
   it("acknowledges only committed writes and rejects unavailable device storage", async () => {
     vi.stubGlobal("indexedDB", undefined);
     await expect(persistWorkerOperation("/api/tasks/1/complete", undefined, scopes)).rejects.toThrow();

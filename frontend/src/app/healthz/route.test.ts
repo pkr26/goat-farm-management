@@ -1,7 +1,5 @@
 /**
- * /healthz liveness probe: a stale "ok" must never mask a dead Next server,
- * so the handler stays force-dynamic and answers no-store (2026-09-28 audit,
- * T1 — one of the files the aggregate floors let sit at 0%).
+ * The liveness probe renders dynamically and never caches a stale healthy response.
  */
 
 import { describe, expect, it } from "vitest";

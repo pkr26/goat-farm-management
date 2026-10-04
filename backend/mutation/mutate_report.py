@@ -10,6 +10,7 @@ from mutate_identity import (
     digest_json,
     input_identity,
     latest_compatible,
+    read_artifact,
     read_results,
     sha_bytes,
     sha_file,
@@ -52,7 +53,9 @@ def main() -> None:
     parser.add_argument("--campaign-id")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    manifest_bytes = (MUTDIR / "manifest.json").read_bytes()
+    manifest_bytes = read_artifact(
+        MUTDIR / "manifest.json", instruction="run python mutation/mutate_gen.py first"
+    )
     manifest = {m["id"]: m for m in json.loads(manifest_bytes)}
     records = read_results(MUTDIR / "results.jsonl")
     artifacts = {

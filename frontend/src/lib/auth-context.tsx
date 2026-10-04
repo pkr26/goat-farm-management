@@ -30,9 +30,6 @@ import {
   setOnAuthFailure,
 } from "@/lib/api-client";
 import { clearPersistedIdempotencyRequestState } from "@/lib/idempotent-request";
-import {
-  clearOfflineQueueDrainBackoff,
-} from "@/lib/offline-queue";
 import { clearWorkerOutboxBackoff } from "@/lib/worker-outbox";
 import { endOfflineShift } from "@/lib/worker-offline-shift";
 import { safeStorage } from "@/lib/safe-storage";
@@ -76,20 +73,18 @@ export interface AuthState {
 }
 
 const AuthContext = createContext<AuthState | null>(null);
-// Stryker disable next-line StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the key is pinned verbatim by the persistence suite
 const FARM_STORAGE_KEY = "goatfarm.farmId";
 const AUTH_EVENT_STORAGE_KEY = "goatfarm.authEvent";
 const AUTH_BROADCAST_CHANNEL = "goatfarm.auth";
 const AUTH_LOGOUT_EVENT_PREFIX = "logout:";
 let authEventSequence = 0;
-// Stryker disable next-line ArrayDeclaration, StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the list is pinned by the redirect suite
 const PUBLIC_PATHS = ["/login", "/register", "/worker/login", "/worker/offline"];
 
-/** Destination for AUTOMATIC session teardown (forced logout, cross-tab
- * logout, signed-out gate): a session dying on the worker surface belongs on
- * the PIN pad — PIN-only workers have no password, so /login is a form they
- * cannot use (2026-09-29 audit — the C1/W1 failure class via the
- * refresh/gate paths; explicit signOut keeps its caller-chosen target). */
+/**
+ * Forced and cross-tab logout returns worker surfaces to the PIN pad. PIN-only
+ * workers cannot use the manager password form. Explicit sign-out keeps its
+ * caller-selected destination.
+ */
 function forcedLogoutDestination(currentPathname: string): "/worker/login" | "/login" {
   return currentPathname.startsWith("/worker") ? "/worker/login" : "/login";
 }
@@ -97,18 +92,16 @@ function forcedLogoutDestination(currentPathname: string): "/worker/login" | "/l
 /** Site data can be blocked for the origin or over quota, and the realm is
  * missing under SSR. The farm selection is a convenience — degrade to
  * "nothing persisted" rather than throwing out of a session transition. The
- * guarded realm accessor is shared: lib/safe-storage.ts (2026-09-28 audit). */
+ * guarded realm accessor is shared: lib/safe-storage.ts. */
 function readStoredFarmId(): number | null {
   try {
     const raw = safeStorage("local")?.getItem(FARM_STORAGE_KEY) ?? null;
     if (raw === null) return null;
     const stored = Number(raw);
-    // Stryker disable BlockStatement: the catch's only statement returns null, and the sole caller reads this via ??, which treats the mutant's undefined exactly like null
     return Number.isSafeInteger(stored) && stored > 0 ? stored : null;
   } catch {
     return null;
   }
-  // Stryker restore BlockStatement
 }
 
 function writeStoredFarmId(id: number): void {
@@ -149,14 +142,13 @@ function publishCrossTabLogout(): void {
   }
 }
 
-// A key REMOVAL is the cross-tab signal for "the session is dead — mirror the
-// teardown" (signOut / clearSession both remove the key). A farm revocation
-// must broadcast something else entirely: "this selection is gone but the
-// session lives". Tombstoning the value instead of removing it lets the
-// storage listener tell the two apart, so a revoked membership sends the
-// other tabs to /farm-select instead of destroying valid sessions (B1,
-// 2026-09-21 audit). readStoredFarmId already treats the tombstone as "no
-// selection" because Number("revoked:…") is NaN.
+// A key REMOVAL is the cross-tab signal for "the session is dead — mirror the teardown"
+// (signOut / clearSession both remove the key). A farm revocation must broadcast
+// something else entirely: "this selection is gone but the session lives". Tombstoning
+// the value instead of removing it lets the storage listener tell the two apart, so a
+// revoked membership sends the other tabs to /farm-select instead of destroying valid
+// sessions. readStoredFarmId already treats the tombstone as "no selection" because
+// Number("revoked:…") is NaN.
 const FARM_STORAGE_REVOKED_PREFIX = "revoked:";
 
 function writeStoredFarmRevoked(id: number): void {
@@ -229,7 +221,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // refreshFarms had a chance to set farmId — misfiring the /farm-select
   // redirect. Guard the initial refresh to at most one in-flight call.
   const initialRefreshStarted = useRef(false);
-  // Stryker disable next-line BooleanLiteral: the mount effect below overwrites the initial value before any continuation can observe it
   const mounted = useRef(true);
   // Latest-wins fence for explicit membership refreshes. Two reads can
   // observe different server snapshots and arrive in reverse order.
@@ -250,7 +241,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     task: Promise<void>;
   } | null>(null);
 
-  // Stryker disable ArrayDeclaration: a constant string dep never changes, so the effect still runs exactly once
   useEffect(() => {
     userRef.current = user;
   }, [user]);
@@ -261,11 +251,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted.current = false;
       farmRefreshGeneration.current += 1;
-      // Stryker disable next-line AssignmentOperator: only observable in a StrictMode double-mount rehearsal; the refs die with the instance on a real unmount
       sessionEstablishmentGeneration.current += 1;
     };
   }, []);
-  // Stryker restore ArrayDeclaration
 
   const selectFarm = useCallback(
     (id: number, timezone?: string) => {
@@ -295,7 +283,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearSession = useCallback(
     () => {
       farmRefreshGeneration.current += 1;
-      // Stryker disable next-line AssignmentOperator: any clearSession that could race an in-flight establishment first flips the access token (null), whose epoch bump already invalidates that establishment on both its resolved and rejected paths
       sessionEstablishmentGeneration.current += 1;
       queryClient.clear();
       clearPersistedIdempotencyRequestState();
@@ -315,7 +302,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // The 429 drain backoff belongs to the session either way — leaving it
       // set would gate the next actor's first drain behind the previous
       // actor's Retry-After hint.
-      clearOfflineQueueDrainBackoff();
       clearWorkerOutboxBackoff();
       void endOfflineShift().catch(() => {});
     },
@@ -447,9 +433,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // and permanently skip the teardown below.
       const ownedEpoch = authSessionEpochValue();
       try {
-        // FE-3 (2026-09-16): one transient failure of the post-login farms
-        // read must not destroy the just-created session. Retry once before
-        // any teardown path runs.
+        // One transient failure of the post-login farms read must not destroy the
+        // just-created session. Retry once before any teardown path runs.
         let list: FarmEntry[];
         try {
           list = await apiFetch<FarmEntry[]>("/api/auth/farms");
@@ -475,7 +460,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(u);
         if (
           farmGeneration !== farmRefreshGeneration.current &&
-          // Stryker disable next-line EqualityOperator: appliedFarmGeneration is only ever set to a generation captured by refreshFarms, so it can never equal this establishment's freshly captured farmGeneration
           appliedFarmGeneration.current > farmGeneration
         ) return;
         appliedFarmGeneration.current = farmGeneration;
@@ -508,9 +492,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // still cleared and the refresh cookie remains httpOnly.
           });
         }
-        // A failed establishment is a session death, not a handover choice:
-        // queued writes (possibly this actor's, preserved by an earlier
-        // forced logout) must survive the retry (2026-10-01 audit, 07-H).
+        // A failed establishment is a session death, not a handover choice: queued
+        // writes (possibly this actor's, preserved by an earlier forced logout) must
+        // survive the retry.
         clearSession();
         if (error !== null && typeof error === "object") {
           failedEstablishmentEpochs.set(error, authSessionEpochValue());
@@ -541,15 +525,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // the once-only bootstrap below is what guarantees that.
   useEffect(() => {
     const handleAuthFailure = () => {
-      // Fired when a refresh attempt is rejected (expired/revoked/reused
-      // refresh token). One cleanup per logout transition, identical to
-      // signOut's, then to the surface-appropriate login — never a retry
-      // loop. window.location over a pathname closure: this handler is
-      // registered once and must decide from where the failure actually
-      // fired.
-      // Session death, not an explicit handover: the queued offline writes
-      // must survive for redelivery after re-login — the drain never replays
-      // them under a different actor (2026-10-01 audit, 07-H).
+      // Fired when a refresh attempt is rejected (expired/revoked/reused refresh
+      // token). One cleanup per logout transition, identical to signOut's, then to the
+      // surface-appropriate login — never a retry loop. window.location over a pathname
+      // closure: this handler is registered once and must decide from where the failure
+      // actually fired. Session death, not an explicit handover: the queued offline
+      // writes must survive for redelivery after re-login — the drain never replays
+      // them under a different actor.
       if (forcedLogout.current) return;
       forcedLogout.current = true;
       publishCrossTabLogout();
@@ -559,10 +541,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return setOnAuthFailure(handleAuthFailure);
   }, [clearSession, router]);
 
-  // Cross-tab sync (P3, 2026-09-20 audit): localStorage storage events fire
-  // only in OTHER tabs, which is exactly the audience — a farm switch or a
-  // sign-out in one tab previously left every other tab on the stale farm
-  // (its next write targeted the previous tenant) or on a dead session.
+  // Cross-tab sync: localStorage storage events fire only in OTHER tabs, which is
+  // exactly the audience — a farm switch or a sign-out in one tab previously left every
+  // other tab on the stale farm (its next write targeted the previous tenant) or on a
+  // dead session.
   useEffect(() => {
     const mirrorLogout = () => {
       if (userRef.current === null || forcedLogout.current) return;
@@ -682,11 +664,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // loading gate immediately so the bounded shift can be recovered;
         // a refresh timeout must not hide already committed local work.
         if (typeof navigator !== "undefined" && navigator.onLine === false) return;
-        // "unavailable" (5xx/408/429/network/non-JSON) is NOT the server
-        // saying the session is over — collapsing it into the signed-out
-        // path let one transient blip at tab-open sign the operator out of a
-        // perfectly valid session (P3, 2026-09-20 audit). Retry those with a
-        // short backoff; only an authoritative "rejected" (or an exhausted
+        // "unavailable" (5xx/408/429/network/non-JSON) is NOT the server saying the
+        // session is over — collapsing it into the signed-out path let one transient
+        // blip at tab-open sign the operator out of a perfectly valid session. Retry
+        // those with a short backoff; only an authoritative "rejected" (or an exhausted
         // retry budget) may land in the signed-out redirect.
         let body: Awaited<ReturnType<typeof refreshSession>> = null;
         for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {
@@ -703,7 +684,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             await new Promise((resolve) => window.setTimeout(resolve, 750));
           }
         }
-        // Stryker disable next-line ConditionalExpression, LogicalOperator: the false variant is regression-covered by the session-restore tests; the true variant is equivalent (a null body deref crashes into the same catch as skipping)
         if (body && mounted.current) {
           // A farms failure here must not revoke the refresh family this call
           // just rotated: the user is not watching an error message, so a
@@ -728,11 +708,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       !forcedLogout.current &&
       !PUBLIC_PATHS.includes(pathname);
     if (!shouldRedirect) {
-      // The explicit-logout transition has landed once the signed-out user
-      // sits on a public path: release the latch so a later client-side
-      // Back navigation to a protected route redirects to /login again
-      // instead of parking on the app gate's loading skeleton forever
-      // (2026-09-17 audit M-10 — previously only signIn() cleared it).
+      // The explicit-logout transition has landed once the signed-out user sits on a
+      // public path: release the latch so a later client-side Back navigation to a
+      // protected route redirects to /login again instead of parking on the app gate's
+      // loading skeleton forever (release the latch after each completed logout).
       if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {
         forcedLogout.current = false;
       }
@@ -746,14 +725,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.replace(destination);
   }, [loading, user, pathname, router]);
 
-  // Stryker disable ArrayDeclaration: setUser is stable, so a constant dep list only changes the callback's identity, never its behavior
   const updateUser = useCallback((u: SessionUser) => {
     // setState after unmount is a React no-op; no mounted re-check needed.
     setUser(u);
   }, []);
-  // Stryker restore ArrayDeclaration
 
-  // Stryker disable next-line ArrayDeclaration: the callback reads only a ref; a constant dep list cannot change its behavior
   const getFarms = useCallback(() => farmsRef.current, []);
 
   const value = useMemo(

@@ -1,6 +1,6 @@
 # Final local verification index
 
-This is the final conventional release-gate evidence for the locally verified October fixes. The application is Next.js 16.3.8 / FastAPI / PostgreSQL. The preserved baseline is commit `b285645b2a93709aa7294fc4698ee0f25839b13e`; its original report remains unchanged. See [implementation status](../../../IMPLEMENTATION_STATUS.md), [plan](../../../APP_IMPROVEMENT_PLAN.md) and [all tracked findings](../finding-ledger.md).
+This is the final conventional release-gate evidence for the locally verified October fixes. The application is Next.js 16.3.8 / FastAPI / PostgreSQL. The preserved baseline is commit `b285645b2a93709aa7294fc4698ee0f25839b13e`; its original report remains unchanged. See [implementation status](../../../docs/archive/IMPLEMENTATION_STATUS.md), [plan](../../../docs/archive/APP_IMPROVEMENT_PLAN.md) and [all tracked findings](../finding-ledger.md).
 
 ## Application and test identity
 

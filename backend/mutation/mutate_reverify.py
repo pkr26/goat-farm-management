@@ -18,6 +18,7 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parent.parent
 MUTDIR = BACKEND / "mutation"
 sys.path.insert(0, str(MUTDIR))
+from mutate_identity import read_artifact  # noqa: E402
 from mutate_run import Runner  # noqa: E402
 
 SURVIVOR_LINE = re.compile(
@@ -26,14 +27,22 @@ SURVIVOR_LINE = re.compile(
 
 
 def survivor_ids_from_log() -> set[str]:
-    manifest = json.loads((MUTDIR / "manifest.json").read_text())
+    manifest = json.loads(
+        read_artifact(
+            MUTDIR / "manifest.json", instruction="run python mutation/mutate_gen.py first"
+        )
+    )
     by_key: dict[tuple[str, int, str, str], list[str]] = collections.defaultdict(list)
     for m in manifest:
         by_key[(m["file"], m["line"], m["kind"], m["detail"])].append(m["id"])
 
     ids: set[str] = set()
     ambiguous = 0
-    for line in (MUTDIR / "campaign.log").read_text().splitlines():
+    for line in (
+        read_artifact(MUTDIR / "campaign.log", instruction="run a mutation campaign first")
+        .decode()
+        .splitlines()
+    ):
         match = SURVIVOR_LINE.match(line.strip())
         if not match:
             continue
@@ -61,7 +70,14 @@ def main() -> None:
     ids = survivor_ids_from_log()
     print(f"survivors rebuilt from campaign.log: {len(ids)}")
 
-    manifest = {m["id"]: m for m in json.loads((MUTDIR / "manifest.json").read_text())}
+    manifest = {
+        m["id"]: m
+        for m in json.loads(
+            read_artifact(
+                MUTDIR / "manifest.json", instruction="run python mutation/mutate_gen.py first"
+            )
+        )
+    }
     todo = [manifest[mid] for mid in sorted(ids)]
     if args.dry_run:
         for m in todo[:8]:

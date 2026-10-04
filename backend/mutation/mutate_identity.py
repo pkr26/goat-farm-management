@@ -5,7 +5,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-TERMINAL = frozenset({"KILLED", "SURVIVED", "INVALID"})
+
+def read_artifact(path: Path, *, instruction: str) -> bytes:
+    """Read a required campaign artifact with an actionable missing-input error."""
+    try:
+        return path.read_bytes()
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Missing {path.name}; {instruction}.") from exc
 
 
 def sha_bytes(data: bytes) -> str:
@@ -53,6 +59,10 @@ def input_identity(backend: Path) -> dict[str, Any]:
             **tree(".github", repo),
             **tree("docker", repo),
             **tree("shared", repo),
+            **{
+                path.relative_to(repo).as_posix(): sha_file(path)
+                for path in sorted((repo / "docs").glob("*.md"))
+            },
             **tree("frontend/src", repo),
             **{path.name: sha_file(path) for path in sorted(repo.glob("docker-compose*.yml"))},
             **{

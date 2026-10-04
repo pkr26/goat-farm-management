@@ -1,12 +1,11 @@
 /**
- * Login page TOTP step (2026-09-16): when the server answers a correct
- * password with an mfa_token instead of a session, the page asks for the
- * 6-digit code, exchanges both at /api/auth/totp/challenge, and only then
- * signs in. A wrong code keeps the challenge step with an inline error.
- * Backing out must also drop any partial code draft: react-hook-form keeps
- * it, and a stale value would fail zod invisibly on the next password
- * submit (the totp error only renders on the code step) — a silent
- * sign-in no-op (2026-09-20 audit P1-10).
+ * Login page TOTP step: when the server answers a correct password with an mfa_token
+ * instead of a session, the page asks for the 6-digit code, exchanges both at
+ * /api/auth/totp/challenge, and only then signs in. A wrong code keeps the challenge
+ * step with an inline error. Backing out must also drop any partial code draft:
+ * react-hook-form keeps it, and a stale value would fail zod invisibly on the next
+ * password submit (the totp error only renders on the code step) — a silent sign-in
+ * no-op.
  */
 
 import { screen, waitFor } from "@testing-library/react";

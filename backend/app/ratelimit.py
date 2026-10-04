@@ -98,8 +98,7 @@ class MemoryLimiterBackend:
     saturation into a process-wide denial of service. Accepted for the
     enforced single-worker topology: these ledgers are abuse-cost throttles
     that fail closed (every guess still pays Argon2 and still fails), unlike
-    the MFA replay guard, which moved to durable storage (2026-10-01 audit,
-    01-3 — decided 2026-10-02; see consumed_mfa_challenges). A multi-replica
+    the MFA replay guard, which moved to durable storage. A multi-replica
     deployment must still move these ledgers to shared storage, which is why
     production boot refuses UVICORN_WORKERS > 1.
     """
@@ -477,10 +476,9 @@ class SlidingWindowRateLimiter:
 auth_limiter = SlidingWindowRateLimiter()
 
 
-# DET-3/DET-4 (2026-09-16): the in-memory ledgers are invisible to central
-# observability — /metrics is production-disabled by policy and restarts wipe
-# history. This always-on per-scope counter feeds a periodic summary log so a
-# slow, distributed stuffing campaign is visible without scraping anything.
+# In-memory ledgers are invisible to central observability — /metrics is production-disabled by
+# policy and restarts wipe history. This always-on per-scope counter feeds a periodic summary log so
+# a slow, distributed stuffing campaign is visible without scraping anything.
 _throttle_rejections: Counter[str] = Counter()
 
 

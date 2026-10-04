@@ -1,7 +1,6 @@
 /**
- * Register page — mutation-hardening suite: the trimmed/absent name in the
- * payload, the success navigation, validation messages and the server-error
- * surfacing.
+ * Register page — regression suite: the trimmed/absent name in the payload, the
+ * success navigation, validation messages and the server-error surfacing.
  */
 
 import { screen, waitFor } from "@testing-library/react";

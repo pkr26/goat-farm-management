@@ -1,7 +1,7 @@
 /**
- * Health target pickers falsy-prop semantics (2026-09-30 fresh mutation
- * campaign): placeholder/dialogTitle are `??`-guarded — an explicit empty
- * string must stay empty rather than falling back to the default copy.
+ * Health target pickers falsy-prop semantics: placeholder/dialogTitle are
+ * `??`-guarded — an explicit empty string must stay empty rather than falling back
+ * to the default copy.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

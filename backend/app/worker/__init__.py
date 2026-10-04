@@ -164,10 +164,8 @@ async def _run_loop(stop: asyncio.Event, settings: ScreeningWorkerSettings | Non
     try:
         return await _run_cycles(stop, settings, sessionmaker, storage, rotation, interval)
     finally:
-        # Close every provider's owned httpx transport on shutdown (B-small,
-        # 2026-09-21 audit: the adapters' AsyncClients were never closed, so
-        # each worker exit leaked its connection pools). Concrete adapters
-        # implement aclose; test doubles without transports are skipped.
+        # Close every provider's owned httpx transport on shutdown. Concrete adapters implement
+        # aclose; test doubles without transports are skipped.
         try:
             providers = list(rotation)
         except TypeError:  # a patched-in test double without iteration
@@ -190,15 +188,12 @@ async def _run_cycles(
     consecutive_cycle_failures = 0
     while not stop.is_set():
         try:
-            # One session (and its connection) for the WHOLE cycle is
-            # intentional (2026-10-01 audit, 08-L12, comment-only): the
-            # worker's dedicated 2+2 pool is sized for exactly this
-            # single-flight loop, the pipeline commits per stage and
-            # snapshots ORM state before mid-cycle rollbacks, and SIGTERM
-            # unwinds through this context manager (rollback on the way
-            # out). Only a second consumer sharing this database would ever
-            # notice the checkout; do not "fix" this into per-stage sessions
-            # without re-deriving the pool sizing.
+            # One session (and its connection) for the WHOLE cycle is intentional: the worker's
+            # dedicated 2+2 pool is sized for exactly this single-flight loop, the pipeline commits
+            # per stage and snapshots ORM state before mid-cycle rollbacks, and SIGTERM unwinds
+            # through this context manager (rollback on the way out). Only a second consumer sharing
+            # this database would ever notice the checkout; do not "fix" this into per-stage
+            # sessions without re-deriving the pool sizing.
             async with sessionmaker() as db:
                 summary = await _await_cycle_with_heartbeats(
                     run_screening_cycle(db, settings, storage, rotation), settings, stop

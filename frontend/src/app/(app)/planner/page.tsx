@@ -176,11 +176,9 @@ function formatPlanCount(value: number): string {
 /** Cohort head counts are expected values (float64); one decimal like the
  * simulation tables. */
 function formatHead(value: number | null | undefined): string {
-  // Stryker disable LogicalOperator, ConditionalExpression: for null/undefined the Number.isFinite arm is also true (it does not coerce), so the null/undefined operand variants never decide anything the isFinite arm does not
   return value === null || value === undefined || !Number.isFinite(value)
     ? "—"
     : value.toFixed(1);
-  // Stryker restore LogicalOperator, ConditionalExpression
 }
 
 /** value → label maps for the class select and report cells. English resolves
@@ -254,7 +252,6 @@ export function NumberField(
     <Input
       type="number"
       {...inputProps}
-      // Stryker disable next-line StringLiteral: the page's only NumberField usage passes the numeric target count, so the nullish arm is unreachable from app surfaces (the exported unit test still pins the intent)
       value={draft ?? String(inputProps.value ?? "")}
       onChange={(event) => {
         const raw = event.target.value;
@@ -309,17 +306,14 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   const acceptDefaultsRef = useRef(true);
 
   const breedsQuery = useListBreedsApiSimulationDefaultsBreedsGet(
-    // Stryker disable next-line ObjectLiteral: PermissionGate refuses to mount this page without simulation.view, so `allowed` is always true by the time this hook runs
     { query: { enabled: allowed } },
   );
   const defaultsQuery = useBreedDefaultsApiSimulationDefaultsGet(
     submittedParams,
-    // Stryker disable next-line ObjectLiteral: PermissionGate refuses to mount this page without simulation.view, so `allowed` is always true by the time this hook runs
     { query: { enabled: allowed } },
   );
   useEffect(() => {
     if (defaultsQuery.data?.status === 200 && acceptDefaultsRef.current) {
-      // Stryker disable next-line BooleanLiteral: same-key redelivery only happens via remount (a fresh ref re-accepts anyway) or loadBreedDefaults (which re-arms first); refetchOnWindowFocus is off app-wide, so no path re-delivers defaults without re-arming
       acceptDefaultsRef.current = false;
       setAssumptions(defaultsQuery.data.data);
       setInvalidNlmFields(new Set());
@@ -348,18 +342,15 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       toast.error(t("planner.toast.presetLoading"));
       return;
     }
-    // L-28 (2026-09-17 audit): disarm the auto-defaults latch like onOpenPlan.
-    // A breed-defaults response still in flight would otherwise land after this
-    // handler applied the herd snapshot and silently wipe it back to presets —
-    // after the success toast. Placed after the guard above: that early return
-    // fires while the initial defaults are still pending, and those must keep
-    // their armed delivery.
+    // L-28: disarm the auto-defaults latch like onOpenPlan. A breed-defaults response
+    // still in flight would otherwise land after this handler applied the herd snapshot
+    // and silently wipe it back to presets — after the success toast. Placed after the
+    // guard above: that early return fires while the initial defaults are still
+    // pending, and those must keep their armed delivery.
     acceptDefaultsRef.current = false;
     const farmScope = captureFarmScope();
-    // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth; emptying the try falls through to the same suppressed continuation
     try {
       const res = await snapshotQuery.refetch();
-      // Stryker disable next-line OptionalChaining: the isError arm short-circuits whenever data is undefined, so the optional chain is only evaluated with data present
       if (res.isError || res.data?.status !== 200) {
         if (!farmScope()) return;
         toast.error(errorMessage(t, res.error, t("planner.toast.herdSnapshotFailed")));
@@ -387,24 +378,20 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       setBasisSource("herd");
       if (!farmScope()) return;
       toast.success(t("planner.toast.herdApplied", { count: snap.total_head }));
-      // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth
     } catch (err) {
       if (!farmScope()) return;
       toast.error(errorMessage(t, err, t("planner.toast.herdSnapshotFailed")));
     }
-    // Stryker restore BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression
   }
 
   async function onCalibrateFromFarm() {
-    // L-28 (2026-09-17 audit): disarm the auto-defaults latch like onOpenPlan,
-    // or a late breed-defaults response wipes the calibration this handler
-    // just applied — after the success toast.
+    // L-28: disarm the auto-defaults latch like onOpenPlan, or a late breed-defaults
+    // response wipes the calibration this handler just applied — after the success
+    // toast.
     acceptDefaultsRef.current = false;
     const farmScope = captureFarmScope();
-    // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth; emptying the try falls through to the same suppressed continuation
     try {
       const res = await calibrationQuery.refetch();
-      // Stryker disable next-line OptionalChaining: the isError arm short-circuits whenever data is undefined, so the optional chain is only evaluated with data present
       if (res.isError || res.data?.status !== 200) {
         if (!farmScope()) return;
         toast.error(errorMessage(t, res.error, t("planner.toast.calibrateFailed")));
@@ -419,12 +406,10 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       toast.success(
         t("planner.toast.calibrated", { count: calibrated.evidence.length }),
       );
-      // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth
     } catch (err) {
       if (!farmScope()) return;
       toast.error(errorMessage(t, err, t("planner.toast.calibrateFailed")));
     }
-    // Stryker restore BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression
   }
 
   // ----- Targets.
@@ -432,7 +417,6 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   const nextDefaultTargetMonth = () => addMonths(startMonth, 12);
   const [targets, setTargets] = useState<TargetRow[]>([]);
 
-  // Stryker disable next-line UpdateOperator: React list keys only need uniqueness, and a monotonically decreasing counter is exactly as unique as an increasing one
   const nextTargetKey = () => `target-${targetKeyCounter.current++}`;
 
   function addTarget() {
@@ -490,7 +474,6 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
 
   /** The anchored assumption document a run/save actually uses. */
   function anchoredAssumptions(): SimulationAssumptions | null {
-    // Stryker disable next-line ConditionalExpression: Plan/Save/Update are reachable only through buttons that stay disabled until the preset lands, and assumptions is never reset to null afterwards — the null arm is unreachable defense-in-depth
     if (!assumptions) return null;
     return {
       ...assumptions,
@@ -503,9 +486,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     await plannerAction.run(async () => {
       const farmScope = captureFarmScope();
       const payload = anchoredAssumptions();
-      // Stryker disable ConditionalExpression, LogicalOperator: the Plan button is disabled for exactly these states on the same render, so the guard is unreachable defense-in-depth
       if (!payload || targets.length === 0 || targetErrors.length > 0) return;
-      // Stryker restore ConditionalExpression, LogicalOperator
       setPlanError(null);
       try {
         const res = await planMutation.mutateAsync({
@@ -547,7 +528,6 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   }
   const plansQuery = useListPlansApiPlannerPlansGet(
     { limit: 50, offset: plansOffset },
-    // Stryker disable next-line ObjectLiteral: PermissionGate refuses to mount this page without simulation.view, so `allowed` is always true by the time this hook runs
     { query: { enabled: allowed } },
   );
   const createPlanMutation = useCreatePlanApiPlannerPlansPost();
@@ -596,7 +576,6 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       const generation = openPlanGeneration.current;
       const payload = anchoredAssumptions();
       const name = planName.trim();
-      // Stryker disable ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral: the Save button is disabled for exactly these states (including the trimmed-empty name), so both branches are unreachable defense-in-depth
       if (!payload || targets.length === 0 || targetErrors.length > 0) {
         toast.error(t("planner.toast.fixTargetsSave"));
         return;
@@ -605,7 +584,6 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         toast.error(t("planner.toast.nameRequiredSave"));
         return;
       }
-      // Stryker restore ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral
       try {
         const res = await createPlanMutation.mutateAsync({
           data: {
@@ -635,15 +613,12 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     await saveAction.run(async () => {
       const farmScope = captureFarmScope();
       const generation = openPlanGeneration.current;
-      // Stryker disable next-line ConditionalExpression: the Update button only renders while openPlan is set, so the guard is unreachable defense-in-depth
       if (!openPlan) return;
       const payload = anchoredAssumptions();
-      // Stryker disable ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral: the Update button is disabled for exactly these states on the same render, so the branch is unreachable defense-in-depth
       if (!payload || targets.length === 0 || targetErrors.length > 0) {
         toast.error(t("planner.toast.fixTargetsUpdate"));
         return;
       }
-      // Stryker restore ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral
       const name = planName.trim();
       if (!name) {
         toast.error(t("planner.toast.nameRequiredUpdate"));
@@ -686,14 +661,12 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   }
 
   async function client_get_plan(planId: number): Promise<PlannerPlanOut | null> {
-    // Stryker disable BlockStatement: emptying either block returns undefined instead of null, and the caller's truthiness check treats both identically
     try {
       const res = await getPlanApiPlannerPlansPlanIdGet(planId);
       return res.status === 200 ? res.data : null;
     } catch {
       return null;
     }
-    // Stryker restore BlockStatement
   }
 
   async function onDeletePlan(plan: PlannerPlanOut) {
@@ -715,10 +688,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     } catch (err) {
       if (!farmScope()) return;
       if (err instanceof ApiError && err.status === 409) {
-        // Optimistic-concurrency conflict: the row moved under us. Refresh
-        // the list so the operator sees (and can retry against) the current
-        // revision instead of an unretryable stale one until reload (P3,
-        // 2026-09-20 audit).
+        // Optimistic-concurrency conflict: the row moved under us. Refresh the list so
+        // the operator sees (and can retry against) the current revision instead of an
+        // unretryable stale one until reload.
         toast.error(t("planner.toast.deleteConflict"));
         await invalidatePlans();
         return;
@@ -792,7 +764,6 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     breeds.map((b) => [b, b.replace(/_/g, " ")]),
   ) as Record<string, string>;
 
-  // Stryker disable next-line LogicalOperator: the mutant dereferences whichever half is missing and crashes the render with a TypeError that escapes into the test runner itself (Stryker records RuntimeError, not a kill); the both-null test pins the real guard
   const showEvaluationReport = report && evaluation;
 
   return (
@@ -1212,7 +1183,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                * loan-taking farmer the minimum-cash month is the most
                * decision-relevant number in the payload — the simulation page
                * shows the same trio for its runs, while the planner used to
-               * print only NPV/shortfall/purchases (2026-10-01 audit, 06-8). */}
+               * print only NPV/shortfall/purchases. */}
               <dl className="mb-4 grid gap-2 sm:grid-cols-2">
                 <div className="flex items-baseline justify-between gap-3 rounded-lg border p-3">
                   <dt className="text-sm text-muted-foreground">
@@ -1334,7 +1305,6 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             <CardContent className="space-y-2">
               {report.actions.map((action, index) => {
                 const Icon = ACTION_ICONS[action.kind];
-                // Stryker disable next-line OptionalChaining: inside the report!==null render branch, report cannot be null at this node
                 const missed = action.year_month < (report?.start_year_month ?? startMonth);
                 return (
                   <div
@@ -1565,7 +1535,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <span className="font-medium">{plan.name}</span>
                   <span className="text-xs text-muted-foreground">
-                    {/* L-29 (2026-09-17 audit): updated_at is a UTC datetime;
+                    {/* L-29: updated_at is a UTC datetime;
                      * render it in the farm timezone and active locale, not the
                      * browser's. */}
                     {t("planner.saved.updatedAt", { datetime: formatFarmDateTime(plan.updated_at) })}
@@ -1653,7 +1623,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                       .join("; ") || "—"}
                   </TableCell>
                   <TableCell className="max-w-64 truncate">{plan.notes || "—"}</TableCell>
-                  {/* L-29 (2026-09-17 audit): farm timezone + active locale
+                  {/* L-29: farm timezone + active locale
                    * instead of the browser locale. */}
                   <TableCell>{formatFarmDateTime(plan.updated_at)}</TableCell>
                   <TableCell>
@@ -1715,7 +1685,6 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       <Dialog
         open={pendingDelete !== null}
         onOpenChange={(next) => {
-          // Stryker disable next-line BooleanLiteral, ConditionalExpression: the open state is driven programmatically via pendingDelete, so onOpenChange only ever reports dismissal (next=false)
           if (!next) setPendingDelete(null);
         }}
       >
@@ -1746,7 +1715,6 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               variant="destructive"
               disabled={deletePlanMutation.isPending}
               onClick={() => {
-                // Stryker disable next-line ConditionalExpression: the confirm button renders only inside the dialog, which is open exactly when pendingDelete is non-null
                 if (pendingDelete) void onDeletePlan(pendingDelete);
               }}
             >

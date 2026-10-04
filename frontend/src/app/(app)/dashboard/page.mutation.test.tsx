@@ -1,9 +1,5 @@
 /**
- * Dashboard page — mutation-hardening suite for the branches Stryker flagged:
- * the permissions-error retry, the overdue preview cap, the first-run
- * welcome card (content, permission filtering, all-zero status gate), the
- * bounded-preview banner limits, empty/overdue kiddings and ultrasound
- * markers, suggestion bucket labels and the herd-by-bucket donut.
+ * Dashboard permission retries, preview caps, first-run cards and herd summaries.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";

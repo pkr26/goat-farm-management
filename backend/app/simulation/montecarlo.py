@@ -96,7 +96,7 @@ def percentile(values: Sequence[float], p: float) -> float:
     """Linear-interpolation percentile (numpy 'linear' method); p in [0, 1].
 
     Accepts any float sequence — the Monte Carlo band builder passes compact
-    ``array('d')`` per-month columns (2026-10-01 audit, 08-L10)."""
+    ``array('d')`` per-month columns."""
     if not values:
         return 0.0
     xs = sorted(values)
@@ -408,13 +408,11 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
         "operating_cost": a.risk.operating_cost,
     }
 
-    # Per-month trajectory columns accumulated online as compact C doubles
-    # (2026-10-01 audit, 08-L10): the former per-run list-of-lists held three
-    # runs x horizon boxed Python floats (~100+ MB at the schema max of
-    # 2000 x 240) before the percentile bands collapsed them. array('d')
-    # stores the same values in the same arrival order — percentiles and all
-    # downstream statistics are bit-identical — at 8 bytes per value
-    # (~11.5 MB total at the schema max).
+    # Per-month trajectory columns accumulated online as compact C doubles: the former per-run
+    # list-of-lists held three runs x horizon boxed Python floats (~100+ MB at the schema max of
+    # 2000 x 240) before the percentile bands collapsed them. array('d') stores the same values in
+    # the same arrival order — percentiles and all downstream statistics are bit-identical — at 8
+    # bytes per value (~11.5 MB total at the schema max).
     horizon = a.meta.horizon_months
     herd_columns = [array("d") for _ in range(horizon)]
     cash_columns = [array("d") for _ in range(horizon)]
@@ -423,8 +421,8 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
     minimum_cash: list[float] = []
     ending_cash: list[float] = []
     liquidity_shortfalls = 0
-    # Runs whose horizon contained no principal-repaying year, so min_dscr is
-    # None exactly like the deterministic contract (2026-10-01 audit, 08-H1).
+    # Runs whose horizon contained no principal-repaying year, so min_dscr is None exactly like the
+    # deterministic contract.
     unmeasured_dscr_runs = 0
     weak_dscr_runs = 0
     disease_outbreaks: list[int] = []
@@ -491,22 +489,18 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
         npv_p95=percentile(npvs, 0.95),
         prob_npv_negative=prob_negative,
         prob_liquidity_shortfall=liquidity_shortfalls / runs,
-        # Nullable exactly like the deterministic min_dscr contract: when no
-        # run had a measurable DSCR (a horizon with no principal-repaying
-        # year — long moratorium, short horizon, or no debt), 0.0 read as
-        # "0% chance of a coverage breach" in precisely the fragile financing
-        # shapes where interest is in fact uncovered. None says
-        # "unmeasurable", not "safe" (2026-10-01 audit, 08-H1). Measurability
-        # is a property of the (deterministic) debt schedule, so a run set is
-        # normally all-measurable or all-unmeasurable; the mixed case keeps
-        # the weak fraction over all runs.
+        # Nullable exactly like the deterministic min_dscr contract: when no run had a measurable
+        # DSCR (a horizon with no principal-repaying year — long moratorium, short horizon, or no
+        # debt), 0.0 read as "0% chance of a coverage breach" in precisely the fragile financing
+        # shapes where interest is in fact uncovered. None says "unmeasurable", not "safe".
+        # Measurability is a property of the (deterministic) debt schedule, so a run set is normally
+        # all-measurable or all-unmeasurable; the mixed case keeps the weak fraction over all runs.
         prob_dscr_below_one=(weak_dscr_runs / runs if unmeasured_dscr_runs < runs else None),
         npv_p5_ci=npv_p5_ci,
         npv_p50_ci=npv_p50_ci,
         npv_p95_ci=npv_p95_ci,
-        # A single run has no sampling distribution: the analytic SE would be
-        # a misleading hard 0.0, not "no uncertainty" — the documented None
-        # contract (P3, 2026-09-20 audit).
+        # A single run has no sampling distribution: the analytic SE would be a misleading hard 0.0,
+        # not "no uncertainty" — the documented None contract.
         prob_npv_negative_se=(
             math.sqrt(prob_negative * (1.0 - prob_negative) / runs) if runs > 1 else None
         ),
@@ -562,7 +556,7 @@ def _sensitivity_cases() -> list[_SensitivityCase]:
     """The tornado's one-at-a-time perturbation cases, in report order.
 
     Built by a module-level factory so the admission budget can count the
-    passes run_sensitivity will actually execute (2026-10-01 audit, 08-L13):
+    passes run_sensitivity will actually execute:
     ``SENSITIVITY_PASSES`` below is derived from this list, so adding or
     removing a case cannot leave the API layer's pricing stale.
     """
@@ -676,9 +670,8 @@ def _sensitivity_cases() -> list[_SensitivityCase]:
     ]
 
 
-# Admission-budget export (2026-10-01 audit, 08-L13): full engine passes
-# run_sensitivity executes — the base evaluation plus (low, high) per case,
-# derived from the case list so the two can never drift.
+# Admission-budget export: full engine passes run_sensitivity executes — the base evaluation plus
+# (low, high) per case, derived from the case list so the two can never drift.
 SENSITIVITY_PARAMETER_COUNT = len(_sensitivity_cases())
 SENSITIVITY_PASSES = 1 + 2 * SENSITIVITY_PARAMETER_COUNT
 

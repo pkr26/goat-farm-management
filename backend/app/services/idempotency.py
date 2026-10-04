@@ -34,8 +34,8 @@ SENSITIVE_IDEMPOTENCY_OPERATIONS = frozenset(
     {
         "team.workers.create",
         "team.workers.reset-pin",
-        # Owner credential rotation (2026-09-28 audit, A1): the body carries
-        # the chosen password, same offline-guess surface as the other two.
+        # Owner credential rotation: the body carries the chosen password, same offline-guess
+        # surface as the other two.
         "team.workers.reset-password",
     }
 )
@@ -282,10 +282,11 @@ async def replay_idempotent_if_committed[ResponseT: BaseModel](
 def _revalidate_cached_response[ResponseT: BaseModel](
     response_type: type[ResponseT], body: object
 ) -> ResponseT:
-    """BIZ-1 (2026-09-16): a response recorded before a schema tightening no
-    longer parses against the current model. That is a stale cache, not a
-    server fault — answer 409 so the client retries with a new key instead
-    of surfacing an opaque 500."""
+    """Validate a cached response against the current response schema.
+
+    An incompatible stored response is a stale cache: return 409 so the client
+    can retry with a new key rather than treating it as a server failure.
+    """
     try:
         return response_type.model_validate(body)
     except ValidationError:
@@ -448,10 +449,8 @@ async def execute_idempotent[ResponseT: BaseModel](
             )
         ).scalar_one()
         if open_records > settings.idempotency_max_open_records_per_actor:
-            # A standing per-actor quota, not a request-rate throttle: 409 per
-            # the house convention ("429 is only ever a rate limit and always
-            # carries Retry-After" — this answer is neither) — 2026-09-29
-            # audit, Wave-3 completeness.
+            # An outstanding-record quota uses 409. Rate throttles use 429
+            # with Retry-After; this quota has no fixed retry interval.
             raise standing_quota(
                 detail=(
                     "Too many idempotent mutations are still inside their retention "

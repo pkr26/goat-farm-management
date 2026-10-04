@@ -7,13 +7,24 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { FRONTEND } from "./mutate_run.mjs";
+import { latestCompatible, readMutationArtifact, records } from "./mutate_identity.mjs";
+import { report } from "./mutate_report.mjs";
 
-const FRONTEND = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const filter = process.argv[2] ?? "";
 
-const covMap = JSON.parse(readFileSync(path.join(FRONTEND, "mutation", "coverage-map.json"), "utf8"));
-const survivors = JSON.parse(readFileSync(path.join(FRONTEND, "mutation", "survivors.json"), "utf8"));
+const manifest = JSON.parse(readMutationArtifact(FRONTEND, "manifest.json"));
+const covMap = JSON.parse(readMutationArtifact(FRONTEND, "coverage-map.json"));
+const summary = report();
+console.log(`Campaign: ${summary.campaignId}`);
+const latest = latestCompatible(records(path.join(FRONTEND, "mutation/results.jsonl")), {
+  id: summary.campaignId, manifest,
+});
+const survivors = manifest.mutants.filter((mutant) => {
+  const result = latest.get(mutant.id);
+  return result?.verdict === "SURVIVED" && result.selectionMode === "complete" &&
+    result.baseline?.verdict === "SURVIVED";
+});
 
 const sources = new Map();
 function srcLines(rel) {

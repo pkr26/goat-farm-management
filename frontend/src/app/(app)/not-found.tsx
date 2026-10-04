@@ -1,8 +1,9 @@
 "use client";
 
-/** 404 fallback inside the app shell. Copy resolves from the stored
- *  language without the provider, like the error boundaries (2026-09-28
- *  audit, I3). */
+/**
+ * App-shell 404 fallback. Resolve copy from stored language so the page can render
+ * without its provider.
+ */
 
 import { Compass } from "lucide-react";
 import Link from "next/link";

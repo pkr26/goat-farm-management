@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import type { NextConfig } from "next";
 
 import { backendRewrites } from "./src/lib/backend-rewrites";
 import { assertImageDecodeSafetyForBuild } from "./src/lib/image-deps-guard";
@@ -8,15 +9,12 @@ import { assertImageDecodeSafetyForBuild } from "./src/lib/image-deps-guard";
 // an unsafe next+sharp combination before it can become an artifact. Dev and
 // test contexts only warn. Contract details: src/lib/image-deps-guard.ts.
 
-/** Baseline hardening headers on every response. HSTS is production-only.
- *
- * CSP is NOT here: src/proxy.ts emits a per-request nonce policy (M-1,
- * 2026-09-20). A nonce must be minted before render so Next.js can stamp it
- * on its own scripts, which only the proxy/render boundary can do — these
- * static headers cannot. Deployment S3/MinIO origins reach the proxy as
- * runtime env (GOATFARM_CSP_IMG_ORIGINS / GOATFARM_CSP_CONNECT_ORIGINS),
- * keeping the generic registry image deployment-neutral. The edge re-adds
- * identical baseline headers on its own generated responses.
+/**
+ * Baseline security headers for every response; HSTS applies in production. CSP
+ * lives in src/proxy.ts because its nonce must exist before server rendering.
+ * Runtime GOATFARM_CSP_IMG_ORIGINS and GOATFARM_CSP_CONNECT_ORIGINS configure
+ * deployment-specific storage endpoints. The edge adds the same baseline headers to
+ * its own responses.
  */
 const SECURITY_HEADERS = [
   { key: "X-Frame-Options", value: "DENY" },
@@ -28,7 +26,7 @@ const SECURITY_HEADERS = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
 ];
 
-const isProd = process.env.NODE_ENV === "production";
+const isProduction = process.env.NODE_ENV === "production";
 
 const PROD_ONLY_HEADERS = [
   {
@@ -56,11 +54,11 @@ const nextConfig = {
     return [
       {
         source: "/:path*",
-        headers: isProd ? [...SECURITY_HEADERS, ...PROD_ONLY_HEADERS] : SECURITY_HEADERS,
+        headers: isProduction ? [...SECURITY_HEADERS, ...PROD_ONLY_HEADERS] : SECURITY_HEADERS,
       },
       // The service worker and PWA manifest must always be revalidated — a
       // cached stale sw.js is the one deployment update path that can wedge
-      // every tablet at once (ITEM 2 Phase 2).
+      // every tablet at once.
       {
         source: "/sw.js",
         headers: [
@@ -73,7 +71,7 @@ const nextConfig = {
       },
     ];
   },
-};
+} satisfies NextConfig;
 
 export default function configureNext(phase: string) {
   // NEXT_PHASE is populated after Next first loads this configuration. Use

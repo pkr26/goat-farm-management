@@ -1,10 +1,9 @@
 # Backend mutation measurements
 
-Historical `manifest.json`, `results.jsonl` and `report.md` remain historical
-artifacts. Their percentages are untrusted: they lack passing-selection
-baselines, isolated execution and compatible campaign receipts. The corrected
-report's dry run reports the current checkout as unmeasured until a fresh
-campaign exists.
+Generated manifests, attempt logs, coverage maps, and reports are local
+campaign artifacts and CI uploads; they are not source files. Generate fresh
+inputs before running or previewing a campaign. Historical percentages without
+compatible passing baselines and isolated receipts cannot be scored.
 
 `.github/workflows/mutation.yml` now runs actual application mutants (not
 only harness self-tests) for pull requests that touch application/tests and

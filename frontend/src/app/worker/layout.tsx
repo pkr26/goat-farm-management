@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * Worker tablet shell (ITEM 2 Phase 2, 2026-09-21 playbook).
+ * Worker tablet shell.
  *
  * A deliberately minimal surface OUTSIDE the (app) group: no sidebar, no
  * dense tables — big touch targets, farm + worker identity, an offline/queue
  * badge, and one End-shift button. Gates: this shell redirects signed-out
- * sessions to the /worker/login PIN pad (2026-09-28 audit, W1); the
+ * sessions to the /worker/login PIN pad; the
  * signed-in-without-a-farm gate lives in worker/page.tsx.
  */
 
@@ -131,9 +131,9 @@ export function WorkerShell({ children }: { children: ReactNode }) {
       navigator.serviceWorker
         .register("/sw.js")
         .then((registration) => {
-          // Force an update check on every shell mount: the browser otherwise
-          // throttles sw.js revalidation to ~once per 24h, which is what kept
-          // tablets pinned to their install-time build (2026-09-28 audit, H1).
+          // Force an update check on every shell mount: the browser otherwise throttles
+          // sw.js revalidation to ~once per 24h, which is what kept tablets pinned to
+          // their install-time build.
           registration.update().catch(() => {
             /* offline tablets simply keep the current worker */
           });
@@ -175,11 +175,10 @@ export function WorkerShell({ children }: { children: ReactNode }) {
     () => !user.must_change_password);
   }, [user, farmId, t]);
 
-  // Session gates: mirror the app shell's, aimed at the worker surface.
-  // PIN-only workers hold no password, so a signed-out session belongs on the
-  // PIN pad (/worker/login), not the manager's email/password form — the
-  // board page has the same gate; both must point the same way
-  // (2026-09-28 audit, W1).
+  // Session gates: mirror the app shell's, aimed at the worker surface. PIN-only
+  // workers hold no password, so a signed-out session belongs on the PIN pad
+  // (/worker/login), not the manager's email/password form — the board page has the
+  // same gate; both must point the same way.
   useEffect(() => {
     if (loading) return;
     if (user === null && pathname !== "/worker/login" && pathname !== "/worker/offline") {
@@ -423,10 +422,10 @@ export function WorkerShell({ children }: { children: ReactNode }) {
             )}
             {reviewCount > 0 && <span className="rounded-full border border-destructive/40 px-3 py-1 text-sm text-destructive">{t("worker.receipts.reviewCount", { count: reviewCount })}</span>}
             {/* h-11: the worker surface's ≥44px touch floor — the default
-             * h-9 left End shift at 36px (2026-09-28 audit, W9). A non-empty
+             * h-9 left End shift at 36px. A non-empty
              * queue routes through the confirm dialog: the badge promised
              * "will send when online", so silently discarding those writes
-             * on handover must be an explicit choice (2026-09-29 audit, M2). */}
+             * on handover must be an explicit choice. */}
             <Button
               variant="destructive"
               className="h-11"

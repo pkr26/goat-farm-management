@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fail-closed restore floor (INFRA-3, corrected 2026-09-17).
+# Fail-closed restore floor.
 #
 # Alembic revision ids are random hex: their lexicographic order has NO
 # relation to migration chain order, so a revision "floor" must be decided by

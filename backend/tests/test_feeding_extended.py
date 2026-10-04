@@ -3074,12 +3074,9 @@ async def test_full_feeding_day_flow(client: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 # — an explicit ₹0/kg restock is a real price, not "no price"
 # ---------------------------------------------------------------------------
-# add_feed_stock used `if price_per_kg:`, dropping an explicit 0: no ₹0
-# expense was booked and last_purchase_price_per_kg kept its stale value —
-# inconsistent with create_purchase_batch's careful explicit-₹0 handling.
-# Service-level test: the endpoint schema (StockAddIn.price_per_kg is a
-# PositiveFloat) currently rejects ₹0 with a 422, so the fixed branch is
-# exercised by calling the service the way a loosened schema would.
+# An explicit zero price must book a zero expense and replace the inventory's
+# previous price. Verify the service directly so caller-side validation cannot
+# conceal a truthiness check that mistakes zero for an omitted price.
 async def test_add_stock_zero_price_books_zero_expense(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     item = await inv_item(client, headers, MINERAL)

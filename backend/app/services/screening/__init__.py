@@ -60,7 +60,6 @@ from .s3 import (
     ScreeningObjectTooLargeError,
     ScreeningStorage,
     ScreeningStorageError,
-    get_screening_storage,
     storage_for_settings,
 )
 from .specialists import (
@@ -118,7 +117,6 @@ __all__ = [
     "VisionProvider",
     "build_provider_rotation",
     "crop_image",
-    "get_screening_storage",
     "normalize_image",
     "normalized_derivative_key",
     "parse_detection_response",

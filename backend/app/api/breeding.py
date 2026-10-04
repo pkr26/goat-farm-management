@@ -326,10 +326,9 @@ async def create_breeding(
             )
             br_id = br.id
         except BreedingChronologyError as exc:
-            # A service dated before a participant's recorded birth/purchase
-            # is a deterministic chronology fact about the request — 422 like
-            # every other chronology fence, not a raced lifecycle conflict
-            # (2026-10-01 audit, 02-6).
+            # A service dated before a participant's recorded birth/purchase is a deterministic
+            # chronology fact about the request — 422 like every other chronology fence, not a raced
+            # lifecycle conflict.
             await db.rollback()
             raise HTTPException(status_code=422, detail=str(exc)) from None
         except ValueError as exc:

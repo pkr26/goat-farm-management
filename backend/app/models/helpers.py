@@ -157,7 +157,7 @@ def no_control_characters(value: str) -> str:
     terminal-escape/confusable-value attacks, so reject the whole Cc class
     here on top of the tab/LF/CR case. Bidirectional overrides/isolates and
     the Unicode line separators pass the Cc test yet visually reorder or
-    split identifiers (2026-09-16 audit INJ-4) — ``FORBIDDEN_TEXT_CHARS``
+    split identifiers — ``FORBIDDEN_TEXT_CHARS``
     rejects those too.
     """
     if any(

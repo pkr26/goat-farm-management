@@ -1,4 +1,4 @@
-"""Notification delivery providers (ITEM 4, 2026-09-21 playbook).
+"""Notification delivery providers.
 
 One seam, two implementations today: a console/log provider (dev and the
 default when notifications are enabled without MSG91 outside production) and
@@ -62,9 +62,8 @@ class ConsoleNotificationProvider:
     name = "console"
 
     async def send_sms(self, phone: str, message: str) -> DeliveryResult:
-        # Dev sink: the message text is the point of the console provider, but
-        # the recipient's number is PII and stays redacted even here
-        # (2026-09-28 audit, N4 — the df4951c PII-log cleanup missed this sink).
+        # Dev sink: the message text is the point of the console provider, but the recipient's
+        # number is PII and stays redacted even here.
         logger.info("notification (console) to=%s text=%r", redact_phone_numbers(phone), message)
         return DeliveryResult(ok=True, message_id="console")
 

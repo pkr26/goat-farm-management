@@ -1,0 +1,34 @@
+/** Permission loading remains pending until a farm has been selected. */
+
+import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { describe, expect, it, vi } from "vitest";
+
+import { usePermissions } from "./use-permissions";
+
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: () => ({ farmId: null }),
+}));
+
+function Probe() {
+  const perms = usePermissions();
+  return <span data-testid="loading">{String(perms.loading)}</span>;
+}
+
+describe("usePermissions — contracts", () => {
+  it("stays in loading while the auth bootstrap has not produced a farm", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Probe />
+      </QueryClientProvider>,
+    );
+
+    // The permissions query is disabled with farmId null, and a disabled
+    // query's isLoading is false — only the explicit farmId check keeps
+    // pages from flashing a false "no access" verdict here.
+    expect(screen.getByTestId("loading")).toHaveTextContent("true");
+  });
+});

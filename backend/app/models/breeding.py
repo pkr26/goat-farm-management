@@ -170,14 +170,13 @@ class BreedingRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # ITEM 9 (2026-09-21 playbook): closes the backdating blind spot — same-day
-    # entry and a backdated record are now distinguishable.
+    # closes the backdating blind spot — same-day entry and a backdated record are now
+    # distinguishable.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
-    # doe_id single dropped (2026-09-28 audit index hygiene):
-    # ix_breeding_records_doe_date_id leads with doe_id and serves every
+    # doe_id single dropped: ix_breeding_records_doe_date_id leads with doe_id and serves every
     # per-doe history probe plus the animals-FK enforcement scan.
     doe_id: Mapped[int] = mapped_column(ForeignKey("animals.id"))
     # Herd sire for NATURAL service. NULL is legal only for AI methods, where
@@ -240,8 +239,8 @@ class KiddingRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # ITEM 9 (2026-09-21 playbook): closes the backdating blind spot — same-day
-    # entry and a backdated record are now distinguishable.
+    # closes the backdating blind spot — same-day entry and a backdated record are now
+    # distinguishable.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
@@ -321,8 +320,8 @@ class KidEntry(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # ITEM 9 (2026-09-21 playbook): closes the backdating blind spot — same-day
-    # entry and a backdated record are now distinguishable.
+    # closes the backdating blind spot — same-day entry and a backdated record are now
+    # distinguishable.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )

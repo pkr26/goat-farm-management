@@ -121,14 +121,13 @@ const sexItems = (language: "en" | "te"): Record<string, string> => ({
   [AnimalCreateInSex.F]: enumLabel("sex", "F", language),
   [AnimalCreateInSex.M]: enumLabel("sex", "M", language),
 });
-// 2026-09-17 audit (M-12): the ALL sentinel labels were hardcoded English;
-// the caller passes the localized label (the closed trigger shows it via the
-// `items` map, so it must be translated here too, not just in the menu).
+// the ALL sentinel labels were hardcoded English; the caller
+// passes the localized label (the closed trigger shows it via the `items` map, so it
+// must be translated here too, not just in the menu).
 const sexFilterItems = (language: "en" | "te", allLabel: string): Record<string, string> => ({
   [ALL]: allLabel,
   ...sexItems(language),
 });
-// Stryker disable next-line ObjectLiteral, StringLiteral: cva resolves variant "default" to the same classes as the fallback, and the sm size only changes padding classes no test observes (duties record-row precedent)
 const ROW_ACTION_CLASSES = buttonVariants({ variant: "default", size: "sm" });
 
 const statusFilterItems = (language: "en" | "te", allLabel: string): Record<string, string> => ({
@@ -158,7 +157,6 @@ const vocabularyNouns = (vocabulary: FarmVocabulary): AnimalNouns => ({
 
 const optNum = (schema: z.ZodNumber) =>
   z.preprocess(
-    // Stryker disable next-line ConditionalExpression: registered number inputs only ever yield "" or a numeric string — null/undefined never arrive, and the blank arm is pinned by the form campaign tests
   (v) => (v === "" || v === null || v === undefined ? undefined : Number(v)),
     schema.optional(),
   );
@@ -195,7 +193,6 @@ export const createAnimalSchema = (
 ) =>
   z
   .object({
-    // Stryker disable next-line StringLiteral: z.string() already accepts "" (length 0 is within max), so the .or(z.literal("")) arm is a readability hint, not a distinct acceptance
     tag_number: z.string().max(MAX_ANIMAL_TAG_LENGTH).optional().or(z.literal("")),
     name: z.string().max(80).optional(),
     sex: z.enum([AnimalCreateInSex.M, AnimalCreateInSex.F]),
@@ -261,10 +258,10 @@ export const createAnimalSchema = (
       .string()
       .optional()
       .refine((value) => !value || value <= farmToday(), t("animals.validation.dateFuture")),
-    // Keep the resolver output total before the BORN-only audit requirement
-    // below. Programmatic/legacy form submissions may omit this optional
-    // input, but validation should still follow the normal issue path rather
-    // than relying on an undefined-safe string operation.
+    // Keep the resolver output total before the BORN-only audit requirement below.
+    // Programmatic/legacy form submissions may omit this optional input, but validation
+    // should still follow the normal issue path rather than relying on an
+    // undefined-safe string operation.
     historical_import_reason: z.string().max(255).optional().default(""),
     notes: z
       .string()
@@ -327,7 +324,6 @@ export const createAnimalSchema = (
       });
     } else {
       const ageMonths = completedMonths(recordedDob, farmToday());
-      // Stryker disable next-line ConditionalExpression: the null arm falls through to `null < minimumAge` (null coerces to 0, below the 10/12-month goat minimums), which adds the very same issue
       if (ageMonths === null || ageMonths < minimumAge) {
         ctx.addIssue({
           code: "custom",
@@ -353,13 +349,11 @@ type CreateValues = z.output<ReturnType<typeof createAnimalSchema>>;
 const emptyToNull = (v: string | undefined) => (v ? v : null);
 
 function pageFromSearchParams(searchParams: URLSearchParams): number {
-  // Stryker disable next-line StringLiteral: the fallback only feeds the strict ^(0|[1-9]\d*)$ grammar, which rejects arbitrary text exactly as it rejects "" — both spellings land on the page-1 return
   const raw = searchParams.get("page") ?? "";
   // Strict grammar (the tasks board's): Number() accepts JS exotics like
   // "0x10" and "1e2" that then jump deep into the register.
   if (!/^(0|[1-9]\d*)$/.test(raw)) return 1;
   const parsed = Number(raw);
-  // Stryker disable next-line EqualityOperator: parsed === 1 takes the same Math.min branch and the else arm also yields 1, so >= and > agree on every input
   return parsed >= 1 ? Math.min(parsed, MAX_PAGE) : 1;
 }
 
@@ -409,7 +403,6 @@ function animalListUrl({
   setFilter("bucket", bucket, ALL);
   setFilter("sex", sex, ALL);
   setFilter("status", status, ALL);
-  // Stryker disable next-line MethodExpression: every caller (the debounce timer, changeFilter, the clamp effect) passes an already-trimmed q, so the re-trim is a no-op
   setFilter("q", q.trim(), "");
   // `page` is the canonical browser state; the API offset is derived from it.
   params.delete("offset");
@@ -428,7 +421,6 @@ function CreateAnimalDialog({
   onCreated,
   isOwner,
   canManagePurchases,
-  // Stryker disable next-line BooleanLiteral: the sole call site passes an explicit boolean (openFromUrl), so this parameter default never evaluates
   startOpen = false,
 }: {
   onCreated: () => void;
@@ -455,10 +447,8 @@ function CreateAnimalDialog({
             maleAdult: t("simulation.token.buck"),
             femaleAdult: t("simulation.token.doe"),
           },
-    // Stryker disable next-line ArrayDeclaration: farmVocabulary is a module constant, so the dep list can never go stale
     [language, t, vocabulary],
   );
-  // Stryker disable next-line ArrayDeclaration: the schema rebuilds exactly when the language or a noun changes — the inputs are the dep list
   const schema = useMemo(() => createAnimalSchema(t, vocabulary, nouns), [t, vocabulary, nouns]);
   const {
     register,
@@ -506,7 +496,6 @@ function CreateAnimalDialog({
     no: t("common.no"),
   };
 
-  // Stryker disable ConditionalExpression, ObjectLiteral, BooleanLiteral: the payload mapper independently forces QUARANTINE for PURCHASED and honors the operator's choice for BORN (pinned by the campaign payload tests); this preset only prefills the select, and shouldValidate never surfaces a different error state for enum values
   useEffect(() => {
     if (source === AnimalCreateInSource.PURCHASED) {
       setValue("current_bucket", AnimalCreateInCurrentBucket.QUARANTINE, {
@@ -514,15 +503,12 @@ function CreateAnimalDialog({
       });
     }
   }, [setValue, source]);
-  // Stryker restore ConditionalExpression, ObjectLiteral, BooleanLiteral
 
-  // Stryker disable ConditionalExpression, BlockStatement, BooleanLiteral, EqualityOperator, StringLiteral, ArrayDeclaration, CallExpression, ObjectLiteral: the BORN option renders for owners only, so a non-owner's source can never read BORN — the reset (and this whole effect body) is unreachable defense-in-depth
   useEffect(() => {
     if (!isOwner && source === AnimalCreateInSource.BORN) {
       setValue("source", AnimalCreateInSource.PURCHASED, { shouldValidate: true });
     }
   }, [isOwner, setValue, source]);
-  // Stryker restore ConditionalExpression, BlockStatement, BooleanLiteral, EqualityOperator, StringLiteral, ArrayDeclaration, CallExpression
 
   async function onSubmit(values: CreateValues) {
     await createFlight.run(async () => {
@@ -530,18 +516,14 @@ function CreateAnimalDialog({
       try {
         await createMut.mutateAsync({
           data: {
-            // Stryker disable next-line OptionalChaining: the input is registered unconditionally, so the value is a string, never undefined
             tag_number: values.tag_number?.trim() || undefined,
-            // Stryker disable next-line OptionalChaining: the input is registered unconditionally, so the value is a string, never undefined
             name: values.name?.trim() || null,
             sex: values.sex,
             source: values.source,
             current_bucket:
-              // Stryker disable next-line ConditionalExpression: the purchased branch renders a read-only Quarantine input and the preset effect already forces the value, so values.current_bucket is always QUARANTINE when source is PURCHASED
               values.source === AnimalCreateInSource.PURCHASED
                 ? AnimalCreateInCurrentBucket.QUARANTINE
                 : (values.current_bucket as AnimalCreateInCurrentBucket),
-            // Stryker disable next-line OptionalChaining: the input is registered unconditionally, so the value is a string, never undefined
             breed: values.breed?.trim() || vocabulary.defaultBreed,
             // Only sent when the operator actually recorded them: a backend
             // that predates the phenotype contract would 422 the unknown keys.
@@ -560,10 +542,8 @@ function CreateAnimalDialog({
             seller_name: values.seller_name?.trim() || null,
             weight_kg: values.weight_kg ?? null,
             weight_date: emptyToNull(values.weight_date),
-            // Stryker disable next-line OptionalChaining: the input is registered unconditionally, so the value is a string, never undefined
             notes: values.notes?.trim() || null,
             historical_import_reason:
-              // Stryker disable next-line ConditionalExpression: the resolver's .default("") gives every submission a string, so the mutant's PURCHASED arm reads "" and still maps to null — identical wire value (the BORN test pins the reason text)
               values.source === AnimalCreateInSource.BORN
                 ? values.historical_import_reason.trim() || null
                 : null,
@@ -574,7 +554,6 @@ function CreateAnimalDialog({
         // means this continuation belongs to the previous farm's UI.
         if (!farmScope()) return;
         toast.success(t("animals.toast.added"));
-        // Stryker disable next-line CallExpression: shouldUnregister:true drops every field value when Radix unmounts the closed dialog's inputs, so the explicit reset is redundant with the remount defaults (pinned by the reopen-blank test)
         reset();
         setOpen(false);
         onCreated();
@@ -589,11 +568,8 @@ function CreateAnimalDialog({
     });
   }
 
-  // Stryker disable next-line ConditionalExpression: the purchased branch renders a read-only Quarantine input, so currentBucket can never read BREEDING while source is PURCHASED — the first conjunct never decides anything
   const showBreedingEntryHint = source === AnimalCreateInSource.BORN && currentBucket === AnimalCreateInCurrentBucket.BREEDING;
 
-  // Stryker disable next-line LogicalOperator, ConditionalExpression: isSubmitting and createFlight.pending only diverge inside the async-resolver microtask before createFlight.run starts — a window every test asserts across, so ||/&& and either operand pinned to a constant are observationally identical for the cancel control (the submit button's label condition pins the pair)
-  // Stryker disable next-line LogicalOperator: isSubmitting and createFlight.pending only diverge inside the async-resolver microtask before createFlight.run starts — a window every test asserts across, so || and && are observationally identical for the cancel control (the submit button's label condition pins the pair)
   const cancelBusy = isSubmitting || createFlight.pending;
 
   return (
@@ -896,7 +872,6 @@ function CreateAnimalDialog({
                     name="birth_type"
                     render={({ field }) => (
                       <Select
-                        // Stryker disable next-line LogicalOperator: hand-proven equivalent — Base UI normalizes the set-value "" (mutant arm) through its internal selection state, so the trigger label and popup indicator are identical; the RHF value itself never passes through this display prop
                         value={field.value ?? ""}
                         onValueChange={field.onChange}
                         items={birthTypeItems(language)}
@@ -1042,7 +1017,6 @@ function CreateAnimalDialog({
               variant="outline"
               disabled={cancelBusy}
               onClick={() => {
-                // Stryker disable next-line CallExpression: same shouldUnregister/unmount equivalence as the success-path reset — closing the dialog already clears field state
                 reset();
                 setOpen(false);
               }}
@@ -1070,8 +1044,8 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
   /** value → label map for the bucket filter Select root, with the raw
    * code as the value. */
   const { language } = useLanguage();
-  // 2026-09-17 audit (M-12): page chrome (header, filter sentinels, search
-  // placeholder, empty states) renders through the catalog now.
+  // page chrome (header, filter sentinels, search placeholder,
+  // empty states) renders through the catalog now.
   const t = useT();
   const bucketFilterItems = useMemo(() => {
     const entries = Object.values(ListAnimalsApiAnimalsGetBucket).map((b) => [
@@ -1109,9 +1083,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
     column: SortColumn;
     direction: "asc" | "desc";
   } | null>(null);
-  // Stryker disable next-line BooleanLiteral: the isFetching effect clears the flag before any interaction can observe it, and changePage's isFetching disjunct guards the very first fetch regardless
   const pageNavigationPending = useRef(false);
-  // Stryker disable ArrayDeclaration: the callback reads and writes refs only, so a constant dep list cannot change its behavior
   const recordComponentNavigation = useCallback((url: string) => {
     // Next 16 gives a newly dispatched navigation priority over the currently
     // pending one — but on a slow device the older navigation's commit can
@@ -1134,7 +1106,6 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
       urlQ: (new URLSearchParams(key).get("q") ?? "").trim(),
     });
   }, []);
-  // Stryker restore ArrayDeclaration
   const replaceListUrl = useCallback(
     (url: string) => {
       // Next will not commit a same-URL replace. Recording one would leave a
@@ -1194,16 +1165,13 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
         matchedSeq = seq;
       }
     }
-    // Stryker disable next-line ConditionalExpression: pending.get(undefined) is undefined anyway, so the undefined guard decides nothing
     const matched = matchedSeq === undefined ? undefined : pending.get(matchedSeq);
     // The input holds text this committing URL does not describe, so the
     // operator has typed since it was dispatched. Preserve their edit and let
     // its debounce issue the next URL; external/history navigations (no match)
     // still rehydrate the input normally.
     const hasNewerSearchEdit = matched !== undefined && q.trim() !== matched.urlQ;
-    // Stryker disable next-line ConditionalExpression, EqualityOperator: the only reader clears at most an empty map when the operand is pinned or the comparison widened — a no-op
     const hasUnmatchedPending = pending.size > 0;
-    // Stryker disable next-line ConditionalExpression: with no match the loop below deletes nothing that the pending.clear() in the else-if does not delete the same render
     if (matchedSeq !== undefined) {
       // Consume the matched dispatch plus everything dispatched before it:
       // Next has discarded those, and a lingering entry would make a later
@@ -1216,7 +1184,6 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
     } else {
       // A URL that was not initiated by this list is browser/app
       // navigation and remains authoritative.
-      // Stryker disable next-line ConditionalExpression, EqualityOperator: clearing an empty map is a no-op, so >= 0 and a pinned-true operand differ only by clearing nothing
       if (hasUnmatchedPending) {
         pending.clear();
       }
@@ -1280,8 +1247,6 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
       // Keep stale list rows non-interactive until Next has committed the URL
       // replacement. Otherwise a quick row click can race this replacement
       // and be sent back from /animals/:id to the list query.
-      // Stryker disable next-line CallExpression: this branch only runs when the trimmed term differs from the committed URL's q, so replaceListUrl always takes its record+raise arm and re-raises this very guard one statement later
-      // Stryker disable next-line CallExpression, BooleanLiteral: this branch only runs when the trimmed term differs from the committed URL's q, so replaceListUrl always takes its record+raise arm one statement later — skipping the call or lowering it to false cannot change the settled guard
       setSearchNavigationPending(true);
       setPage(1);
       const url = animalListUrl({
@@ -1307,7 +1272,6 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
     limit: PAGE_SIZE,
     offset: (page - 1) * PAGE_SIZE,
   };
-  // Stryker disable next-line ObjectLiteral: PermissionGate refuses to mount this page without animals.view, so `allowed` is always true by the time this hook runs
   const query = useListAnimalsApiAnimalsGet(params, { query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
   const searchPending = q.trim() !== debouncedQ || searchNavigationPending;
@@ -1317,11 +1281,9 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
   /** Distinguishes "herd is empty" (offer the first entry) from "filters
    * exclude everything" (offer to clear them). */
   const filtersActive =
-    // Stryker disable next-line MethodExpression: debouncedQ is written already-trimmed by every writer (URL hydration, the debounce timer, changeFilter), so the re-trim is a no-op
     bucket !== ALL || sex !== ALL || status !== ALL || debouncedQ.trim() !== "";
 
   useEffect(() => {
-    // Stryker disable next-line ConditionalExpression: changePage also guards on query.isFetching, so clearing the ref while a fetch is still in flight cannot enable a second navigation
     if (!query.isFetching) pageNavigationPending.current = false;
   }, [page, query.isFetching]);
 
@@ -1343,7 +1305,6 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
         page: totalPages,
       }),
     );
-    // Stryker disable next-line ArrowFunction: the 0ms timer can only re-fire setPage(totalPages); by then page either already equals totalPages (React bails on the same value) or the page is unmounted (a React 18 no-op)
     return () => window.clearTimeout(handle);
   }, [
     bucket,
@@ -1377,19 +1338,12 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
    * params one render later (hand-mutation of any setter passes the
    * clear-filters request test through that re-sync). */
   function clearFilters() {
-    // Stryker disable next-line CallExpression
     setBucket(ALL);
-    // Stryker disable next-line CallExpression
     setSex(ALL);
-    // Stryker disable next-line CallExpression
     setStatus(ALL);
-    // Stryker disable next-line CallExpression
     setQ("");
-    // Stryker disable next-line CallExpression
     setDebouncedQ("");
-    // Stryker disable next-line CallExpression
     setPage(1);
-    // Stryker disable next-line ObjectLiteral: the mutant crashes replaceListUrl with a TypeError before any observable behavior; the runner dies with it (RuntimeError attribution) rather than recording a test failure
     const clearedUrlArgs = {
       pathname,
       paramsKey,
@@ -1399,7 +1353,6 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
       q: "",
       page: 1,
     };
-    // Stryker disable next-line CallExpression: a skipped URL write self-heals through the 300ms search debounce, which re-dispatches the same cleared URL; only the transient browser-history window differs
     replaceListUrl(animalListUrl(clearedUrlArgs));
   }
 
@@ -1407,9 +1360,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
     if (
       pageNavigationPending.current ||
       query.isFetching ||
-      // Stryker disable next-line ConditionalExpression: PaginationControls clamps to the real range before invoking this, so the lower bound is defense-in-depth
       nextPage < 1 ||
-      // Stryker disable next-line ConditionalExpression: PaginationControls clamps to the real range before invoking this, so the upper bound is defense-in-depth
       nextPage > totalPages
     ) {
       return;
@@ -1459,23 +1410,19 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
         : { column: column as SortColumn, direction: "asc" },
     );
   };
-  // Stryker disable next-line ArrayDeclaration: payload is undefined only while the loading state hides the table, so the fallback array is never rendered
   const listedAnimals = payload?.animals ?? [];
   const sortedAnimals = sort
     ? [...listedAnimals].sort((a, b) => {
         const dir = sort.direction === "asc" ? 1 : -1;
         if (sort.column === "tag") {
-          // Explicit locale: the host-locale collation made the same tag set
-          // sort differently on a Telugu tablet and an English desktop; tags
-          // are the backend's "G-XXXXX" scheme, so pin "en"
-          // (2026-10-01 audit, 05-5).
+          // Explicit locale: the host-locale collation made the same tag set sort
+          // differently on a Telugu tablet and an English desktop; tags are the
+          // backend's "G-XXXXX" scheme, so pin "en".
           return a.tag_number.localeCompare(b.tag_number, "en") * dir;
         }
         if (sort.column === "age") {
-          // Stryker disable next-line ArithmeticOperator: dir is always ±1, and x*±1 === x/±1 for every number
           return ((a.age_months ?? -1) - (b.age_months ?? -1)) * dir;
         }
-        // Stryker disable next-line ArithmeticOperator: dir is always ±1, and x*±1 === x/±1 for every number
         return ((a.latest_weight_kg ?? -1) - (b.latest_weight_kg ?? -1)) * dir;
       })
     : listedAnimals;
@@ -1737,8 +1684,8 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function AnimalsPage() {
   const perms = usePermissions();
-  // M-12 (2026-09-17 audit): the gate's label/description mirror the page
-  // header, so they resolve through the same catalog keys.
+  // M-12: the gate's label/description mirror the page header, so they resolve through
+  // the same catalog keys.
   const t = useT();
   return (
     <Suspense

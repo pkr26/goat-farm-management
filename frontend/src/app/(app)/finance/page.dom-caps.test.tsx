@@ -1,7 +1,6 @@
 /**
- * Finance ledger DOM caps (2026-10-01 campaign follow-up): the correction
- * dialog's notes and reason and the new-transaction notes are all bounded
- * at 255 characters in the DOM.
+ * Finance ledger DOM caps: the correction dialog's notes and reason and the
+ * new-transaction notes are all bounded at 255 characters in the DOM.
  */
 
 import { screen, within } from "@testing-library/react";

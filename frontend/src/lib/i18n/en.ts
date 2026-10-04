@@ -1,7 +1,3 @@
-// Stryker disable all: this file is a translation data table; its keys are
-// verified by the catalog parity tests and per-key usage assertions, not by
-// per-string mutation (mutating every sentence would only measure whether
-// each literal is asserted verbatim somewhere).
 /**
  * English message catalog — the source of truth for every key the wired
  * surfaces use. `te.ts` is typed against this map (Partial), so a Telugu
@@ -38,11 +34,10 @@ const en = {
   "common.none": "— none —",
   "common.language": "Language",
   "common.somethingWentWrong": "Something went wrong",
-  // Weight unit token: every "N kg" suffix resolves through here so the unit
-  // localizes with the rest of the sentence (2026-10-01 audit, 05-3).
+  // Weight unit token: every "N kg" suffix resolves through here so the unit localizes
+  // with the rest of the sentence.
   "common.kg": "{value} kg",
-  // Farm-type chip on the farm cards and the switcher (was the English-only
-  // farmTypeLabel constant, 2026-10-01 audit, 05-3).
+  // Farm-type chip on the farm cards and the switcher.
   "common.farmType": "Goat farm",
 
   // ---------- route-state boundaries (error / 404 / loading) ----------
@@ -406,9 +401,9 @@ const en = {
   // ---------- app shell ----------
   "shell.skipToContent": "Skip to content",
   "shell.tagline": "Goat farm management",
-  // Brand-link fallback: with no permitted module (or while permissions are
-  // unknown) the link still goes somewhere safe, but its accessible label
-  // must not promise a page (2026-10-01 audit, 05-3).
+  // Brand-link fallback: with no permitted module (or while permissions are unknown)
+  // the link still goes somewhere safe, but its accessible label must not promise a
+  // page.
   "shell.brandLinkFallback": "access status",
   "shell.passwordChangeNotice":
     "This password was set by the farm owner — change it (Account → Change password) before continuing. Farm pages and actions stay blocked until you do.",
@@ -477,8 +472,7 @@ const en = {
   "health.form.reviewedExplainer":
     "Confirming records only the reviewed IDs. An animal that joins an unlinked scope afterward is not silently added; if a reviewed animal leaves the scope (or a linked batch no longer matches exactly), the server rejects the write and requires a fresh review.",
   "health.form.reviewedListLabel": "Reviewed target animals",
-  // Age line in the bulk-review target list (was a hardcoded "N mo",
-  // 2026-10-01 audit, 05-3).
+  // Age line in the bulk-review target list.
   "health.form.reviewedAgeMonths": "{count} mo",
   "health.form.reviewedEmptyTitle": "No active animals are in this reviewed target.",
   "health.form.reviewedEmptyDescription":
@@ -506,9 +500,8 @@ const en = {
   "health.form.dutyNotDue":
     "Duty #{id} is not due until {date} — the server rejects an event dated before then.",
   "health.form.linkedDutyLabel": "Linked duty",
-  // Option label suffix for a duty that is not due yet (was hardcoded
-  // "(due …)" English in the select and its closed trigger, 2026-10-01
-  // audit, 05-3).
+  // Option label suffix for a duty that is not due yet (was hardcoded "(due …)" English
+  // in the select and its closed trigger, shared tablet setup).
   "health.form.taskDueSuffix": "(due {date})",
   "health.form.advancedTitle": "Advanced traceability & compliance",
   "health.form.advancedIntro":
@@ -584,7 +577,7 @@ const en = {
   "health.schedule.pickerTitle": "Choose an animal schedule",
   "health.schedule.view": "View",
   // ---------- per-animal vaccination schedule page (/health/schedule/[id]) ----------
-  // 2026-09-17 audit (M-12): this page rendered zero t() calls; every visible
+  // this page rendered zero t() calls; every visible
   // string moved under health.schedule.* (the column labels double as the
   // below-md card captions).
   "health.schedule.pageTitle": "Vaccination schedule",
@@ -619,8 +612,7 @@ const en = {
   "health.events.loadFailed": "Could not load health events.",
   "health.events.retry": "Retry health events",
   "health.log.lot": "Lot: {lot}",
-  // Target column of the event log for batch-/bucket-scoped events (was
-  // hardcoded "batch #N" / "bucket-wide" English, 2026-10-01 audit, 05-3).
+  // Target column of the event log for batch-/bucket-scoped events.
   "health.log.batchTarget": "batch #{id}",
   "health.log.bucketWide": "bucket-wide",
   "health.log.manufactured": "Manufactured: {date}",
@@ -683,7 +675,7 @@ const en = {
   "charts.distribution": "Distribution: {items}",
 
   // ---------- animals list page chrome ----------
-  // 2026-09-17 audit (M-12): the list page's header, filter sentinels, search
+  // the list page's header, filter sentinels, search
   // placeholder and empty states were hardcoded English.
   "animals.pageTitle": "Animals",
   "animals.pageDescription":
@@ -1750,12 +1742,11 @@ const en = {
   // ---------- /health/new redirect shim ----------
   "health.newRedirect": "Opening the health event form…",
 
-  // =====================================================================
-  // ITEM 5.1 Telugu completion (2026-09-21): five more surfaces — buckets
-  // board, feed inventory, feed recipes, insurance register and ops
-  // simulation. Every English value is byte-identical to the literal the
-  // page previously hardcoded (the default language and the page tests
-  // assert these strings); te.ts mirrors every key.
+  // ===================================================================== ITEM 5.1
+  // Telugu completion: five more surfaces — buckets board, feed inventory, feed
+  // recipes, insurance register and ops simulation. Every English value is
+  // byte-identical to the literal the page previously hardcoded (the default language
+  // and the page tests assert these strings); te.ts mirrors every key.
   // =====================================================================
 
   // ---------- buckets board ----------

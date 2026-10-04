@@ -33,10 +33,9 @@ import { mapServerError } from "@/lib/server-error-phrases";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
 
-/** The schema is rebuilt per language so inline validation messages follow
- * the worker's chosen language (the same pattern as the duty form). Exported
- * for direct schema-level testing. */
-export function makeLoginSchema(t: TFn) {
+/** Rebuild the schema per language so inline validation messages follow the
+ * worker's chosen language. */
+function makeLoginSchema(t: TFn) {
   return z.object({
     email: z
       .string()
@@ -47,10 +46,9 @@ export function makeLoginSchema(t: TFn) {
       .string()
       .min(1, t("auth.passwordRequired"))
       .max(128, t("auth.passwordTooLong")),
-    // Present only while a TOTP challenge is outstanding (2026-09-16):
-    // the server issued an mfa_token and expects the 6-digit code — or one
-    // of the account's single-use recovery codes (ITEM 7, 2026-09-21
-    // playbook: XXXXX-XXXXX, case-insensitive).
+    // Present only while a TOTP challenge is outstanding: the server issued an
+    // mfa_token and expects the 6-digit code — or one of the account's single-use
+    // recovery codes.
     totp: z
       .string()
       .trim()
@@ -70,7 +68,6 @@ function LoginPageContent() {
   const [forgotOpen, setForgotOpen] = useState(false);
   // Non-null while the password succeeded and a TOTP challenge is pending.
   const [mfaToken, setMfaToken] = useState<string | null>(null);
-  // Stryker disable next-line BooleanLiteral: the mount effect below overwrites the initial value before any continuation can observe it
   const mounted = useRef(true);
   const submission = useSingleFlight();
   const loginSchema = useMemo(() => makeLoginSchema(t), [t]);
@@ -81,14 +78,12 @@ function LoginPageContent() {
     formState: { errors, isSubmitting },
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) });
 
-  // Stryker disable ArrayDeclaration: a constant string dep never changes, so the effect still runs exactly once
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
-  // Stryker restore ArrayDeclaration
 
   /** Everything after a session exists (sign-in + navigation) — shared by
    * the password path and the TOTP challenge path. */
@@ -107,12 +102,10 @@ function LoginPageContent() {
       return;
     }
     try {
-      // Stryker disable StringLiteral: only read in permission-envelope's unreachable non-200 branch (fetchQuery rejects non-2xx first); this page's catch never surfaces it
       const permissions = await fetchSharedPermissions(
         queryClient,
         "Could not load permissions.",
       );
-      // Stryker restore StringLiteral
       if (!mounted.current || authSessionEpochValue() !== signedInEpoch) return;
       // A session-expiry deep link keeps its destination: the farm-switch
       // variant of the validator demotes record ids the new farm cannot
@@ -152,10 +145,10 @@ function LoginPageContent() {
           email: values.email,
           password: values.password,
         };
-        // LoginOut is the generated contract: either an mfa_token (second
-        // factor demanded, no session material) or a full session. Typing the
-        // response through the generated model means a backend rename breaks
-        // tsc here instead of failing at runtime (2026-09-17 re-audit).
+        // LoginOut is the generated contract: either an mfa_token (second factor
+        // demanded, no session material) or a full session. Typing the response through
+        // the generated model means a backend rename breaks tsc here instead of failing
+        // at runtime.
         const body = await apiFetch<LoginOut>(
           "/api/auth/login",
           { method: "POST", body: JSON.stringify(payload) },
@@ -175,7 +168,6 @@ function LoginPageContent() {
         }
         await continueSignedIn(body.access_token, body.user);
       } catch (err) {
-        // Stryker disable next-line ConditionalExpression: the only guarded statement is setServerError, a no-op on an unmounted component
         if (!mounted.current) return;
         // Surface the server's own message for every API error (429 rate
         // limit, 422 password policy, 5xx) — mapped through the language

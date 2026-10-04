@@ -1,9 +1,8 @@
 /**
- * App shell (client) — mutation-hardening suite for the surviving branches:
- * the route → document.title mapping (specific routes and the fallback),
- * the farm switcher's accessible name, the sidebar permissions-error retry,
- * nav labels, and the signed-out
- * loading gate that must not render the shell with a missing user.
+ * App shell (client) — regression suite for the surviving branches: the route →
+ * document.title mapping (specific routes and the fallback), the farm switcher's
+ * accessible name, the sidebar permissions-error retry, nav labels, and the
+ * signed-out loading gate that must not render the shell with a missing user.
  */
 
 import { screen, waitFor } from "@testing-library/react";

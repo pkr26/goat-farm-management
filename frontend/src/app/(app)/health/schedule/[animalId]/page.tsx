@@ -70,8 +70,8 @@ function dateOrDash(value: string | null): string {
 
 function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) {
   const { can } = perms;
-  // 2026-09-17 audit (M-12): this page bypassed the i18n layer entirely —
-  // every visible string now resolves through health.schedule.* keys.
+  // this page bypassed the i18n layer entirely — every visible
+  // string now resolves through health.schedule.* keys.
   const t = useT();
   const allowed = can("health.view");
   const canManage = can("health.manage");
@@ -266,8 +266,8 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
 
 export default function VaccinationSchedulePage() {
   const perms = usePermissions();
-  // Same M-12 fix (2026-09-17 audit): the boundary chrome must follow the
-  // worker's language too, not just the loaded content.
+  // Same M-12 fix: the boundary chrome must follow the worker's language too, not just
+  // the loaded content.
   const t = useT();
   return (
     <Suspense

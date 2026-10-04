@@ -9,21 +9,37 @@ venv/
 *.egg-info/
 scratch/
 
-# Mutation-testing harness: per-test coverage contexts DB is 193 MB and
-# regenerable (see MUTATION_TESTING_REPORT.md); campaign *.log files are
-# transient console output mirrored by results.jsonl.
-backend/mutation/*.log
-
 # Node / frontend
 node_modules/
 .next/
 out/
+build/
+*.tsbuildinfo
+
+# Generated test, coverage, and mutation outputs
 coverage/
-.coverage
-.coverage-mut
+htmlcov/
+.coverage*
 coverage.xml
 playwright-report/
 test-results/
+backend/mutation/*.log
+backend/mutation/manifest.json
+backend/mutation/results.jsonl
+backend/mutation/report.md
+backend/mutation/measurement-current.json
+backend/mutation/campaigns/
+backend/mutation/ci-*.json
+backend/mutation/verify_extremes.jsonl
+frontend/mutation/*.log
+frontend/mutation/manifest.json
+frontend/mutation/coverage-map.json
+frontend/mutation/results.jsonl
+frontend/mutation/report.md
+frontend/mutation/survivors.json
+frontend/mutation/measurement-current.json
+frontend/mutation/campaigns/
+frontend/mutation/ci-*.json
 
 # Data & secrets
 *.db
@@ -31,9 +47,8 @@ test-results/
 .env.*
 !.env.example
 backend/keys/
-# Default host directory of docker-compose.production.yml's file-delivered
-# app secrets (GOATFARM_APP_SECRET_DIR, 2026-10-01 audit, 09-1). Never commit
-# secret material; deployments should point the variable outside the checkout.
+# Production Compose's default host directory for file-delivered secrets.
+# Deployments should keep secret material outside the checkout.
 secrets/
 backups/
 *.dump
@@ -46,4 +61,3 @@ backups/
 .idea/
 .vscode/
 .zcode/
-backend/mutation/verify_extremes.jsonl

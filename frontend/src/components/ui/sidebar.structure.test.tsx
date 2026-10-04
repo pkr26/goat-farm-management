@@ -8,23 +8,14 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
-  SidebarInput,
   SidebarInset,
   SidebarMenu,
-  SidebarMenuAction,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarProvider,
-  SidebarRail,
-  SidebarSeparator,
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
@@ -340,66 +331,6 @@ describe("Sidebar", () => {
     expect(fixed).not.toHaveClass("group-data-[side=left]:border-r");
   });
 });
-
-describe("SidebarRail", () => {
-  it("toggles the sidebar and carries the drag-affordance classes", () => {
-    const { container } = render(
-      <SidebarProvider defaultOpen>
-        <SidebarRail className="custom-rail" />
-        <Sidebar>panel</Sidebar>
-      </SidebarProvider>,
-    );
-
-    const rail = screen.getByRole("button", { name: "Toggle Sidebar" });
-    expect(rail).toHaveAttribute("data-slot", "sidebar-rail");
-    expect(rail).toHaveAttribute("data-sidebar", "rail");
-    expect(rail).toHaveAttribute("title", "Toggle Sidebar");
-    // Kept out of the tab order: it duplicates SidebarTrigger for pointer users.
-    expect(rail).toHaveAttribute("tabindex", "-1");
-    expect(rail).toHaveClass(
-      "absolute",
-      "inset-y-0",
-      "z-20",
-      "hidden",
-      "w-4",
-      "transition-all",
-      "ease-linear",
-      "group-data-[side=left]:-right-4",
-      "group-data-[side=right]:left-0",
-      "after:absolute",
-      "after:start-1/2",
-      "after:w-[2px]",
-      "hover:after:bg-sidebar-border",
-      "sm:flex",
-      "ltr:-translate-x-1/2",
-      "rtl:-translate-x-1/2",
-      "custom-rail",
-    );
-    expect(rail).toHaveClass(
-      "in-data-[side=left]:cursor-w-resize",
-      "in-data-[side=right]:cursor-e-resize",
-    );
-    expect(rail).toHaveClass(
-      "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize",
-      "[[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
-    );
-    expect(rail).toHaveClass(
-      "group-data-[collapsible=offcanvas]:translate-x-0",
-      "group-data-[collapsible=offcanvas]:after:left-full",
-      "hover:group-data-[collapsible=offcanvas]:bg-sidebar",
-    );
-    expect(rail).toHaveClass("[[data-side=left][data-collapsible=offcanvas]_&]:-right-2");
-    expect(rail).toHaveClass("[[data-side=right][data-collapsible=offcanvas]_&]:-left-2");
-
-    fireEvent.click(rail);
-
-    expect(container.querySelector('[data-slot="sidebar"]')).toHaveAttribute(
-      "data-state",
-      "collapsed",
-    );
-  });
-});
-
 describe("sidebar layout primitives", () => {
   it("renders the inset as the page main region", () => {
     render(<SidebarInset className="custom-inset">page body</SidebarInset>);
@@ -421,18 +352,6 @@ describe("sidebar layout primitives", () => {
     );
   });
 
-  it("overrides the shared Input surface for the sidebar input", () => {
-    render(<SidebarInput aria-label="Search the sidebar" />);
-
-    const input = screen.getByRole("textbox", { name: "Search the sidebar" });
-    expect(input).toHaveAttribute("data-slot", "sidebar-input");
-    expect(input).toHaveAttribute("data-sidebar", "input");
-    expect(input).toHaveClass("h-8", "w-full", "bg-background", "shadow-none");
-    // The sidebar input sits on the sidebar surface, not the transparent
-    // background the base Input uses inside forms.
-    expect(input).not.toHaveClass("bg-transparent");
-  });
-
   it("stacks the header and the footer with the same padded column", () => {
     const { container } = render(
       <>
@@ -448,19 +367,6 @@ describe("sidebar layout primitives", () => {
     const footer = container.querySelector('[data-slot="sidebar-footer"]');
     expect(footer).toHaveAttribute("data-sidebar", "footer");
     expect(footer).toHaveClass("flex", "flex-col", "gap-2", "p-2", "custom-footer");
-  });
-
-  it("insets the separator and paints it with the sidebar border colour", () => {
-    const { container } = render(<SidebarSeparator className="custom-separator" />);
-
-    const separator = container.querySelector('[data-slot="sidebar-separator"]');
-    expect(separator).toHaveAttribute("data-sidebar", "separator");
-    expect(separator).toHaveClass(
-      "mx-2",
-      "w-auto",
-      "bg-sidebar-border",
-      "custom-separator",
-    );
   });
 
   it("makes the content region a scrollable landmark", () => {
@@ -557,46 +463,6 @@ describe("SidebarGroupLabel", () => {
   });
 });
 
-describe("SidebarGroupAction", () => {
-  it("renders a pinned action button that forwards clicks", () => {
-    const onClick = vi.fn();
-    render(
-      <SidebarGroupAction className="custom-action" onClick={onClick}>
-        Add group
-      </SidebarGroupAction>,
-    );
-
-    const action = screen.getByRole("button", { name: "Add group" });
-    expect(action).toHaveAttribute("data-slot", "sidebar-group-action");
-    expect(action).toHaveAttribute("data-sidebar", "group-action");
-    expect(action).toHaveClass(
-      "absolute",
-      "top-3.5",
-      "right-3",
-      "flex",
-      "aspect-square",
-      "w-5",
-      "items-center",
-      "justify-center",
-      "rounded-md",
-      "p-0",
-      "text-sidebar-foreground",
-      "ring-sidebar-ring",
-      "outline-hidden",
-      "transition-transform",
-      "group-data-[collapsible=icon]:hidden",
-      "after:absolute",
-      "after:-inset-2",
-      "focus-visible:ring-2",
-      "md:after:hidden",
-      "custom-action",
-    );
-
-    fireEvent.click(action);
-
-    expect(onClick).toHaveBeenCalledOnce();
-  });
-});
 
 describe("SidebarMenuButton", () => {
   it("renders the default menu button contract", () => {
@@ -625,7 +491,6 @@ describe("SidebarMenuButton", () => {
       "ring-sidebar-ring",
       "outline-hidden",
       "transition-[width,height,padding]",
-      "group-has-data-[sidebar=menu-action]/menu-item:pr-8",
       "group-data-[collapsible=icon]:size-8!",
       "group-data-[collapsible=icon]:p-2!",
       "aria-disabled:pointer-events-none",
@@ -725,168 +590,5 @@ describe("SidebarMenuButton", () => {
     const tip = await screen.findByText("Feeding plan");
     expect(tip).toHaveAttribute("data-side", "left");
     expect(tip).toBeVisible();
-  });
-});
-
-describe("SidebarMenuAction", () => {
-  it("renders a pinned row action and reveals it on hover only when asked", () => {
-    const onClick = vi.fn();
-    render(
-      <>
-        <SidebarMenuAction onClick={onClick}>Row menu</SidebarMenuAction>
-        <SidebarMenuAction showOnHover>Hover menu</SidebarMenuAction>
-      </>,
-    );
-
-    const action = screen.getByRole("button", { name: "Row menu" });
-    expect(action).toHaveAttribute("data-slot", "sidebar-menu-action");
-    expect(action).toHaveAttribute("data-sidebar", "menu-action");
-    expect(action).toHaveClass(
-      "absolute",
-      "top-1.5",
-      "right-1",
-      "flex",
-      "aspect-square",
-      "w-5",
-      "items-center",
-      "justify-center",
-      "rounded-md",
-      "p-0",
-      "text-sidebar-foreground",
-      "transition-transform",
-      "group-data-[collapsible=icon]:hidden",
-      "peer-hover/menu-button:text-sidebar-accent-foreground",
-      "peer-data-[size=default]/menu-button:top-1.5",
-      "peer-data-[size=lg]/menu-button:top-2.5",
-      "peer-data-[size=sm]/menu-button:top-1",
-      "after:absolute",
-      "after:-inset-2",
-      "md:after:hidden",
-    );
-    expect(action).not.toHaveClass("md:opacity-0");
-
-    fireEvent.click(action);
-    expect(onClick).toHaveBeenCalledOnce();
-
-    expect(screen.getByRole("button", { name: "Hover menu" })).toHaveClass(
-      "group-focus-within/menu-item:opacity-100",
-      "group-hover/menu-item:opacity-100",
-      "peer-data-active/menu-button:text-sidebar-accent-foreground",
-      "aria-expanded:opacity-100",
-      "md:opacity-0",
-    );
-  });
-});
-
-describe("SidebarMenuBadge", () => {
-  it("renders a non-interactive count pinned to the menu row", () => {
-    const { container } = render(
-      <SidebarMenuBadge className="custom-badge">7</SidebarMenuBadge>,
-    );
-
-    const badge = container.querySelector('[data-slot="sidebar-menu-badge"]');
-    expect(badge).toHaveAttribute("data-sidebar", "menu-badge");
-    expect(badge).toHaveTextContent("7");
-    expect(badge).toHaveClass(
-      "pointer-events-none",
-      "absolute",
-      "right-1",
-      "flex",
-      "h-5",
-      "min-w-5",
-      "items-center",
-      "justify-center",
-      "rounded-md",
-      "px-1",
-      "text-xs",
-      "font-medium",
-      "text-sidebar-foreground",
-      "tabular-nums",
-      "select-none",
-      "group-data-[collapsible=icon]:hidden",
-      "peer-hover/menu-button:text-sidebar-accent-foreground",
-      "peer-data-active/menu-button:text-sidebar-accent-foreground",
-      "custom-badge",
-    );
-  });
-});
-
-describe("SidebarMenuSub", () => {
-  it("renders the nested list with its guide rail", () => {
-    const { container } = render(
-      <SidebarMenuSub className="custom-sub">
-        <SidebarMenuSubItem className="custom-sub-item">
-          <SidebarMenuSubButton href="/animals/1" isActive>
-            Doe 1
-          </SidebarMenuSubButton>
-        </SidebarMenuSubItem>
-      </SidebarMenuSub>,
-    );
-
-    const list = container.querySelector('[data-slot="sidebar-menu-sub"]');
-    expect(list).toHaveAttribute("data-sidebar", "menu-sub");
-    expect(list).toHaveClass(
-      "mx-3.5",
-      "flex",
-      "min-w-0",
-      "translate-x-px",
-      "flex-col",
-      "gap-1",
-      "border-l",
-      "border-sidebar-border",
-      "px-2.5",
-      "py-0.5",
-      "group-data-[collapsible=icon]:hidden",
-      "custom-sub",
-    );
-
-    const item = screen.getByRole("listitem");
-    expect(item).toHaveAttribute("data-slot", "sidebar-menu-sub-item");
-    expect(item).toHaveClass("group/menu-sub-item", "relative", "custom-sub-item");
-  });
-
-  it("renders sub buttons as links carrying their size and active state", () => {
-    render(
-      <>
-        <SidebarMenuSubButton href="/animals/1" isActive>
-          Doe 1
-        </SidebarMenuSubButton>
-        <SidebarMenuSubButton href="/animals/2" size="sm">
-          Doe 2
-        </SidebarMenuSubButton>
-      </>,
-    );
-
-    const active = screen.getByRole("link", { name: "Doe 1" });
-    expect(active.tagName).toBe("A");
-    expect(active).toHaveAttribute("href", "/animals/1");
-    expect(active).toHaveAttribute("data-slot", "sidebar-menu-sub-button");
-    expect(active).toHaveAttribute("data-sidebar", "menu-sub-button");
-    expect(active).toHaveAttribute("data-size", "md");
-    expect(active).toHaveAttribute("data-active", "");
-    expect(active).toHaveClass(
-      "flex",
-      "h-7",
-      "min-w-0",
-      "-translate-x-px",
-      "items-center",
-      "gap-2",
-      "overflow-hidden",
-      "rounded-md",
-      "px-2",
-      "text-sidebar-foreground",
-      "ring-sidebar-ring",
-      "outline-hidden",
-      "group-data-[collapsible=icon]:hidden",
-      "data-[size=md]:text-sm",
-      "data-[size=sm]:text-xs",
-      "data-active:bg-sidebar-accent",
-      "data-active:text-sidebar-accent-foreground",
-      "[&>span:last-child]:truncate",
-    );
-
-    const inactive = screen.getByRole("link", { name: "Doe 2" });
-    expect(inactive).toHaveAttribute("data-size", "sm");
-    expect(inactive).not.toHaveAttribute("data-active");
   });
 });

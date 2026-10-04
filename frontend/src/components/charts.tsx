@@ -13,9 +13,9 @@ import { cn } from "@/lib/utils";
 export interface DonutSlice {
   label: string;
   value: number;
-  // FE-6 (2026-09-16): no caller-supplied `color` — a raw string here flowed
-  // straight into `style={{background}}`/`stroke` under a CSP that allows
-  // inline styles. Palette assignment only.
+  // FE-6: no caller-supplied `color` — a raw string here flowed straight into
+  // `style={{background}}`/`stroke` under a CSP that allows inline styles. Palette
+  // assignment only.
 }
 
 /** Donut with a centered total. Slices under 0.4% are invisible-safe. */

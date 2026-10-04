@@ -1,11 +1,11 @@
 /**
- * AnimalsPage mutation-hardening — pins behaviour the other suites leave
- * open: the strict page-param grammar and enum validation of URL filters,
- * payload trimming of padded free-text, cleared optionals meaning "absent",
- * the create dialog's aria error contract, the in-flight Cancel lock,
- * client-side sorting with aria-sort, mobile card and desktop dash
- * fallbacks, per-filter empty states, the empty-herd CTA contract, error /
- * permissions retry wiring, and the full historical-import sentence.
+ * AnimalsPage regression — pins behaviour the other suites leave open: the strict
+ * page-param grammar and enum validation of URL filters, payload trimming of padded
+ * free-text, cleared optionals meaning "absent", the create dialog's aria error
+ * contract, the in-flight Cancel lock, client-side sorting with aria-sort, mobile
+ * card and desktop dash fallbacks, per-filter empty states, the empty-herd CTA
+ * contract, error / permissions retry wiring, and the full historical-import
+ * sentence.
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";

@@ -28,7 +28,7 @@ import hashlib
 import json
 import sys
 import textwrap
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -108,7 +108,6 @@ class Site:
     # extra data: for compare, which op position; for intconst, the delta
     op_pos: int = 0
     delta: int = 0
-    meta: dict[str, Any] = field(default_factory=dict)
 
 
 def module_tier(rel: str) -> int:
@@ -242,19 +241,6 @@ def collect_sites(tree: ast.AST, bad: set[int]) -> list[Site]:
     return sites
 
 
-def nodes_in_walk_order(tree: ast.AST) -> list[ast.AST]:
-    """Exactly ast.walk's order (BFS, deque) so site indices line up."""
-    from collections import deque
-
-    out: list[ast.AST] = []
-    todo = deque([tree])
-    while todo:
-        n = todo.popleft()
-        todo.extend(ast.iter_child_nodes(n))
-        out.append(n)
-    return out
-
-
 def set_child(parent: ast.AST, node: ast.AST, new: ast.AST) -> bool:
     for fname, value in ast.iter_fields(parent):
         if isinstance(value, list):
@@ -329,7 +315,7 @@ def generate() -> None:
         sites = collect_sites(tree, bad)
         if not sites:
             continue
-        all_nodes = nodes_in_walk_order(tree)
+        all_nodes = list(ast.walk(tree))
         for site in sites:
             node = all_nodes[site.node_index]
             if site.kind == "loopjump":
@@ -343,12 +329,12 @@ def generate() -> None:
                 if found is None:
                     continue
                 stmt = found
-                local_nodes = nodes_in_walk_order(stmt)
+                local_nodes = list(ast.walk(stmt))
                 if not any(n is node for n in local_nodes):
                     continue
                 li = next(i for i, n in enumerate(local_nodes) if n is node)
                 stmt_copy = copy.deepcopy(stmt)
-                copy_local = nodes_in_walk_order(stmt_copy)
+                copy_local = list(ast.walk(stmt_copy))
                 target = copy_local[li]
                 local_parents = build_parent_map(stmt_copy)
                 if not apply_site(target, site, local_parents):

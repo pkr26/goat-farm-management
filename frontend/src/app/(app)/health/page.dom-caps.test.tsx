@@ -1,9 +1,8 @@
 /**
- * Health event dialog DOM caps (2026-10-01 campaign follow-up): every
- * text input the schema bounds is capped in the DOM at its exact limit
- * (120/80/60), and the notes box is 2 rows. The schedule free-text pair
- * (template name, next-due authority) only renders for non-seeded types
- * with a next-due date, so that path is driven too.
+ * Health event dialog DOM caps: every text input the schema bounds is capped in the
+ * DOM at its exact limit (120/80/60), and the notes box is 2 rows. The schedule
+ * free-text pair (template name, next-due authority) only renders for non-seeded
+ * types with a next-due date, so that path is driven too.
  */
 
 import { screen, within } from "@testing-library/react";

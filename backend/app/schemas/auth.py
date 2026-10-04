@@ -79,8 +79,8 @@ class UserOut(BaseModel):
     name: str | None
     # True while an owner-provisioned password awaits its holder's rotation.
     must_change_password: bool = False
-    # TOTP second factor (2026-09-16): None = not enrolled, PENDING =
-    # enrollment started but never confirmed, ACTIVE = demanded at login.
+    # TOTP second factor None = not enrolled, PENDING = enrollment started but never confirmed,
+    # ACTIVE = demanded at login.
     totp_state: Literal["PENDING", "ACTIVE"] | None = None
 
 
@@ -153,8 +153,8 @@ class WorkerRosterOut(BaseModel):
     provisioned without a name is listed as "Worker <membership_id>", never
     their email."""
 
-    # Deliberate legacy name (2026-09-28 audit): domain-noun siblings use
-    # e.g. ``animals``, but ``items`` is locked into the wire contract.
+    # Deliberate legacy name: domain-noun siblings use e.g. ``animals``, but ``items`` is locked
+    # into the wire contract.
     items: list[WorkerRosterEntryOut]
     next_after_membership_id: int | None = None
 

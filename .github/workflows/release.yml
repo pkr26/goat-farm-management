@@ -337,23 +337,10 @@ jobs:
             edge-sbom-linux-arm64.spdx.json
           retention-days: 30
 
-      # ── Publish phase ──────────────────────────────────────────────────
-      # Only reached after every per-arch scan passed. RT-R-6 follow-up
-      # (2026-09-16 audit): the previous flow REBUILT multi-arch images for
-      # publish, so a cache miss or base-image republish between gate and
-      # publish could ship bits that were never scanned. Now each
-      # architecture is published exactly once to a per-arch tag, the pushed
-      # image's config digest is verified against the locally loaded,
-      # gate-scanned image, and only after that verification are the two
-      # per-arch manifests (with their provenance/SBOM attestations)
-      # assembled into the release tag with `buildx imagetools create`.
-      #
-      # Known, bounded exception to "nothing is pushed before verification"
-      # (2026-09-17 re-audit): registry-side verification requires the
-      # per-arch bits to exist in the registry, so the two-phase push is
-      # inherent. The per-arch "-publish-*" tags are short-lived scaffolding
-      # — never referenced by a deploy — and the cleanup step at the end of
-      # this job removes them when verification fails.
+      # Publish phase: each architecture must match its locally scanned
+      # config digest before its manifest joins the release tag. Registry
+      # verification requires temporary per-architecture publish tags;
+      # these are never deployment references and are cleaned up on failure.
 
       - name: Publish backend image (linux/amd64, exact gate bits)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -519,14 +506,9 @@ jobs:
           cosign sign --yes "${EDGE_IMAGE}@${EDGE_DIGEST}"
 
       - name: Remove incomplete release and per-arch publish tags on failure
-        # 2026-09-17 re-audit: a verification divergence (or a mid-publish
-        # crash) correctly aborts the release, but its "-publish-*" tags and
-        # any final version tags assembled before a signing failure would
-        # otherwise linger in GHCR. Delete the package versions carrying
-        # those run-owned tags. Best-effort: if the
-        # GITHUB_TOKEN's packages:write cannot delete (org policy), say so
-        # loudly instead of failing the already-failed job. A final tag is
-        # removed only when this run crossed the assembly ownership marker.
+        # Delete only this run's temporary tags and owned release tags.
+        # Registry policy can block deletion; report that without hiding the
+        # original failure. Final tags require the assembly ownership marker.
         if: failure() || cancelled()
         env:
           GH_TOKEN: ${{ github.token }}

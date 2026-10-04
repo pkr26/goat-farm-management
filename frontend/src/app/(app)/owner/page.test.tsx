@@ -1,8 +1,7 @@
 /**
- * Cross-farm owner console (ITEM 3, 2026-09-21 playbook): worst-first
- * attention ranking, benchmark window switching, ownership gating (a worker
- * sees the no-access state and never fires the API calls), and the
- * drill-through that switches the active farm context.
+ * Cross-farm owner console: worst-first attention ranking, benchmark window
+ * switching, ownership gating (a worker sees the no-access state and never fires the
+ * API calls), and the drill-through that switches the active farm context.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";

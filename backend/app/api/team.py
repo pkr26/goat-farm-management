@@ -828,9 +828,9 @@ async def _guard_farm_capacity(
 
 def _clean_permissions(raw: list[str], allowed: set[str], *, preserve: set[str]) -> list[str]:
     """Apply only permissions the editor controls, preserving the rest."""
-    # ``preserve`` is the role's existing grant set and is always supplied;
-    # the old ``or set()`` fallback decided nothing for any input (an empty
-    # set joins identically) — removed as dead code (2026-09-20 audit P3).
+    # ``preserve`` is the role's existing grant set and is always supplied; the old ``or set()``
+    # fallback decided nothing for any input (an empty set joins identically) — removed as dead
+    # code.
     chosen = ({code for code in raw if code in ALL_PERMISSIONS} & allowed) | (preserve - allowed)
     for action, required_view in PERMISSION_DEPENDENCIES.items():
         if action in chosen and required_view not in chosen:
@@ -1089,9 +1089,8 @@ async def _create_worker_after_idempotency_gate(
             await db.flush()
         except IntegrityError:  # defensive external-writer race
             raise HTTPException(status_code=400, detail=CANT_ADD_TO_TEAM) from None
-        # The security event rides inside the mutation so an idempotent REPLAY
-        # of a committed creation does not log a second "provisioned" event
-        # for the one worker that exists (P3, 2026-09-20 audit).
+        # The security event rides inside the mutation so an idempotent REPLAY of a committed
+        # creation does not log a second "provisioned" event for the one worker that exists.
         _audit_event(
             db,
             "team.worker.create",
@@ -1321,10 +1320,9 @@ async def reset_password(
         )
         return _membership_out(membership, reset_policy, user, farm)
 
-    # Same keyed-HMAC fingerprint contract as reset-pin (2026-09-28 audit,
-    # A1): the raw password never enters the idempotency record or its
-    # response, and a network-lost first response replays instead of forcing
-    # the owner through a second Argon rotation.
+    # Same keyed-HMAC fingerprint contract as reset-pin: the raw password never enters the
+    # idempotency record or its response, and a network-lost first response replays instead of
+    # forcing the owner through a second Argon rotation.
     return await execute_idempotent(
         db,
         http_response=response,

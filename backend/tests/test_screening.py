@@ -1308,9 +1308,6 @@ class FakeStorage(ScreeningStorage):
     def bucket(self) -> str:
         return "goat-photos"
 
-    def list_object_keys(self, prefix: str, max_keys: int) -> list[str]:
-        return sorted(k for k in self.objects if k.startswith(prefix + "/"))[:max_keys]
-
     def object_info(self, key: str) -> ScreeningObjectInfo | None:
         if key in self.sizes:
             size = self.sizes[key]
@@ -1326,10 +1323,6 @@ class FakeStorage(ScreeningStorage):
             content_type=self.content_types.get(key),
             metadata=self.metadata.get(key, {}),
         )
-
-    def object_size(self, key: str) -> int | None:
-        info = self.object_info(key)
-        return None if info is None else info.size
 
     def download(
         self,

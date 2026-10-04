@@ -347,23 +347,19 @@ def _marginal_kids_per_doe(
         daughter_mass = daughters.pop(month_index, 0.0)
         if daughter_mass > 0.0:
             ready[month_index] = ready.get(month_index, 0.0) + daughter_mass
-        # Pop this month's masses BEFORE the sweep: a popped dam's month risk
-        # is charged at the pop (below), and the fragments she splits into
-        # re-enter the pools only AFTER the sweep, so no month is ever charged
-        # twice (2026-10-01 audit, 08-L9 — the literal "multiply at the pop"
-        # patch on the old order double-charged every service month, because
-        # the end-of-month sweep also covered the just-re-inserted fragments).
+        # Pop this month's masses BEFORE the sweep: a popped dam's month risk is charged at the pop
+        # (below), and the fragments she splits into re-enter the pools only AFTER the sweep, so no
+        # month is ever charged twice.
         ready_pop = ready.pop(month_index, None)
         kidding_pop = kidding.pop(month_index, None)
         for pool in (ready, kidding, daughters):
             for key in pool:
                 pool[key] *= _attrition(month_index)
         if ready_pop is not None:
-            # Attrition BEFORE the conception split (2026-10-01 audit, 08-L9):
-            # a dam that dies in her service month no longer conceives; the
-            # failed remainder is re-serviced next month carrying the same
-            # once-per-month risk. Total per-month risk is unchanged — only
-            # its ordering relative to the conception draw moves.
+            # Attrition BEFORE the conception split: a dam that dies in her service month no longer
+            # conceives; the failed remainder is re-serviced next month carrying the same
+            # once-per-month risk. Total per-month risk is unchanged — only its ordering relative to
+            # the conception draw moves.
             dam_mass = ready_pop * _attrition(month_index)
             conceived = dam_mass * r.conception_rate
             kidding[month_index + r.gestation_months] = (
@@ -427,10 +423,9 @@ def _purchase_month_for(target: SaleTarget, assumptions: SimulationAssumptions) 
     return max(1, target.month - lead)
 
 
-# Engine passes close_gaps may run in the worst case: one initial
-# evaluation, one per iteration, plus the zero-progress rollback
-# re-evaluation. The API's CPU budget prices this bound, so it must live
-# beside the loop it prices (B9, 2026-09-21 audit).
+# Engine passes close_gaps may run in the worst case: one initial evaluation, one per iteration,
+# plus the zero-progress rollback re-evaluation. The API's CPU budget prices this bound, so it must
+# live beside the loop it prices.
 CLOSE_GAPS_MAX_ITERATIONS = 8
 
 
@@ -509,12 +504,10 @@ def close_gaps(
         targets
     )
 
-    # Zero-progress guard: the marginal mirror can promise yield the engine
-    # never delivers under legal-but-degenerate configurations (sale_age or
-    # afb at the boundary where the grower chain is empty; no sire with
-    # auto-purchase off). Without this check each pass piled a full extra
-    # round of does onto the same unmet shortfall and the plan read as
-    # "buy 296 does" (2026-09-20 audit P2-9). The baseline is the
+    # Zero-progress guard: the marginal mirror can promise yield the engine never delivers under
+    # legal-but-degenerate configurations (sale_age or afb at the boundary where the grower chain is
+    # empty; no sire with auto-purchase off). Without this check each pass piled a full extra round
+    # of does onto the same unmet shortfall and the plan read as "buy 296 does". The baseline is the
     # no-purchase shortfall, so even the FIRST phantom round is caught.
     shortfall_before = sum(fill.shortfall for fill in evaluation.targets if not fill.met)
     for _ in range(max_iterations):
@@ -688,11 +681,9 @@ def plan_probabilities(
     for _ in range(runs):
         draws = _correlated_draws(rng, risk_vars, assumptions.risk.correlation_strength)
         path = _event_shock_path(assumptions, rng)
-        # B10 (2026-09-21 audit): the Monte Carlo this function claims to
-        # mirror layers within-run annual price years onto each run; using
-        # the flat run-level draws here biased the probabilities whenever
-        # that variation was enabled. Same draw order as montecarlo.run, so
-        # seeded runs keep their common random numbers.
+        # Mirror Monte Carlo's within-run annual price draws; using the flat run-level draws here
+        # biased the probabilities whenever that variation was enabled. Same draw order as
+        # montecarlo.run, so seeded runs keep their common random numbers.
         effective_draws = (
             _apply_annual_price_variation(path, draws, assumptions, rng)
             if assumptions.risk.within_run_price_variation
@@ -747,10 +738,9 @@ def build_dpr_markdown(
     def _opt_dscr(value: float | None) -> str:
         return "n/a" if value is None else f"{value:.2f}"
 
-    # The plan name is farm-entered free text interpolated into a loan
-    # document: newlines/U+2028 could forge additional DPR sections and
-    # directional overrides could visually alter the title (2026-09-16
-    # audit, INJ-1). The title renders on exactly one line, period.
+    # The plan name is farm-entered free text interpolated into a loan document: newlines/U+2028
+    # could forge additional DPR sections and directional overrides could visually alter the title.
+    # The title renders on exactly one line, period.
     title = sanitize_single_line(plan_name) if plan_name else ""
     if not title:
         title = "Goat rearing unit"

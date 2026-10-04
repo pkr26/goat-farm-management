@@ -1,14 +1,5 @@
 /**
- * Task-title null-arg semantics (2026-09-30 fresh mutation campaign): a
- * null-valued arg that the template WOULD interpolate must be skipped, so
- * the placeholder survives visibly — never rendered as the literal "null".
- *
- * Also pins the date-arm scoping of `localizedArg` (2026-10-01 audit, 10-4):
- * only args NAMED `date`/`*_date` render through formatDate; any other arg
- * holding an ISO-date-SHAPED string interpolates byte-for-byte. Kills
- * mutation m09869 (`name === "date"` → `!==`, task-title.ts:70), formerly
- * documented as a "dead catalog arm" — an equivalence that held only under
- * the backend taskGen catalog's field names, not mathematically.
+ * Task-title arguments skip null values and format dates only for date-named fields.
  */
 
 import { describe, expect, it } from "vitest";

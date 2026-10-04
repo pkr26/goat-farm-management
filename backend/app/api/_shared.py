@@ -52,14 +52,12 @@ TASK_LOADS = (
     selectinload(Task.animal),
 )
 
-# (2026-10-01 audit, 01-4) SMS bodies interpolate worker-enterable free text
-# (tag numbers, disease targets, finding labels). IdentifierText already
-# strips control characters and bounds length, but a URL smuggled into a tag
-# ("verify at http://x") is plain words to every schema — the report's lighter
-# mitigation is to neutralize URL-ish tokens at the emit sites. Two shapes:
-# an explicit scheme or www. prefix, and bare scheme-less domains whose final
-# label looks like a TLD (2+ letters — digits excluded, so "3.5 kg", "v1.2"
-# and dates are plain text; a path/port tail rides along with its domain).
+# SMS bodies interpolate worker-enterable free text (tag numbers, disease targets, finding labels).
+# IdentifierText already strips control characters and bounds length, but a URL smuggled into a tag
+# ("verify at http://x") passes identifier validation. Neutralize URL-like tokens before sending
+# SMS messages. Match two shapes: an explicit scheme or www. prefix, and
+# bare scheme-less domains whose final label looks like a TLD (2+ letters — digits excluded, so "3.5
+# kg", "v1.2" and dates are plain text; a path/port tail rides along with its domain).
 _SMS_EXPLICIT_URL_RE = re.compile(r"(?i:(?:https?://|www\.)\S+)")
 _SMS_BARE_DOMAIN_RE = re.compile(
     r"(?<![\w.-])"  # the match must be the whole token, not a fragment of one

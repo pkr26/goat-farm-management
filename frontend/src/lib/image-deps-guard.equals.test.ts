@@ -1,8 +1,7 @@
 /**
- * Version comparator equal-input contract (2026-09-30 fresh mutation
- * campaign): two identical dotted versions compare equal — and the loop
- * terminates. A `<` → `<=` loop bound keeps iterating past both arrays
- * forever on equal inputs (undefined ?? 0 on both sides, delta always 0).
+ * Version comparator equal-input contract: two identical dotted versions compare
+ * equal — and the loop terminates. A `<` → `<=` loop bound keeps iterating past both
+ * arrays forever on equal inputs (undefined ?? 0 on both sides, delta always 0).
  */
 
 import { describe, expect, it } from "vitest";

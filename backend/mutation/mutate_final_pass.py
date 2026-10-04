@@ -17,6 +17,7 @@ from typing import Any
 BACKEND = Path(__file__).resolve().parent.parent
 MUTDIR = BACKEND / "mutation"
 sys.path.insert(0, str(MUTDIR))
+from mutate_identity import read_artifact  # noqa: E402
 from mutate_run import Runner  # noqa: E402
 
 GAP_FILES = [
@@ -53,9 +54,20 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    manifest = {m["id"]: m for m in json.loads((MUTDIR / "manifest.json").read_text())}
+    manifest = {
+        m["id"]: m
+        for m in json.loads(
+            read_artifact(
+                MUTDIR / "manifest.json", instruction="run python mutation/mutate_gen.py first"
+            )
+        )
+    }
     last: dict[str, dict[str, Any]] = {}
-    for line in (MUTDIR / "results.jsonl").read_text().splitlines():
+    for line in (
+        read_artifact(MUTDIR / "results.jsonl", instruction="run a mutation campaign first")
+        .decode()
+        .splitlines()
+    ):
         try:
             rec = json.loads(line)
         except Exception:

@@ -20,8 +20,7 @@ Covered:
 - app/services.py pure helpers: move_animal guards, recipe_for_animal bucket
   and day/age boundaries, SHIFT_SPLIT.
 - app/schemas/*: every input schema with valid, invalid and boundary inputs.
-- README.md claims that are derivable from the code (table count, the driver
-  scheme its runbook commands feed to the async engine).
+- README.md database URL examples use the async driver expected by the engine.
 """
 
 import re
@@ -2408,20 +2407,9 @@ async def test_animal_notes_free_text_is_bounded(client: httpx.AsyncClient) -> N
 
 
 # ---------------------------------------------------------------------------
-# README claims that are derivable from the code. Prose drifts silently; these
-# keep the few README statements that have a machine-checkable answer honest.
+# README connection examples must use the async engine's driver scheme.
 # ---------------------------------------------------------------------------
 README = Path(__file__).resolve().parents[2] / "README.md"
-
-
-def test_readme_table_count_matches_the_metadata() -> None:
-    """README's backend layout states how many tables `models/` declares. It
-    said 24 while the metadata declared 26 — the two undocumented ones being
-    idempotency_records and movement_restriction_actions, exactly the tables a
-    retention/inventory reader most needs."""
-    match = re.search(r"models/\s+(\d+) tables", README.read_text())
-    assert match is not None, "README no longer states a table count for models/"
-    assert int(match.group(1)) == len(Base.metadata.tables)
 
 
 def test_readme_database_urls_use_the_async_driver_scheme() -> None:

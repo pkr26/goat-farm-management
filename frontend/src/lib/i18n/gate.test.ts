@@ -1,29 +1,20 @@
 /**
- * i18n gate (ITEM 5, 2026-09-21 playbook).
- *
- * Three one-way ratchets:
- *
- * 1. **Catalog parity** — every key in `en.ts` must exist in `te.ts` and
- *    vice versa (the runtime catalogs; TypeScript alone would not catch a
- *    missing Telugu key).
- * 1b. **Placeholder parity** — every `{var}` interpolated by the English
- *    template must be interpolated by its Telugu twin and vice versa. A
- *    dropped placeholder ships a garbled sentence (2026-09-29 audit: te's
- *    opsSim.validation.needsBred lost {bucket}, leaving a dangling dative).
- * 2. **English-literal snapshot** — `english-literal-baseline.json` is the
- *    audited inventory of raw English UI copy (JSX text, user-facing string
- *    attributes and copy props, expression-container strings, default
- *    parameters, toasts, zod messages) still awaiting Telugu. The gate
- *    fails when a NEW literal appears (ship the string in BOTH catalogs and
- *    render it through t(...)) and when a baseline entry goes STALE (a
- *    literal was translated — regenerate the baseline so the inventory
- *    stays honest).
- * 3. **Shrink-only ceiling** — the baseline length is pinned. It may be
- *    lowered (localization wins shrink it) but never raised: hand-growing
- *    the JSON to whitelist future English cannot pass review quietly.
- *
- * Regenerate after translating: `node scripts/scan-english-literals.mjs --write`
- * (and lower ENGLISH_LITERAL_CEILING to the new length in the same change).
+ * i18n gate. Three one-way ratchets: 1. **Catalog parity** — every key in `en.ts`
+ * must exist in `te.ts` and vice versa (the runtime catalogs; TypeScript alone would
+ * not catch a missing Telugu key). 1b. **Placeholder parity** — every `{var}`
+ * interpolated by the English template must be interpolated by its Telugu twin and
+ * vice versa. A dropped placeholder ships a garbled sentence. 2. **English-literal
+ * snapshot** — `english-literal-baseline.json` is the audited inventory of raw
+ * English UI copy (JSX text, user-facing string attributes and copy props,
+ * expression-container strings, default parameters, toasts, zod messages) still
+ * awaiting Telugu. The gate fails when a NEW literal appears (ship the string in
+ * BOTH catalogs and render it through t(...)) and when a baseline entry goes STALE
+ * (a literal was translated — regenerate the baseline so the inventory stays
+ * honest). 3. **Shrink-only ceiling** — the baseline length is pinned. It may be
+ * lowered (localization wins shrink it) but never raised: hand-growing the JSON to
+ * whitelist future English cannot pass review quietly. Regenerate after translating:
+ * `node scripts/scan-english-literals.mjs --write` (and lower
+ * ENGLISH_LITERAL_CEILING to the new length in the same change).
  */
 
 import { readFileSync } from "node:fs";

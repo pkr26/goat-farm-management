@@ -11,6 +11,16 @@ function canonical(value) {
 }
 export const digest = (value) => hash(JSON.stringify(canonical(value)));
 export const readJSON = (file) => JSON.parse(readFileSync(file, "utf8"));
+
+/** Read generated campaign inputs with a useful fresh-checkout diagnostic. */
+export function readMutationArtifact(root, name) {
+  try {
+    return readFileSync(path.join(root, "mutation", name));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    throw new Error(`Missing mutation input mutation/${name}. From frontend, run node mutation/mutate_gen.mjs, then node mutation/mutate_cover.mjs.`, { cause: error });
+  }
+}
 export function atomicJSON(file, value) {
   const temporary = `${file}.${randomUUID()}.tmp`;
   writeFileSync(temporary, JSON.stringify(value));

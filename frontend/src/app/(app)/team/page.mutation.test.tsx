@@ -1,9 +1,6 @@
 /**
- * Mutation-hardening tests for the team page: targeted at Stryker survivors —
- * invalidation scope, activate/deactivate branching, reset-password gating and
- * lock release, payload trims, permission-dialog copy and dependency repair,
- * role-card copy, protected-target rows, empty-state owner gates, canStart
- * guards and the permissions/team error branches.
+ * Team credential validation, permission changes, dialog lifecycle and stale
+ * mutation continuations.
  */
 
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";

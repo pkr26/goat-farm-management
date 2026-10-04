@@ -1,9 +1,8 @@
 /**
- * AnimalPicker falsy-prop semantics (2026-09-30 fresh mutation campaign):
- * placeholder/dialogTitle are `??`-guarded so an explicit empty string stays
- * empty (a caller deliberately blanking the trigger), and a caller-supplied
- * eligibilityKey of "" is still a DISTINCT cache key — it must not fall back
- * onto the unfiltered picker's "all-active" query cache.
+ * AnimalPicker falsy-prop semantics: placeholder/dialogTitle are `??`-guarded so an
+ * explicit empty string stays empty (a caller deliberately blanking the trigger),
+ * and a caller-supplied eligibilityKey of "" is still a DISTINCT cache key — it must
+ * not fall back onto the unfiltered picker's "all-active" query cache.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

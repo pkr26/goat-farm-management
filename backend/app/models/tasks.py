@@ -124,9 +124,7 @@ class Task(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # farm_id single dropped (2026-09-28 audit index hygiene):
-    # ix_tasks_farm_status_due and the uq_task_recurring_series_due candidate
-    # key both lead with farm_id (supersedes the 2026-09-21 keep note).
+    # Queue and recurring-series indexes already cover farm-prefixed probes.
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
     title: Mapped[str] = mapped_column(String(MAX_TASK_TITLE_LENGTH))
     # Localization contract for server-generated duties: a stable snake_case

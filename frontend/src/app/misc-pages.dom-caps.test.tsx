@@ -1,8 +1,7 @@
 /**
- * Misc-page DOM caps (2026-10-01 campaign follow-up): the planner's
- * plan-name box (120), the ops-simulation per-row tag inputs (50) and the
- * simulation scenario save dialog's name (120) and notes (2 000) are all
- * bounded in the DOM at their schema limits.
+ * Misc-page DOM caps: the planner's plan-name box (120), the ops-simulation per-row
+ * tag inputs (50) and the simulation scenario save dialog's name (120) and notes (2
+ * 000) are all bounded in the DOM at their schema limits.
  */
 
 import { screen, within } from "@testing-library/react";

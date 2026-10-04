@@ -1,5 +1,5 @@
 /**
- * Server-error mapping (ITEM 5, 2026-09-21 playbook).
+ * Server-error mapping.
  *
  * The backend attaches a machine-readable `code` to the four highest-stakes
  * statuses — 401 UNAUTHENTICATED, 403 PERMISSION_DENIED, 422
@@ -17,9 +17,9 @@
 
 import type { TFn } from "@/lib/i18n";
 
-// Backend error code → catalog key. Codes come from the backend's
-// ERROR_CODES_BY_STATUS (401/403/422/429) and the RFC 9457-style 409
-// conflict families (2026-09-29), all stable across detail-wording changes.
+// Backend error code → catalog key. Codes come from the backend's ERROR_CODES_BY_STATUS
+// (401/403/422/429) and the RFC 9457-style 409 conflict families, all stable across
+// detail-wording changes.
 const CODES: Record<string, Parameters<TFn>[0]> = {
   UNAUTHENTICATED: "serverErrors.sessionExpired",
   PERMISSION_DENIED: "serverErrors.permissionDenied",
@@ -42,21 +42,20 @@ const PHRASES: Record<string, Parameters<TFn>[0]> = {
   "Current password is incorrect.": "serverErrors.currentPasswordIncorrect",
   "Idempotency-Key was already used with a different request":
     "serverErrors.idempotencyConflict",
-  // Wrong-lifecycle answer the kidding router has answered with 409 since
-  // the A3 convention; the byte-exact detail has no tag interpolation, so a
-  // pinned phrase covers it (2026-09-29 audit).
+  // Wrong-lifecycle answer the kidding router has answered with 409 since the A3
+  // convention; the byte-exact detail has no tag interpolation, so a pinned phrase
+  // covers it.
   "Kidding requires a confirmed pregnancy": "serverErrors.kiddingNeedsPregnancy",
 };
 
-// Status-shaped rules where the exact string is less stable than the shape.
-// The backend code (checked first) already covers the common shapes; these
-// catch code-less responses (proxies, older deploys) with matching text.
-// 409 carries no machine code (the backend reserves codes for
-// 401/403/422/429), and since the A3 convention made every wrong-lifecycle
-// answer a 409, the RECURRING lifecycle shapes get targeted rules — never a
-// blanket rule: a specific 409 ("Owned farms block account deletion.") is
-// more actionable than any generic conflict sentence, so unmapped specifics
-// still pass through (2026-09-29 audit, Wave-3 completeness).
+// Status-shaped rules where the exact string is less stable than the shape. The backend
+// code (checked first) already covers the common shapes; these catch code-less
+// responses (proxies, older deploys) with matching text. 409 carries no machine code
+// (the backend reserves codes for 401/403/422/429), and since the A3 convention made
+// every wrong-lifecycle answer a 409, the RECURRING lifecycle shapes get targeted rules
+// — never a blanket rule: a specific 409 ("Owned farms block account deletion.") is
+// more actionable than any generic conflict sentence, so unmapped specifics still pass
+// through.
 const STATUS_RULES: Array<{
   status: number;
   test: RegExp;

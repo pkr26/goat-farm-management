@@ -96,8 +96,8 @@ async def owner_overview(
     user: CurrentUser,
 ) -> OwnerOverviewOut:
     """Attention headlines for every farm the caller owns, in one response."""
-    # No per-route Cache-Control: the baseline header middleware already
-    # answers no-store for every /api response (2026-09-28 audit).
+    # No per-route Cache-Control: the baseline header middleware already answers no-store for every
+    # /api response.
     farms = _require_owned(await _owned_farms(db, user.id))
     farm_ids = [farm.id for farm in farms]
     farms_by_id = {farm.id: farm for farm in farms}
@@ -233,8 +233,7 @@ async def owner_benchmarks(
     days: Annotated[int, Query(ge=1, le=365)] = 90,
 ) -> OwnerBenchmarksOut:
     """Per-farm performance figures over the trailing window, for ranking."""
-    # no-store comes from the baseline header middleware, like every /api
-    # response (2026-09-28 audit).
+    # no-store comes from the baseline header middleware, like every /api response.
     farms = _require_owned(await _owned_farms(db, user.id))
     farm_ids = [farm.id for farm in farms]
     farms_by_id = {farm.id: farm for farm in farms}

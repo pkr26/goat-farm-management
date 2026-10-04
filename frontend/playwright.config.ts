@@ -18,7 +18,7 @@ const browserName = requestedBrowser as keyof typeof BROWSER_DEVICES;
  * + PostgreSQL. Both servers are started by Playwright.
  *
  * globalSetup provisions a fresh user + farm per run via the API, so the
- * suite runs on a clean machine/CI (audit 10-H1). All specs share that one
+ * suite runs on a clean machine/CI. All specs share that one
  * farm's state, so they run strictly serially (workers: 1).
  */
 export default defineConfig({
@@ -29,12 +29,11 @@ export default defineConfig({
   // A committed test.only would otherwise narrow the whole CI gate to one
   // test and still exit 0.
   forbidOnly: !!process.env.CI,
-  // CI retries exist to absorb infrastructure noise only: any test that
-  // needs a retry is recorded with status "flaky" by the JSON reporter
-  // below, and the e2e workflow fails the job on a non-zero flaky count —
-  // a genuinely racy product behavior can no longer land on main as
-  // "passing" (2026-10-01 audit, 10-2). Local runs stay at retries: 0 so a
-  // flake is always visible in the console.
+  // CI retries exist to absorb infrastructure noise only: any test that needs a retry
+  // is recorded with status "flaky" by the JSON reporter below, and the e2e workflow
+  // fails the job on a non-zero flaky count — a genuinely racy product behavior can no
+  // longer land on main as "passing". Local runs stay at retries: 0 so a flake is
+  // always visible in the console.
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI
     ? [

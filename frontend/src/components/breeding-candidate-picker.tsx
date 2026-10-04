@@ -41,11 +41,10 @@ function candidateOption(
     kind === "doe" && candidate.latest_weight_kg !== null
       ? `${age ? ", " : " — "}${candidate.latest_weight_kg.toFixed(1)} kg`
       : "";
-  // Cull-flagged does are servable by the owner only — the flag must be
-  // visible at pick time so a non-owner manager skips her instead of
-  // filling the form into a guaranteed 409 (wave-5, 2026-09-20 audit). The
-  // suffix resolves through the i18n catalog so the "owner only" warning
-  // is not English-only for Telugu managers (2026-10-01 audit, 06-2).
+  // Cull-flagged does are servable by the owner only — the flag must be visible at pick
+  // time so a non-owner manager skips her instead of filling the form into a guaranteed
+  // 409. The suffix resolves through the i18n catalog so the "owner only" warning is
+  // not English-only for Telugu managers.
   const cull = kind === "doe" && candidate.cull_candidate ? cullSuffix : "";
   return {
     value: String(candidate.id),

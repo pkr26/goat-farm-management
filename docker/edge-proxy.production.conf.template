@@ -1,20 +1,7 @@
-# Production edge template. It is rendered by edge-entrypoint.sh after every
-# value substituted below is validated; unlike the local Compose-inline
-# template, this file deliberately contains literal nginx $variables.
-
-# P2-15 (2026-09-20 audit): the mandated production topology terminates TLS
-# in front of this edge, so $binary_remote_addr is ALWAYS the terminator's
-# single loopback address — keying the auth zone on it put every user of
-# /api/auth/* into one shared bucket (a cheap fleet-wide auth DoS, and
-# self-DoS at shift-start bursts). The terminator owns the forwarded chain
-# and APPENDS the connecting address to X-Forwarded-For, so the RIGHTMOST
-# entry is the real client as the trusted terminator saw it. Key on that:
-# entries a client injects can only land to the LEFT of the appended hop, so
-# unlike the first entry (which a client controls wholesale) the last entry
-# cannot be rotated to mint fresh buckets or pinned onto a victim. This is
-# the same right-to-left trust walk the backend's ProxyHeadersMiddleware
-# applies to the identical header. A missing/empty header (direct loopback
-# health probe) falls back to the socket address.
+# Production nginx template; edge-entrypoint.sh validates substituted values.
+# The trusted TLS terminator appends the client address to X-Forwarded-For.
+# Use its rightmost entry for per-client flood limits; earlier entries may
+# come from the client. Missing headers fall back to the socket address.
 map $http_x_forwarded_for $auth_flood_key {
     default $binary_remote_addr;
     ~^(?:.*,)?[ \t]*(?<client_addr>[^, \t]+)[ \t]*$ $client_addr;
@@ -32,40 +19,18 @@ server {
     client_max_body_size __GOATFARM_EDGE_MAX_BODY_SIZE__;
     server_tokens off;
 
-    # Security response headers: the application owns the complete set on
-    # every proxied response — the next.config.ts baseline (COOP/CORP/
-    # Permissions-Policy included) plus the per-request nonce CSP from the
-    # frontend's proxy.ts (M-1, 2026-09-20): a nonce policy cannot be
-    # emitted here because the edge cannot mint and embed the nonce into
-    # the rendered HTML the way the render boundary can. The API sets its
-    # own baseline on /api responses. A server-level `add_header ... always`
-    # here stamped a second, partial set onto those same proxied responses —
-    # duplicate X-Frame-Options/X-Content-Type-Options and a CONFLICTING
-    # Referrer-Policy (edge no-referrer vs the SPA's
-    # strict-origin-when-cross-origin) on every response (2026-09-28 audit,
-    # F1). The edge therefore adds its minimal set ONLY to the responses
-    # nginx itself generates: the limit_req 429 (error_page-routed through
-    # @auth_flood_rejected below) and /edge-healthz. Upstream-failure pages
-    # keep nginx's built-in error bodies, as do the edge's own 413/414
-    # (client_max_body_size / URI-length) responses — static nginx bodies
-    # with no user content, accepted without the header set (2026-09-29
-    # audit NEW-2: the ownership rule is documented for every class). Deployment S3/MinIO origins reach
-    # the frontend container as GOATFARM_CSP_IMG_ORIGINS /
-    # GOATFARM_CSP_CONNECT_ORIGINS env (validated at edge boot by
-    # edge-entrypoint.sh); this template no longer renders them. HSTS: the
-    # entrypoint asserts an HTTPS terminator in production, so the
-    # edge-generated responses carry it (the app adds its own HSTS to
-    # production builds).
+    # Applications own security headers on proxied responses; the frontend
+    # also creates and embeds its per-request CSP nonce. Adding headers
+    # here would duplicate or conflict with upstream policies. The edge
+    # adds its baseline only to /edge-healthz and auth-flood rejections.
+    # Other edge errors use static nginx bodies without this baseline.
+    # S3 origins reach the frontend via CSP env settings, validated at boot.
+    # HSTS is enabled for edge-generated responses behind production TLS.
 
-    # Docker's embedded resolver + variable proxy_pass forces lookup after a
-    # routine backend/frontend container recreation instead of caching a dead
-    # container IP for the nginx worker lifetime.
+    # Re-resolve Docker service names after container recreation.
     resolver 127.0.0.11 valid=10s ipv6=off;
 
-    # Container-local liveness endpoint, answered by nginx itself (no
-    # upstream) and reachable only from the container's own loopback. One of
-    # the two response types this server generates itself, so it carries the
-    # edge's minimal header set (F1).
+    # Container-loopback liveness; no upstream dependency.
     location = /edge-healthz {
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options DENY always;
@@ -77,34 +42,24 @@ server {
         return 200 "ok\n";
     }
 
-    # No trailing slash (L-1, 2026-09-20 audit): the prefix form matches both
-    # /api/auth and /api/auth/..., so the flood zone cannot be skipped by
-    # dropping the slash on the exact parent path of every credential route.
+    # Match both /api/auth and its children so omitting a slash cannot bypass
+    # the credential-endpoint flood limit.
     location /api/auth {
         limit_req zone=auth_flood burst=__GOATFARM_EDGE_AUTH_BURST__ nodelay;
         limit_req_status 429;
-        # The 429 is generated by nginx, not the app: route it through the
-        # named location below so the rejection carries the edge's minimal
-        # header set while proxied responses keep only the app's headers
-        # (2026-09-28 audit, F1).
+        # Edge-generated rejections receive the edge header policy.
         error_page 429 = @auth_flood_rejected;
         set $backend_upstream backend;
         proxy_pass http://$backend_upstream:8000$request_uri;
     }
 
-    # Edge-generated limit_req rejection. This is the only other place
-    # add_header may appear: nginx applies a location's add_header to
-    # proxied responses as well, which is exactly the duplication/conflict
-    # F1 removes, so proxied locations carry none.
+    # Apply edge headers only to this locally generated rejection.
     location @auth_flood_rejected {
         add_header X-Content-Type-Options nosniff always;
         add_header X-Frame-Options DENY always;
         add_header Referrer-Policy no-referrer always;
         add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
-        # The backend's 429 convention always carries Retry-After; the edge's
-        # own 429 now does too (nginx cannot derive it from limit_req, so a
-        # static conservative hint matching the auth window) — a client cannot
-        # distinguish the two origins by header presence (2026-09-29 audit).
+        # Match the API's conservative auth retry window.
         add_header Retry-After 300 always;
         return 429 "rate limited\n";
     }

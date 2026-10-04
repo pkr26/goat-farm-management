@@ -687,16 +687,13 @@ async def clear_movement_restriction(
     # (cited by the PLACED action via health_event_id) and on the CLEARED
     # action's disease_target captured above.
     animal.suspected_disease = None
-    # ...but that is only true when a HealthEvent actually recorded it. The
-    # mortality path (POST /api/animals/{id}/status with
-    # suspected_scheduled_disease) places the hold with health_event_id=None
-    # and writes no HealthEvent at all, so the animal column is the ONLY copy
-    # of a statutorily mandated notification date. Nulling it there destroyed
-    # the record irrecoverably, health events being immutable. The probe must
-    # be scoped to THIS episode's PLACED action: an animal-lifetime probe
-    # ("any HealthEvent ever notified") let an earlier, event-backed episode
-    # satisfy the guard and destroy a later mortality episode's only copy
-    # (2026-09-20 audit P2-2).
+    # ...but that is only true when a HealthEvent actually recorded it. The mortality path (POST
+    # /api/animals/{id}/status with suspected_scheduled_disease) places the hold with
+    # health_event_id=None and writes no HealthEvent at all, so the animal column is the ONLY copy
+    # of a statutorily mandated notification date. Nulling it there destroyed the record
+    # irrecoverably, health events being immutable. The probe must be scoped to THIS episode's
+    # PLACED action: an animal-lifetime probe ("any HealthEvent ever notified") let an earlier,
+    # event-backed episode satisfy the guard and destroy a later mortality episode's only copy.
     placed_health_event_id = (
         await db.execute(
             select(MovementRestrictionAction.health_event_id)
@@ -761,9 +758,8 @@ async def _bulk_target_snapshot(
     farm_id: int,
     target: HealthBulkTargetIn,
     *,
-    # Required (2026-09-28 audit): the old `or today()` fallback evaluated
-    # the deployment-default timezone, not the farm's business calendar —
-    # the same fix bucket_transition_error's reference_date got. The only
+    # Required: the old `or today()` fallback evaluated the deployment-default timezone, not the
+    # farm's business calendar — the same fix bucket_transition_error's reference_date got. The only
     # caller passes today(farm.timezone).
     reference_date: date,
 ) -> tuple[list[int], list[AnimalIdentityOut], list[int | None]]:
@@ -1136,11 +1132,10 @@ async def _record_event_mutation(
             status_code=422, detail="next_due_date must be after the health event date"
         )
     if payload.next_due_date is not None and (payload.next_due_date - event_date).days > 3650:
-        # Same re-check-after-farm-date-resolution pattern as withdrawal_until:
-        # the schema-level pair checks only ran when the client supplied an
-        # explicit event date, so a far next_due_date against the defaulted
-        # business date used to reach ck_health_events_next_due_horizon and
-        # surface as a raw IntegrityError 500 (P3, 2026-09-20 audit).
+        # Same re-check-after-farm-date-resolution pattern as withdrawal_until: the schema-level
+        # pair checks only ran when the client supplied an explicit event date, so a far
+        # next_due_date against the defaulted business date used to reach
+        # ck_health_events_next_due_horizon and surface as a raw IntegrityError 500.
         raise HTTPException(
             status_code=422,
             detail="next_due_date cannot be more than 10 years after the health event date",
@@ -1371,16 +1366,14 @@ async def record_event(
         payload.suspected_scheduled_disease
         and response.headers.get("Idempotency-Replayed") != "true"
     ):
-        # ITEM 4 alert hook: a scheduled-disease suspicion places a movement
-        # restriction on every targeted animal (record_health_event). Best
-        # effort, own session — the committed health write must not fail on
-        # it. Replayed idempotent requests skip the fan-out; the day-dedupe
-        # would absorb a repeat anyway.
+        # Alert hook: a scheduled-disease suspicion places a movement restriction on every targeted
+        # animal (record_health_event). Best effort, own session — the committed health write must
+        # not fail on it. Replayed idempotent requests skip the fan-out; the day-dedupe would absorb
+        # a repeat anyway.
         from ..services.notifications import emit_alert
 
-        # (2026-10-01 audit, 01-4) disease_target is worker-enterable free
-        # text interpolated into the SMS body and the dedupe payload —
-        # URL-ish tokens are neutralized before they reach emit_alert.
+        # disease_target is worker-enterable free text interpolated into the SMS body and the dedupe
+        # payload — URL-ish tokens are neutralized before they reach emit_alert.
         target = sms_safe_text(payload.disease_target) or "scheduled disease"
         await emit_alert(
             farm.id,

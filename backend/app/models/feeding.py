@@ -161,8 +161,8 @@ class FeedingRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # ITEM 9 (2026-09-21 playbook): closes the backdating blind spot — same-day
-    # entry and a backdated record are now distinguishable.
+    # closes the backdating blind spot — same-day entry and a backdated record are now
+    # distinguishable.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )

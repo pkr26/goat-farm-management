@@ -3,7 +3,7 @@
 /**
  * Complete / Skip / Open-form / Verify / Reject controls for one duty row.
  *
- * Extracted from the tasks board (2026-09-22): the board's table rows and
+ * Extracted from the tasks board: the board's table rows and
  * mobile cards render these actions, and any future duty surface (owner
  * console drill-throughs, print views) reuses the same permission-gated
  * state machine instead of a divergent copy. `touch` renders the same
@@ -76,9 +76,7 @@ export function RowActions({
   const [skipOpen, setSkipOpen] = useState(false);
   const [skipReason, setSkipReason] = useState("");
   const [rejectOpen, setRejectOpen] = useState(false);
-  // Stryker disable next-line StringLiteral: openRejectDialog resets the reason before every open, so the initial state is never observable
   const [rejectReason, setRejectReason] = useState("");
-  // Stryker disable next-line BooleanLiteral: openRejectDialog resets the flag before every open, so the initial state is never observable
   const [rejectMissing, setRejectMissing] = useState(false);
   const [recurringConfirmOpen, setRecurringConfirmOpen] = useState(false);
   const [actionError, setActionError] = useState<{
@@ -95,14 +93,13 @@ export function RowActions({
    *  submission that resolves after the operator dismissed — and possibly
    *  reopened — a dialog must not close or reset the fresh session; this is
    *  the finance add-dialog's attempt fence, which lets dismissal always
-   *  win instead of trapping a modal for the mutation timeout
-   *  (2026-10-01 audit, 06-3). */
+   *  win instead of trapping a modal for the mutation timeout. */
   const dialogAttempt = useRef(0);
   const safeAction = safeAppPath(task.action_url);
   const permittedAction = permittedTaskActionPath(task.action_url, can);
   const actionButtonClass = touch ? "h-11 px-4" : undefined;
   /** Completing a recurring duty immediately spawns its successor — a
-   * one-tap destructive-ish action the audit asked to gate behind a confirm
+   * one-tap destructive-ish action requires a confirmation
    * that states the next occurrence date (max(due, today) + N days, the
    * backend's own anchor, computed locally). */
   const needsRecurringConfirm = task.recur_days !== null;
@@ -123,7 +120,6 @@ export function RowActions({
   async function completeTask() {
     await actionFlight.run(async () => {
       const farmScope = captureFarmScope();
-      // Stryker disable next-line UpdateOperator: a monotonically decreasing attempt counter mismatches a captured value exactly as reliably as an increasing one
       const attempt = ++dialogAttempt.current;
       setActionError(null);
       // Strike the row through instantly; a failed completion rolls the
@@ -140,9 +136,8 @@ export function RowActions({
         if (dialogAttempt.current !== attempt) return;
         setRecurringConfirmOpen(false);
       } catch (error) {
-        // Guard BEFORE rollback: after a farm switch the board cache was
-        // cleared, and restoring the pre-patch snapshots would resurrect the
-        // OLD farm's rows (2026-09-28 audit, W6).
+        // Guard BEFORE rollback: after a farm switch the board cache was cleared, and
+        // restoring the pre-patch snapshots would resurrect the OLD farm's rows.
         if (!farmScope()) return;
         rollback();
         if (dialogAttempt.current === attempt) reportActionError("complete", error);
@@ -153,7 +148,6 @@ export function RowActions({
   async function skipTask() {
     await actionFlight.run(async () => {
       const farmScope = captureFarmScope();
-      // Stryker disable next-line UpdateOperator: a monotonically decreasing attempt counter mismatches a captured value exactly as reliably as an increasing one
       const attempt = ++dialogAttempt.current;
       setActionError(null);
       try {
@@ -205,7 +199,6 @@ export function RowActions({
     }
     await actionFlight.run(async () => {
       const farmScope = captureFarmScope();
-      // Stryker disable next-line UpdateOperator: a monotonically decreasing attempt counter mismatches a captured value exactly as reliably as an increasing one
       const attempt = ++dialogAttempt.current;
       setActionError(null);
       try {
@@ -240,9 +233,7 @@ export function RowActions({
     // or skip early, because either transition would advance the series before
     // its due date. Keep one-off manual duties actionable ahead of schedule.
     const future = task.due_date > today;
-    // Stryker disable next-line ConditionalExpression: the auto_generated arm only differs when recur_days is non-null, and lockedFutureRecurrence already locks that exact state — the disjunction renders identically either way
     const lockedFutureCompletion =
-      // Stryker disable next-line ConditionalExpression: every lock test exercises an auto-generated future duty, and a recurring duty is always auto-generated on this wire (series creation sets the flag), so the recur arm never decides anything alone
       future && (task.auto_generated || task.recur_days !== null);
     const lockedFutureRecurrence = future && task.recur_days !== null;
     return (
@@ -261,9 +252,9 @@ export function RowActions({
                 href={withReturnTo(permittedAction, returnTo)}
                 className={
                   touch
-                    ? // Stryker disable next-line StringLiteral: size "" falls back to cva's default size, whose row height matches sm; the touch sizing rides the asserted className argument
+                    ?
                       buttonVariants({ variant: "outline", size: "sm", className: "h-11 px-4" })
-                    : // Stryker disable next-line StringLiteral: size "" falls back to cva's default size, whose row height matches sm
+                    :
                       buttonVariants({ variant: "outline", size: "sm" })
                 }
               >
@@ -283,7 +274,6 @@ export function RowActions({
             </span>
           ) : (
             <Button
-              // Stryker disable next-line StringLiteral: size "" falls back to cva's default size, which is the touch arm's own value
               size={touch ? "default" : "sm"}
               variant="outline"
               className={actionButtonClass}
@@ -302,7 +292,6 @@ export function RowActions({
               succeed; their Complete/Open-form workflow stays available. */}
           {!lockedFutureRecurrence && !taskSkipUnavailable(task) && (
             <Button
-              // Stryker disable next-line StringLiteral: size "" falls back to cva's default size, which is the touch arm's own value
               size={touch ? "default" : "sm"}
               variant="outline"
               className={actionButtonClass}
@@ -321,11 +310,9 @@ export function RowActions({
         <Dialog
           open={skipOpen}
           onOpenChange={(nextOpen) => {
-            // Never block dismissal on an in-flight write (the finance rule,
-            // 2026-09-20 P3): the write itself stays single-flighted, and the
-            // continuation is fenced by dialogAttempt so a late resolve
-            // cannot close/reset a session the operator reopened
-            // (2026-10-01 audit, 06-3).
+            // Never block dismissal on an in-flight write: the write itself stays
+            // single-flighted, and the continuation is fenced by dialogAttempt so a
+            // late resolve cannot close/reset a session the operator reopened.
             if (!nextOpen) dialogAttempt.current += 1;
             setSkipOpen(nextOpen);
           }}
@@ -378,8 +365,7 @@ export function RowActions({
           <Dialog
             open={recurringConfirmOpen}
             onOpenChange={(nextOpen) => {
-              // Same never-block rule as the skip dialog above
-              // (2026-10-01 audit, 06-3).
+              // Same never-block rule as the skip dialog above.
               if (!nextOpen) dialogAttempt.current += 1;
               setRecurringConfirmOpen(nextOpen);
             }}
@@ -394,8 +380,7 @@ export function RowActions({
                   /* Mirror the backend's anchor (services/tasks.py:
                      recurrence_anchor = max(due_date, today)): an overdue
                      duty's successor spawns from the farm's today, not from
-                     the stale due date the old copy stated (wave-5 note,
-                     2026-09-20 audit). */
+                     the stale due date the old copy stated. */
                   date: formatDate(
                     addDays(
                       task.due_date > farmToday() ? task.due_date : farmToday(),
@@ -438,7 +423,6 @@ export function RowActions({
       <>
         <div className="flex flex-wrap items-center gap-2">
           <Button
-            // Stryker disable next-line StringLiteral: size "" falls back to cva's default size, which is the touch arm's own value
             size={touch ? "default" : "sm"}
             variant="outline"
             className={actionButtonClass}
@@ -451,7 +435,6 @@ export function RowActions({
            * reason-bearing, so it goes through a confirmation dialog instead
            * of the old inline 28px input + instant POST. */}
           <Button
-            // Stryker disable next-line StringLiteral: size "" falls back to cva's default size, which is the touch arm's own value
             size={touch ? "default" : "sm"}
             variant="destructive"
             className={actionButtonClass}
@@ -469,8 +452,7 @@ export function RowActions({
         <Dialog
           open={rejectOpen}
           onOpenChange={(nextOpen) => {
-            // Same never-block rule as the skip dialog above
-            // (2026-10-01 audit, 06-3).
+            // Same never-block rule as the skip dialog above.
             if (!nextOpen) dialogAttempt.current += 1;
             setRejectOpen(nextOpen);
           }}

@@ -54,11 +54,10 @@ LEGAL_BUCKET_TRANSITIONS: dict[tuple[str, str], frozenset[str]] = {
     # her confirmed pregnancy; recording its loss must remain possible.
     (Bucket.BREEDING.value, Bucket.RESTING.value): frozenset({"manual", "abortion"}),
     (Bucket.DELIVERY.value, Bucket.RESTING.value): frozenset({"abortion", "weaning"}),
-    # The override guard lets an owner park a pregnant doe in BREEDING; her
-    # kidding must still be recordable from there, or the only exits are a
-    # second override or a fabricated abortion. Like the other "kidding"
-    # edges this is workflow-only — POST /animals/{id}/move never sends the
-    # "kidding" context (2026-10-01 audit, 02-1).
+    # The override guard lets an owner park a pregnant doe in BREEDING; her kidding must still be
+    # recordable from there, or the only exits are a second override or a fabricated abortion. Like
+    # the other "kidding" edges this is workflow-only — POST /animals/{id}/move never sends the
+    # "kidding" context.
     (Bucket.BREEDING.value, Bucket.RECOVERY.value): frozenset({"kidding"}),
     (Bucket.PREGNANCY_EARLY.value, Bucket.RECOVERY.value): frozenset({"kidding"}),
     (Bucket.PREGNANCY_LATE.value, Bucket.RECOVERY.value): frozenset({"kidding"}),

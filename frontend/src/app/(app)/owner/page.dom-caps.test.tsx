@@ -1,9 +1,8 @@
 /**
- * Owner page attention ranking + benchmark windows (2026-10-01 campaign
- * follow-up): the ranking weights are 1 000 : 100 : 1 (overdue duties,
- * open screening flags, pending-today) — each boundary fixture flips the
- * order under exactly one weight mutation — and the window selector offers
- * exactly 30d / 90d / 365d.
+ * Owner page attention ranking + benchmark windows: the ranking weights are 1 000 :
+ * 100 : 1 (overdue duties, open screening flags, pending-today) — each boundary
+ * fixture flips the order under exactly one weight mutation — and the window
+ * selector offers exactly 30d / 90d / 365d.
  */
 
 import { screen, within } from "@testing-library/react";

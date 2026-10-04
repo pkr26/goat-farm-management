@@ -1,13 +1,12 @@
 import type { MetadataRoute } from "next";
 
-/** Worker-tablet PWA manifest (ITEM 2 Phase 2, 2026-09-21 playbook). The
+/** Worker-tablet PWA manifest. The
  * tablet's home-screen icon opens straight onto the duty board. */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    // Explicit id pins the installed app's identity to the board, so a future
-    // start_url change (tracking params, a different landing) never orphans
-    // an install; explicit scope documents the default the spec would derive
-    // (2026-09-28 audit, W11).
+    // Explicit id pins the installed app's identity to the board, so a future start_url
+    // change (tracking params, a different landing) never orphans an install; explicit
+    // scope documents the default the spec would derive.
     id: "/worker",
     name: "Herdly Worker",
     short_name: "Herdly",

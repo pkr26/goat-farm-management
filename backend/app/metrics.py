@@ -109,10 +109,9 @@ def record_auth_rate_limit_rejection(scope: str) -> None:
         AUTH_RATE_LIMIT_REJECTIONS.labels(scope=scope).inc()
 
 
-# ITEM 6 (2026-09-21 playbook): screening spend observability. Calls are
-# counted where the pipeline records its ScreeningRun rows; the cost counter
-# is an ESTIMATE from a small per-provider price map — a budgeting signal for
-# the owner, not billing. Provider names are the bounded rotation set.
+# screening spend observability. Calls are counted where the pipeline records its ScreeningRun rows;
+# the cost counter is an ESTIMATE from a small per-provider price map — a budgeting signal for the
+# owner, not billing. Provider names are the bounded rotation set.
 SCREENING_PROVIDER_CALLS = Counter(
     "goatfarm_screening_provider_calls",
     "Screening worker vision-provider calls, by provider and outcome.",

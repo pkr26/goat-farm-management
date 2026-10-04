@@ -5,14 +5,12 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { digest, hash, inputs, latestCompatible, readJSON, records, validateContext, validateEdits } from "./mutate_identity.mjs";
+import { digest, hash, inputs, latestCompatible, readJSON, readMutationArtifact, records, validateContext, validateEdits } from "./mutate_identity.mjs";
 
 export const FRONTEND = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function createCampaign({ root = FRONTEND, full = false, filesOverride = null, timeoutMs = null } = {}) {
-  const manifestPath = path.join(root, "mutation/manifest.json");
-  const coveragePath = path.join(root, "mutation/coverage-map.json");
-  const manifestBytes = readFileSync(manifestPath);
-  const coverageBytes = readFileSync(coveragePath);
+  const manifestBytes = readMutationArtifact(root, "manifest.json");
+  const coverageBytes = readMutationArtifact(root, "coverage-map.json");
   const manifest = JSON.parse(manifestBytes);
   const coverage = JSON.parse(coverageBytes);
   const current = inputs(root);

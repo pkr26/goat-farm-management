@@ -380,9 +380,8 @@ function OpsSimulationPageContent() {
 
   // ----- Results
   const [result, setResult] = useState<DailyOpsResult | null>(null);
-  // Inputs snapshot the CURRENT result was produced from; null with no
-  // result. A mismatch means the rows on screen no longer describe the run
-  // above them (P3, 2026-09-20 audit: no stale flag existed).
+  // Inputs snapshot the CURRENT result was produced from; null with no result. A
+  // mismatch means the rows on screen no longer describe the run above them.
   const [resultInputsSignature, setResultInputsSignature] = useState<string | null>(null);
   const [ledger, setLedger] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState(1);
@@ -417,10 +416,9 @@ function OpsSimulationPageContent() {
           errors.push(t("opsSim.validation.bredRange", { label, max: MAX_BRED_DAYS }));
         }
       }
-      // Coherence mirrors of the server's DailyOpsInput._check_herd (P3,
-      // 2026-09-20 audit: the 422s arrived only after submit). Structural
-      // rules only — the gestation-day windows stay server-side where the
-      // species profile lives.
+      // Coherence mirrors of the server's DailyOpsInput._check_herd. Structural rules
+      // only — the gestation-day windows stay server-side where the species profile
+      // lives.
       if (row.bucket === "MALE_KIDS" && row.sex !== "M") {
         errors.push(t("opsSim.validation.maleKidsOnly", { label }));
       }
@@ -478,11 +476,11 @@ function OpsSimulationPageContent() {
       return;
     }
     await runAction.run(async () => {
-      // L-27 (2026-09-17 audit): the ops run continuation had no farm-scope
-      // fence, unlike planner's onPlan — a farm switch while the run was in
-      // flight painted the old farm's result/ledger into the new farm's page
-      // (and scrolled it), or toasted its failure. Capture before the
-      // mutation; fence both the result painting and the error toast.
+      // L-27: the ops run continuation had no farm-scope fence, unlike planner's onPlan
+      // — a farm switch while the run was in flight painted the old farm's
+      // result/ledger into the new farm's page (and scrolled it), or toasted its
+      // failure. Capture before the mutation; fence both the result painting and the
+      // error toast.
       const farmScope = captureFarmScope();
       try {
         const response = await runMutation.mutateAsync({

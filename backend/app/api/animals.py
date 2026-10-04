@@ -413,11 +413,10 @@ async def create_animal(
             detail="Only the farm owner may import historical animal lifecycle data",
         )
     managed_purchase = payload.source == "PURCHASED" and not historical_import_reason
-    # Every branch that books money, not just the managed cascade: the
-    # historical-import path (owner-only) also books a real ANIMAL_PURCHASE
-    # transaction when a price is supplied, and an auto-generated tag gives a
-    # keyless network retry no natural key to deduplicate on — it would
-    # create a second animal and a second expense (2026-09-20 audit P2-1).
+    # Every branch that books money, not just the managed cascade: the historical-import path
+    # (owner-only) also books a real ANIMAL_PURCHASE transaction when a price is supplied, and an
+    # auto-generated tag gives a keyless network retry no natural key to deduplicate on — it would
+    # create a second animal and a second expense.
     books_money = managed_purchase or (
         payload.source == "PURCHASED" and payload.purchase_price is not None
     )
@@ -1139,11 +1138,9 @@ async def _change_status_mutation(
     """
     restriction_alert: tuple[str, str] | None = None
     animal = await _get_animal(db, farm.id, animal_id, for_update=True)
-    # Only an ACTIVE animal can change status — replaying a sale on an
-    # already-SOLD animal must not book a second income transaction. The row
-    # lock makes two in-flight status changes serialize on this check.
-    # 409: the animal's lifecycle state, not the request shape, refuses this
-    # (2026-09-28 audit, A3 convention).
+    # Only an ACTIVE animal can change status — replaying a sale on an already-SOLD animal must not
+    # book a second income transaction. The row lock makes two in-flight status changes serialize on
+    # this check. 409: the animal's lifecycle state, not the request shape, refuses this.
     if animal.status != AnimalStatus.ACTIVE.value:
         raise lifecycle_conflict(
             detail=f"{animal.tag_number} is already {animal.status.lower()}.",
@@ -1282,11 +1279,10 @@ async def _change_status_mutation(
                 acted_by_id=user.id,
             )
             animal.authority_notified_at = payload.authority_notified_at
-            # (2026-10-01 audit, 01-4) the tag and disease string are
-            # worker-enterable free text interpolated into an SMS body: URL-ish
-            # tokens are neutralized at the emit site, before the tuple reaches
-            # emit_alert. A tag that was nothing but a URL falls back to the
-            # animal id so the regulatory SMS keeps an identity.
+            # The tag and disease string are worker-enterable free text interpolated into an SMS
+            # body: URL-ish tokens are neutralized at the emit site, before the tuple reaches
+            # emit_alert. A tag that was nothing but a URL falls back to the animal id so the
+            # regulatory SMS keeps an identity.
             tag_label = sms_safe_text(animal.tag_number) or f"#{animal.id}"
             disease_label = sms_safe_text(payload.suspected_disease) or "scheduled disease"
             restriction_alert = (
@@ -1527,10 +1523,9 @@ async def change_status(
     perms: Annotated[set[str], Depends(require_perm("animals.status"))],
     idempotency_key: IdempotencyKey = None,
 ) -> AnimalOut:
-    # (2026-09-28 audit, A1): the SOLD/CULLED branch books a ledger
-    # transaction, so a network-lost first response must be recoverable — an
-    # optional Idempotency-Key replays it instead of answering a bare 400
-    # "already sold".
+    # The SOLD/CULLED branch books a ledger transaction, so a network-lost first response must be
+    # recoverable — an optional Idempotency-Key replays it instead of answering a bare 400 "already
+    # sold".
     restriction_alert: tuple[str, str] | None = None
 
     async def mutate() -> AnimalOut:
@@ -1558,11 +1553,10 @@ async def change_status(
         mutate=mutate,
     )
     if restriction_alert is not None:
-        # ITEM 4 alert hook: a scheduled-disease restriction is the same-day
-        # regulatory signal the owner opted into. Best-effort, own session —
-        # the committed mortality write must not fail on it. Only a fresh
-        # mutation carries a fan-out; a replayed response never re-alerts
-        # (same contract as /api/health/events).
+        # Alert hook: a scheduled-disease restriction is the same-day regulatory signal the owner
+        # opted into. Best-effort, own session — the committed mortality write must not fail on it.
+        # Only a fresh mutation carries a fan-out; a replayed response never re-alerts (same
+        # contract as /api/health/events).
         from ..services.notifications import emit_alert
 
         await emit_alert(farm.id, "MOVEMENT_RESTRICTION", *restriction_alert)

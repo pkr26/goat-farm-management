@@ -68,7 +68,7 @@ class ProviderRotation:
         ``secondary_for`` blindly picks primary+1 by date, so in a 3-provider
         rotation whose primary failed (fallback B served the gate) the
         "cross-checker" was B itself and the second opinion was silently
-        skipped (P3, 2026-09-20 audit). This variant walks the rotation from
+        skipped. This variant walks the rotation from
         the day's primary and returns the first provider that neither served
         the gate nor already failed it; None when every provider is excluded
         or only one is configured.

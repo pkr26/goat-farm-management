@@ -1,7 +1,7 @@
 /**
- * Buckets board — mutation-hardening suite: species-aware bucket labels,
- * the full-register link's safe path handling (external backend path vs the
- * plain filter fallback), the ration's 3-dp rendering, and both retry paths.
+ * Buckets board — regression suite: species-aware bucket labels, the full-register
+ * link's safe path handling (external backend path vs the plain filter fallback),
+ * the ration's 3-dp rendering, and both retry paths.
  */
 
 import { screen, waitFor } from "@testing-library/react";

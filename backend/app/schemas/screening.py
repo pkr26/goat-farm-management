@@ -47,7 +47,6 @@ ScreeningBucketStr = Literal[
     "FEMALE_KIDS",
 ]
 
-ALLOWED_UPLOAD_CONTENT_TYPES = ("image/jpeg", "image/png")
 # Kept in the request schema as well as exposed in ``ScreeningUploadOut`` so
 # an oversized local file is rejected before the server reserves a PENDING
 # intake row and signs an object-store form for it.
@@ -72,8 +71,8 @@ class ScreeningFindingOut(BaseModel):
     note: str | None
     status: ScreeningFindingStatusStr
     review_note: str | None
-    # Reviewer attribution, exposed like every sibling's *_by_id (2026-09-28
-    # audit): it was the one attribution the review payload hid.
+    # Reviewer attribution, exposed like every sibling's *_by_id: it was the one attribution the
+    # review payload hid.
     reviewed_by_id: int | None
     reviewed_at: datetime | None
     review_revision: int
@@ -110,7 +109,7 @@ class ScreeningFindingReviewOut(BaseModel):
     id: int
     status: ScreeningFindingStatusStr
     review_note: str | None
-    # Reviewer attribution, like ScreeningFindingOut (2026-09-28 audit).
+    # Reviewer attribution, like ScreeningFindingOut.
     reviewed_by_id: int | None
     reviewed_at: datetime | None
     review_revision: int

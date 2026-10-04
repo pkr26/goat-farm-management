@@ -1,24 +1,11 @@
-# Backend production image (build from the repo root):
-#   docker build -t goatfarm-backend .
-#   docker run -e GOATFARM_DATABASE_URL=postgresql+asyncpg://... goatfarm-backend
-# Migrations run as a separate release job; this image serves the API as a
-# non-root user and can also be invoked with `alembic upgrade head` by that job
-# when it supplies the explicit, separately privileged
-# GOATFARM_MIGRATION_DATABASE_URL.
-# The CMD hard-codes --workers 1 (the auth rate limiter is in-memory, per
-# process — multi-worker would silently multiply every limit). Also set
-# GOATFARM_ENVIRONMENT=production, GOATFARM_COOKIE_SECURE=true,
-# GOATFARM_CORS_ORIGINS, GOATFARM_DB_SSLMODE=verify-full and
-# GOATFARM_MIN_PASSWORD_LENGTH>=12 for real deployments. Production also
-# requires a stable RS256 keypair mounted at /app/keys (or configured paths).
-#
-# The key paths are pinned to /app/keys by ENV: the non-root goatfarm user
-# has no writable home, so the app's development fallback
-# (~/.cache/goatfarm/keys) would crash at boot with PermissionError. With
-# the ENV, an empty /app/keys (dev/smoke runs) gets the generated dev
-# keypair inside the 0700 goatfarm-owned directory, while a production mount
-# at /app/keys is picked up as-is and explicit GOATFARM_JWT_*_PATH
-# overrides keep winning.
+# Backend runtime image; build with `docker build -t goatfarm-backend .`.
+# Migrations run separately with GOATFARM_MIGRATION_DATABASE_URL.
+# Use one API worker: the in-memory auth limiter is process-local.
+# Production requires secure cookies, verify-full database TLS, configured
+# CORS origins, a stable RS256 keypair, and the production settings validator.
+# Explicit key paths avoid the non-root user's unwritable-home fallback.
+# Development can generate keys in the owned directory; production mounts
+# supply them. GOATFARM_JWT_*_PATH overrides remain supported.
 
 FROM python:3.13-slim@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285
 
@@ -45,9 +32,7 @@ COPY backend/pins/uv.txt ./pins/uv.txt
 # `pip install .` resolves pyproject ranges and ignores uv.lock. Install the
 # hash-pinned uv client, then require the committed lock (including artifact
 # hashes) without development tools or the not-yet-copied local project.
-# `--no-cache` keeps uv's wheel cache out of this layer — the venv already
-# holds every installed wheel, so the cache shipped every wheel twice
-# (~90 MB+ of dead image weight; P3, 2026-09-20 audit).
+# `--no-cache` avoids shipping a wheel cache alongside the installed packages.
 RUN pip install --no-cache-dir --require-hashes -r pins/uv.txt \
     && uv sync --locked --no-dev --no-install-project --no-cache \
     && groupadd --system --gid 10001 goatfarm \

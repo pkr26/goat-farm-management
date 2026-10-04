@@ -6,8 +6,7 @@
  * file to own its <html>/<body> because the root layout is not mounted in
  * that state. Same tone and contract as error.tsx: log once, explain, offer
  * a retry. Copy and <html lang> resolve from the stored language without
- * the provider — by definition the provider tree is the thing that crashed
- * (2026-09-28 audit, I3).
+ * the provider — by definition the provider tree is the thing that crashed.
  */
 
 import { TriangleAlert } from "lucide-react";

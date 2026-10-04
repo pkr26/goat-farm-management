@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Worker tablet sign-in (ITEM 2 Phase 2): tap your name, enter your PIN.
+ * Worker tablet sign-in: tap your name, enter your PIN.
  *
  * The farm is pinned once by a manager through the setup flow below (the
  * roster endpoint is unauthenticated, so the PIN pad works before any session
@@ -115,10 +115,9 @@ export default function WorkerLoginPage() {
     if (endedStagedSession) router.replace("/worker/login");
   }
 
-  // W3 (2026-09-28 audit): an interrupted manager setup must not leave a
-  // live manager session on the shared tablet. pinFarm/cancelSetup clear
-  // setupRef on their own paths; any OTHER exit from this page (navigation
-  // away mid-flow) signs the manager out here.
+  // W3: an interrupted manager setup must not leave a live manager session on the
+  // shared tablet. pinFarm/cancelSetup clear setupRef on their own paths; any OTHER
+  // exit from this page (navigation away mid-flow) signs the manager out here.
   useEffect(() => {
     return () => {
       cancelAttempt();
@@ -164,9 +163,8 @@ export default function WorkerLoginPage() {
     const isCurrent = () => attemptGeneration.current === attempt && !controller.signal.aborted &&
       expectedEpoch === authSessionEpochValue();
     try {
-      // TokenOut is the generated contract (the login page anchors to it
-      // deliberately so backend renames break tsc); the inline type here was
-      // a drift risk (2026-10-01 audit, 05-Info).
+      // TokenOut is the generated contract (the login page anchors to it deliberately
+      // so backend renames break tsc); the inline type here was a drift risk.
       const body = await apiFetch<TokenOut>(
         "/api/auth/worker-login",
         {
@@ -195,8 +193,7 @@ export default function WorkerLoginPage() {
       // discovery fallback rather than being forced into a farm they lack.
       const pinned = getFarms().find((farm) => farm.id === tabletFarmId);
       if (pinned) selectFarm(pinned.id, pinned.timezone);
-      // No glyph decorations in UI copy — the name alone is the confirmation
-      // (no-emoji/symbol convention, 2026-09-28 audit).
+      // No glyph decorations in UI copy — the name alone is the confirmation.
       toast.success(selected.display_name);
       router.replace("/worker");
     } catch (error) {
@@ -266,10 +263,9 @@ export default function WorkerLoginPage() {
         setupSession.current = null; setupRef.current = false;
       }
       if (!isCurrent()) return;
-      // Mirror the PIN flow's split: an ApiError is the server judging the
-      // credentials; a non-ApiError never reached the server, and "check your
-      // details" sends the manager re-typing a perfectly good password
-      // (2026-09-28 audit).
+      // Mirror the PIN flow's split: an ApiError is the server judging the credentials;
+      // a non-ApiError never reached the server, and "check your details" sends the
+      // manager re-typing a perfectly good password.
       setError(
         error instanceof ApiError
           ? t("worker.setup.failed")
@@ -608,7 +604,7 @@ export default function WorkerLoginPage() {
           </Button>
         </nav>}
         {/* Unpinning is a destructive action on a shared tablet: it needs a
-            deliberate confirm, not one stray tap (2026-09-28 audit, W2). */}
+            deliberate confirm, not one stray tap. */}
         <Button className="h-11" variant="ghost" onClick={() => setUnpinOpen(true)}>
           {t("worker.login.backToFarms")}
         </Button>
@@ -703,7 +699,7 @@ export default function WorkerLoginPage() {
       >
         {/* No glyph decorations in UI copy — the title alone is the back
             action (the stray "←" contradicted this page's own convention,
-            2026-10-01 audit, 05-3). */}
+            shared tablet setup). */}
         {t("worker.login.title")}
       </Button>
     </div>

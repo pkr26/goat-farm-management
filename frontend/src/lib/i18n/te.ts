@@ -1,7 +1,3 @@
-// Stryker disable all: this file is a translation data table; its keys are
-// verified by the catalog parity tests and per-key usage assertions, not by
-// per-string mutation (mutating every sentence would only measure whether
-// each literal is asserted verbatim somewhere).
 /**
  * Telugu message catalog (తెలుగు). Typed as Partial over the English key
  * set: an untranslated key simply renders its English text, so this file can
@@ -1704,10 +1700,10 @@ const te: Partial<Record<MessageKey, string>> = {
   // ---------- /health/new రీడైరెక్ట్ షిమ్ ----------
   "health.newRedirect": "ఆరోగ్య నమోదు ఫారం తెరుస్తోంది…",
 
-  // =====================================================================
-  // ITEM 5.1 తెలుగు పూర్తికరణ (2026-09-21): మిగిలిన ఐదు తలలు — బకెట్‌ల
-  // బోర్డు, మేత నిల్వ, మేత రెసిపీలు, భీమా రిజిస్టర్, ఆప్స్ సిమ్యులేషన్.
-  // en.ts లోని ఈ బ్లాక్‌లోని ప్రతి కొత్త కీకి ఇక్కడ తెలుగు ప్రతిరూపం ఉంది.
+  // ===================================================================== ITEM 5.1
+  // తెలుగు పూర్తికరణ: మిగిలిన ఐదు తలలు — బకెట్‌ల బోర్డు, మేత నిల్వ, మేత రెసిపీలు, భీమా
+  // రిజిస్టర్, ఆప్స్ సిమ్యులేషన్. en.ts లోని ఈ బ్లాక్‌లోని ప్రతి కొత్త కీకి ఇక్కడ
+  // తెలుగు ప్రతిరూపం ఉంది.
   // =====================================================================
 
   // ---------- బకెట్‌ల బోర్డు ----------

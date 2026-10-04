@@ -1,10 +1,9 @@
 /**
- * Unit tests for the per-request nonce CSP builder (M-1, 2026-09-20).
- *
- * These pin the property the former edge header could not provide: injected
- * inline scripts are blocked (no 'unsafe-inline' in script-src) while
- * Next.js's own nonce-stamped bootstrap still runs, and untrusted origin
- * env values can never smuggle header syntax into the policy.
+ * Unit tests for the per-request nonce CSP builder. These pin the property the
+ * former edge header could not provide: injected inline scripts are blocked (no
+ * 'unsafe-inline' in script-src) while Next.js's own nonce-stamped bootstrap still
+ * runs, and untrusted origin env values can never smuggle header syntax into the
+ * policy.
  */
 
 import { describe, expect, it } from "vitest";

@@ -4,12 +4,9 @@ hiding as survivors, no corruption-window artifacts).
 Usage:
     .venv/bin/python mutation/mutate_verify.py [--sample N] [--seed S]
 
-verify_sample.json is a run artifact, not committed (2026-09-28 audit, T6):
-pass --sample N to derive it from mutation/results.jsonl first — the
-SURVIVED mutants (last record per id wins; re-runs append), rehydrated from
-the committed manifest (result records carry no mutation payload), seeded-
-shuffled and capped at N — so the flow is reproducible end-to-end. Without
---sample the file is read as-is, exactly as before.
+``--sample N`` derives a reproducible survivor sample from the generated
+manifest and the latest result per mutant. Without it, an existing
+``verify_sample.json`` is required. Both files are local campaign artifacts.
 """
 
 from __future__ import annotations
@@ -25,6 +22,7 @@ from typing import Any
 
 BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND / "mutation"))
+from mutate_identity import read_artifact  # noqa: E402
 from mutate_run import Runner  # noqa: E402
 
 DEFAULT_SEED = 20260928
@@ -33,12 +31,23 @@ DEFAULT_SEED = 20260928
 def derive_sample(n: int, seed: int) -> list[dict[str, Any]]:
     """N SURVIVED mutants from results.jsonl, deterministically shuffled."""
     last_status: dict[str, str] = {}
-    for line in (BACKEND / "mutation" / "results.jsonl").read_text().splitlines():
+    for line in (
+        read_artifact(
+            BACKEND / "mutation" / "results.jsonl", instruction="run a mutation campaign first"
+        )
+        .decode()
+        .splitlines()
+    ):
         with contextlib.suppress(Exception):
             rec = json.loads(line)
             last_status[rec["id"]] = rec["status"]
     survivors = {mid for mid, status in last_status.items() if status == "SURVIVED"}
-    manifest = json.loads((BACKEND / "mutation" / "manifest.json").read_text())
+    manifest = json.loads(
+        read_artifact(
+            BACKEND / "mutation" / "manifest.json",
+            instruction="run python mutation/mutate_gen.py first",
+        )
+    )
     pool = sorted((m for m in manifest if m["id"] in survivors), key=lambda m: m["id"])
     random.Random(seed).shuffle(pool)
     return pool[:n]
@@ -69,7 +78,11 @@ def main() -> None:
             return
         sample_path.write_text(json.dumps(derived, indent=1) + "\n")
         print(f"wrote {sample_path.name}: {len(derived)} survivors (seed {args.seed})")
-    sample = json.loads(sample_path.read_text())
+    sample = json.loads(
+        read_artifact(
+            sample_path, instruction="run python mutation/mutate_verify.py --sample N first"
+        ).decode()
+    )
     if args.dry_run:
         print(json.dumps({"targets": [m["id"] for m in sample], "writes": False}))
         return

@@ -135,9 +135,9 @@ ALREADY_REGISTERED = "That email is already registered."
 # load-bearing for the invalid-token and login budgets).
 register_email_limiter = SlidingWindowRateLimiter()
 
-# Same isolation rule, same reason (2026-10-01 audit, 01-1): roster probes are
-# unauthenticated, so the per-farm budget below is charged by arbitrary callers
-# and must not consume the shared auth limiter's bounded bookkeeping either.
+# Same isolation rule, same reason: roster probes are unauthenticated, so the per-farm budget below
+# is charged by arbitrary callers and must not consume the shared auth limiter's bounded bookkeeping
+# either.
 worker_roster_farm_limiter = SlidingWindowRateLimiter()
 
 
@@ -827,27 +827,20 @@ async def register(
     error = password_policy_error(payload.password)
     if error:
         raise HTTPException(status_code=400, detail=error)
-    # Hash BEFORE the existence check so a duplicate email doesn't
-    # return measurably earlier than a fresh one (timing half of the register
-    # enumeration oracle). The explicit 400 remains — without email
-    # verification there is no accept-and-notify path. Repeated probing of
-    # one email is ALSO charged to a per-email bucket — but ONLY when the
-    # email already exists: enumerating live account names is the attack,
-    # and charging fresh-address attempts would let an IP-rotating attacker
-    # lock a legitimate registrant out of their own address.
-    #
-    # (2026-10-01 audit, 01-2) The per-email ceiling is SOFT exactly like
-    # login's email scope (RT-A-1): it is consulted only where the oracle
-    # answer — the duplicate 400 — is about to be sent, never before. A
-    # bucket holding history therefore cannot refuse a registration that
-    # would otherwise succeed (a freed address re-registering after a
-    # deletion inside the window; any mischarge). This supersedes the old
-    # RT-A-2 pre-hash gate: its only unique effect was to let a hot bucket
-    # 429 before the hash, and unregistered-address bursts could always
-    # spend those same Argon2 slots ungated — so the gate bought no CPU
-    # bound, only the registrant lockout the soft scope forbids.
-    # The probe key is a hash of the address, never the address itself. It is
-    # process-local limiter state and is never copied into logs.
+    # Hash BEFORE the existence check so a duplicate email doesn't return measurably earlier than a
+    # fresh one (timing half of the register enumeration oracle). The explicit 400 remains — without
+    # email verification there is no accept-and-notify path. Repeated probing of one email is ALSO
+    # charged to a per-email bucket — but ONLY when the email already exists: enumerating live
+    # account names is the attack, and charging fresh-address attempts would let an IP-rotating
+    # attacker lock a legitimate registrant out of their own address. The per-email ceiling is SOFT
+    # exactly like login's email scope (RT-A-1): it is consulted only where the oracle answer — the
+    # duplicate 400 — is about to be sent, never before. A bucket holding history therefore cannot
+    # refuse a registration that would otherwise succeed (a freed address re-registering after a
+    # deletion inside the window; any mischarge). This supersedes the old RT-A-2 pre-hash gate: its
+    # only unique effect was to let a hot bucket 429 before the hash, and unregistered-address
+    # bursts could always spend those same Argon2 slots ungated — so the gate bought no CPU bound,
+    # only the registrant lockout the soft scope forbids. The probe key is a hash of the address,
+    # never the address itself. It is process-local limiter state and is never copied into logs.
     email_probe_key = _register_email_probe_key(payload.email)
     s_limits = get_settings()
 
@@ -1025,11 +1018,10 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
             user.password_hash = replacement_hash
             logger.info("upgraded legacy pbkdf2 hash to Argon2id (user_id=%s)", user.id)
         if user.totp_state == "ACTIVE":
-            # HUM-1 (2026-09-16): the password is proven, but an active TOTP
-            # enrollment demands the second factor before ANY session
-            # material exists — no refresh cookie, no access token. The
-            # single-use challenge token is short-lived and version-bound, so
-            # a password-only thief still cannot reach the account.
+            # The password is proven, but an active TOTP enrollment demands the second factor before
+            # ANY session material exists — no refresh cookie, no access token. The single-use
+            # challenge token is short-lived and version-bound, so a password-only thief still
+            # cannot reach the account.
             challenge = issue_token(
                 user.id,
                 "mfa",
@@ -1072,11 +1064,10 @@ async def worker_roster(
     farm id for a PIN pad a field worker can actually use — the documented
     owner-operator tradeoff (README, worker tablet app).
     """
-    # (Kept out of the docstring above so the OpenAPI snapshot — and the orval
-    # client regeneration-locked to it — stays byte-identical.) The throttle
-    # is two-layered since the 2026-10-01 audit, 01-1: per IP, and —
-    # IP-agnostically — per target farm id, so rotating source addresses
-    # cannot reset the probe budget for one farm's names.
+    # (Kept out of the docstring above so the OpenAPI snapshot — and the orval client
+    # regeneration-locked to it — stays byte-identical.) The throttle has separate per-IP and
+    # per-farm budgets, so rotating source addresses cannot reset the probe budget for one farm's
+    # names.
     s = get_settings()
     if not s.worker_roster_enabled:
         # GOATFARM_WORKER_ROSTER_ENABLED=false: deployments with no shared
@@ -1098,15 +1089,13 @@ async def worker_roster(
         _WORKER_ROSTER_FARM_MAX_ATTEMPTS,
         s.auth_rate_limit_window_seconds,
     ):
-        # (2026-10-01 audit, 01-1) the per-farm ceiling is charged by the
-        # farm id alone, never the source address, so this 429 fires however
-        # many addresses the probing rotated through.
+        # The per-farm ceiling is charged by the farm id alone, never the source address, so this
+        # 429 fires however many addresses the probing rotated through.
         metrics.record_auth_rate_limit_rejection(WORKER_ROSTER_FARM_SCOPE)
         raise _too_many_attempts()
     if s.auth_rate_limit_enabled:
-        # The only record among the auth call sites that must be gated
-        # explicitly: with limiting disabled, an unauthenticated roster probe
-        # must leave no limiter bookkeeping at all (2026-09-28 audit, S5).
+        # The only record among the auth call sites that must be gated explicitly: with limiting
+        # disabled, an unauthenticated roster probe must leave no limiter bookkeeping at all.
         auth_limiter.record(
             WORKER_ROSTER_SCOPE,
             _client_key(request),
@@ -1253,11 +1242,9 @@ async def worker_login(
         await db.rollback()
         note_transient_security_signal("auth.worker_pin.login_failed")
 
-    # Snapshot the credential scalars WITHOUT the row lock and end the read
-    # transaction, so Argon2 never holds a row lock, transaction, or
-    # checked-out DB connection — the same invariant login states
-    # (2026-09-28 audit, S2). The locked reload below exact-compares this
-    # snapshot before a token can be minted.
+    # Snapshot the credential scalars WITHOUT the row lock and end the read transaction, so Argon2
+    # never holds a row lock, transaction, or checked-out DB connection — the same invariant login
+    # states. The locked reload below exact-compares this snapshot before a token can be minted.
     row = (
         await db.execute(
             select(FarmMembership, User)
@@ -1286,10 +1273,9 @@ async def worker_login(
     pin_accepted = False
     reservation = _reserve_password_work(WORKER_PIN_RESERVATION_SCOPE, identity_key)
     try:
-        # Re-check after the atomic admission reservation (login's rule): a
-        # preceding request may have recorded the threshold immediately
-        # before releasing its slot; no expensive work starts from a stale
-        # limiter observation (2026-09-29 audit).
+        # Re-check after the atomic admission reservation (login's rule): a preceding request may
+        # have recorded the threshold immediately before releasing its slot; no expensive work
+        # starts from a stale limiter observation.
         if _hard_blocked():
             metrics.record_auth_rate_limit_rejection(WORKER_PIN_SCOPE)
             raise _too_many_attempts(s.worker_pin_rate_limit_window_seconds)
@@ -1417,10 +1403,9 @@ async def worker_login(
     )
     await db.commit()
     if s.auth_rate_limit_enabled:
-        # A success clears only the failure counts of the membership that
-        # authenticated; the (IP, farm) spray bucket is NEVER reset by a
-        # success — same rule as _reset_login_failures, so one valid PIN
-        # cannot refresh an attacker's spray budget (2026-09-28 audit, H3).
+        # A success clears only the failure counts of the membership that authenticated; the (IP,
+        # farm) spray bucket is NEVER reset by a success — same rule as _reset_login_failures, so
+        # one valid PIN cannot refresh an attacker's spray budget.
         auth_limiter.reset(WORKER_PIN_SCOPE, identity_key)
         auth_limiter.reset(WORKER_PIN_ACCOUNT_SCOPE, account_key)
     return LoginOut(access_token=out.access_token, token_type=out.token_type, user=out.user)
@@ -1522,9 +1507,8 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
                 user_id=claims.user_id,
             )
             if revoked:
-                # DET-1: this is the platform's strongest theft signal — a
-                # signed, once-valid credential whose row is already gone.
-                # Only the request that changes family state is durable;
+                # this is the platform's strongest theft signal — a signed, once-valid credential
+                # whose row is already gone. Only the request that changes family state is durable;
                 # subsequent replays are bounded transient signals below.
                 security_event(
                     "auth.refresh.family_revoked",
@@ -1608,8 +1592,8 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
             session.family_id,
             session.user_id,
         )
-        # DET-1: cookie replay outside the rotation grace — a stolen
-        # refresh token was presented a second time. Alertable.
+        # cookie replay outside the rotation grace — a stolen refresh token was presented a second
+        # time. Alertable.
         security_event(
             "auth.refresh.family_revoked",
             "refresh-token reuse outside the rotation grace revoked the family",
@@ -1971,10 +1955,9 @@ async def change_password(
         locked_user.must_change_password = False
         await revoke_user_sessions(db, locked_user.id)
         out = await _issue_tokens(db, locked_user, response)  # new family, fresh session
-        # 2026-09-17 re-audit: a self-service credential change is the single
-        # most security-relevant lifecycle event (every session died), yet it
-        # emitted nothing an operator could alert on. ids only, no PII, same
-        # convention as the TOTP lifecycle events.
+        # A self-service credential change is the single most security-relevant lifecycle event
+        # (every session died), yet it emitted nothing an operator could alert on. ids only, no PII,
+        # same convention as the TOTP lifecycle events.
         security_event(
             "auth.password.changed",
             "Password changed (all sessions revoked)",
@@ -2044,9 +2027,8 @@ async def export_account(response: Response, db: DbSession, user: CurrentUser) -
     response.headers["Content-Disposition"] = (
         f'attachment; filename="goatfarm-account-{user.id}.json"'
     )
-    # 2026-09-28 audit, S1: this is the API's most PII-dense response, so it
-    # leaves the same durable security-event trail the DPR download got
-    # (DET-2, planner.dpr.download) — ids only, never the exported PII itself.
+    # This response contains personal data, so it leaves the same durable security-event trail the
+    # DPR download got (DET-2, planner.dpr.download) — ids only, never the exported PII itself.
     security_event(
         "auth.account.exported",
         "account identity and tenant relationships exported",
@@ -2187,9 +2169,8 @@ async def delete_account(
         locked_user.totp_state = None
         locked_user.totp_last_step = None
         locked_user.must_change_password = False
-        # 2026-09-17 re-audit: deletion is an irreversible identity event and
-        # needs the same operator-visible trail as a password change (ids
-        # only; the tombstoned email is deliberately never logged).
+        # Deletion is an irreversible identity event and needs the same operator-visible trail as a
+        # password change (ids only; the tombstoned email is deliberately never logged).
         security_event(
             "auth.account.deleted",
             "Account deleted",
@@ -2450,26 +2431,21 @@ async def create_farm(
     )
 
 
-# --- TOTP second factor (HUM-1 follow-up, 2026-09-16) ----------------------
+# --- TOTP second factor  ----------------------
 #
-# Opt-in two-factor authentication for any account (recommended for owners:
-# an owner is god-mode and password-only phishing was the audit's top
-# real-world risk). The secret never touches the database in plaintext and
-# the challenge path is single-use, version-bound and strictly throttled.
+# Opt-in two-factor authentication for any account (recommended for owners: an owner is god-mode and
+# password-only phishing was the audit's top real-world risk). The secret never touches the database
+# in plaintext and the challenge path is single-use, version-bound and strictly throttled.
 
 TOTP_ENROLL_SCOPE = "totp-enroll"
 TOTP_CHALLENGE_USER_SCOPE = "totp-challenge"
 TOTP_CONFIRM_USER_SCOPE = "totp-confirm"
-# 2026-09-17 re-audit: disable's wrong-code path recorded nothing, making the
-# ACTIVE-state code check an unthrottled 6-digit oracle (the aggravator that
-# turned the enroll-overwrite hole into a full factor-stripping chain). It now
-# keeps its own ledger — separate from confirm's so a fat-fingered confirm
-# burst cannot lock out a legitimate disable (and vice versa).
+# Disable and confirm have independent guess budgets so failed confirmation attempts cannot lock a
+# user out of disabling their factor, or vice versa.
 TOTP_DISABLE_USER_SCOPE = "totp-disable"
 TOTP_RECOVERY_REGEN_SCOPE = "totp-recovery-regen"
-# Recovery-code redemption runs up to ten sequential Argon2 verifies in one
-# request, so it takes the same one-per-account work reservation as the other
-# credential workflows (2026-09-28 audit, S4).
+# Recovery-code redemption runs up to ten sequential Argon2 verifies in one request, so it takes the
+# same one-per-account work reservation as the other credential workflows.
 TOTP_RECOVERY_RESERVATION_SCOPE = "totp-recovery-work"
 # Garbage mfa_tokens each cost an RS256 verify, so the challenge path carries
 # the same pre-verification budget as /refresh (REFRESH_PREVERIFY_SCOPE): a
@@ -2480,11 +2456,8 @@ TOTP_RECOVERY_RESERVATION_SCOPE = "totp-recovery-work"
 # still-valid challenge.
 TOTP_CHALLENGE_PREVERIFY_SCOPE = "totp-challenge-preverify"
 TOTP_CHALLENGE_INVALID_SCOPE = "totp-challenge-invalid"
-# Worker-tablet PIN login (ITEM 2, 2026-09-21 playbook): one scope for the
-# exact (IP, farm, membership) identity, one IP-AGNOSTIC per-membership
-# ceiling (the login-email analogue — without it, rotating source addresses
-# reset every budget and PIN guessing becomes distributable; 2026-09-28 audit
-# H3), and one spray scope for the whole (IP, farm) pair so spraying many
+# Worker-tablet PIN login: one scope for the exact (IP, farm, membership) identity, one IP-AGNOSTIC
+# per-membership ceiling, and one spray scope for the whole (IP, farm) pair so spraying many
 # memberships cannot multiply the budget.
 WORKER_PIN_SCOPE = "worker-pin"
 WORKER_PIN_ACCOUNT_SCOPE = "worker-pin-account"
@@ -2493,15 +2466,8 @@ WORKER_PIN_SPRAY_SCOPE = "worker-pin-spray"
 WORKER_PIN_RESERVATION_SCOPE = "worker-pin-work"
 WORKER_ROSTER_SCOPE = "worker-roster"
 _WORKER_ROSTER_MAX_ATTEMPTS = 30
-# (2026-10-01 audit, 01-1): the roster throttle above is per-IP only, so an
-# address-rotating caller got a fresh budget per request and could probe ONE
-# farm's names without limit (or crawl ids while rotating). The IP-agnostic
-# per-TARGET budget mirrors register's per-email probe bucket (and the
-# worker-pin account ceiling): one bucket per farm id, charged by every
-# admitted roster probe regardless of source address, so N probes per window
-# per farm is the ceiling no IP rotation resets. It sits at the same 30 the
-# per-IP scope grants one address — a single tablet's budget is unchanged;
-# only rotation against one target loses its multiplier.
+# A farm-wide budget caps roster probing even when the source IP rotates. Keep it equal to the
+# per-IP allowance so one tablet's budget is unchanged.
 WORKER_ROSTER_FARM_SCOPE = "worker-roster-farm"
 _WORKER_ROSTER_FARM_MAX_ATTEMPTS = 30
 # Challenge codes are 6 digits: 5 attempts / 5 minutes per account makes
@@ -2533,14 +2499,11 @@ async def _decrypt_totp_secret_or_unavailable(
 
 
 # Single-use challenge tokens: each successful exchange claims its jti in
-# ``consumed_mfa_challenges`` (2026-10-01 audit, 01-3 — decided 2026-10-02:
-# durable storage replaces the per-process OrderedDict, which a restart
-# inside the challenge TTL could wipe to permit exactly one replay). The
-# claim rides the login-success transaction, so committed consumption and a
-# successful exchange are the same event: a request that fails later in the
-# handler rolls the claim back and the challenge stays retryable, while a
-# committed success is consumed for good — restart or not (RFC 6238: the
-# verifier MUST detect replay of a used exchange).
+# ``consumed_mfa_challenges`` durably, including across process restarts. The claim rides the
+# login-success transaction, so committed consumption and a successful exchange are the same event:
+# a request that fails later in the handler rolls the claim back and the challenge stays retryable,
+# while a committed success is consumed for good — restart or not (RFC 6238: the verifier MUST
+# detect replay of a used exchange).
 async def _consume_mfa_jti(db: AsyncSession, jti: str, expires_at: datetime) -> bool:
     """Claim a challenge token's single use; False when it was already used.
 
@@ -2657,12 +2620,11 @@ async def totp_enroll(
     # mutation bumps token_version under this same User lock — a password
     # proof that has since gone stale must not mint a fresh PENDING enrollment.
     await _require_authenticated_generation(db, request, locked, authenticated_token_version)
-    # Password-only proof must never retire an ACTIVE second factor
-    # (2026-09-17 re-audit): re-enrolling over ACTIVE used to silently replace
-    # the enrolled secret, so a phished password alone could swap away a factor
-    # the thief could not satisfy. Disable demands a currently-valid code from
-    # the enrolled secret; route re-enrollers through it first. Re-rolling a
-    # merely PENDING (never confirmed) enrollment stays allowed.
+    # Password-only proof must never retire an ACTIVE second factor: re-enrolling over ACTIVE used
+    # to silently replace the enrolled secret, so a phished password alone could swap away a factor
+    # the thief could not satisfy. Disable demands a currently-valid code from the enrolled secret;
+    # route re-enrollers through it first. Re-rolling a merely PENDING (never confirmed) enrollment
+    # stays allowed.
     if locked.totp_state == "ACTIVE":
         raise lifecycle_conflict(
             detail=(
@@ -2681,12 +2643,10 @@ async def totp_enroll(
         user_id=locked.id,
     )
     await db.commit()
-    # A completed enrollment proves the caller knew the current password —
-    # the confirmation budget's own contract ("successful commits clear the
-    # counters") must hold here like it does in change_password and
-    # delete_account, or a user toggling 2FA inside one rate-limit window
-    # crawls toward the composite ceiling on correct passwords
-    # (2026-09-29 audit, L3).
+    # A completed enrollment proves the caller knew the current password — the confirmation budget's
+    # own contract ("successful commits clear the counters") must hold here like it does in
+    # change_password and delete_account, or a user toggling 2FA inside one rate-limit window crawls
+    # toward the composite ceiling on correct passwords.
     _reset_account_password_attempts(
         TOTP_ENROLL_SCOPE,
         ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE,
@@ -2738,15 +2698,14 @@ async def totp_confirm(
         )
     ).one_or_none()
     if snapshot is None:
-        # Concurrently deleted account: scalar_one would raise NoResultFound
-        # → 500 here (2026-09-17 re-audit).
+        # Concurrently deleted account: scalar_one would raise NoResultFound → 500 here.
         raise HTTPException(status_code=401, detail="Account no longer exists.")
     if snapshot.token_version != authenticated_token_version:
         raise HTTPException(status_code=401, detail="Session is no longer valid")
     if snapshot.totp_state != "PENDING" or snapshot.totp_secret_enc is None:
         raise lifecycle_conflict(detail="Start enrollment first.")
-    # Same guess budget as the login challenge: a stolen access token must
-    # not get an unthrottled 6-digit oracle here either (2026-09-17 re-audit).
+    # Same guess budget as the login challenge: a stolen access token must not get an unthrottled
+    # 6-digit oracle here either.
     s = get_settings()
     composite_key = f"{_client_key(request)}|{user_id}"
     if s.auth_rate_limit_enabled and (
@@ -2836,18 +2795,16 @@ async def totp_disable(
     password alone — nothing is gating login yet)."""
     user_id = user.id  # _confirm_current_password rolls back and expires `user`
     authenticated_token_version = user.token_version
-    # Same guess budget as confirm (2026-09-17 re-audit): the ACTIVE-state code
-    # check below is a 6-digit oracle and its wrong-code path used to record
-    # nothing, so a stolen access token could grind it unthrottled. Both keys
-    # are derived from the pre-rollback user_id snapshot for that reason.
+    # Same guess budget as confirm: the ACTIVE-state code check below is a 6-digit oracle and its
+    # wrong-code path used to record nothing, so a stolen access token could grind it unthrottled.
+    # Both keys are derived from the pre-rollback user_id snapshot for that reason.
     s = get_settings()
     composite_key = f"{_client_key(request)}|{user_id}"
-    # The password confirmation cannot hold the row lock (it rolls back so
-    # Argon2 never runs inside a transaction), so the state decision must be
-    # re-taken under a freshly acquired lock afterwards. Loop until the state
-    # seen under the final lock matches the checks already paid for; the
-    # retry budget bounds pathological concurrent toggling with a 409 instead
-    # of the pre-2026-09-17 assert/500 (2026-09-17 re-audit).
+    # The password confirmation cannot hold the row lock (it rolls back so Argon2 never runs inside
+    # a transaction), so the state decision must be re-taken under a freshly acquired lock
+    # afterwards. Loop until the state seen under the final lock matches the checks already paid
+    # for; the retry budget bounds pathological concurrent toggling with a 409 instead of an
+    # unhandled assertion failure.
     password_confirmed = False
     for _ in range(3):
         locked = (
@@ -2859,8 +2816,7 @@ async def totp_disable(
             )
         ).scalar_one_or_none()
         if locked is None:
-            # Concurrently deleted account: scalar_one would raise
-            # NoResultFound → 500 here (2026-09-17 re-audit).
+            # Concurrently deleted account: scalar_one would raise NoResultFound → 500 here.
             raise HTTPException(status_code=401, detail="Account no longer exists.")
         await _require_authenticated_generation(db, request, locked, authenticated_token_version)
         state = locked.totp_state
@@ -2938,9 +2894,8 @@ async def totp_disable(
             user_id=locked_id,
         )
         await db.commit()
-        # The password side of the proof succeeded and committed — clear the
-        # confirmation budget like every other successful credential workflow
-        # (2026-09-29 audit, L3); disable shares TOTP_ENROLL_SCOPE with
+        # The password side of the proof succeeded and committed — clear the confirmation budget
+        # like every other successful credential workflow; disable shares TOTP_ENROLL_SCOPE with
         # enrollment by design, so one reset covers both charge sites.
         _reset_account_password_attempts(
             TOTP_ENROLL_SCOPE,
@@ -3069,8 +3024,8 @@ async def totp_recovery_regenerate(
         user_id=user_id,
     )
     await db.commit()
-    # Password proof committed successfully — clear the confirmation budget
-    # like change_password/delete_account do (2026-09-29 audit, L3).
+    # Password proof committed successfully — clear the confirmation budget like
+    # change_password/delete_account do.
     _reset_account_password_attempts(
         TOTP_RECOVERY_REGEN_SCOPE,
         ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE,
@@ -3240,20 +3195,16 @@ async def totp_challenge(
     matched = verify_totp_code(
         decrypted.secret, payload.code, at=utcnow(), last_used_step=user.totp_last_step
     )
-    # ITEM 7 (2026-09-21 playbook): a recovery code (XXXXX-XXXXX) redeems the
-    # challenge exactly like a TOTP code — the break-glass path for a lost
-    # authenticator. Single-use is enforced by a conditional UPDATE race, not
-    # a held lock, so two concurrent redemptions of the same code can never
-    # both succeed.
+    # A recovery code (XXXXX-XXXXX) redeems the challenge exactly like a TOTP code — the break-glass
+    # path for a lost authenticator. Single-use is enforced by a conditional UPDATE race, not a held
+    # lock, so two concurrent redemptions of the same code can never both succeed.
     recovery_redeemed = False
     if matched is None and looks_like_totp_recovery_code(payload.code):
         normalized = normalize_totp_recovery_code(payload.code)
-        # Snapshot the unused-code hashes WITHOUT holding the row lock, then
-        # end the read transaction: the batch below is up to ten sequential
-        # Argon2 verifies, and Argon2 never holds a row lock, transaction, or
-        # checked-out DB connection — the same invariant worker_login states
-        # (2026-09-29 audit; the S4 reservation alone left the User pinned
-        # for the whole memory-hard batch).
+        # Snapshot the unused-code hashes WITHOUT holding the row lock, then end the read
+        # transaction: the batch below is up to ten sequential Argon2 verifies, and Argon2 never
+        # holds a row lock, transaction, or checked-out DB connection — the same invariant
+        # worker_login states.
         candidates = list(
             (
                 await db.execute(
@@ -3267,9 +3218,8 @@ async def totp_challenge(
             ).all()
         )
         await db.rollback()
-        # 2026-09-28 audit, S4: the batch below is up to ten sequential Argon2
-        # verifies in one request, so it holds a per-account work reservation
-        # like every other credential workflow.
+        # The batch below is up to ten sequential Argon2 verifies in one request, so it holds a
+        # per-account work reservation like every other credential workflow.
         reservation = _reserve_password_work(TOTP_RECOVERY_RESERVATION_SCOPE, str(user_id))
         verified_candidate_id: int | None = None
         try:
@@ -3340,8 +3290,8 @@ async def totp_challenge(
             s.auth_rate_limit_window_seconds,
             max_attempts=TOTP_CHALLENGE_MAX_ATTEMPTS,
         )
-        # No 429 metric here: this answer is a 401, and the periodic summary
-        # counts only actual throttle decisions (2026-09-17 re-audit).
+        # No 429 metric here: this answer is a 401, and the periodic summary counts only actual
+        # throttle decisions.
         await db.rollback()
         note_transient_security_signal("auth.totp.challenge_failed")
         raise generic

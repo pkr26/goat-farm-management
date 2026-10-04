@@ -49,8 +49,7 @@ class MovementRestrictionClearIn(StrictInputModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     clearance_reference: PostgresText = Field(min_length=1, max_length=255)
-    # int4 column ceiling via the shared bound, not a restated literal
-    # (2026-09-28 audit).
+    # int4 column ceiling via the shared bound, not a restated literal.
     expected_restriction_version: Annotated[StrictInt, Field(ge=1, le=MAX_INT32_ID)]
 
 
@@ -85,9 +84,8 @@ class HealthEventOut(BaseModel):
     authority_notified_at: dt.date | None
     isolation_started_at: dt.date | None
     notes: str | None
-    # Row-insertion timestamp: distinguishes a same-day entry from a backdated
-    # record, which is the insurance/withdrawal evidence the model carries the
-    # column for (2026-09-28 audit, D3).
+    # Row-insertion timestamp: distinguishes a same-day entry from a backdated record, which is the
+    # insurance/withdrawal evidence the model carries the column for.
     created_at: dt.datetime
     animal_tag: str | None = None
 
@@ -221,10 +219,9 @@ class HealthBulkTargetPreviewOut(BaseModel):
     round_component: str | None = None
     target_animal_ids: list[int]
     target_animals: list[AnimalIdentityOut]
-    # Age (completed months on the farm's business date) per target animal,
-    # index-aligned with target_animal_ids/target_animals: a herd round's
-    # age-sensitive rules (first-dose windows, withdrawal floors) were
-    # invisible at review time before this existed (P3, 2026-09-20 audit).
+    # Age (completed months on the farm's business date) per target animal, index-aligned with
+    # target_animal_ids/target_animals: a herd round's age-sensitive rules (first-dose windows,
+    # withdrawal floors) were invisible at review time before this existed.
     target_animal_ages_months: list[int | None] = []
     target_count: int
     max_targets: int = MAX_BULK_HEALTH_TARGETS
@@ -266,8 +263,8 @@ class ScheduleTemplateOut(BaseModel):
     id: int
     name: str
     timing_note: str | None
-    #: DEWORMING for the deworming programme, VACCINE for every other item —
-    #: the event type this template may be attached to.
+    # DEWORMING for the deworming programme, VACCINE for every other item — the event type this
+    # template may be attached to.
     event_type: HealthEventTypeStr
 
 

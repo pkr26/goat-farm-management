@@ -1,9 +1,6 @@
 /**
- * WorkerShell (the shared-device security boundary) unit tests — the shell
- * sat at ~15% coverage with its end-shift queue wipe, offline/queue badges,
- * Telugu-first default, signed-out gate and service-worker registration
- * never executed (2026-09-28 audit, T2). The duty board itself is covered by
- * page.test.tsx; these tests pin the chrome around it.
+ * Worker shell session gates, retained field work, language defaults, queue receipts
+ * and service-worker registration.
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -30,11 +27,8 @@ const {
   signOutMock,
   authState,
   navState,
-  wipeQueueMock,
-  clearBackoffMock,
   queueDepthMock,
   startWorkersMock,
-  drainQueueMock,
   readOutboxMock,
   clearAcceptedMock,
   confirmDraftMock,
@@ -56,13 +50,10 @@ const {
     loading: false,
   },
   navState: { pathname: "/worker" },
-  wipeQueueMock: vi.fn(),
-  clearBackoffMock: vi.fn(),
   queueDepthMock: vi.fn<
     (scopes?: { actorScope: string; farmScope: string }) => number
   >(() => 0),
   startWorkersMock: vi.fn(),
-  drainQueueMock: vi.fn(),
   readOutboxMock: vi.fn(),
   clearAcceptedMock: vi.fn(),
   confirmDraftMock: vi.fn(),
@@ -97,16 +88,7 @@ vi.mock("@/lib/auth-context", async (importOriginal) => ({
   }),
 }));
 
-// The queue itself is covered by offline-queue.test.ts; the shell only needs
-// its four entry points observed (and the badge depth driven per test).
-vi.mock("@/lib/offline-queue", async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  drainOfflineQueue: drainQueueMock,
-  offlineQueueDepth: queueDepthMock,
-  startOfflineQueueWorkers: startWorkersMock,
-  wipeOfflineQueue: wipeQueueMock,
-  clearOfflineQueueDrainBackoff: clearBackoffMock,
-}));
+// Observe the shell boundary; persistence and replay are covered by worker-outbox tests.
 vi.mock("@/lib/worker-outbox", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   startWorkerOutbox: startWorkersMock,
@@ -149,8 +131,6 @@ beforeEach(() => {
   authState.farmId = 3;
   authState.loading = false;
   navState.pathname = "/worker";
-  wipeQueueMock.mockClear();
-  clearBackoffMock.mockClear();
   queueDepthMock.mockReset().mockReturnValue(0);
   startWorkersMock.mockClear();
   startWorkersMock.mockImplementation((getScopes: () => { actorScope: string; farmScope: string } | null, onChange: (records: WorkerOperation[]) => void) => {
@@ -164,7 +144,6 @@ beforeEach(() => {
   discardDraftMock.mockReset().mockResolvedValue(true);
   resolveReviewMock.mockReset().mockResolvedValue(true);
   toastSuccessMock.mockClear(); toastErrorMock.mockClear();
-  drainQueueMock.mockClear();
   swRegistration.update.mockClear();
   swRegisterMock.mockClear();
   window.localStorage.clear();
@@ -460,11 +439,11 @@ describe("WorkerShell chrome", () => {
     );
   });
 
-  it("counts the badge with the same scope filter the drain uses (2026-10-01 audit, 07-L3)", async () => {
+  it("counts the badge with the same scope filter the drain uses", async () => {
     // A foreign actor's or farm's residue must not inflate the badge (or the
     // end-shift confirm, which reads the same depth): the shell passes the
-    // session's scopes into offlineQueueDepth instead of counting the whole
-    // store.
+    // session scopes into the outbox read and subscription instead of
+    // counting the whole store.
     queueDepthMock.mockReturnValue(1);
     renderShell();
 
@@ -540,7 +519,6 @@ describe("WorkerShell end shift", () => {
     await user.click(screen.getByTestId("end-shift"));
     expect(await screen.findByText("Unsent duties")).toBeInTheDocument();
     expect(signOutMock).not.toHaveBeenCalled();
-    expect(wipeQueueMock).not.toHaveBeenCalled();
   });
   it("preserves queued writes, signs out and returns to the PIN pad", async () => {
     const user = userEvent.setup();
@@ -552,11 +530,10 @@ describe("WorkerShell end shift", () => {
     // leak into the next session, and the tablet goes back to the PIN pad
     // (never the manager's /login form).
     await waitFor(() => expect(signOutMock).toHaveBeenCalled());
-    expect(wipeQueueMock).not.toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith("/worker/login");
   });
 
-  it("clears the 429 drain backoff on end shift (M1: next actor starts un-gated)", async () => {
+  it("reads committed outbox records before ending the shift", async () => {
     const user = userEvent.setup();
     renderShell();
 
@@ -574,22 +551,20 @@ describe("WorkerShell end shift", () => {
     await user.click(await screen.findByTestId("end-shift"));
 
     // The confirm opens with the queued count; nothing is wiped or signed
-    // out until the worker explicitly chooses to discard.
+    // out until the worker explicitly confirms handover.
     expect(await screen.findByText("Unsent duties")).toBeInTheDocument();
     expect(
       screen.getByText("2 saved duties have not been sent yet. They will stay on this tablet for you to send or review after signing in again."),
     ).toBeInTheDocument();
     expect(signOutMock).not.toHaveBeenCalled();
-    expect(wipeQueueMock).not.toHaveBeenCalled();
 
     await user.click(await screen.findByTestId("end-shift-confirm"));
 
     await waitFor(() => expect(signOutMock).toHaveBeenCalled());
-    expect(wipeQueueMock).not.toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith("/worker/login");
   });
 
-  it("keeps the queue and session when the worker cancels the discard", async () => {
+  it("keeps the queue and session when the worker cancels handover", async () => {
     const user = userEvent.setup();
     queueDepthMock.mockReturnValue(1);
     renderShell();
@@ -606,7 +581,6 @@ describe("WorkerShell end shift", () => {
       expect(screen.queryByText("Unsent duties")).not.toBeInTheDocument(),
     );
     expect(signOutMock).not.toHaveBeenCalled();
-    expect(wipeQueueMock).not.toHaveBeenCalled();
   });
 });
 

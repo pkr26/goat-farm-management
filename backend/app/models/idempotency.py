@@ -66,8 +66,7 @@ class IdempotencyRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    # farm_id single dropped (2026-09-28 audit index hygiene):
-    # uq_idempotency_scope_key leads with farm_id and serves the farm-delete
+    # farm_id single dropped: uq_idempotency_scope_key leads with farm_id and serves the farm-delete
     # cascade probe.
     farm_id: Mapped[int | None] = mapped_column(ForeignKey("farms.id", ondelete="CASCADE"))
     actor_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -76,7 +75,7 @@ class IdempotencyRecord(Base):
     request_hash: Mapped[str] = mapped_column(String(64))
     response_status: Mapped[int | None]
     response_body: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    # UTC defaults also apply to direct SQL inserts.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )

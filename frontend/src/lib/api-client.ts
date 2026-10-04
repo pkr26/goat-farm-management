@@ -18,7 +18,6 @@ let authSessionEpoch = 0;
 let currentFarmId: string | null = null;
 let farmScopeEpoch = 0;
 let onAuthFailure: (() => void) | null = null;
-// Stryker disable next-line ArrayDeclaration: a module-level initializer cannot be attributed to the asserting test by per-test coverage
 const authFailureRegistrations: Array<{ handler: () => void }> = [];
 export type RefreshSessionResult = Pick<TokenOut, "access_token" | "user">;
 
@@ -129,7 +128,6 @@ export function setOnAuthFailure(handler: (() => void) | null): () => void {
  *  bounded. A timed-out waiter fails transiently; it must never bypass a
  *  holder and race a login/logout response for the shared cookie jar. */
 const REFRESH_REQUEST_TIMEOUT_MS = 10_000;
-// Stryker disable next-line StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage
 const AUTH_COOKIE_LOCK_NAME = "goatfarm-auth-refresh";
 const AUTH_COOKIE_MUTATION_LOCK_WAIT_TIMEOUT_MS = 62_000;
 const REFRESH_LOCK_WAIT_TIMEOUT_MS = AUTH_COOKIE_MUTATION_LOCK_WAIT_TIMEOUT_MS;
@@ -139,7 +137,6 @@ class AuthCookieCoordinationError extends Error {
     message = "Another authentication change is still finishing. Try again shortly.",
   ) {
     super(message);
-    // Stryker disable next-line StringLiteral: a module-level class-field initializer cannot be attributed to the asserting test by per-test coverage
     this.name = "AuthCookieCoordinationError";
   }
 }
@@ -222,15 +219,13 @@ async function withAuthCookieLock<T>(
       clearTimeout(waitTimer);
     }
   }
-  // FE-1 (2026-09-16, accepted residual): no Web Locks — the realm-only
-  // chain orders this tab, and a pre-Web-Lock BROWSER (pre-2022 Safari) can
-  // still race a second tab into replaying the same cookie, which the
-  // backend's family revocation answers by killing both sessions. A
-  // localStorage polling tier was evaluated and rejected: its wall-clock
-  // polling is incompatible with the suite's fake-timer lock tests, and the
-  // product's support matrix (evergreen Android Chrome / recent Safari)
-  // makes the affected population negligible. Backend replay grace remains
-  // the bounded mitigation.
+  // FE-1: no Web Locks — the realm-only chain orders this tab, and a pre-Web-Lock
+  // BROWSER (pre-2022 Safari) can still race a second tab into replaying the same
+  // cookie, which the backend's family revocation answers by killing both sessions. A
+  // localStorage polling tier was evaluated and rejected: its wall-clock polling is
+  // incompatible with the suite's fake-timer lock tests, and the product's support
+  // matrix (evergreen Android Chrome / recent Safari) makes the affected population
+  // negligible. Backend replay grace remains the bounded mitigation.
   return withLocalAuthCookieLock(operation, timeoutMs);
 }
 
@@ -279,14 +274,13 @@ async function performRefresh(
     });
     if (!resp.ok) {
       if (isTransientRefreshStatus(resp.status)) return { kind: "unavailable" };
-      // FE-2 (2026-09-16): a non-transient status counts as the server's
-      // authoritative "rejected" unless the response announces itself as
-      // something other than this API's JSON envelope. Injected captive-
-      // portal/proxy pages carry text/html and must not destroy a session
-      // the backend still considers valid — those stay "unavailable"
-      // (retryable, non-destructive). A bare status with NO content-type
-      // (some API gateways) stays authoritative, matching the backend's
-      // own minimal 401/403 answers.
+      // FE-2: a non-transient status counts as the server's authoritative "rejected"
+      // unless the response announces itself as something other than this API's JSON
+      // envelope. Injected captive- portal/proxy pages carry text/html and must not
+      // destroy a session the backend still considers valid — those stay "unavailable"
+      // (retryable, non-destructive). A bare status with NO content-type (some API
+      // gateways) stays authoritative, matching the backend's own minimal 401/403
+      // answers.
       const contentType = (resp.headers.get("content-type") ?? "").toLowerCase();
       if (contentType !== "" && !contentType.startsWith("application/json")) {
         return { kind: "unavailable" };
@@ -467,7 +461,7 @@ export class ApiError extends Error {
   /** Parsed `Retry-After` (delta-seconds form) when the server sent one —
    *  the backend's 429 convention always does. Null otherwise. The offline
    *  queue's drain uses it to back off instead of hammering the throttle
-   *  at its fixed cadence (2026-09-29 audit). */
+   *  at its fixed cadence. */
   readonly retryAfterSeconds: number | null;
 
   constructor(
@@ -552,12 +546,10 @@ export function applyApiValidationToForm(
 ): ApiValidationIssue[] {
   const known = new Set(fields);
   const unmapped: ApiValidationIssue[] = [];
-  // Stryker disable StringLiteral: form fields are never the empty string (nor any mutant sentinel), so the vacuous guards behave identically and the body-root marker is pinned by the validation suite
   for (const issue of apiValidationErrors(err)) {
     const path = issue.loc[0] === "body" ? issue.loc.slice(1) : issue.loc;
     const dotted = path.join(".");
     const root = path[0] ?? "";
-    // Stryker disable next-line ConditionalExpression: swapping the vacuous `!== ""` guard for `true` is decided entirely by known.has() — form fields are never the empty string
     if (dotted !== "" && known.has(dotted)) {
       setError(dotted, issue.msg);
     } else if (isKnownField(root, known)) {
@@ -566,26 +558,21 @@ export function applyApiValidationToForm(
       unmapped.push(issue);
     }
   }
-  // Stryker restore StringLiteral
   return unmapped;
 }
 
 function isKnownField(root: string, known: ReadonlySet<string>): boolean {
-  // Stryker disable next-line ConditionalExpression, StringLiteral: same vacuous guard on the root segment — known.has() alone decides, and form fields are never the empty string nor any mutant sentinel
   return root !== "" && known.has(root);
 }
 
 function assertSafeApiPath(path: string): void {
   const validationOrigin = "https://goatfarm.invalid";
   let parsed: URL;
-  // Stryker disable BlockStatement: emptying the catch leaves parsed undefined, and the pathname checks below then treat every path as invalid — the same fail-closed outcome the fallback produces
   try {
     parsed = new URL(path, validationOrigin);
   } catch {
-    // Stryker disable next-line StringLiteral: the fallback only needs any allowlist-disallowed pathname; the empty string yields '/', which the checks below reject identically
     parsed = new URL("/invalid", validationOrigin);
   }
-  // Stryker restore BlockStatement
   const rawPathname = path.split(/[?#]/, 1)[0];
   // The OpenAPI document exposes the two unauthenticated service probes at
   // the origin root; every application endpoint remains under /api/. Keep
@@ -641,7 +628,6 @@ async function runScopedToAuthSession<T>(
 function extractDetail(body: unknown, fallback: string, status?: number): string {
   if (body && typeof body === "object" && "detail" in body) {
     const detail = (body as { detail: unknown }).detail;
-    // Stryker disable next-line ConditionalExpression, StringLiteral: the arm is redundant — a string detail that skips it (or never matches the mutant's sentinel) flows to the final String(detail) return, which yields the same string
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail)) {
       // 422s are schema-drift/typo territory: lead with a plain-language
@@ -681,24 +667,21 @@ const REQUEST_TIMEOUT_MS = 60_000;
  * client-side while the server kept computing (and the run budget stayed
  * charged). Server-bound compute gets a longer leash (M-6). */
 const SIMULATION_RUN_TIMEOUT_MS = 300_000;
-// Stryker disable next-line Regex: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the routes are pinned by the idempotency route suite
 const SIMULATION_RUN_PATH = /^\/api\/(simulation\/(run|scenarios\/\d+\/run)|ops-sim\/run)$/;
-// Stryker disable StringLiteral, ArrayDeclaration: module-level route tables cannot be attributed to the asserting test by per-test coverage; the routes are pinned by the refresh-coordination suite
 const REFRESH_COOKIE_POST_ROUTES = new Set([
   "/api/auth/register",
   "/api/auth/login",
   "/api/auth/refresh",
   "/api/auth/logout",
   "/api/auth/change-password",
-  // The TOTP challenge exchange mints a fresh refresh family (Set-Cookie) on
-  // success, so it belongs under the cross-tab auth-cookie lock like every
-  // other cookie-bearing auth response (2026-09-17 re-audit).
+  // The TOTP challenge exchange mints a fresh refresh family (Set-Cookie) on success,
+  // so it belongs under the cross-tab auth-cookie lock like every other cookie-bearing
+  // auth response.
   "/api/auth/totp/challenge",
-  // Worker PIN sign-in also mints a refresh family via _issue_tokens; omitting
-  // it here re-opened the response-order cookie race (2026-09-28 audit, C1).
+  // Worker PIN sign-in also mints a refresh family via _issue_tokens; omitting it here
+  // re-opened the response-order cookie race.
   "/api/auth/worker-login",
 ]);
-// Stryker restore StringLiteral, ArrayDeclaration
 
 function isRefreshCookieMutation(path: string, method?: string): boolean {
   const requestPath = path.split(/[?#]/, 1)[0];
@@ -715,10 +698,7 @@ function isRefreshCookieMutation(path: string, method?: string): boolean {
 
 function isLogoutRoute(path: string, method?: string): boolean {
   const requestPath = path.split(/[?#]/, 1)[0];
-  // Stryker disable ConditionalExpression, EqualityOperator: the length guard only separates the degenerate "/" (length 1) from longer slash-suffixed paths, and both spellings yield a non-logout route for it; every real request path is longer
   const route = requestPath.length > 1 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;
-  // Stryker disable ConditionalExpression: the logout endpoint is only ever called with POST (the generated client and AuthProvider share that spelling), so a true method-guard cannot change the result for a real caller
-  // Stryker disable StringLiteral: hand-proven killed by the refresh-concurrency teardown tests (a garbage route re-enables assertAuthSession, failing them) — Stryker's perTest selection never includes those tests for this mutant; documented attribution artifact
   return (method ?? "GET").toUpperCase() === "POST" && route === "/api/auth/logout";
 }
 
@@ -751,8 +731,7 @@ function timeoutAbortReason(): unknown {
  * browsers with AbortSignal.any have it). On the truly ancient remainder
  * the reason is dropped and a timeout surfaces as a plain AbortError —
  * classified non-queueable, so the failure is a visible toast instead of a
- * false "Saved": fail-visible degradation, never silent misclassification
- * (2026-10-01 audit, 07-M3). */
+ * false "Saved": fail-visible degradation, never silent misclassification. */
 export function composeRequestSignal(
   callerSignal: AbortSignal | null | undefined,
   timeoutMs: number,
@@ -813,7 +792,6 @@ async function rawFetch(
   const cookieMutation = isRefreshCookieMutation(path, init.method);
   const execute = () => {
     assertRequestScope(requiredScope);
-    // Stryker disable next-line ConditionalExpression: entering the block with an unchanged epoch only adds an assertAuthSession that cannot trip there, and a changed epoch enters the block in both variants
     if (cookieMutation && authSessionEpoch !== sessionScope) {
       // AuthProvider intentionally starts logout with the old bearer, then
       // clears local state before a queued fetch gets the lock. Permit exactly
@@ -834,13 +812,11 @@ async function rawFetch(
     const timeoutMs = SIMULATION_RUN_PATH.test(requestPathname)
       ? SIMULATION_RUN_TIMEOUT_MS
       : REQUEST_TIMEOUT_MS;
-    // Compose, never replace: a caller signal (TanStack Query unmount/farm
-    // switch, the idempotency registry) used to disable the timeout
-    // entirely — an unbounded fetch on a dropped connection left the query
-    // pending forever (P3, 2026-09-20 audit). The composed signal aborts when
-    // EITHER source fires, so caller cancellation semantics are unchanged
-    // and the bounded lifetime still applies (with a pre-17.4-Safari
-    // fallback inside — see composeRequestSignal, 2026-10-01 audit, 07-M3).
+    // Compose, never replace: a caller signal (TanStack Query unmount/farm switch, the
+    // idempotency registry) used to disable the timeout entirely — an unbounded fetch
+    // on a dropped connection left the query pending forever. The composed signal
+    // aborts when EITHER source fires, so caller cancellation semantics are unchanged
+    // and the bounded lifetime still applies.
     const signal = composeRequestSignal(init.signal, timeoutMs);
     const sessionLogout = (init.method ?? "GET").toUpperCase() === "POST" &&
       requestPathname.replace(/\/$/, "") === "/api/auth/logout-session";
@@ -896,7 +872,6 @@ export async function apiFetchText(path: string, init: RequestInit = {}): Promis
  *  IS the answer (bad credentials / no refresh cookie), and retrying
  *  /api/auth/refresh itself would recurse. Every other path — including
  *  /api/auth/farms and /api/auth/me — gets one refresh + retry. */
-// Stryker disable StringLiteral, ArrayDeclaration: module-level route tables cannot be attributed to the asserting test by per-test coverage; the paths are pinned by the retry suite
 const NO_REFRESH_PATHS = new Set([
   "/api/auth/login",
   "/api/auth/register",
@@ -905,17 +880,14 @@ const NO_REFRESH_PATHS = new Set([
   // This bearer revokes its exact family. A rejected old grant must never
   // refresh, alter a replacement session or participate in cookie locking.
   "/api/auth/logout-session",
-  // A 401 from the TOTP challenge IS the answer (wrong/expired code), same
-  // class as login's bad credentials — triggering the refresh machinery here
-  // would rotate a live session token just to re-fail the code entry
-  // (2026-09-17 re-audit).
+  // A 401 from the TOTP challenge IS the answer (wrong/expired code), same class as
+  // login's bad credentials — triggering the refresh machinery here would rotate a live
+  // session token just to re-fail the code entry.
   "/api/auth/totp/challenge",
-  // A 401 from worker-login IS the answer ("Invalid PIN."). On a signed-out
-  // tablet the refresh attempt can only fail, and its rejection ran the
-  // auth-failure path — ejecting the worker to /login (and, before the
-  // 2026-10-01 audit's 07-H fix, wiping the offline queue) — while with a
-  // live cookie the retry double-charged the server's PIN lockout budget
-  // (2026-09-28 audit, C1).
+  // A 401 from worker-login IS the answer ("Invalid PIN."). On a signed-out tablet the
+  // refresh attempt can only fail, and its rejection ran the auth-failure path —
+  // ejecting the worker to /login — while with a live cookie the retry double-charged
+  // the server's PIN lockout budget.
   "/api/auth/worker-login",
 ]);
 
@@ -978,10 +950,10 @@ async function apiResponseOnce(
     assertAuthSession(responseSessionScope);
     throw new ApiError(
       resp.status,
-      // resp.statusText is always "" over HTTP/2 (and for proxies' synthesized
-      // HTML error pages, which also fail the json() parse above) — without
-      // this fallback the alert/toast renders an empty string exactly when
-      // guidance matters most: infrastructure failures (2026-09-17 audit L-21).
+      // resp.statusText is always "" over HTTP/2 (and for proxies' synthesized HTML
+      // error pages, which also fail the json() parse above) — without this fallback
+      // the alert/toast renders an empty string exactly when guidance matters most:
+      // infrastructure failures.
       extractDetail(body, resp.statusText || `Request failed (${resp.status}).`, resp.status),
       // Only 422s carry the per-field array the form mapper consumes.
       resp.status === 422 ? extractValidationIssues(body) : [],

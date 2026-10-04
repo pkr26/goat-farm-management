@@ -11,20 +11,15 @@ backups/
 *.dump.gpg
 *.dump.sha256
 *.dump.gpg.sha256
-AUDIT.md
-AUDIT_AND_IMPLEMENTATION_PLAYBOOK.md
-AUDIT_REPORT_2026-09-28.md
-MUTATION_TESTING_REPORT.md
 README.md
+docs/
 shared
 frontend
 backend/.venv
 backend/.pytest_cache
 backend/.mypy_cache
 backend/.ruff_cache
-# Root-level tool caches/mutation artifacts are context bloat only: the
-# Dockerfile COPYs explicit backend paths, so none of these can be needed
-# by the image (2026-09-28 audit, infra/docs).
+# The image copies explicit backend paths; tool caches are not runtime inputs.
 .mypy_cache
 .ruff_cache
 .zcode

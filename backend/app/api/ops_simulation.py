@@ -39,21 +39,18 @@ from ._run_limits import (
     _with_run_limits,
 )
 
-# Tag mirrors the path prefix, like every other router (2026-09-28 audit).
+# Tag mirrors the path prefix, like every other router.
 router = APIRouter(prefix="/api/ops-sim", tags=["ops-sim"], responses=COMMON_ERROR_RESPONSES)
 
 SimView = Annotated[set[str], Depends(require_perm("simulation.view"))]
 
-# The day-by-day RESULT (one DayRecord per day with per-building feeding and
-# occupancy, plus a journey per starting animal and per birth) scales with
-# head-days exactly like the Markdown ledger does, so the ledger's ceiling
-# must bound the whole payload: with the cap on the ledger alone, a maximal
-# 500-head 365-day run (182,500 head-days) serialized tens of MB on the event
-# loop whenever the caller simply omitted the ledger flag (red-team RT-KL-2).
-# It is now also enforced OUTPUT-side on the standing herd (births included,
-# 2026-10-01 audit, 08-M6): the input check below prices what was asked for,
-# while the engine aborts if in-sim births grow the result past this same
-# ceiling.
+# The day-by-day RESULT (one DayRecord per day with per-building feeding and occupancy, plus a
+# journey per starting animal and per birth) scales with head-days exactly like the Markdown ledger
+# does, so the ledger's ceiling must bound the whole payload: with the cap on the ledger alone, a
+# maximal 500-head 365-day run (182,500 head-days) serialized tens of MB on the event loop whenever
+# the caller simply omitted the ledger flag (red-team RT-KL-2). It is now also enforced OUTPUT-side
+# on the standing herd: the input check below prices what was asked for, while the engine aborts if
+# in-sim births grow the result past this same ceiling.
 MAX_RESULT_HEAD_DAYS = MAX_LEDGER_HEAD_DAYS
 
 # In-sim births multiply the herd the pricing formula never saw: measured
@@ -129,11 +126,10 @@ async def run_daily_ops_simulation(
     )
 
     def work() -> DailyOpsRunOut:
-        # Output-side ceiling on the STANDING herd, births included: input
-        # head-days alone never bounded the materialized result, because
-        # in-sim births multiply the days/journeys/feeding lists ~10x past
-        # what was priced and admitted (2026-10-01 audit, 08-M6). The cap
-        # aborts the run with a clean 422 instead of serializing tens of MB.
+        # Output-side ceiling on the STANDING herd, births included: input head-days alone never
+        # bounded the materialized result, because in-sim births multiply the days/journeys/feeding
+        # lists ~10x past what was priced and admitted. The cap aborts the run with a clean 422
+        # instead of serializing tens of MB.
         try:
             result = run_daily_ops(daily_input, max_result_head_days=MAX_RESULT_HEAD_DAYS)
         except DailyOpsResultCapExceeded as exc:

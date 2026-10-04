@@ -140,13 +140,12 @@ class HealthEvent(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # ITEM 9 (2026-09-21 playbook): closes the backdating blind spot — same-day
-    # entry and a backdated event are now distinguishable.
+    # closes the backdating blind spot — same-day entry and a backdated event are now
+    # distinguishable.
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
-    # farm_id single dropped (2026-09-28 audit index hygiene):
-    # ix_health_events_farm_date_id and the uq_health_events_farm_id_id
+    # farm_id single dropped: ix_health_events_farm_date_id and the uq_health_events_farm_id_id
     # candidate key both lead with farm_id.
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
     # animal_id single dropped (same audit): ix_health_events_animal_template_latest
@@ -253,8 +252,8 @@ class MovementRestrictionAction(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # farm_id single dropped (2026-09-28 audit index hygiene): the
-    # uq_movement_restriction_action_episode candidate key leads with farm_id.
+    # farm_id single dropped: the uq_movement_restriction_action_episode candidate key leads with
+    # farm_id.
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
     animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
     restriction_version: Mapped[int]

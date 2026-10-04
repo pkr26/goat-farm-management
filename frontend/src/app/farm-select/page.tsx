@@ -37,7 +37,7 @@ import { fetchSharedPermissions } from "@/lib/permission-envelope";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
 
-/** Localized twin of the old module-scope schema (ITEM 5): validation copy
+/** Localized twin of the old module-scope schema: validation copy
  * reaches Telugu-first operators in their language, not only the chrome. */
 function makeFarmSchema(t: TFn) {
   return z.object({
@@ -75,7 +75,6 @@ function FarmSelectPageContent() {
   const queryClient = useQueryClient();
   const [serverError, setServerError] = useState<string | null>(null);
   const [selectingFarmId, setSelectingFarmId] = useState<number | null>(null);
-  // Stryker disable next-line BooleanLiteral: the mount effect below overwrites the initial value before any continuation can observe it
   const mounted = useRef(true);
   const farmTransition = useSingleFlight();
   const {
@@ -88,17 +87,14 @@ function FarmSelectPageContent() {
     defaultValues: { name: "", location: "", timezone: "Asia/Kolkata" },
   });
 
-  // Stryker disable ArrayDeclaration: a constant string dep never changes, so the effect still runs exactly once
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
-  // Stryker restore ArrayDeclaration
 
   async function openFarm(farm: FarmEntry) {
-    // Stryker disable next-line ConditionalExpression: openFarm runs synchronously inside the click handler, so the provider is necessarily mounted here
     if (!mounted.current) return;
     const sessionEpoch = authSessionEpochValue();
     setServerError(null);
@@ -108,12 +104,10 @@ function FarmSelectPageContent() {
     // the authoritative timezone.
     selectFarm(farm.id, farm.timezone);
     try {
-      // Stryker disable StringLiteral: only read in permission-envelope's unreachable non-200 branch; the catch below never surfaces it (it renders its own fallback copy)
       const permissions = await fetchSharedPermissions(
         queryClient,
         "Could not load permissions for this farm.",
       );
-      // Stryker restore StringLiteral
       if (!mounted.current || authSessionEpochValue() !== sessionEpoch) return;
       const requestedPath = permittedAppPathFromList(
         searchParams.get("returnTo"),
@@ -145,7 +139,6 @@ function FarmSelectPageContent() {
 
   async function onSubmit(values: FarmValues) {
     await farmTransition.run(async () => {
-      // Stryker disable next-line ConditionalExpression: onSubmit runs synchronously inside the submit event, so the provider is necessarily mounted here
       if (!mounted.current) return;
       const sessionEpoch = authSessionEpochValue();
       setServerError(null);
@@ -197,7 +190,7 @@ function FarmSelectPageContent() {
     <main className="flex min-h-screen items-center justify-center bg-muted/40 p-4 sm:p-6">
       <div className="w-full max-w-2xl space-y-6">
         <div className="relative space-y-3 text-center">
-          {/* ITEM 5: the picker is the first screen a Telugu-first operator
+          {/* the picker is the first screen a Telugu-first operator
               customizes — the toggle must exist here, not only in the app shell. */}
           <div className="flex justify-center">
             <LanguageToggle />
@@ -255,13 +248,11 @@ function FarmSelectPageContent() {
                   <p className="mt-1 text-sm text-muted-foreground">
                     {farm.location ?? "—"} · {farm.role ?? t("farmSelect.ownerRole")}
                   </p>
-                  {/* Full-strength muted token: the /80 tint sat under 4.5:1
-                  (sub-AA microtext, 2026-09-21 audit). */}
+                  {/* Full-strength muted token: the /80 tint sat under 4.5:1. */}
               <p className="mt-1 text-xs text-muted-foreground">
                 <span>
                   {/* Catalog copy, not the English-only farmTypeLabel constant
-                      — this card is Telugu-first surface (2026-10-01 audit,
-                      05-3). */}
+                      — this card is Telugu-first surface. */}
                   {t("common.farmType")}
                 </span>
                 {" · "}

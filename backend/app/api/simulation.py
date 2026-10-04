@@ -253,15 +253,12 @@ async def _run_offloaded(
 # live in ``._run_limits`` (shared with the planner router); they are imported
 # above so tests that reach for them via this module keep working.
 
-# Derived from the engine, not hand-maintained (2026-10-01 audit, 08-L13):
-# the module docstring's warning that _run_cost "is only honest while one
-# pass is linear in the horizon" also applies to the pass COUNTS — a tuned
-# bisection loop or a new sensitivity case silently under-priced admission
-# when these were literals. The engine exports the counts next to the loops
-# that spend them, so the two can no longer drift.
+# Derived from the engine, not hand-maintained: the module docstring's warning that _run_cost "is
+# only honest while one pass is linear in the horizon" also applies to the pass COUNTS — a tuned
+# bisection loop or a new sensitivity case silently under-priced admission when these were literals.
+# The engine exports the counts next to the loops that spend them, so the two can no longer drift.
 _BREAK_EVEN_PASSES = BREAK_EVEN_PASSES  # npv_at(0) + npv_at(schema ceiling) + bisection steps
-# Base + every case x (low, high): nine cases today, derived from the
-# runner's own case list (sale_age_months included; P3, 2026-09-20 audit).
+# Base + every case x (low, high): nine cases today, derived from the runner's own case list.
 _SENSITIVITY_PASSES = SENSITIVITY_PASSES
 
 
@@ -569,9 +566,8 @@ async def list_scenarios(
         .offset(offset)
         .limit(limit)
     )
-    # Bare call like the planner list sibling: allow_invalid=True means
-    # _scenario_out does not raise for stored-but-stale documents, so a
-    # catch-and-re-raise guard would be dead code (2026-09-28 audit).
+    # Bare call like the planner list sibling: allow_invalid=True means _scenario_out does not raise
+    # for stored-but-stale documents, so a catch-and-re-raise guard would be dead code.
     out = [_scenario_out(scenario, allow_invalid=True) for scenario in result.scalars()]
     return ScenarioListOut(items=out, total=total, limit=limit, offset=offset)
 
@@ -611,15 +607,13 @@ async def compare_scenarios(
     user_id = user.id
     nouns = GOAT_NOUNS
 
-    # Snapshot BEFORE the limits region, exactly like run_scenario above: the
-    # fetch + JSON parse + full pydantic validation of up to five assumption
-    # documents is request-scoped DB work, and performing it inside
-    # _with_run_limits held one of only two process-wide simulation slots (plus
-    # the farm/user leases) across zero-CPU database reads — under DB latency,
-    # two compares could starve all simulation admission deployment-wide while
-    # the 429 body claimed "capacity is busy" during a CPU-idle period
-    # (2026-10-01 audit, 08-H2). The response models and validated assumptions
-    # are detached snapshots now; nothing below pins a pool connection.
+    # Snapshot BEFORE the limits region, exactly like run_scenario above: the fetch + JSON parse +
+    # full pydantic validation of up to five assumption documents is request-scoped DB work, and
+    # performing it inside _with_run_limits held one of only two process-wide simulation slots (plus
+    # the farm/user leases) across zero-CPU database reads — under DB latency, two compares could
+    # starve all simulation admission deployment-wide while the 429 body claimed "capacity is busy"
+    # during a CPU-idle period. The response models and validated assumptions are detached snapshots
+    # now; nothing below pins a pool connection.
     scenarios = [await _get_scenario(db, farm_id, scenario_id) for scenario_id in id_list]
     loaded = [_load_assumptions(scenario) for scenario in scenarios]
     scenario_snapshots = [_scenario_out(scenario) for scenario in scenarios]

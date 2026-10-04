@@ -68,7 +68,7 @@ async def _post_with_one_retry(
 ) -> httpx.Response:
     """POST with exactly one retry on a transient failure.
 
-    ITEM 6 (2026-09-21 playbook): a 5xx blip or a timeout at the gateway
+    a 5xx blip or a timeout at the gateway
     edge otherwise costs a full image attempt (and re-pays the whole call
     on the retry cycle). One immediate retry catches the blip; anything
     persistent still fails fast for the rotation chain.

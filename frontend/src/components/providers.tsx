@@ -30,7 +30,7 @@ export function Providers({
   return (
     <QueryClientProvider client={queryClient}>
       {/* nonce: next-themes' inline no-flash bootstrap must carry the
-       * request's CSP nonce or the policy (src/proxy.ts, M-1 2026-09-20)
+       * request's CSP nonce or the policy
        * blocks it. */}
       <ThemeProvider
         attribute="class"
@@ -48,7 +48,7 @@ export function Providers({
                * visible spot (thumb reach + notch), and it stays out of the
                * way on desktop too. richColors stays off: the toast hues
                * come from the app's status tokens (see ui/sonner.tsx), not
-               * the library palette (2026-09-28 audit). */}
+               * the library palette. */}
               <Toaster position="top-center" />
             </TooltipProvider>
           </LanguageProvider>

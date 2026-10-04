@@ -1,12 +1,7 @@
 #!/bin/sh
-# Runtime guard and launcher for the public nginx edge.
-#
-# The CSP origin variables below are validated here even though the nonce
-# policy itself now lives in the frontend (src/proxy.ts, M-1 2026-09-20):
-# Compose passes the same values to the frontend container as env, and this
-# listener is the single published entry, so an invalid value must fail the
-# deployment loudly at boot instead of surfacing as a browser-side policy
-# that silently drops the bucket origin.
+# Validate deployment settings before launching the public nginx edge.
+# The frontend emits nonce-based CSP; the edge validates its shared origin
+# settings so malformed bucket origins fail at startup.
 
 set -eu
 set -f
@@ -100,11 +95,8 @@ validate_csp_sources() {
   name=$1
   sources=$2
 
-  # CSP source expressions here are deliberately limited to space-separated
-  # HTTP(S) origins. This keeps the value safe to splice into a
-  # quoted nginx header and avoids accepting a path/query that browsers would
-  # silently interpret differently.  Commas are rejected: CSP grammar uses
-  # whitespace, not CSV.
+  # Match the frontend's space-separated HTTP(S) origin contract. Paths,
+  # queries, and commas would change how browsers interpret CSP sources.
   case "$sources" in
     *','*) fail "$name must be space-separated origins, not comma-separated" ;;
   esac
@@ -119,10 +111,9 @@ validate_csp_sources() {
 
   # A command substitution removes trailing newlines. Check non-literal-space
   # whitespace with a printable sentinel *before* the unsafe-character check,
-  # so a source ending in a newline cannot disappear from ``unsafe`` and turn
-  # into an extra nginx configuration line during sed rendering. The C locale
-  # keeps this an ASCII-only origin contract; tabs, CR/LF, other controls, and
-  # non-ASCII whitespace all fail closed.
+  # so a source ending in a newline cannot disappear from ``unsafe``. The C
+  # locale keeps this an ASCII-only origin contract; tabs, CR/LF, other
+  # controls, and non-ASCII whitespace all fail closed.
   # Use a tab sentinel because the filter removes every printable character
   # (including a tempting ``X`` sentinel); command substitution preserves the
   # final tab while it would otherwise trim a final newline from ``sources``.
@@ -132,9 +123,8 @@ validate_csp_sources() {
     fail "$name must use literal ASCII spaces between origins"
   fi
 
-  # Permit only ASCII origin syntax plus literal spaces as separators. In
-  # particular, reject sed replacement metacharacters (& and |), newlines,
-  # quotes and shell/config delimiters before the template is touched.
+  # Permit only ASCII origin syntax and literal-space separators. Reject
+  # quotes, controls, and config delimiters before accepting CSP settings.
   unsafe=$(printf '%s' "$sources" | LC_ALL=C tr -d '[:alnum:].:/_[]- ')
   if [ -n "$unsafe" ]; then
     fail "$name contains a character unsafe for an nginx header"

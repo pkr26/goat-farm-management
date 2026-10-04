@@ -1,6 +1,5 @@
 "use client";
 
-// Stryker disable next-line StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the chip styling is pinned by the campaign suite
 // Language is a primary control on phones and shared worker tablets. Keep
 // each option at the worker surface's 44px target even when it is shown in a
 // compact header.

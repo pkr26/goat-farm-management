@@ -1,11 +1,9 @@
 "use client";
 
-/** Route-level error boundary for the public shell (login, register,
- *  farm-select, root hub) — outside the authenticated (app) boundary, which
- *  has its own. Same tone and contract: log once, explain, offer a retry.
- *  Copy resolves from the stored language without the provider — this
- *  boundary must render even when the provider tree crashed (2026-09-28
- *  audit, I3). */
+/**
+ * Error boundary for the public shell. Resolve copy from the stored language without
+ * requiring a working provider; log the failure and offer a retry.
+ */
 
 import { TriangleAlert } from "lucide-react";
 import { useEffect } from "react";
