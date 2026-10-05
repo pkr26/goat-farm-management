@@ -1,2 +1,0 @@
-{"label": "postgres-service", "raw": {"LOW": 133, "HIGH": 89, "MEDIUM": 151, "UNKNOWN": 7, "CRITICAL": 2}, "repository_policy": {"HIGH": 7}, "gate_exit": 1}
-{"label": "backend-current-build", "raw": {"LOW": 61, "HIGH": 45, "MEDIUM": 59, "UNKNOWN": 2}, "repository_policy": {"HIGH": 1}, "gate_exit": 1}

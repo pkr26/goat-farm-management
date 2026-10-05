@@ -1,9 +1,0 @@
-
- RUN  v4.1.11 /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
-
-
- Test Files  3 passed (3)
-      Tests  70 passed (70)
-   Start at  20:26:52
-   Duration  2.41s (transform 384ms, setup 807ms, import 447ms, tests 1.29s, environment 1.20s)
-

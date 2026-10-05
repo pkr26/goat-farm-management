@@ -1,9 +1,0 @@
-{
-  "before_exit": 2,
-  "before_stderr": "newest complete whole-system backup is 72.0h old; policy is 26h\n",
-  "after_exit": 0,
-  "after_stdout": "fresh complete backup: /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/goatfarm-a26-backup-iytxgpno/goatfarm-2026-10-01T00-00-00Z-synthetic001.dump.gpg (0.0h old)\n",
-  "only_changed_field": "unsigned recovery.json generated_at",
-  "archive_sha256_unchanged": true,
-  "object_recovery_point_unchanged": true
-}

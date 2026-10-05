@@ -1,8 +1,0 @@
-usage: check_worktree_coverage.py [-h] --base BASE --coverage COVERAGE
-                                  --format {cobertura,istanbul}
-                                  --source-root SOURCE_ROOT --root ROOTS
-                                  [--changed-lines-min CHANGED_LINES_MIN]
-                                  [--changed-file-min CHANGED_FILE_MIN]
-                                  [--exclude EXCLUDE]
-                                  [--include-suffix INCLUDE_SUFFIX]
-check_worktree_coverage.py: error: unrecognized arguments: --exclude-glob **/*.test.*

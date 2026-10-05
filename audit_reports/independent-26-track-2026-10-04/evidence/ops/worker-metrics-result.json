@@ -1,8 +1,0 @@
-{
-  "worker_settings_valid": true,
-  "production": "production",
-  "screening_enabled": true,
-  "record_run_succeeded": false,
-  "exception_type": "ValidationError",
-  "error": "1 validation error for Settings\n  Value error, GOATFARM_COOKIE_SECURE must be true when GOATFARM_REFRESH_COOKIE_NAME uses the '__Host-' prefix [type=value_error, input_value={'environment': 'producti...synthetic-provider-key'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
-}

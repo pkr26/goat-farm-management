@@ -1,7 +1,0 @@
-{
-  "worker_process_samples": [
-    "goatfarm_screening_provider_calls_total{outcome=\"ok\",provider=\"anthropic\"} 1.0"
-  ],
-  "api_process_samples": [],
-  "shared_prometheus_multiprocess_configuration_present": false
-}

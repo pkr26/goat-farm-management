@@ -17,6 +17,8 @@ build/
 *.tsbuildinfo
 
 # Generated test, coverage, and mutation outputs
+# Raw audit evidence stays local; maintained summaries belong in docs/.
+/audit_reports/
 coverage/
 htmlcov/
 .coverage*
