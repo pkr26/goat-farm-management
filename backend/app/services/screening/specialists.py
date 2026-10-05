@@ -160,11 +160,12 @@ def parse_specialist_response(text: str, kind: SpecialistKind) -> SpecialistResp
     codes become OTHER with the original guess kept in the note."""
     try:
         raw = json.loads(_extract_json_object(text))
-        # {"conditions": null} is a plausible "nothing visible" answer and
-        # parses as empty; a non-object answer or a present-but-non-list
-        # value becomes SpecialistParseError, which run_specialist maps to
-        # ProviderResponseError so the image row follows its normal
-        # error/retry path instead of crashing the cycle.
+        # Only the requested list is a structured assessment. Missing/null
+        # or falsy scalar/object answers must not silently erase a gate
+        # concern when another region's specialist returned a finding.
+        # A valid negative assessment uses {"conditions": []}.
+        if not isinstance(raw, dict) or not isinstance(raw.get("conditions"), list):
+            raise SpecialistParseError("specialist answer must contain a conditions list")
         items = answer_list(raw, "conditions")
     except (ValueError, GateParseError) as exc:
         raise SpecialistParseError(f"no valid JSON in specialist answer: {exc}") from exc

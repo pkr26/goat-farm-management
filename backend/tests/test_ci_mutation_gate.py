@@ -74,7 +74,16 @@ def _complete_attempt(format_name: str, ident: str, verdict: str = "KILLED") -> 
             "selection": selection,
             "selection_sha256": digest,
             "n_tests": 1,
-            "baseline": {"status": "pass", "selection_sha256": digest},
+            "baseline": {
+                "status": "pass",
+                "selection_sha256": digest,
+                "pytest_receipt": {
+                    "exit_code": 0,
+                    "collected": 1,
+                    "collection_errors": [],
+                    "reports": [{"nodeid": selection[0], "when": "call", "outcome": "passed"}],
+                },
+            },
             "pytest_receipt": {
                 "exit_code": 1 if verdict == "KILLED" else 0,
                 "collected": 1,
@@ -96,13 +105,20 @@ def _complete_attempt(format_name: str, ident: str, verdict: str = "KILLED") -> 
             "reason": "passed",
             "suiteErrors": [],
             "unhandledErrors": [],
-            "tests": [{"state": "pass", "hooks": {}, "errors": []}],
+            "tests": [{"name": "selected behavior", "state": "pass", "hooks": {}, "errors": []}],
         },
     }
     receipt: dict[str, Any] = copy.deepcopy(baseline["receipt"])
     if verdict == "KILLED":
         receipt["reason"] = "failed"
-        receipt["tests"] = [{"state": "fail", "hooks": {}, "errors": [{"name": "AssertionError"}]}]
+        receipt["tests"] = [
+            {
+                "name": "selected behavior",
+                "state": "fail",
+                "hooks": {},
+                "errors": [{"name": "AssertionError"}],
+            }
+        ]
     return {
         "id": ident,
         "campaignId": "campaign-a",
@@ -535,6 +551,10 @@ def test_backend_gate_accepts_a_real_fail_fast_shape_without_unrun_call_reports(
     ).hexdigest()
     row["selection_sha256"] = row["baseline"]["selection_sha256"] = digest
     row["n_tests"] = row["pytest_receipt"]["collected"] = 2
+    row["baseline"]["pytest_receipt"]["collected"] = 2
+    row["baseline"]["pytest_receipt"]["reports"].append(
+        {"nodeid": row["selection"][-1], "when": "call", "outcome": "passed"}
+    )
     # The runner passes the full selection, but pytest -x legitimately stops
     # after the first selected assertion failure.
     result = _run_gate(tmp_path, format_name="backend", plan=plan, report=report, records=records)

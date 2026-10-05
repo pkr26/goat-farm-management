@@ -233,6 +233,10 @@ export function formatDate(iso: string | null | undefined, lang?: "en" | "te"): 
   );
   if (!match) return "—";
   const [y, m, d] = match.slice(1, 4).map(Number);
+  // Date's timestamp parser normalizes impossible days (for example
+  // February 30) before the farm conversion. Reject the source calendar,
+  // just as date-only inputs do, instead of showing an invented date.
+  if (exactUtcCalendarDate(y, m, d) === null) return "—";
   let calendar = { y, m, d };
   const timestampSuffix = match[4];
   if (timestampSuffix) {

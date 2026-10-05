@@ -7,7 +7,8 @@
  * shell is network-first with a bounded wait — a constant cache name can never pin a
  * tablet to its install-time build, and a wedged connection falls back to the cached
  * shell instead of blanking it; H1 a failed precache fails the install, never
- * activates a worker with no cached shell; W7 activate deletes every OTHER cache
+ * activates a worker with no cached shell; W7 activate deletes obsolete caches
+ * while retaining legacy immutable assets for open pre-locking documents;
  * name and claims open clients (the exact step the paren regression broke); W7
  * client-navigation RSC requests (?_rsc=…) are never intercepted; — /api stays
  * network-only: no cache read, no cache write.
@@ -39,7 +40,13 @@ function deferred<T>() {
 }
 
 /** One loaded service-worker instance with instrumented browser APIs. */
-function loadWorker(overrides: { fetchImpl?: typeof fetch; setTimeoutFn?: typeof setTimeout } = {}) {
+function loadWorker(overrides: {
+  fetchImpl?: typeof fetch;
+  setTimeoutFn?: typeof setTimeout;
+  afterCacheAddAll?: (urls: string[]) => Promise<void>;
+  cacheStore?: Map<string, Map<string, Response>>;
+  locks?: { request: (name: string, work: () => Promise<unknown>) => Promise<unknown> } | null;
+} = {}) {
   const listeners = new Map<string, Listener>();
   const state = {
     skipWaiting: 0,
@@ -48,7 +55,7 @@ function loadWorker(overrides: { fetchImpl?: typeof fetch; setTimeoutFn?: typeof
     fetchCalls: [] as string[],
   };
   // cache name → url → Response
-  const cacheStore = new Map<string, Map<string, Response>>();
+  const cacheStore = overrides.cacheStore ?? new Map<string, Map<string, Response>>();
 
   const cachesStub = {
     open: async (name: string) => {
@@ -61,6 +68,7 @@ function loadWorker(overrides: { fetchImpl?: typeof fetch; setTimeoutFn?: typeof
             if (!response.ok) throw new TypeError(` precache failed: ${url}`);
             bucket.set(cacheKey(url), response.clone());
           }
+          await overrides.afterCacheAddAll?.(urls);
         },
         match: async (url: string | URL | { url?: string }) => bucket.get(cacheKey(url))?.clone(),
         put: async (request: string | URL | { url?: string }, response: Response) => {
@@ -95,6 +103,9 @@ function loadWorker(overrides: { fetchImpl?: typeof fetch; setTimeoutFn?: typeof
       return Promise.resolve();
     } },
     location: { origin: ORIGIN },
+    navigator: { locks: overrides.locks === null ? undefined : overrides.locks ?? {
+      request: async (_name: string, work: () => Promise<unknown>) => work(),
+    } },
   };
 
   const fetchStub: typeof fetch = ((input: RequestInfo | URL) => {
@@ -128,7 +139,7 @@ describe("service worker update safety (executed)", () => {
     const worker = loadWorker();
     await worker.fire("install");
     expect(worker.state.skipWaiting).toBe(1);
-    expect(worker.cacheStore.get("herdly-worker-v3")?.has(`${ORIGIN}/worker`)).toBe(true);
+    expect(worker.cacheStore.get("herdly-worker-v4")?.has(`${ORIGIN}/worker`)).toBe(true);
   });
 
   it("consumes streamed shell bodies before waiting for the remaining install response", async () => {
@@ -163,7 +174,7 @@ describe("service worker update safety (executed)", () => {
     await expect.poll(() => worker.state.skipWaiting, { timeout: 1000 }).toBe(1);
     await installation;
     expect([...drained].sort()).toEqual(["/worker", "/worker/login", "/worker/offline"].sort());
-    const cached = worker.cacheStore.get("herdly-worker-v3")!;
+    const cached = worker.cacheStore.get("herdly-worker-v4")!;
     expect(cached.has(`${ORIGIN}/manifest.webmanifest`)).toBe(true);
     expect(cached.has(`${ORIGIN}/_next/static/cold-install.js`)).toBe(true);
     expect(cached.has(`${ORIGIN}/worker/offline`)).toBe(true);
@@ -187,7 +198,7 @@ describe("service worker update safety (executed)", () => {
       }) as typeof fetch,
     });
     await worker.fire("install");
-    const cached = worker.cacheStore.get("herdly-worker-v3")!;
+    const cached = worker.cacheStore.get("herdly-worker-v4")!;
     expect(cached.has(`${ORIGIN}/worker/offline`)).toBe(true);
     expect(cached.has(`${ORIGIN}/_next/static/offline.js`)).toBe(true);
     expect(cached.has(`${ORIGIN}/_next/static/offline.css`)).toBe(true);
@@ -202,7 +213,7 @@ describe("service worker update safety (executed)", () => {
         : makeResponse('<script src="/_next/static/offline.js"></script>')) as typeof fetch,
     });
     const previousShell = '<script src="/_next/static/previous.js"></script>';
-    worker.cacheStore.set("herdly-worker-v3", new Map([
+    worker.cacheStore.set("herdly-worker-v4", new Map([
       [`${ORIGIN}/worker`, makeResponse(previousShell)],
       [`${ORIGIN}/worker/login`, makeResponse(previousShell)],
       [`${ORIGIN}/worker/offline`, makeResponse(previousShell)],
@@ -212,7 +223,7 @@ describe("service worker update safety (executed)", () => {
     expect(worker.state.skipWaiting).toBe(0);
     // The failed candidate uses the same named cache as the active worker.
     // Staging must not replace its working HTML with missing dependencies.
-    const cached = worker.cacheStore.get("herdly-worker-v3")!;
+    const cached = worker.cacheStore.get("herdly-worker-v4")!;
     for (const path of ["/worker", "/worker/login", "/worker/offline"]) {
       expect(await cached.get(`${ORIGIN}${path}`)!.clone().text()).toBe(previousShell);
     }
@@ -236,7 +247,7 @@ describe("service worker update safety (executed)", () => {
     generation = 3;
     await worker.fire("install");
 
-    const cached = worker.cacheStore.get("herdly-worker-v3")!;
+    const cached = worker.cacheStore.get("herdly-worker-v4")!;
     expect(cached.has(`${ORIGIN}/_next/static/build-1.js`)).toBe(false);
     expect(cached.has(`${ORIGIN}/_next/static/build-2.js`)).toBe(true);
     expect(cached.has(`${ORIGIN}/_next/static/build-3.js`)).toBe(true);
@@ -248,16 +259,18 @@ describe("service worker update safety (executed)", () => {
     });
   });
 
-  it("activate deletes every OTHER cache and claims open clients (the paren-regression step)", async () => {
+  it("activate retires obsolete caches, retains pre-locking assets, and claims open clients", async () => {
     const worker = loadWorker();
     worker.cacheStore.set("herdly-worker-v1", new Map());
     worker.cacheStore.set("herdly-worker-v3", new Map());
+    worker.cacheStore.set("herdly-worker-v4", new Map());
     worker.cacheStore.set("stale-extra", new Map());
     // The 2026-09-29 regression chained .map off Promise.all's result — a
     // TypeError on every activation, so this await throws on the broken
     // handler. Execution pins the real behavior.
     await worker.fire("activate");
     expect(worker.state.deletedCaches.sort()).toEqual(["herdly-worker-v1", "stale-extra"]);
+    expect(worker.cacheStore.has("herdly-worker-v3")).toBe(true);
     expect(worker.state.claims).toBe(1);
   });
 
@@ -277,7 +290,7 @@ describe("service worker update safety (executed)", () => {
   it("serves hashed static assets cache-first without touching the network", async () => {
     const worker = loadWorker();
     const bucket = new Map([[`${ORIGIN}/_next/static/chunk-abc.js`, makeResponse("cached chunk")]]);
-    worker.cacheStore.set("herdly-worker-v3", bucket);
+    worker.cacheStore.set("herdly-worker-v4", bucket);
     let respondArgument: unknown;
     worker.fire("fetch", {
       request: { method: "GET", url: `${ORIGIN}/_next/static/chunk-abc.js` },
@@ -304,14 +317,82 @@ describe("service worker update safety (executed)", () => {
     expect(await response.text()).toBe("<fresh shell>");
     // The fresh copy lands in the cache for the next offline open.
     await lifetime;
-    expect(worker.cacheStore.get("herdly-worker-v3")?.has(`${ORIGIN}/worker`)).toBe(true);
+    expect(worker.cacheStore.get("herdly-worker-v4")?.has(`${ORIGIN}/worker`)).toBe(true);
+  });
+
+  it("never prunes a newer shell's staged assets during an overlapping older navigation", async () => {
+    const staged = deferred<void>();
+    const release = deferred<void>();
+    let updating = false;
+    const shell = (build: string) => makeResponse(`<meta name="herdly-build" content="${build}"><script src="/_next/static/${build}.js"></script>`);
+    const worker = loadWorker({
+      fetchImpl: (async (input) => {
+        const path = new URL(typeof input === "string" ? input : (input as Request).url, ORIGIN).pathname;
+        return path.startsWith("/_next/static/") ? makeResponse("immutable chunk") :
+          shell(updating && path === "/worker" ? "new" : "old");
+      }) as typeof fetch,
+      afterCacheAddAll: async (urls) => {
+        if (updating && urls.some((url) => url.endsWith("/new.js"))) {
+          staged.resolve();
+          await release.promise;
+        }
+      },
+    });
+    await worker.fire("install");
+    updating = true;
+    const newer = worker.fire("fetch", {
+      request: { method: "GET", url: `${ORIGIN}/worker` }, respondWith: () => {},
+    });
+    await staged.promise;
+    const older = worker.fire("fetch", {
+      request: { method: "GET", url: `${ORIGIN}/worker/login` }, respondWith: () => {},
+    });
+    // The previous implementation allowed the older publication to finish
+    // while the new precache was staged, deleting the new chunk. The fixed
+    // implementation queues it until the complete new shell is published.
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    release.resolve();
+    await Promise.all([newer, older]);
+    const cached = worker.cacheStore.get("herdly-worker-v4")!;
+    expect(await cached.get(`${ORIGIN}/worker`)!.clone().text()).toContain('content="new"');
+    expect(cached.has(`${ORIGIN}/_next/static/new.js`)).toBe(true);
+  });
+
+  it.each([true, false])("preserves staged install assets across worker instances (Web Locks available: %s)", async (sharedLockAvailable) => {
+    const cacheStore = new Map<string, Map<string, Response>>();
+    const staged = deferred<void>();
+    const release = deferred<void>();
+    let lockWork: Promise<unknown> = Promise.resolve();
+    const locks = sharedLockAvailable ? {request: (_name: string, work: () => Promise<unknown>) => {
+      const result = lockWork.then(work);
+      lockWork = result.catch(() => {});
+      return result;
+    }} : null;
+    const shell = (build: string) => makeResponse(`<meta name="herdly-build" content="${build}"><script src="/_next/static/${build}.js"></script>`);
+    const active = loadWorker({cacheStore, locks, fetchImpl: (async () => shell("old")) as typeof fetch});
+    await active.fire("install");
+    const candidate = loadWorker({
+      cacheStore, locks, fetchImpl: (async () => shell("new")) as typeof fetch,
+      afterCacheAddAll: async () => { staged.resolve(); await release.promise; },
+    });
+    const install = candidate.fire("install");
+    await staged.promise;
+    const navigation = active.fire("fetch", {
+      request: {method: "GET", url: `${ORIGIN}/worker/login`}, respondWith: () => {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    release.resolve();
+    await Promise.all([install, navigation]);
+    const cached = cacheStore.get("herdly-worker-v4")!;
+    expect(await cached.get(`${ORIGIN}/worker`)!.clone().text()).toContain('content="new"');
+    expect(cached.has(`${ORIGIN}/_next/static/new.js`)).toBe(true);
   });
 
   it("falls back to the cached shell when the network fails outright", async () => {
     const worker = loadWorker({
       fetchImpl: (() => Promise.reject(new TypeError("offline"))) as unknown as typeof fetch,
     });
-    worker.cacheStore.set("herdly-worker-v3", new Map([[`${ORIGIN}/worker`, makeResponse("<cached shell>")]]));
+    worker.cacheStore.set("herdly-worker-v4", new Map([[`${ORIGIN}/worker`, makeResponse("<cached shell>")]]));
     let respondArgument: unknown;
     worker.fire("fetch", {
       request: { method: "GET", url: `${ORIGIN}/worker` },
@@ -323,11 +404,27 @@ describe("service worker update safety (executed)", () => {
     expect(await response.text()).toBe("<cached shell>");
   });
 
+  it("uses only the current complete shell while legacy immutable assets remain available", async () => {
+    const worker = loadWorker({fetchImpl: (async () => {throw new TypeError("offline");}) as typeof fetch});
+    worker.cacheStore.set("herdly-worker-v3", new Map([
+      [`${ORIGIN}/worker`, makeResponse("obsolete document")],
+      [`${ORIGIN}/_next/static/legacy-lazy.js`, makeResponse("legacy lazy chunk")],
+    ]));
+    worker.cacheStore.set("herdly-worker-v4", new Map([[`${ORIGIN}/worker`, makeResponse("current complete document")]]));
+    await worker.fire("activate");
+    let shell: unknown;
+    worker.fire("fetch", {request: {method: "GET", url: `${ORIGIN}/worker`}, respondWith: (value: unknown) => {shell = value;}});
+    expect(await (await shell as Response).text()).toBe("current complete document");
+    let asset: unknown;
+    worker.fire("fetch", {request: {method: "GET", url: `${ORIGIN}/_next/static/legacy-lazy.js`}, respondWith: (value: unknown) => {asset = value;}});
+    expect(await (await asset as Response).text()).toBe("legacy lazy chunk");
+  });
+
   it("prefers a complete cached shell over a fast non-OK network response", async () => {
     const worker = loadWorker({
       fetchImpl: (() => Promise.resolve(new Response("upstream unavailable", { status: 503 }))) as unknown as typeof fetch,
     });
-    worker.cacheStore.set("herdly-worker-v3", new Map([[`${ORIGIN}/worker`, makeResponse("<cached shell>")]]));
+    worker.cacheStore.set("herdly-worker-v4", new Map([[`${ORIGIN}/worker`, makeResponse("<cached shell>")]]));
     let respondArgument: unknown;
     worker.fire("fetch", {
       request: { method: "GET", url: `${ORIGIN}/worker` },
@@ -365,7 +462,7 @@ describe("service worker update safety (executed)", () => {
         return 0;
       }) as unknown as typeof setTimeout,
     });
-    worker.cacheStore.set("herdly-worker-v3", new Map([[`${ORIGIN}/worker`, makeResponse("<cached shell>")]]));
+    worker.cacheStore.set("herdly-worker-v4", new Map([[`${ORIGIN}/worker`, makeResponse("<cached shell>")]]));
     let respondArgument: unknown;
     worker.fire("fetch", {
       request: { method: "GET", url: `${ORIGIN}/worker` },
@@ -395,7 +492,7 @@ describe("service worker update safety (executed)", () => {
       [`${ORIGIN}/worker/offline`, makeResponse(previousShell)],
       [`${ORIGIN}/_next/static/previous.js`, makeResponse("previous build")],
     ]);
-    worker.cacheStore.set("herdly-worker-v3", cached);
+    worker.cacheStore.set("herdly-worker-v4", cached);
     let navigation!: Promise<Response>;
     const lifetime = worker.fire("fetch", {
       request: { method: "GET", url: `${ORIGIN}/worker/offline` },
@@ -438,7 +535,7 @@ describe("service worker update safety (executed)", () => {
       [`${ORIGIN}/worker/offline`, makeResponse(previousShell)],
       [`${ORIGIN}/_next/static/previous.js`, makeResponse("previous working build")],
     ]);
-    worker.cacheStore.set("herdly-worker-v3", cached);
+    worker.cacheStore.set("herdly-worker-v4", cached);
     let navigation!: Promise<Response>;
     const lifetime = worker.fire("fetch", {
       request: { method: "GET", url: `${ORIGIN}/worker/offline` },
@@ -514,11 +611,11 @@ describe("lazy assets survive same-build navigation", () => {
     offline = false;
     build = "two";
     await worker.fire("install");
-    expect(worker.cacheStore.get("herdly-worker-v3")!.has(`${ORIGIN}/_next/static/telugu-one.js`)).toBe(true);
+    expect(worker.cacheStore.get("herdly-worker-v4")!.has(`${ORIGIN}/_next/static/telugu-one.js`)).toBe(true);
     build = "three";
     await worker.fire("install");
-    expect(worker.cacheStore.get("herdly-worker-v3")!.has(`${ORIGIN}/_next/static/telugu-one.js`)).toBe(false);
-    expect(worker.cacheStore.get("herdly-worker-v3")!.has(`${ORIGIN}/_next/static/two-login.js`)).toBe(true);
+    expect(worker.cacheStore.get("herdly-worker-v4")!.has(`${ORIGIN}/_next/static/telugu-one.js`)).toBe(false);
+    expect(worker.cacheStore.get("herdly-worker-v4")!.has(`${ORIGIN}/_next/static/two-login.js`)).toBe(true);
   });
 });
 
@@ -528,7 +625,7 @@ it("warms initial pre-control lazy assets and rejects non-static message URLs", 
   await worker.fire("message", { data: { type: "CACHE_RUNTIME_ASSETS", assets: [
     "/_next/static/te.js", "/_next/static/font.woff2", "/api/auth/me", "https://foreign.test/_next/static/foreign.js", null,
   ] } });
-  const cached = worker.cacheStore.get("herdly-worker-v3")!;
+  const cached = worker.cacheStore.get("herdly-worker-v4")!;
   expect(cached.has(`${ORIGIN}/_next/static/te.js`)).toBe(true);
   expect(cached.has(`${ORIGIN}/_next/static/font.woff2`)).toBe(true);
   expect(worker.state.fetchCalls).not.toContain("/api/auth/me");

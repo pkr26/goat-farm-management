@@ -35,7 +35,9 @@ jobs:
       # GITHUB_TOKEN pushes the three images to ghcr.io. No other job in this
       # workflow may write packages.
       packages: write
-      contents: read
+      # GitHub omits draft releases from reader-only listings. The immutable
+      # preflight needs writer-authorized GET requests to prove absence.
+      contents: write
       actions: read
       id-token: write
     outputs:
@@ -118,18 +120,8 @@ jobs:
       - name: Refuse an existing immutable release version
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Release $TAG already exists; publish changed bits under a new version."
-            exit 1
-          fi
-          for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$EDGE_IMAGE"; do
-            if docker buildx imagetools inspect "${image}:${TAG}" >/dev/null 2>&1; then
-              echo "::error::Immutable image tag ${image}:${TAG} already exists."
-              exit 1
-            fi
-          done
+          RELEASE_OWNER: ${{ github.repository_owner }}
+        run: python .github/scripts/check_release_absence.py
 
       # ── Gate phase ─────────────────────────────────────────────────────
       # Build each image per architecture into the local daemon and run the
@@ -546,8 +538,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      # Only this job — and only after the Trivy gate passed — may write to
-      # the repository: it creates the release on the pushed tag.
+      # Repository publication happens here, after all image gates pass.
+      # The images job uses its contents permission only to inspect drafts.
       contents: write
       id-token: write
     env:

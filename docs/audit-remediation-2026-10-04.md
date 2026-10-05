@@ -1,6 +1,6 @@
 # Remediation of the 29 audit findings
 
-All 29 findings from the independent 26-track audit were fixed. This summary records the implementation, validation and deployment requirements. Detailed audit evidence is retained locally under `audit_reports/` and excluded from source control.
+Commit `ad2f616` addressed all 29 findings from the independent 26-track audit. This summary records that implementation, its original validation and deployment requirements. Subsequent [independent verification](audit-ad2f616-independent-2026-10-04.md) found and corrected remaining boundary gaps and additional defects; its fresh results are recorded separately. Detailed audit evidence is retained locally under `audit_reports/` and excluded from source control.
 
 ## Changes
 

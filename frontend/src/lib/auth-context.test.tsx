@@ -9,7 +9,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { StrictMode } from "react";
+import { StrictMode, useLayoutEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiFetch, setAccessToken, setCurrentFarmId } from "@/lib/api-client";
@@ -722,6 +722,24 @@ describe("AuthProvider cross-tab storage signals", () => {
     await waitFor(() =>
       expect(screen.getByTestId("user")).toHaveTextContent("none"),
     );
+    expect(replaceMock).toHaveBeenCalledWith("/login");
+  });
+
+  it("does not lose cross-tab logout during an authenticated layout commit before passive effects", async () => {
+    server.use(http.get("/api/auth/farms", () => HttpResponse.json([])));
+    let dispatched = false;
+    function LogoutDuringCommit() {
+      const { user, loading } = useAuth();
+      useLayoutEffect(() => {
+        if (user === null || loading || dispatched) return;
+        dispatched = true;
+        dispatchStorage(AUTH_EVENT_STORAGE_KEY, "logout:commit-boundary:1");
+      }, [user, loading]);
+      return <Probe />;
+    }
+    renderWithProviders(<LogoutDuringCommit />);
+    await waitFor(() => expect(dispatched).toBe(true));
+    await waitFor(() => expect(screen.getByTestId("user")).toHaveTextContent("none"));
     expect(replaceMock).toHaveBeenCalledWith("/login");
   });
 

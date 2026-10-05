@@ -43,6 +43,10 @@ its mutant runs. Structured pytest receipts distinguish assertion failures
 from setup, collection, usage, internal, no-test and transport errors. Only
 assertion failures become `KILLED`; other failures are `INFRA_ERROR`, invalid
 edits are `INVALID`, and every timeout is `INCONCLUSIVE_TIMEOUT`.
+Each attempt retains the passing baseline's structured pytest receipt, including
+when a later attempt reuses that baseline. The final gate verifies that receipt
+against the exact selection and rejects duplicate contradictory phase reports.
+Regenerate older receipts that retain only the baseline status and digest.
 
 A campaign receipt binds manifest, source, tests, dependency locks, coverage,
 coverage provenance and harness configuration, plus executed migration/scripts

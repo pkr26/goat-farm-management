@@ -69,3 +69,11 @@ it("treats UTC-naive backend timestamps like their explicit UTC counterpart", ()
     expect(formatDate(timestamp)).toBe(formatDate(`${timestamp}Z`));
   }
 });
+
+it.each([
+  "2026-02-30T16:00:00",
+  "2025-02-29T00:00:00Z",
+  "2026-04-31T10:30:00+05:30",
+])("rejects an impossible full-timestamp calendar before conversion: %s", (timestamp) => {
+  expect(formatDate(timestamp, "en")).toBe("—");
+});

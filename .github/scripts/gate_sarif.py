@@ -132,6 +132,14 @@ def _validate_run(run: object, context: str) -> Mapping[str, Any]:
                 raise ValueError(f"{context}: analysis invocation did not succeed")
             if invocation.get("processStartFailureMessage"):
                 raise ValueError(f"{context}: analysis process failed to start")
+            # This gate expects CodeQL analysis, whose normal success exit is
+            # zero. A success flag cannot override recorded process failure.
+            if "exitCode" in invocation and (
+                type(invocation["exitCode"]) is not int or invocation["exitCode"] != 0
+            ):
+                raise ValueError(f"{context}: CodeQL analysis process did not exit successfully")
+            if "exitSignalName" in invocation or "exitSignalNumber" in invocation:
+                raise ValueError(f"{context}: analysis process terminated by a signal")
             for key in ("toolExecutionNotifications", "toolConfigurationNotifications"):
                 notifications = invocation.get(key, [])
                 if not isinstance(notifications, list):

@@ -243,7 +243,7 @@ def test_specialist_parse_garbage_raises() -> None:
 
 # 2026-09-20 audit P1-2: providers answer malformed-but-valid-JSON shapes
 # ("nothing found" spelled as {"conditions": null}, the key omitted, the list
-# wrapped in an object, or a bare scalar/array answer).  Every one of those
+# wrapped in an object, or a bare scalar/array answer). Every one of those
 # used to surface as a raw TypeError/KeyError inside the parser — which
 # detonates the per-image handler — instead of this contract's own error.
 
@@ -251,9 +251,7 @@ def test_specialist_parse_garbage_raises() -> None:
 @pytest.mark.parametrize(
     "answer",
     [
-        json.dumps({"unrelated": True}),  # key missing entirely
-        json.dumps({"conditions": None}),  # null = "nothing visible" phrasing
-        json.dumps({"conditions": {}}),  # empty wrapper object
+        json.dumps({"conditions": []}),  # explicit structured negative assessment
     ],
 )
 def test_specialist_parse_tolerates_degenerate_but_valid_json(answer: str) -> None:
@@ -263,6 +261,12 @@ def test_specialist_parse_tolerates_degenerate_but_valid_json(answer: str) -> No
 @pytest.mark.parametrize(
     "answer",
     [
+        json.dumps({"unrelated": True}),  # missing assessment is not a negative
+        json.dumps({"conditions": None}),
+        json.dumps({"conditions": {}}),
+        json.dumps({"conditions": False}),
+        json.dumps({"conditions": 0}),
+        json.dumps({"conditions": ""}),
         json.dumps({"conditions": 3}),  # scalar number value
         json.dumps({"conditions": [7, "sick", None]}),  # malformed positives are not negatives
         json.dumps({"conditions": "none visible"}),  # scalar string value

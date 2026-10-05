@@ -40,10 +40,11 @@ export function guardMutant(mutantId, root = FRONTEND, manifestSha = null) {
 }
 export function classifyVitest(code, receipt) {
   if (!receipt || !Array.isArray(receipt.tests) || receipt.reason !== "passed" && receipt.reason !== "failed") return "INFRA_ERROR";
-  if (receipt.suiteErrors?.length || receipt.unhandledErrors?.length || receipt.tests.some((test) => Object.values(test.hooks ?? {}).some((state) => state !== "pass"))) return "INFRA_ERROR";
+  if (!Array.isArray(receipt.suiteErrors) || receipt.suiteErrors.length || !Array.isArray(receipt.unhandledErrors) || receipt.unhandledErrors.length) return "INFRA_ERROR";
+  if (receipt.tests.some((test) => !test || !["pass", "fail", "skip", "todo"].includes(test.state) || !test.hooks || Array.isArray(test.hooks) || typeof test.hooks !== "object" || Object.values(test.hooks).some((state) => state !== "pass") || !Array.isArray(test.errors) || test.state !== "fail" && test.errors.length)) return "INFRA_ERROR";
   const failures = receipt.tests.filter((test) => test.state === "fail");
-  if (code === 0 && failures.length === 0 && receipt.tests.some((test) => test.state === "pass")) return "SURVIVED";
-  if (code === 1 && failures.length > 0 && failures.every((test) => test.errors?.length > 0 && test.errors.every((error) => error.name === "AssertionError"))) return "KILLED";
+  if (code === 0 && receipt.reason === "passed" && failures.length === 0 && receipt.tests.some((test) => test.state === "pass")) return "SURVIVED";
+  if (code === 1 && receipt.reason === "failed" && failures.length > 0 && failures.every((test) => test.errors.length > 0 && test.errors.every((error) => error?.name === "AssertionError"))) return "KILLED";
   return "INFRA_ERROR";
 }
 export async function runVitest(mutantId, testFiles, timeoutMs, { root = FRONTEND, extraArgs = [], manifestSha = null } = {}) {

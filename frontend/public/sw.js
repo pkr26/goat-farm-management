@@ -5,7 +5,11 @@
  * Hashed Next assets are immutable and use cache-first reads. Cross-origin
  * opaque responses, push and background sync are outside this worker's scope.
  */
-const CACHE = "herdly-worker-v3";
+const CACHE = "herdly-worker-v4";
+// The previous worker predates cross-instance locking. Isolate its writes
+// during this upgrade, but keep immutable chunks available to open documents
+// that still refer to that deployment after clients.claim().
+const LEGACY_ASSET_CACHE = "herdly-worker-v3";
 const SHELL = ["/worker", "/worker/login", "/worker/offline", "/manifest.webmanifest"];
 const ASSET_STATE_KEY = "/__herdly_worker_asset_state_v1__";
 /** Upper bound on a shell navigation's network wait before falling back to
@@ -13,11 +17,12 @@ const ASSET_STATE_KEY = "/__herdly_worker_asset_state_v1__";
  * board while a perfectly good shell sits in the cache. */
 const NAV_TIMEOUT_MS = 4000;
 
-// Serialize read/modify/write of asset membership: concurrent lazy chunk
-// fetches and navigations must not overwrite each other's retained entries.
+// Serialize read/modify/write of asset membership. The origin-wide lock also
+// covers an installing worker sharing this cache with the still-active one.
 let assetStateWork = Promise.resolve();
 function updateAssetState(work) {
-  const result = assetStateWork.then(work);
+  const result = assetStateWork.then(() => typeof self.navigator?.locks?.request === "function"
+    ? self.navigator.locks.request(`${CACHE}:assets`, work) : work());
   assetStateWork = result.catch(() => {});
   return result;
 }
@@ -92,6 +97,10 @@ async function publishAssetGeneration(cache, currentAssets, fallbackPrevious = n
   await cache.put(ASSET_STATE_KEY, new Response(JSON.stringify({ current, previous, build }), {
     headers: { "Content-Type": "application/json" },
   }));
+  // Older webviews without a shared lock cannot safely prune a cache that
+  // another worker may be staging into. Keep their immutable assets rather
+  // than publish HTML whose dependencies an overlapping update deleted.
+  if (typeof self.navigator?.locks?.request !== "function") return;
   const retained = new Set([...current, ...previous]);
   for (const request of await cache.keys()) {
     const href = new URL(request.url, self.location.origin).href;
@@ -112,18 +121,20 @@ async function recordRuntimeAsset(cache, asset) {
 
 async function cacheCompleteShell(request, response) {
   const cache = await caches.open(CACHE);
-  const previousShellAssets = await cachedShellAssets(cache);
-  if (new URL(request.url, self.location.origin).pathname.startsWith("/worker")) {
-    // Publish fallback HTML only after its build's dependencies are durable.
-    // A late navigation response may never execute in a client at all.
-    await cache.addAll([...await shellAssets(response)]);
-  }
+  const workerShell = new URL(request.url, self.location.origin).pathname.startsWith("/worker");
   const assets = await shellAssets(response);
   const build = await shellBuild(response, assets);
   await updateAssetState(async () => {
+    const previousShellAssets = await cachedShellAssets(cache);
+    if (workerShell) {
+      // Stage dependencies in the same operation that publishes and prunes.
+      // Otherwise an overlapping older navigation can delete these new
+      // assets between addAll and the publication of their fallback HTML.
+      await cache.addAll([...assets]);
+    }
     await cache.put(request, response.clone());
     await publishAssetGeneration(cache, await cachedShellAssets(cache), previousShellAssets,
-      new URL(request.url, self.location.origin).pathname.startsWith("/worker") ? build : (await readAssetState(cache)).build);
+      workerShell ? build : (await readAssetState(cache)).build);
   });
 }
 
@@ -152,11 +163,11 @@ self.addEventListener("install", (event) => {
         for (const response of responses) {
           for (const asset of response.assets) assets.add(asset);
         }
-        await cache.addAll([...assets]);
         // Keep the previously complete shared cache usable if this install
         // fails before all new-build assets are available.
         const build = await shellBuild(responses[0].response, assets);
         await updateAssetState(async () => {
+          await cache.addAll([...assets]);
           await Promise.all(responses.map(({ path, response }) => cache.put(path, response)));
           await publishAssetGeneration(cache, assets, previousShellAssets, build);
         });
@@ -169,7 +180,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE && key !== LEGACY_ASSET_CACHE).map((key) => caches.delete(key))))
       .then(() => self.clients.claim()),
   );
 });
@@ -244,7 +255,9 @@ self.addEventListener("fetch", (event) => {
         // error; return that error only when no offline shell exists so the
         // true outage remains observable rather than becoming a blank page.
         if (response?.ok) return response;
-        const cached = await caches.match(request);
+        // A retained legacy cache can contain an older document. It may
+        // rescue an immutable chunk, never supersede this complete shell.
+        const cached = await (await caches.open(CACHE)).match(request);
         return cached ?? response ?? Response.error();
       }),
     );

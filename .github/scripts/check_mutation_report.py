@@ -74,6 +74,8 @@ def _receipt_verdict(record: dict[str, Any], format_name: str) -> str | None:
             )
         ):
             return None
+        if len({(row["nodeid"], row["when"]) for row in reports}) != len(reports):
+            return None
         failures = [row for row in reports if row["outcome"] == "failed"]
         if (
             receipt.get("exit_code") == 0
@@ -112,18 +114,23 @@ def _receipt_verdict(record: dict[str, Any], format_name: str) -> str | None:
                 "todo",
             ):
                 return None
-            hooks = test.get("hooks", {})
+            hooks = test.get("hooks")
             if not isinstance(hooks, dict) or any(state != "pass" for state in hooks.values()):
+                return None
+            errors = test.get("errors")
+            if not isinstance(errors, list) or (test["state"] != "fail" and errors):
                 return None
         failures = [test for test in tests if test["state"] == "fail"]
         if (
             record.get("exitCode") == 0
+            and receipt["reason"] == "passed"
             and not failures
             and any(test["state"] == "pass" for test in tests)
         ):
             return "SURVIVED"
         if (
             record.get("exitCode") == 1
+            and receipt["reason"] == "failed"
             and failures
             and all(
                 isinstance(test.get("errors"), list)
@@ -157,9 +164,31 @@ def _complete_record(record: dict[str, Any], format_name: str) -> bool:
         ):
             return False
         digest = hashlib.sha256(json.dumps(selection, separators=(",", ":")).encode()).hexdigest()
-        return record.get("selection_sha256") == digest == baseline.get("selection_sha256")
+        return (
+            record.get("selection_sha256") == digest == baseline.get("selection_sha256")
+            and _receipt_verdict(
+                {"selection": selection, "pytest_receipt": baseline.get("pytest_receipt")},
+                "backend",
+            )
+            == "SURVIVED"
+        )
     count = record.get("tests")
     selection_sha = record.get("selectionSha")
+    baseline_receipt = baseline.get("receipt")
+    baseline_tests = baseline_receipt.get("tests") if isinstance(baseline_receipt, dict) else None
+    mutant_receipt = record.get("receipt")
+    mutant_tests = mutant_receipt.get("tests") if isinstance(mutant_receipt, dict) else None
+    if not isinstance(baseline_tests, list) or not isinstance(mutant_tests, list):
+        return False
+    for test in [*baseline_tests, *mutant_tests]:
+        if not isinstance(test, dict) or not isinstance(test.get("name"), str) or not test["name"]:
+            return False
+    # Frontend selections count files, not test cases. Compare the complete
+    # structured test inventory as well; unlike pytest -x, Vitest runs it all.
+    if collections.Counter(test["name"] for test in baseline_tests) != collections.Counter(
+        test["name"] for test in mutant_tests
+    ):
+        return False
     return (
         record.get("selectionMode") == "complete"
         and baseline.get("verdict") == "SURVIVED"

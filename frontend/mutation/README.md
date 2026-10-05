@@ -33,6 +33,11 @@ Campaign creation and reports hash the same manifest/coverage bytes they parse. 
 
 Every exact test selection must first pass a clean baseline under the same configuration and timeout. Provenance includes public assets, scripts, Next configuration, and the backend/contract/deployment files read by parity tests. Structured Vitest receipts distinguish assertion kills from invalid mutants, hook/collection/runtime infrastructure failures, and inconclusive timeouts. Resume folds the latest compatible record by campaign and mutant fingerprint, retrying errors, timeouts and uncovered results. A result records the exact selection digest, baseline, policy, provenance and unique run/attempt IDs. `--full` runs every coverer. Normal rounds sample 1/8/25 files, explicitly mark sampled outcomes, and exclude them from the complete-selection score. Explicit `--files` selections are reported separately.
 
+The final gate also compares the baseline and mutant test-name inventories,
+including repeated names. File counts alone do not prove that all test cases
+ran. Run reasons, process exits and individual outcomes must agree; a passing
+test cannot carry retained errors.
+
 Coverage stores contributions per test with source/test/harness hashes. `--only pattern` replaces those tests' old contributions, reconciles deleted tests and invalidates shifted source positions. All requested coverage runs must pass before an atomic publish; failure leaves the old map byte-identical. Intentionally partial maps have `complete: false` and cannot run a campaign until refreshed completely. Concurrent mutation runs use independent process-local transforms; coverage collection should have one writer at a time.
 
 `mutate_reverify.mjs --write` uses the shared guarded baseline runner and every coverer, including modules with no dedicated tests. Without `--write`, or with `--dry-run`, it only prints a plan. Reports fold the latest compatible campaign, exclude sampled/explicit/error/timeout/invalid results from the full score, and publish `measurement-current.json`; they preserve historical reports. Use `--campaign-id` to select a current compatible campaign explicitly.

@@ -255,6 +255,14 @@ test('all process exits require a structured assertion receipt to be credited a 
   const receipt={reason:'failed',suiteErrors:[],unhandledErrors:[],tests:[{state:'fail',hooks:{},errors:[{name:'AssertionError'}]}]};assert.equal(classifyVitest(1,receipt),'KILLED');for(const code of [null,0,2,3,4,5])assert.equal(classifyVitest(code,receipt),'INFRA_ERROR');assert.equal(classifyVitest(1,null),'INFRA_ERROR');
 });
 
+test('run reasons and passing outcomes cannot contradict the structured receipt',()=>{
+  const passed={reason:'passed',suiteErrors:[],unhandledErrors:[],tests:[{state:'pass',hooks:{},errors:[]}]};
+  assert.equal(classifyVitest(0,passed),'SURVIVED');
+  assert.equal(classifyVitest(0,{...passed,reason:'failed'}),'INFRA_ERROR');
+  assert.equal(classifyVitest(0,{...passed,tests:[{state:'pass',hooks:{},errors:[{name:'AssertionError'}]}]}),'INFRA_ERROR');
+  assert.equal(classifyVitest(1,{...passed,tests:[{state:'fail',hooks:{},errors:[{name:'AssertionError'}]}]}),'INFRA_ERROR');
+});
+
 test('successful smoke returns zero after actual baseline and repeated assertion kills',()=>{
   const {root}=fixture();
   const child=spawnSync(process.execPath,['mutation/mutate_run.mjs','--smoke'],{cwd:root,encoding:'utf8',timeout:30000});

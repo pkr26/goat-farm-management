@@ -259,6 +259,7 @@ class Runner:
             raise
         self.local = threading.local()
         self.baselines: dict[str, tuple[str, str, float]] = {}
+        self.baseline_receipts: dict[str, dict[str, Any] | None] = {}
         self.baseline_lock = threading.Lock()
 
     def close(self) -> None:
@@ -434,10 +435,14 @@ class Runner:
                         baseline = self.run_pytest(subset, worker)
                         if baseline[0] == "pass":
                             self.baselines[baseline_key] = baseline
+                            self.baseline_receipts[baseline_key] = getattr(
+                                self.local, "pytest_receipt", None
+                            )
                 rec["baseline"] = {
                     "status": baseline[0],
                     "duration": baseline[2],
                     "selection_sha256": digest_json(subset),
+                    "pytest_receipt": self.baseline_receipts.get(baseline_key),
                 }
                 if baseline[0] != "pass":
                     return {

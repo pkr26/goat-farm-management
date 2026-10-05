@@ -198,8 +198,9 @@ function providerUnmountedError(): Error {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<SessionUser | null>(null);
-  // Mirrors `user` for the cross-tab storage listener without effect churn.
+  const [user, setUserState] = useState<SessionUser | null>(null);
+  // Cross-tab events can arrive after a session commits but before React's
+  // passive effects. Publish this identity together with the state update.
   const userRef = useRef<SessionUser | null>(null);
   const [farms, setFarms] = useState<FarmEntry[]>([]);
   const farmsRef = useRef<FarmEntry[]>([]);
@@ -241,9 +242,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     task: Promise<void>;
   } | null>(null);
 
-  useEffect(() => {
-    userRef.current = user;
-  }, [user]);
+  const commitUser = useCallback((next: SessionUser | null) => {
+    userRef.current = next;
+    setUserState(next);
+  }, []);
 
   useEffect(() => {
     // React Strict Mode rehearses cleanup/setup without discarding refs.
@@ -289,7 +291,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAccessToken(null);
       setCurrentFarmId(null);
       setActiveFarmTimezone(null);
-      setUser(null);
+      commitUser(null);
       farmsRef.current = [];
       setFarms([]);
       farmIdRef.current = null;
@@ -305,7 +307,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearWorkerOutboxBackoff();
       void endOfflineShift().catch(() => {});
     },
-    [queryClient],
+    [queryClient, commitUser],
   );
 
   const signOut = useCallback((options?: { sessionOnly?: boolean }): Promise<void> => {
@@ -457,7 +459,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (
           establishmentGeneration !== sessionEstablishmentGeneration.current
         ) return;
-        setUser(u);
+        commitUser(u);
         if (
           farmGeneration !== farmRefreshGeneration.current &&
           appliedFarmGeneration.current > farmGeneration
@@ -502,7 +504,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    [applyFarmList, clearSession],
+    [applyFarmList, clearSession, commitUser],
   );
 
   const signIn = useCallback(
@@ -727,8 +729,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateUser = useCallback((u: SessionUser) => {
     // setState after unmount is a React no-op; no mounted re-check needed.
-    setUser(u);
-  }, []);
+    commitUser(u);
+  }, [commitUser]);
 
   const getFarms = useCallback(() => farmsRef.current, []);
 
