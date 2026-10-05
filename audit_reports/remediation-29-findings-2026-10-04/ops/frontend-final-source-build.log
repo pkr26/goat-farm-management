@@ -1,0 +1,79 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon   4.55MB
+Step 1/25 : FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS deps
+ ---> ebfe2f904627
+Step 2/25 : WORKDIR /app
+ ---> Using cache
+ ---> ce81f3df87c3
+Step 3/25 : RUN corepack enable
+ ---> Using cache
+ ---> af2f0f845ca4
+Step 4/25 : COPY package.json pnpm-lock.yaml ./
+ ---> Using cache
+ ---> 3eb9d7c40199
+Step 5/25 : COPY patches/ ./patches/
+ ---> Using cache
+ ---> 688c6cf2902c
+Step 6/25 : RUN pnpm install --frozen-lockfile
+ ---> Using cache
+ ---> c6949584529b
+Step 7/25 : FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS builder
+ ---> ebfe2f904627
+Step 8/25 : WORKDIR /app
+ ---> Using cache
+ ---> ce81f3df87c3
+Step 9/25 : ARG BACKEND_URL=http://backend:8000
+ ---> Using cache
+ ---> 43f9f453256d
+Step 10/25 : ENV BACKEND_URL=${BACKEND_URL}
+ ---> Using cache
+ ---> 9a4464897e62
+Step 11/25 : COPY --from=deps /app/node_modules ./node_modules
+ ---> Using cache
+ ---> 4c70ad150948
+Step 12/25 : COPY . .
+ ---> Using cache
+ ---> 734640625b27
+Step 13/25 : RUN corepack enable && pnpm build
+ ---> Using cache
+ ---> 019b312c1eae
+Step 14/25 : FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runner
+ ---> ebfe2f904627
+Step 15/25 : WORKDIR /app
+ ---> Using cache
+ ---> ce81f3df87c3
+Step 16/25 : ENV NODE_ENV=production     HOSTNAME=0.0.0.0     PORT=3000
+ ---> Using cache
+ ---> 571c9263c30b
+Step 17/25 : RUN rm -rf /usr/local/lib/node_modules/npm     && rm -f /usr/local/bin/npm /usr/local/bin/npx
+ ---> Using cache
+ ---> 9057869a38e9
+Step 18/25 : RUN addgroup -S -g 10001 nextjs     && adduser -S -u 10001 -G nextjs nextjs
+ ---> Using cache
+ ---> 9f9dc49f132e
+Step 19/25 : COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
+ ---> Using cache
+ ---> a20c3c91e0d1
+Step 20/25 : COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
+ ---> Using cache
+ ---> afda91e5d1b5
+Step 21/25 : COPY --from=builder --chown=nextjs:nextjs /app/public ./public
+ ---> Using cache
+ ---> 0078b7d51f5c
+Step 22/25 : USER nextjs
+ ---> Using cache
+ ---> 676bc6b9e7d1
+Step 23/25 : EXPOSE 3000
+ ---> Using cache
+ ---> cbaa19415eca
+Step 24/25 : HEALTHCHECK --interval=30s --timeout=5s --start-period=15s     CMD wget --quiet --tries=1 --spider http://127.0.0.1:3000/healthz || exit 1
+ ---> Using cache
+ ---> f8dd27f2f3c5
+Step 25/25 : CMD ["node", "server.js"]
+ ---> Using cache
+ ---> 530eca017851
+Successfully built 530eca017851
+Successfully tagged goatfarm-fix29-frontend:104

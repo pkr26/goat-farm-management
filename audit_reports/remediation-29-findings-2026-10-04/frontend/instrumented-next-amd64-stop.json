@@ -1,0 +1,20 @@
+{
+  "timestamp_utc": "2026-10-05T04:13:49.953752+00:00",
+  "reason": "The exact assertion was reproduced after route generation. Only the pnpm wrapper remained sleeping after the failed Next child. Stopped this owned diagnostic wrapper after retaining the errno receipt and inspecting/removing the core; no further build progress possible.",
+  "core_removed": true,
+  "core_stack_useful": false,
+  "core_architecture_proves_emulator_root_cause": false,
+  "before_state": {
+    "Status": "running",
+    "Running": true,
+    "Paused": false,
+    "Restarting": false,
+    "OOMKilled": false,
+    "Dead": false,
+    "Pid": 3276969,
+    "ExitCode": 0,
+    "Error": "",
+    "StartedAt": "2026-10-05T04:08:48.470602005Z",
+    "FinishedAt": "0001-01-01T00:00:00Z"
+  }
+}

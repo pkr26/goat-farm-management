@@ -1,0 +1,1319 @@
+{
+  "oracle": "Exact Fraction polynomial expansion; all finite-control cashflow coefficients exactly representable in binary64; rates independently q**(-periods)-1. Monthly times are intentionally rational periods represented by ordinary floats. Bracket controls avoid numerically ambiguous endpoints.",
+  "root_control_count": 66,
+  "root_controls_passed": 66,
+  "domain_checks": [
+    {
+      "name": "identically_zero",
+      "expected": "indeterminate",
+      "actual": "indeterminate",
+      "irr_roots_raises_unsupported": true,
+      "roots": [],
+      "passed": true
+    },
+    {
+      "name": "nonconventional_25_terms",
+      "expected": "indeterminate",
+      "actual": "indeterminate",
+      "irr_roots_raises_unsupported": true,
+      "roots": [],
+      "passed": true
+    },
+    {
+      "name": "unsupported_irregular_periods",
+      "expected": "indeterminate",
+      "actual": "indeterminate",
+      "irr_roots_raises_unsupported": true,
+      "roots": [],
+      "passed": true
+    },
+    {
+      "name": "same_timestamp_aggregation",
+      "expected": "unique",
+      "actual": "unique",
+      "irr_roots_raises_unsupported": false,
+      "roots": [
+        1.0
+      ],
+      "passed": true
+    }
+  ],
+  "loan_checks": [
+    {
+      "principal": 120000.0,
+      "nominal_annual_rate": 0.0,
+      "term_months": 12,
+      "moratorium_months": 0,
+      "sum_principal_error": 0.0,
+      "balance_identity_error": 0.0,
+      "payment_identity_error": 0.0,
+      "chain_error": 0.0,
+      "final_balance": 0.0,
+      "effective_annual_discount_rate": 0.0,
+      "lender_cashflow_npv": 0.0,
+      "tolerance": 2.4e-07,
+      "passed": true
+    },
+    {
+      "principal": 120000.0,
+      "nominal_annual_rate": 0.0,
+      "term_months": 13,
+      "moratorium_months": 12,
+      "sum_principal_error": 0.0,
+      "balance_identity_error": 0.0,
+      "payment_identity_error": 0.0,
+      "chain_error": 0.0,
+      "final_balance": 0.0,
+      "effective_annual_discount_rate": 0.0,
+      "lender_cashflow_npv": 0.0,
+      "tolerance": 2.4e-07,
+      "passed": true
+    },
+    {
+      "principal": 100000.0,
+      "nominal_annual_rate": 0.125,
+      "term_months": 72,
+      "moratorium_months": 12,
+      "sum_principal_error": 1.4551915228366852e-11,
+      "balance_identity_error": 0.0,
+      "payment_identity_error": 1.9895196601282805e-13,
+      "chain_error": 0.0,
+      "final_balance": 0.0,
+      "effective_annual_discount_rate": 0.13241604641527543,
+      "lender_cashflow_npv": 4.661160346586257e-12,
+      "tolerance": 2e-07,
+      "passed": true
+    },
+    {
+      "principal": 1000000000.0,
+      "nominal_annual_rate": 0.5,
+      "term_months": 180,
+      "moratorium_months": 60,
+      "sum_principal_error": 3.5762786865234375e-07,
+      "balance_identity_error": 0.0,
+      "payment_identity_error": 3.725290298461914e-09,
+      "chain_error": 0.0,
+      "final_balance": 0.0,
+      "effective_annual_discount_rate": 0.6320941327229241,
+      "lender_cashflow_npv": -2.7663190849125385e-08,
+      "tolerance": 0.002,
+      "passed": true
+    },
+    {
+      "principal": 0.01,
+      "nominal_annual_rate": 8.673617379884035e-19,
+      "term_months": 180,
+      "moratorium_months": 60,
+      "sum_principal_error": 1.734723475976807e-18,
+      "balance_identity_error": 0.0,
+      "payment_identity_error": 7.228014483236696e-22,
+      "chain_error": 0.0,
+      "final_balance": 0.0,
+      "effective_annual_discount_rate": 8.673617379884035e-19,
+      "lender_cashflow_npv": -1.9353008778866248e-18,
+      "tolerance": 1e-12,
+      "passed": true
+    }
+  ],
+  "root_controls": [
+    {
+      "name": "unique_crossing",
+      "periods_per_year": 1,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        0.1428571428571428
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_crossing",
+      "periods_per_year": 1,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        0.1428571428571428
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_crossing",
+      "periods_per_year": 1,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        0.1428571428571428
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_crossing",
+      "periods_per_year": 12,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        3.9648183538186523
+      ],
+      "actual_roots": [
+        3.9648183538186563
+      ],
+      "max_rate_error": 3.9968028886505635e-15,
+      "max_scaled_npv_residual": 5.921189464667501e-17,
+      "passed": true
+    },
+    {
+      "name": "unique_crossing",
+      "periods_per_year": 12,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        3.9648183538186523
+      ],
+      "actual_roots": [
+        3.9648183538186563
+      ],
+      "max_rate_error": 3.9968028886505635e-15,
+      "max_scaled_npv_residual": 5.921189464667501e-17,
+      "passed": true
+    },
+    {
+      "name": "unique_crossing",
+      "periods_per_year": 12,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        3.9648183538186523
+      ],
+      "actual_roots": [
+        3.9648183538186563
+      ],
+      "max_rate_error": 3.9968028886505635e-15,
+      "max_scaled_npv_residual": 5.921189464667501e-17,
+      "passed": true
+    },
+    {
+      "name": "two_crossings",
+      "periods_per_year": 1,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.1111111111111111,
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        -0.11111111111111116,
+        0.1428571428571428
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 2.7864421010200007e-17,
+      "passed": true
+    },
+    {
+      "name": "two_crossings",
+      "periods_per_year": 1,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.1111111111111111,
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        -0.11111111111111116,
+        0.1428571428571428
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 2.7864421010200007e-17,
+      "passed": true
+    },
+    {
+      "name": "two_crossings",
+      "periods_per_year": 1,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.1111111111111111,
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        -0.11111111111111116,
+        0.1428571428571428
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 2.7864421010200007e-17,
+      "passed": true
+    },
+    {
+      "name": "two_crossings",
+      "periods_per_year": 12,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.7566845253077027,
+        3.9648183538186523
+      ],
+      "actual_roots": [
+        -0.7566845253077028,
+        3.964818353818652
+      ],
+      "max_rate_error": 4.440892098500626e-16,
+      "max_scaled_npv_residual": 2.7864421010200007e-17,
+      "passed": true
+    },
+    {
+      "name": "two_crossings",
+      "periods_per_year": 12,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.7566845253077027,
+        3.9648183538186523
+      ],
+      "actual_roots": [
+        -0.7566845253077028,
+        3.964818353818652
+      ],
+      "max_rate_error": 4.440892098500626e-16,
+      "max_scaled_npv_residual": 2.7864421010200007e-17,
+      "passed": true
+    },
+    {
+      "name": "two_crossings",
+      "periods_per_year": 12,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.7566845253077027,
+        3.9648183538186523
+      ],
+      "actual_roots": [
+        -0.7566845253077028,
+        3.964818353818652
+      ],
+      "max_rate_error": 4.440892098500626e-16,
+      "max_scaled_npv_residual": 2.7864421010200007e-17,
+      "passed": true
+    },
+    {
+      "name": "unique_tangent",
+      "periods_per_year": 1,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_tangent",
+      "periods_per_year": 1,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_tangent",
+      "periods_per_year": 1,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_tangent",
+      "periods_per_year": 12,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_tangent",
+      "periods_per_year": 12,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_tangent",
+      "periods_per_year": 12,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "two_tangencies",
+      "periods_per_year": 1,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.1111111111111111,
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        -0.11111111111111116,
+        0.1428571428571428
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 4.196053987418354e-17,
+      "passed": true
+    },
+    {
+      "name": "two_tangencies",
+      "periods_per_year": 1,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.1111111111111111,
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        -0.11111111111111116,
+        0.1428571428571428
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 4.196053987418354e-17,
+      "passed": true
+    },
+    {
+      "name": "two_tangencies",
+      "periods_per_year": 1,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.1111111111111111,
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        -0.11111111111111116,
+        0.1428571428571428
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 4.196053987418354e-17,
+      "passed": true
+    },
+    {
+      "name": "two_tangencies",
+      "periods_per_year": 12,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.7566845253077027,
+        3.9648183538186523
+      ],
+      "actual_roots": [
+        -0.7566845253077028,
+        3.964818353818652
+      ],
+      "max_rate_error": 4.440892098500626e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "two_tangencies",
+      "periods_per_year": 12,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.7566845253077027,
+        3.9648183538186523
+      ],
+      "actual_roots": [
+        -0.7566845253077028,
+        3.964818353818652
+      ],
+      "max_rate_error": 4.440892098500626e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "two_tangencies",
+      "periods_per_year": 12,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.7566845253077027,
+        3.9648183538186523
+      ],
+      "actual_roots": [
+        -0.7566845253077028,
+        3.964818353818652
+      ],
+      "max_rate_error": 4.440892098500626e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "flat_odd_and_simple",
+      "periods_per_year": 1,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.058823529411764705,
+        0.06666666666666667
+      ],
+      "actual_roots": [
+        -0.05882352941176472,
+        0.06666666666666665
+      ],
+      "max_rate_error": 1.3877787807814457e-17,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "flat_odd_and_simple",
+      "periods_per_year": 1,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.058823529411764705,
+        0.06666666666666667
+      ],
+      "actual_roots": [
+        -0.05882352941176472,
+        0.06666666666666665
+      ],
+      "max_rate_error": 1.3877787807814457e-17,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "flat_odd_and_simple",
+      "periods_per_year": 1,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.058823529411764705,
+        0.06666666666666667
+      ],
+      "actual_roots": [
+        -0.05882352941176472,
+        0.06666666666666665
+      ],
+      "max_rate_error": 1.3877787807814457e-17,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "flat_odd_and_simple",
+      "periods_per_year": 12,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.5168825377331857,
+        1.169425212971613
+      ],
+      "actual_roots": [
+        -0.5168825377331857,
+        1.1694252129716132
+      ],
+      "max_rate_error": 2.220446049250313e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "flat_odd_and_simple",
+      "periods_per_year": 12,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.5168825377331857,
+        1.169425212971613
+      ],
+      "actual_roots": [
+        -0.5168825377331857,
+        1.1694252129716132
+      ],
+      "max_rate_error": 2.220446049250313e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "flat_odd_and_simple",
+      "periods_per_year": 12,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.5168825377331857,
+        1.169425212971613
+      ],
+      "actual_roots": [
+        -0.5168825377331857,
+        1.1694252129716132
+      ],
+      "max_rate_error": 2.220446049250313e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "tangent_and_simple",
+      "periods_per_year": 1,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.1111111111111111,
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        -0.11111111111111116,
+        0.1428571428571428
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 2.6225337421364713e-17,
+      "passed": true
+    },
+    {
+      "name": "tangent_and_simple",
+      "periods_per_year": 1,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.1111111111111111,
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        -0.11111111111111116,
+        0.1428571428571428
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 2.6225337421364713e-17,
+      "passed": true
+    },
+    {
+      "name": "tangent_and_simple",
+      "periods_per_year": 1,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.1111111111111111,
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        -0.11111111111111116,
+        0.1428571428571428
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 2.6225337421364713e-17,
+      "passed": true
+    },
+    {
+      "name": "tangent_and_simple",
+      "periods_per_year": 12,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.7566845253077027,
+        3.9648183538186523
+      ],
+      "actual_roots": [
+        -0.7566845253077028,
+        3.964818353818652
+      ],
+      "max_rate_error": 4.440892098500626e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "tangent_and_simple",
+      "periods_per_year": 12,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.7566845253077027,
+        3.9648183538186523
+      ],
+      "actual_roots": [
+        -0.7566845253077028,
+        3.964818353818652
+      ],
+      "max_rate_error": 4.440892098500626e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "tangent_and_simple",
+      "periods_per_year": 12,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.7566845253077027,
+        3.9648183538186523
+      ],
+      "actual_roots": [
+        -0.7566845253077028,
+        3.964818353818652
+      ],
+      "max_rate_error": 4.440892098500626e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "close_pair",
+      "periods_per_year": 1,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -9.536734069124156e-07,
+        9.536752259018191e-07
+      ],
+      "actual_roots": [
+        -9.536734069115482e-07,
+        9.536752259009518e-07
+      ],
+      "max_rate_error": 8.673617379884035e-19,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "close_pair",
+      "periods_per_year": 1,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -9.536734069124156e-07,
+        9.536752259018191e-07
+      ],
+      "actual_roots": [
+        -9.536734069115482e-07,
+        9.536752259009518e-07
+      ],
+      "max_rate_error": 8.673617379884035e-19,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "close_pair",
+      "periods_per_year": 1,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -9.536734069124156e-07,
+        9.536752259018191e-07
+      ],
+      "actual_roots": [
+        -9.536734069115482e-07,
+        9.536752259009518e-07
+      ],
+      "max_rate_error": 8.673617379884035e-19,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "close_pair",
+      "periods_per_year": 12,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -1.144402085660398e-05,
+        1.144416273777746e-05
+      ],
+      "actual_roots": [
+        -1.1444020856621329e-05,
+        1.1444162737905827e-05
+      ],
+      "max_rate_error": 1.2836784315638922e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "close_pair",
+      "periods_per_year": 12,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -1.144402085660398e-05,
+        1.144416273777746e-05
+      ],
+      "actual_roots": [
+        -1.1444020856621329e-05,
+        1.1444162737905827e-05
+      ],
+      "max_rate_error": 1.2836784315638922e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "close_pair",
+      "periods_per_year": 12,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -1.144402085660398e-05,
+        1.144416273777746e-05
+      ],
+      "actual_roots": [
+        -1.1444020856621329e-05,
+        1.1444162737905827e-05
+      ],
+      "max_rate_error": 1.2836784315638922e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "period_dependent_bracket",
+      "periods_per_year": 1,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.3333333333333333,
+        0.0,
+        0.3333333333333333
+      ],
+      "actual_roots": [
+        -0.33333333333333337,
+        0.0,
+        0.33333333333333326
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 1.0150610510858574e-16,
+      "passed": true
+    },
+    {
+      "name": "period_dependent_bracket",
+      "periods_per_year": 1,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.3333333333333333,
+        0.0,
+        0.3333333333333333
+      ],
+      "actual_roots": [
+        -0.33333333333333337,
+        0.0,
+        0.33333333333333326
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 1.0150610510858574e-16,
+      "passed": true
+    },
+    {
+      "name": "period_dependent_bracket",
+      "periods_per_year": 1,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "multiple_roots",
+      "actual_status": "multiple_roots",
+      "expected_roots": [
+        -0.3333333333333333,
+        0.0,
+        0.3333333333333333
+      ],
+      "actual_roots": [
+        -0.33333333333333337,
+        0.0,
+        0.33333333333333326
+      ],
+      "max_rate_error": 5.551115123125783e-17,
+      "max_scaled_npv_residual": 1.0150610510858574e-16,
+      "passed": true
+    },
+    {
+      "name": "period_dependent_bracket",
+      "periods_per_year": 12,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "period_dependent_bracket",
+      "periods_per_year": 12,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "period_dependent_bracket",
+      "periods_per_year": 12,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "outside_roots_excluded",
+      "periods_per_year": 1,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "outside_roots_excluded",
+      "periods_per_year": 1,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "outside_roots_excluded",
+      "periods_per_year": 1,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "outside_roots_excluded",
+      "periods_per_year": 12,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "outside_roots_excluded",
+      "periods_per_year": 12,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "outside_roots_excluded",
+      "periods_per_year": 12,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.0
+      ],
+      "actual_roots": [
+        0.0
+      ],
+      "max_rate_error": 0.0,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "no_root_positive_quadratic",
+      "periods_per_year": 1,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "no_root",
+      "actual_status": "no_root",
+      "expected_roots": [],
+      "actual_roots": [],
+      "max_rate_error": 0,
+      "max_scaled_npv_residual": 0,
+      "passed": true
+    },
+    {
+      "name": "no_root_positive_quadratic",
+      "periods_per_year": 1,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "no_root",
+      "actual_status": "no_root",
+      "expected_roots": [],
+      "actual_roots": [],
+      "max_rate_error": 0,
+      "max_scaled_npv_residual": 0,
+      "passed": true
+    },
+    {
+      "name": "no_root_positive_quadratic",
+      "periods_per_year": 1,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "no_root",
+      "actual_status": "no_root",
+      "expected_roots": [],
+      "actual_roots": [],
+      "max_rate_error": 0,
+      "max_scaled_npv_residual": 0,
+      "passed": true
+    },
+    {
+      "name": "no_root_positive_quadratic",
+      "periods_per_year": 12,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "no_root",
+      "actual_status": "no_root",
+      "expected_roots": [],
+      "actual_roots": [],
+      "max_rate_error": 0,
+      "max_scaled_npv_residual": 0,
+      "passed": true
+    },
+    {
+      "name": "no_root_positive_quadratic",
+      "periods_per_year": 12,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "no_root",
+      "actual_status": "no_root",
+      "expected_roots": [],
+      "actual_roots": [],
+      "max_rate_error": 0,
+      "max_scaled_npv_residual": 0,
+      "passed": true
+    },
+    {
+      "name": "no_root_positive_quadratic",
+      "periods_per_year": 12,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "no_root",
+      "actual_status": "no_root",
+      "expected_roots": [],
+      "actual_roots": [],
+      "max_rate_error": 0,
+      "max_scaled_npv_residual": 0,
+      "passed": true
+    },
+    {
+      "name": "unique_with_extra_sign_variations",
+      "periods_per_year": 1,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.06666666666666667
+      ],
+      "actual_roots": [
+        0.06666666666666665
+      ],
+      "max_rate_error": 1.3877787807814457e-17,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_with_extra_sign_variations",
+      "periods_per_year": 1,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.06666666666666667
+      ],
+      "actual_roots": [
+        0.06666666666666665
+      ],
+      "max_rate_error": 1.3877787807814457e-17,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_with_extra_sign_variations",
+      "periods_per_year": 1,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        0.06666666666666667
+      ],
+      "actual_roots": [
+        0.06666666666666665
+      ],
+      "max_rate_error": 1.3877787807814457e-17,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_with_extra_sign_variations",
+      "periods_per_year": 12,
+      "scale": "1/4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        1.169425212971613
+      ],
+      "actual_roots": [
+        1.1694252129716132
+      ],
+      "max_rate_error": 2.220446049250313e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_with_extra_sign_variations",
+      "periods_per_year": 12,
+      "scale": "1",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        1.169425212971613
+      ],
+      "actual_roots": [
+        1.1694252129716132
+      ],
+      "max_rate_error": 2.220446049250313e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "unique_with_extra_sign_variations",
+      "periods_per_year": 12,
+      "scale": "4294967296",
+      "coefficients_exact_binary": true,
+      "expected_status": "unique",
+      "actual_status": "unique",
+      "expected_roots": [
+        1.169425212971613
+      ],
+      "actual_roots": [
+        1.1694252129716132
+      ],
+      "max_rate_error": 2.220446049250313e-16,
+      "max_scaled_npv_residual": 0.0,
+      "passed": true
+    }
+  ],
+  "precision_stress_limitations": [
+    {
+      "scale": "1/1606938044258990275541962092341162602522202993782792835301376",
+      "largest_absolute_cashflow": 1.2446030555722283e-60,
+      "expected_roots": [
+        -0.1111111111111111,
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        -0.11147380799924522,
+        0.1430013863860553
+      ],
+      "interpretation": "Absolute Decimal zero tolerance dominates far below currency materiality; not promoted to a business issue."
+    },
+    {
+      "scale": "1/1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "largest_absolute_cashflow": 1.131959884853339e-72,
+      "expected_roots": [
+        -0.1111111111111111,
+        0.14285714285714285
+      ],
+      "actual_roots": [
+        -0.99,
+        10.0
+      ],
+      "interpretation": "Absolute Decimal zero tolerance dominates far below currency materiality; not promoted to a business issue."
+    }
+  ],
+  "elapsed_seconds": 0.11922741599846631
+}

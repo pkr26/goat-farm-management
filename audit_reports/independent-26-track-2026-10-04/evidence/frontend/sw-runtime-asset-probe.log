@@ -1,0 +1,4 @@
+After online lazy Telugu load: cached = true
+After one same-build worker navigation: cached = true
+After two same-build worker navigations: cached = false
+CONFIRMED: same-build shell refreshes evict the current build's lazily loaded locale asset.

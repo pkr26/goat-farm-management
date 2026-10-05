@@ -1,0 +1,24 @@
+::error::backend/app/api/animals.py: production file is absent from the coverage report
+::error::backend/app/api/auth.py: production file is absent from the coverage report
+::error::backend/app/api/feeding.py: production file is absent from the coverage report
+::error::backend/app/core/config.py: production file is absent from the coverage report
+::error::backend/app/deps.py: production file is absent from the coverage report
+::error::backend/app/main.py: production file is absent from the coverage report
+::error::backend/app/metrics.py: production file is absent from the coverage report
+::error::backend/app/models/animals.py: production file is absent from the coverage report
+::error::backend/app/services/chronology.py: production file is absent from the coverage report
+::error::backend/app/services/screening/pipeline.py: production file is absent from the coverage report
+::error::backend/app/services/screening/specialists.py: production file is absent from the coverage report
+::error::backend/app/services/simulation_calibration.py: production file is absent from the coverage report
+::error::backend/app/simulation/engine.py: production file is absent from the coverage report
+::error::backend/app/simulation/explain.py: production file is absent from the coverage report
+::error::backend/app/simulation/results.py: production file is absent from the coverage report
+::error::backend/app/worker/__init__.py: production file is absent from the coverage report
+::error::backend/app/worker/metrics_server.py: production file is absent from the coverage report
+{
+  "base": "HEAD",
+  "changed_rate": 100.0,
+  "changed_covered": 0,
+  "changed_executable": 0,
+  "files": []
+}

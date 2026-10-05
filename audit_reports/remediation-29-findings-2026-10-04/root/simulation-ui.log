@@ -1,0 +1,13 @@
+
+> frontend@0.1.0 test /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
+> vitest run src/app/\(app\)/simulation/page.result-tables.test.tsx
+
+
+ RUN  v4.1.11 /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  26 passed (26)
+   Start at  20:37:43
+   Duration  4.98s (transform 623ms, setup 285ms, import 807ms, tests 3.45s, environment 369ms)
+

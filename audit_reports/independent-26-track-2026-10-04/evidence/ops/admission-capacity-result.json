@@ -1,0 +1,9 @@
+{
+  "both_native_workers_started": true,
+  "third_request_status": 429,
+  "third_request_seconds": 0.0028757909894920886,
+  "after_cancel_before_native_completion_status": 429,
+  "after_native_completion": "admitted",
+  "farm_lock_count_after_completion": 0,
+  "user_lock_count_after_completion": 0
+}

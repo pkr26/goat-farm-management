@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any, cast
 
 HIGH_SECURITY_SEVERITY = 7.0
+CODEQL_TOOL_NAMES = frozenset({"CodeQL", "CodeQL command-line toolchain"})
+LEVELS = frozenset({"none", "note", "warning", "error"})
 
 
 def _sarif_files(path: Path) -> list[Path]:
@@ -35,14 +37,20 @@ def _mapping(value: object) -> Mapping[str, Any]:
 def _rule_for_result(run: Mapping[str, Any], result: Mapping[str, Any]) -> Mapping[str, Any]:
     driver = _mapping(_mapping(run.get("tool")).get("driver"))
     rules = driver.get("rules")
-    if not isinstance(rules, list):
-        return {}
-
-    index = result.get("ruleIndex")
-    if isinstance(index, int) and 0 <= index < len(rules):
-        return _mapping(rules[index])
     rule_id = result.get("ruleId")
-    if isinstance(rule_id, str):
+    if "ruleId" in result and (not isinstance(rule_id, str) or not rule_id):
+        raise ValueError("SARIF result has an invalid ruleId")
+    if "ruleIndex" in result:
+        index = result["ruleIndex"]
+        if type(index) is not int or not isinstance(rules, list) or not 0 <= index < len(rules):
+            raise ValueError("SARIF result has an invalid ruleIndex")
+        rule = _mapping(rules[index])
+        if not isinstance(rule.get("id"), str) or not rule["id"]:
+            raise ValueError("SARIF indexed rule has no valid id")
+        if rule_id is not None and rule["id"] != rule_id:
+            raise ValueError("SARIF ruleId and ruleIndex identify different rules")
+        return rule
+    if isinstance(rules, list) and isinstance(rule_id, str):
         for candidate in rules:
             rule = _mapping(candidate)
             if rule.get("id") == rule_id:
@@ -102,6 +110,41 @@ def _location(result: Mapping[str, Any]) -> tuple[str, int | None]:
     )
 
 
+def _validate_run(run: object, context: str) -> Mapping[str, Any]:
+    if not isinstance(run, dict):
+        raise ValueError(f"{context}: run must be an object")
+    driver = _mapping(_mapping(run.get("tool")).get("driver"))
+    name = driver.get("name")
+    if not isinstance(name, str) or name not in CODEQL_TOOL_NAMES:
+        raise ValueError(f"{context}: expected a CodeQL tool run")
+    # SARIF permits omitting invocation metadata. If supplied, it must prove
+    # successful execution rather than silently override a failed invocation
+    # with an empty results list (SARIF 2.1.0 section 3.20.14).
+    if "invocations" in run:
+        invocations = run["invocations"]
+        if not isinstance(invocations, list) or not invocations:
+            raise ValueError(f"{context}: invalid or empty invocations")
+        for invocation in invocations:
+            if (
+                not isinstance(invocation, dict)
+                or invocation.get("executionSuccessful") is not True
+            ):
+                raise ValueError(f"{context}: analysis invocation did not succeed")
+            if invocation.get("processStartFailureMessage"):
+                raise ValueError(f"{context}: analysis process failed to start")
+            for key in ("toolExecutionNotifications", "toolConfigurationNotifications"):
+                notifications = invocation.get(key, [])
+                if not isinstance(notifications, list):
+                    raise ValueError(f"{context}: malformed {key}")
+                for notification in notifications:
+                    if not isinstance(notification, dict):
+                        raise ValueError(f"{context}: malformed {key} notification")
+                    level = notification.get("level", "warning")
+                    if not isinstance(level, str) or level not in LEVELS or level == "error":
+                        raise ValueError(f"{context}: analysis reported an error in {key}")
+    return run
+
+
 def _find_blocking_results(files: Iterable[Path]) -> list[str]:
     findings: list[str] = []
     for file in files:
@@ -109,20 +152,44 @@ def _find_blocking_results(files: Iterable[Path]) -> list[str]:
             document = json.loads(file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError(f"cannot parse SARIF file {file}: {exc}") from exc
+        if _mapping(document).get("version") != "2.1.0":
+            raise ValueError(f"SARIF file {file} must declare version 2.1.0")
         runs = _mapping(document).get("runs")
-        if not isinstance(runs, list):
-            raise ValueError(f"SARIF file {file} has no runs array")
-        for run in runs:
-            run_mapping = _mapping(run)
+        if not isinstance(runs, list) or not runs:
+            raise ValueError(f"SARIF file {file} has no nonempty runs array")
+        for index, run in enumerate(runs):
+            context = f"SARIF file {file}, run {index}"
+            run_mapping = _validate_run(run, context)
             results = run_mapping.get("results")
             if not isinstance(results, list):
-                continue
+                raise ValueError(f"{context}: missing or invalid results array")
             for result in results:
+                if not isinstance(result, dict):
+                    raise ValueError(f"{context}: result must be an object")
                 result_mapping = _mapping(result)
+                rule = _rule_for_result(run_mapping, result_mapping)
+                rule_id = result_mapping.get("ruleId", rule.get("id"))
+                if not isinstance(rule_id, str) or not rule_id:
+                    raise ValueError(f"{context}: result has no identifiable rule")
+                for configuration in (
+                    result_mapping,
+                    _mapping(rule.get("defaultConfiguration")),
+                ):
+                    if "level" in configuration and (
+                        not isinstance(configuration["level"], str)
+                        or configuration["level"] not in LEVELS
+                    ):
+                        raise ValueError(f"{context}: invalid result level for {rule_id}")
+                properties = _combined_properties(result_mapping, rule)
+                severity = _property(*properties, "security-severity")
+                if severity is not None and (
+                    (parsed_severity := _security_severity(severity)) is None
+                    or not 0 <= parsed_severity <= 10
+                ):
+                    raise ValueError(f"{context}: invalid security-severity for {rule_id}")
                 reason = _result_reason(run_mapping, result_mapping)
                 if reason is None:
                     continue
-                rule_id = result_mapping.get("ruleId")
                 uri, line = _location(result_mapping)
                 location = f"{uri}:{line}" if line is not None else uri
                 findings.append(

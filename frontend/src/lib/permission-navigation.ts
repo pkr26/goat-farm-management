@@ -153,7 +153,7 @@ export function permittedAppPathFromList(
   if (!resolved) return null;
   // Next normally canonicalizes trailing slashes away, but a copied returnTo
   // can still contain one. Treat that spelling as the same id-free route and
-  // preserve its query/hash instead of mistaking it for a record detail URL.
+  // preserve its portable filters instead of mistaking it for a record detail URL.
   const pathWithoutTrailingSlash =
     resolved.path.length > 1 && resolved.path.endsWith("/")
       ? resolved.path.slice(0, -1)
@@ -162,7 +162,15 @@ export function permittedAppPathFromList(
     pathWithoutTrailingSlash === resolved.root ||
     FARM_AGNOSTIC_SUBROUTES.includes(pathWithoutTrailingSlash)
   ) {
-    return `${resolved.path}${resolved.state}`;
+    const url = new URL(`${resolved.path}${resolved.state}`, "https://goatfarm.invalid");
+    // Only module-level presentation survives a tenant change. IDs, free-text
+    // record searches and nested return destinations belong to the old farm.
+    const portableKeys = new Set(["tab", "status", "page", "offset", "limit", "sort", "order", "bucket", "sex", "source", "month", "type", "category"]);
+    for (const key of [...url.searchParams.keys()]) {
+      if (!portableKeys.has(key)) url.searchParams.delete(key);
+    }
+    // Record anchors (for example #task-7) are tenant context too.
+    return `${resolved.path}${url.search}`;
   }
   return resolved.root;
 }

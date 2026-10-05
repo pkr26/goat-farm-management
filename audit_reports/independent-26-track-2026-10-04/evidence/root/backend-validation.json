@@ -1,0 +1,48 @@
+{
+  "process_exit_code": 0,
+  "junit": {
+    "tests": 5311,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 4,
+    "passed": 5307
+  },
+  "duration_seconds": 2983.268,
+  "skip_details": [
+    {
+      "class": "tests.test_finance_extended",
+      "test": "test_create_income_every_category[ANIMAL_SALE]",
+      "reason": "system-generated categories reject manual rows"
+    },
+    {
+      "class": "tests.test_finance_extended",
+      "test": "test_create_income_every_category[ANIMAL_PURCHASE]",
+      "reason": "system-generated categories reject manual rows"
+    },
+    {
+      "class": "tests.test_finance_extended",
+      "test": "test_create_expense_every_category[ANIMAL_SALE]",
+      "reason": "system-generated categories reject manual rows"
+    },
+    {
+      "class": "tests.test_finance_extended",
+      "test": "test_create_expense_every_category[ANIMAL_PURCHASE]",
+      "reason": "system-generated categories reject manual rows"
+    }
+  ],
+  "coverage": {
+    "lines-valid": 20430,
+    "lines-covered": 19240,
+    "branches-valid": 5548,
+    "branches-covered": 4741,
+    "line_percent": 94.17523250122369,
+    "branch_percent": 85.45421773612112,
+    "combined_percent": 92.3127261528986,
+    "combined_floor": 92
+  },
+  "receipt_paths": [
+    "evidence/backend-full.log",
+    "evidence/backend-full.xml",
+    "evidence/backend-coverage.xml"
+  ]
+}

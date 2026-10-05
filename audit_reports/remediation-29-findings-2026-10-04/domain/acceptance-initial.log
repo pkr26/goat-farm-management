@@ -1,0 +1,174 @@
+...F......FF...                                                          [100%]
+=================================== FAILURES ===================================
+___ test_sale_estimate_cannot_postdate_a_recorded_weight_without_acquisition ___
+
+client = <httpx.AsyncClient object at 0x10df075c0>
+
+    async def test_sale_estimate_cannot_postdate_a_recorded_weight_without_acquisition(
+        client: httpx.AsyncClient,
+    ) -> None:
+        owner = await owner_with_farm(client)
+        response = await client.post(
+            "/api/animals",
+            headers=owner,
+            json={
+                "tag_number": "UNKNOWN-AGE-WEIGHED",
+                "sex": "M",
+                "source": "PURCHASED",
+                "current_bucket": "FOUNDATION",
+                "historical_import_reason": "Existing unknown-age goat",
+            },
+        )
+        assert response.status_code == 201
+        animal_id = response.json()["id"]
+        weighed = await client.post(
+            f"/api/animals/{animal_id}/weights",
+            headers=owner,
+            json={
+                "weight_kg": 20,
+                "date": (today() - timedelta(days=600)).isoformat(),
+            },
+        )
+>       assert weighed.status_code == 201, weighed.text
+E       AssertionError: {"detail":"Not Found"}
+E       assert 404 == 201
+E        +  where 404 = <Response [404 Not Found]>.status_code
+
+tests/test_remediation_26_domain.py:100: AssertionError
+----------------------------- Captured stderr call -----------------------------
+2026-10-04 20:22:57,681 INFO goatfarm [4ccc5086e0a04cafb43310f75199fb39] request method=POST path=/api/auth/register status=201 duration_ms=123.72
+2026-10-04 20:22:57,682 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 20:22:57,694 INFO goatfarm [08a3552580ba4ef6950257f153f9e4e0] request method=POST path=/api/auth/farms status=201 duration_ms=12.44
+2026-10-04 20:22:57,695 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 20:22:57,720 INFO goatfarm [05f11a59ffdd4695860c90a54d48abeb] request method=POST path=/api/animals status=201 duration_ms=25.22
+2026-10-04 20:22:57,720 INFO httpx [-] HTTP Request: POST http://test/api/animals "HTTP/1.1 201 Created"
+2026-10-04 20:22:57,856 INFO goatfarm [801c39eb00a542b4898ea4e407f67f6c] request method=POST path=/api/animals/1/weights status=404 duration_ms=134.86
+2026-10-04 20:22:57,856 INFO httpx [-] HTTP Request: POST http://test/api/animals/1/weights "HTTP/1.1 404 Not Found"
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1364 request method=POST path=/api/auth/register status=201 duration_ms=123.72
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1364 request method=POST path=/api/auth/farms status=201 duration_ms=12.44
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1364 request method=POST path=/api/animals status=201 duration_ms=25.22
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/animals "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1364 request method=POST path=/api/animals/1/weights status=404 duration_ms=134.86
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/animals/1/weights "HTTP/1.1 404 Not Found"
+_ test_flagged_cascade_keeps_a_reviewable_concern_and_every_failed_region[False] _
+
+client = <httpx.AsyncClient object at 0x10c7933e0>, malformed_eye = False
+
+    @pytest.mark.parametrize("malformed_eye", [False, True])
+    async def test_flagged_cascade_keeps_a_reviewable_concern_and_every_failed_region(
+        client: httpx.AsyncClient,
+        malformed_eye: bool,
+    ) -> None:
+        owner = await owner_with_farm(client)
+        farm_id = int(owner["X-Farm-Id"])
+        storage = FakeStorage()
+        storage.objects[f"raw/{farm_id}/{today().isoformat()}/contract.jpg"] = _jpeg_bytes(500, 300)
+        async with get_sessionmaker()() as db:
+            await _register_fake_objects(db, farm_id, storage)
+            summary = await run_screening_cycle(
+                db,
+                _cycle_settings(),
+                cast(ScreeningStorage, storage),
+                ProviderRotation([_ScreeningProvider(malformed_eye=malformed_eye)]),
+            )
+            image = (await db.execute(select(ScreeningImage))).scalar_one()
+            findings = (await db.execute(select(ScreeningFinding))).scalars().all()
+            assert image.status == "FLAGGED" and summary.flagged == 1
+            if malformed_eye:
+                assert {(f.region, f.label) for f in findings} == {
+                    ("mouth", "ORF"),
+                    ("eye", "eye concern"),
+                }
+            else:
+                assert len(findings) == 1
+                assert findings[0].region == "general"
+                assert "no specific condition" in (findings[0].note or "")
+>           assert all(f.review_status == "PENDING" for f in findings)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_remediation_26_domain.py:331: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <list_iterator object at 0x10e217be0>
+
+>   assert all(f.review_status == "PENDING" for f in findings)
+               ^^^^^^^^^^^^^^^
+E   AttributeError: 'ScreeningFinding' object has no attribute 'review_status'
+
+tests/test_remediation_26_domain.py:331: AttributeError
+----------------------------- Captured stderr call -----------------------------
+2026-10-04 20:23:00,641 INFO goatfarm [2d867d6c572544e78a0a0571826692e3] request method=POST path=/api/auth/register status=201 duration_ms=123.81
+2026-10-04 20:23:00,642 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 20:23:00,655 INFO goatfarm [18a33c40918a4f3c8971e1c5916e264b] request method=POST path=/api/auth/farms status=201 duration_ms=12.97
+2026-10-04 20:23:00,655 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1364 request method=POST path=/api/auth/register status=201 duration_ms=123.81
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1364 request method=POST path=/api/auth/farms status=201 duration_ms=12.97
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+_ test_flagged_cascade_keeps_a_reviewable_concern_and_every_failed_region[True] _
+
+client = <httpx.AsyncClient object at 0x10cf95310>, malformed_eye = True
+
+    @pytest.mark.parametrize("malformed_eye", [False, True])
+    async def test_flagged_cascade_keeps_a_reviewable_concern_and_every_failed_region(
+        client: httpx.AsyncClient,
+        malformed_eye: bool,
+    ) -> None:
+        owner = await owner_with_farm(client)
+        farm_id = int(owner["X-Farm-Id"])
+        storage = FakeStorage()
+        storage.objects[f"raw/{farm_id}/{today().isoformat()}/contract.jpg"] = _jpeg_bytes(500, 300)
+        async with get_sessionmaker()() as db:
+            await _register_fake_objects(db, farm_id, storage)
+            summary = await run_screening_cycle(
+                db,
+                _cycle_settings(),
+                cast(ScreeningStorage, storage),
+                ProviderRotation([_ScreeningProvider(malformed_eye=malformed_eye)]),
+            )
+            image = (await db.execute(select(ScreeningImage))).scalar_one()
+            findings = (await db.execute(select(ScreeningFinding))).scalars().all()
+            assert image.status == "FLAGGED" and summary.flagged == 1
+            if malformed_eye:
+                assert {(f.region, f.label) for f in findings} == {
+                    ("mouth", "ORF"),
+                    ("eye", "eye concern"),
+                }
+            else:
+                assert len(findings) == 1
+                assert findings[0].region == "general"
+                assert "no specific condition" in (findings[0].note or "")
+>           assert all(f.review_status == "PENDING" for f in findings)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_remediation_26_domain.py:331: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <list_iterator object at 0x10c827ee0>
+
+>   assert all(f.review_status == "PENDING" for f in findings)
+               ^^^^^^^^^^^^^^^
+E   AttributeError: 'ScreeningFinding' object has no attribute 'review_status'
+
+tests/test_remediation_26_domain.py:331: AttributeError
+----------------------------- Captured stderr call -----------------------------
+2026-10-04 20:23:00,963 INFO goatfarm [11d83d5229e2441a99856f4c462e3457] request method=POST path=/api/auth/register status=201 duration_ms=126.33
+2026-10-04 20:23:00,964 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 20:23:00,979 INFO goatfarm [b129c9521340430d92613b0f848b1260] request method=POST path=/api/auth/farms status=201 duration_ms=14.90
+2026-10-04 20:23:00,979 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 20:23:01,032 WARNING app.services.screening.pipeline [-] screening specialist failed image_id=1 specialist=SPECIALIST_EYE code=SPECIALIST_PROVIDER_FAILURE
+------------------------------ Captured log call -------------------------------
+INFO     goatfarm:main.py:1364 request method=POST path=/api/auth/register status=201 duration_ms=126.33
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+INFO     goatfarm:main.py:1364 request method=POST path=/api/auth/farms status=201 duration_ms=14.90
+INFO     httpx:_client.py:1740 HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+WARNING  app.services.screening.pipeline:pipeline.py:1203 screening specialist failed image_id=1 specialist=SPECIALIST_EYE code=SPECIALIST_PROVIDER_FAILURE
+=========================== short test summary info ============================
+FAILED tests/test_remediation_26_domain.py::test_sale_estimate_cannot_postdate_a_recorded_weight_without_acquisition
+FAILED tests/test_remediation_26_domain.py::test_flagged_cascade_keeps_a_reviewable_concern_and_every_failed_region[False]
+FAILED tests/test_remediation_26_domain.py::test_flagged_cascade_keeps_a_reviewable_concern_and_every_failed_region[True]
+3 failed, 12 passed in 8.32s

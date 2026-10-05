@@ -264,9 +264,9 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
         description={t("screening.description")}
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" onClick={() => setCheckOpen(true)}>
+            {canManage && <Button size="sm" onClick={() => setCheckOpen(true)}>
               <Stethoscope aria-hidden /> {t("screening.check.button")}
-            </Button>
+            </Button>}
             {canManage ? (
               <Button variant="outline" size="sm" disabled={exporting} onClick={downloadDataset}>
                 <Download aria-hidden /> {t("screening.export.button")}
@@ -279,23 +279,27 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
         {t("screening.note.modelScreenNotDiagnosis")}
       </p>
 
-      <DiseaseCheckDialog
+      {canManage && <DiseaseCheckDialog
         open={checkOpen}
         onOpenChange={setCheckOpen}
         onFinished={() => {
           void listQuery.refetch();
         }}
-      />
+      />}
 
       <DataTableCard
         title={t("screening.stats.title")}
         description={t("screening.stats.description", { days: 30 })}
       >
+        {statsQuery.isError && <div role="alert" className="mb-3 space-y-2">
+          <p className="text-sm text-destructive">{t(stats ? "screening.stats.stale" : "screening.stats.unavailable")}</p>
+          <Button variant="outline" disabled={statsQuery.isFetching} onClick={() => void statsQuery.refetch()}>{t("common.retry")}</Button>
+        </div>}
         {statsQuery.isPending ? (
           <div role="status" aria-live="polite">
             <TableSkeleton rows={2} columns={6} />
           </div>
-        ) : !stats || stats.providers.length === 0 ? (
+        ) : statsQuery.isError && !stats ? null : !stats || stats.providers.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("screening.stats.empty")}</p>
         ) : (
           <div className="overflow-x-auto">
@@ -418,9 +422,9 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                 {detail.status === "UNASSESSABLE" || (detail.crops ?? []).some((crop) => crop.status === "UNASSESSABLE") ? (
                   <div role="alert" className="space-y-2 rounded-lg border border-warning p-3">
                     <p>{t("screening.quality.guidance")}</p>
-                    <Button type="button" variant="outline" onClick={() => setCheckOpen(true)}>
+                    {canManage && <Button type="button" variant="outline" onClick={() => setCheckOpen(true)}>
                       <Camera aria-hidden /> {t("screening.quality.retake")}
-                    </Button>
+                    </Button>}
                   </div>
                 ) : null}
                 {detail.image_url ? (

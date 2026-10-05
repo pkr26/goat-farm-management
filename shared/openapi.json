@@ -23974,6 +23974,11 @@
             "type": "number",
             "title": "Breeding Stock Capex"
           },
+          "breeding_stock_disposal_cost": {
+            "type": "number",
+            "title": "Breeding Stock Disposal Cost",
+            "default": 0.0
+          },
           "total_opex": {
             "type": "number",
             "title": "Total Opex"
@@ -30698,6 +30703,11 @@
           "breeding_stock_capex": {
             "type": "number",
             "title": "Breeding Stock Capex"
+          },
+          "breeding_stock_disposal_cost": {
+            "type": "number",
+            "title": "Breeding Stock Disposal Cost",
+            "default": 0.0
           },
           "feed_green_kg": {
             "type": "number",
@@ -37695,7 +37705,7 @@
           "total"
         ],
         "title": "TerminalValueBreakdown",
-        "description": "Recoverable closing assets included in the final project cash flow.\n\n``breeding_stock`` is the residual BOOK value of breeding does/bucks\ncapitalized during the run (purchases less straight-line depreciation).\n``livestock`` then carries the closing herd's market value ABOVE that\nbook value (young stock at market value plus the disposal gain/loss on\nthe capitalized breeding animals), so the two lines together recover\nexactly the same closing-herd market value the pre-capitalization model\ndid \u2014 the asset account changes the accounting split, not the cash."
+        "description": "Recoverable closing assets included in the final project cash flow.\n\n``breeding_stock`` is the residual BOOK value of breeding does/bucks\ncapitalized during the run (surviving purchases less straight-line depreciation).\n``livestock`` then carries the closing herd's market value ABOVE that\nbook value (young stock at market value plus the disposal gain/loss on\nthe capitalized breeding animals), so the two lines together recover\nexactly the same closing-herd market value the pre-capitalization model\ndid \u2014 the asset account changes the accounting split, not the cash."
       },
       "TokenOut": {
         "properties": {

@@ -124,7 +124,7 @@ async def require_status_after_recorded_facts(
 
 
 async def require_purchase_before_recorded_facts(
-    db: AsyncSession, animal: Animal, purchase_date: date
+    db: AsyncSession, animal: Animal, purchase_date: date, *, field_name: str = "Purchase date"
 ) -> None:
     """Reject an acquisition date moved after an already-recorded animal fact.
 
@@ -198,6 +198,6 @@ async def require_purchase_before_recorded_facts(
     earliest_fact = min(facts) if facts else None
     if earliest_fact is not None and purchase_date > earliest_fact:
         raise ValueError(
-            f"Purchase date cannot follow {animal.tag_number}'s earliest recorded "
+            f"{field_name} cannot follow {animal.tag_number}'s earliest recorded "
             f"lifecycle event on {earliest_fact.isoformat()}"
         )

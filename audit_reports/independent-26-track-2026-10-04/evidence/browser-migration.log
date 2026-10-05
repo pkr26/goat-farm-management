@@ -1,0 +1,110 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> ed5efe13a516, initial schema
+INFO  [alembic.runtime.migration] Running upgrade ed5efe13a516 -> c4b72167db86, simulation scenarios
+INFO  [alembic.runtime.migration] Running upgrade c4b72167db86 -> d8f2b6a41e90, concurrency indexes
+INFO  [alembic.runtime.migration] Running upgrade d8f2b6a41e90 -> 91a712b0367b, tasks skipped_by_id — skip attribution
+INFO  [alembic.runtime.migration] Running upgrade 91a712b0367b -> b3e91c47a2f5, refresh_sessions — server-side refresh-token revocation
+INFO  [alembic.runtime.migration] Running upgrade b3e91c47a2f5 -> e4a7c1f29b63, query performance indexes
+INFO  [alembic.runtime.migration] Running upgrade e4a7c1f29b63 -> f5b1a09c8d7e, FK ondelete, composite indices, CHECK constraints
+INFO  [alembic.runtime.migration] Running upgrade f5b1a09c8d7e -> a7c9e2f4b1d8, auth session and team hardening
+INFO  [alembic.runtime.migration] Running upgrade a7c9e2f4b1d8 -> a4d9e6f2b701, Domain-integrity holds and generic animal-health traceability.
+INFO  [alembic.runtime.migration] Running upgrade a4d9e6f2b701 -> c8f1d3a5e709, Exact ledger, finished feed stock, and task audit history.
+INFO  [alembic.runtime.migration] Running upgrade c8f1d3a5e709 -> d9e4b7c2a610, Audited movement-restriction clearance.
+INFO  [alembic.runtime.migration] Running upgrade d9e4b7c2a610 -> e2c4f6a8b0d1, Durable idempotency claims and successful response replay.
+INFO  [alembic.runtime.migration] Running upgrade e2c4f6a8b0d1 -> f7d8c9b0a1e2, Enforce farm ownership across tenant-scoped relationships.
+INFO  [alembic.runtime.migration] Running upgrade f7d8c9b0a1e2 -> b9e1c2d3f4a5, Make pregnancy loss and neonatal outcomes auditable and consistent.
+INFO  [alembic.runtime.migration] Running upgrade b9e1c2d3f4a5 -> c1d2e3f4a5b6, Enforce domain value and state coherence with PostgreSQL CHECKs.
+INFO  [alembic.runtime.migration] Running upgrade c1d2e3f4a5b6 -> d2e3f4a5b6c7, Persist purchase-batch sex even when animal stubs are not created.
+INFO  [alembic.runtime.migration] Running upgrade d2e3f4a5b6c7 -> d3f4a5b6c7d8, Stable bulk-health provenance and movement-restriction episodes.
+INFO  [alembic.runtime.migration] Running upgrade d3f4a5b6c7d8 -> d4e5f6a7b8c9, Preserve audit attribution with de-identified account tombstones.
+INFO  [alembic.runtime.migration] Running upgrade d4e5f6a7b8c9 -> e5f6a7b8c9d0, online indexes for bounded herd and duty query paths
+INFO  [alembic.runtime.migration] Running upgrade e5f6a7b8c9d0 -> f6a7b8c9d0e1, bound refresh-session families, rotation history and expiry cleanup
+INFO  [alembic.runtime.migration] Running upgrade f6a7b8c9d0e1 -> d7e8f9a0b1c2, canonical, indexed health-event schedule template links
+INFO  [alembic.runtime.migration] Running upgrade d7e8f9a0b1c2 -> d8e9f0a1b2c3, cover bounded feeding-day history and exact allocation aggregates
+INFO  [alembic.runtime.migration] Running upgrade d8e9f0a1b2c3 -> e9f0a1b2c3d4, bound team/account lifecycle work with retained assignment anchors
+INFO  [alembic.runtime.migration] Running upgrade e9f0a1b2c3d4 -> f0a1b2c3d4e5, online index for bounded inactive-animal task cleanup
+INFO  [alembic.runtime.migration] Running upgrade f0a1b2c3d4e5 -> f1b2c3d4e5f6, online index for bounded tombstoned-account membership cleanup
+INFO  [alembic.runtime.migration] Running upgrade f1b2c3d4e5f6 -> f2c3d4e5f6a7, store feed quantities as exact whole-gram numerics
+INFO  [alembic.runtime.migration] Running upgrade f2c3d4e5f6a7 -> f3d4e5f6a7b8, actor-scoped farm creation idempotency and task-check validation
+INFO  [alembic.runtime.migration] Running upgrade f3d4e5f6a7b8 -> f4e5f6a7b8c9, purge pre-HMAC sensitive idempotency fingerprints
+INFO  [alembic.runtime.migration] Running upgrade f4e5f6a7b8c9 -> a1b2c3d4e5f7, repair personal task roles left behind by the PENDING-only backfill
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f7 -> b2c3d4e5f6a8, store transactions.created_at defaults in UTC, not server local time
+INFO  [alembic.runtime.migration] Running upgrade b2c3d4e5f6a8 -> c4d5e6f7a8b9, tasks rejected_by_id/rejected_at — rejection attribution
+INFO  [alembic.runtime.migration] Running upgrade c4d5e6f7a8b9 -> d1c2b3a4e5f6, breeding_records.outcome UNASSESSED — services closed by a herd exit
+INFO  [alembic.runtime.migration] Running upgrade d1c2b3a4e5f6 -> e3f4a5b6c7d9, repair lifecycle dates, reproductive links, schedule links and task state
+INFO  [alembic.runtime.migration] Running upgrade e3f4a5b6c7d9 -> a6c9e2f4b7d1, repair legacy loss attribution, chronology locking, and feed provenance
+INFO  [alembic.runtime.migration] Running upgrade a6c9e2f4b7d1 -> b7c8d9e0f1a2, tie health compliance dates to scheduled-disease suspicion
+INFO  [alembic.runtime.migration] Running upgrade b7c8d9e0f1a2 -> c2a4e6b8d013, index animals.sire_id alongside the existing dam_id index
+INFO  [alembic.runtime.migration] Running upgrade c2a4e6b8d013 -> d3b5f7c9e024, bound the tag-namespace triggers to one advisory lock per farm
+INFO  [alembic.runtime.migration] Running upgrade d3b5f7c9e024 -> e6f8a0b2c4d7, allow culled animals to retain sale proceeds
+INFO  [alembic.runtime.migration] Running upgrade e6f8a0b2c4d7 -> b1c2d3e4f5a6, close lifecycle date gaps and add optimistic-concurrency audit guards
+INFO  [alembic.runtime.migration] Running upgrade b1c2d3e4f5a6 -> c3d4e5f6a7b1, make uq_kid_entries_farm_tag usable by the animal-tag trigger
+INFO  [alembic.runtime.migration] Running upgrade c3d4e5f6a7b1 -> d5e7f9a1b3c4, make farm-local preset role codes unique
+INFO  [alembic.runtime.migration] Running upgrade d5e7f9a1b3c4 -> e7f9a1b3c5d8, align direct kidding writes with the animal-first lifecycle lock order
+INFO  [alembic.runtime.migration] Running upgrade e7f9a1b3c5d8 -> b3d7f1a5c9e2, farm type (goat / buffalo dairy), AI breeding, milk records
+INFO  [alembic.runtime.migration] Running upgrade b3d7f1a5c9e2 -> c5a8e1f3b7d2, milk correction audit trail and fat-based milk pricing
+INFO  [alembic.runtime.migration] Running upgrade c5a8e1f3b7d2 -> f8a2c4e6b1d9, widen the preset role-code vocabulary
+INFO  [alembic.runtime.migration] Running upgrade f8a2c4e6b1d9 -> d1e2f3a4b5c6, widen breeding gestation CHECK constraints for buffalo late records
+INFO  [alembic.runtime.migration] Running upgrade d1e2f3a4b5c6 -> e3a5b7c9d1f2, worker password rotation flag
+INFO  [alembic.runtime.migration] Running upgrade e3a5b7c9d1f2 -> b5d7f9a1c3e5, propagate 2026-09-01 species reference-data corrections to existing farms
+INFO  [alembic.runtime.migration] Running upgrade b5d7f9a1c3e5 -> f9b3c7d1e5a2, widen kid_count CHECK to the cross-species maximum (4)
+INFO  [alembic.runtime.migration] Running upgrade f9b3c7d1e5a2 -> a1b2c3d4e5f6, planner plans
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> bd201c1cdc1b, goat-only: drop the buffalo-dairy farm type, milk records and milk ledger
+INFO  [alembic.runtime.migration] Running upgrade bd201c1cdc1b -> e8b0d2f4a6c1, tenant-bounded ordered indexes for the ledger and health-event feeds
+INFO  [alembic.runtime.migration] Running upgrade e8b0d2f4a6c1 -> b6d8f0a2c4e6, close the tenant-FK gap on weight_records and bucket_moves
+INFO  [alembic.runtime.migration] Running upgrade b6d8f0a2c4e6 -> c4f6a8b0d2e5, store role permissions and saved plan/scenario JSON as jsonb
+INFO  [alembic.runtime.migration] Running upgrade c4f6a8b0d2e5 -> f1e2d3c4b5a6, widen task/health/kidding-ease vocabularies for husbandry standards
+INFO  [alembic.runtime.migration] Running upgrade f1e2d3c4b5a6 -> a7b8c9d0e1f2, kidding parity + dam/kid postpartum care facts
+INFO  [alembic.runtime.migration] Running upgrade a7b8c9d0e1f2 -> b8c9d0e1f2a3, purchase-batch provenance: origin market, transit time, seller history
+INFO  [alembic.runtime.migration] Running upgrade b8c9d0e1f2a3 -> c9d0e1f2a3b4, sale capture (weight/buyer economics) and coded death audit fields
+INFO  [alembic.runtime.migration] Running upgrade c9d0e1f2a3b4 -> d0e1f2a3b4c5, insurance register (insurance_policies)
+INFO  [alembic.runtime.migration] Running upgrade d0e1f2a3b4c5 -> e1f2a3b4c5d6, insurance premium payment history (insurance_premiums)
+INFO  [alembic.runtime.migration] Running upgrade e1f2a3b4c5d6 -> f2a3b4c5d6e7, propagate the maintenance-recipe mineral/salt standards fix
+INFO  [alembic.runtime.migration] Running upgrade f2a3b4c5d6e7 -> b7c1d5e9f3a2, task provenance, title localization keys, and the WATER duty category
+INFO  [alembic.runtime.migration] Running upgrade b7c1d5e9f3a2 -> c8d2e6f0a4b3, updated_at on animals/farms, phenotype columns, bounded vocabularies
+INFO  [alembic.runtime.migration] Running upgrade c8d2e6f0a4b3 -> d9e3f7a1b5c4, exact weight numerics and index hygiene
+INFO  [alembic.runtime.migration] Running upgrade d9e3f7a1b5c4 -> e0f4a8b2c6d5, backfill kidding_records.parity for legacy NULL rows
+INFO  [alembic.runtime.migration] Running upgrade e0f4a8b2c6d5 -> a19b2569d466, users: TOTP second-factor columns (HUM-1 follow-up, 2026-09-16)
+INFO  [alembic.runtime.migration] Running upgrade a19b2569d466 -> a7c8d9e0f1b2, disease screening: images, runs, findings
+INFO  [alembic.runtime.migration] Running upgrade a7c8d9e0f1b2 -> b8d9e0f2a3c4, screening phase 2: rotation stages, specialist findings, vet review
+INFO  [alembic.runtime.migration] Running upgrade b8d9e0f2a3c4 -> c9e0f1a3b4d5, screening phase 3: per-goat crops, detection stage
+INFO  [alembic.runtime.migration] Running upgrade c9e0f1a3b4d5 -> d0f1a2b3c4d6, screening upload flow: disease-check batches + bucket-tagged photos
+INFO  [alembic.runtime.migration] Running upgrade d0f1a2b3c4d6 -> c3e5a9f1d7b4, residual exact numerics, next-due ceiling, jsonb shape, business-date default
+INFO  [alembic.runtime.migration] Running upgrade c3e5a9f1d7b4 -> c4d8e1f9a2b7, bind screening uploads to registrations and bounded retry scheduling
+INFO  [alembic.runtime.migration] Running upgrade c3e5a9f1d7b4 -> a6d4e2f9c8b7, insurance audit facts, premium accounting date and plan anchor repair
+INFO  [alembic.runtime.migration] Running upgrade a6d4e2f9c8b7, c4d8e1f9a2b7 -> b7e8f9a0c1d2, merge independent screening and finance integrity revisions
+INFO  [alembic.runtime.migration] Running upgrade b7e8f9a0c1d2 -> f7a9c1e3b5d7, make normalized screening-content de-duplication concurrency-safe
+INFO  [alembic.runtime.migration] Running upgrade f7a9c1e3b5d7 -> b9c0d1e2f3a4, bound the screening retry budget per image
+INFO  [alembic.runtime.migration] Running upgrade b9c0d1e2f3a4 -> cad1e2f3a4b5, drop the unproducible MULTIPLET birth type and dead renewed insurance status
+INFO  [alembic.runtime.migration] Running upgrade cad1e2f3a4b5 -> b1c3d5e7f9a2, Drop redundant single-column ledger/health/task indexes
+INFO  [alembic.runtime.migration] Running upgrade b1c3d5e7f9a2 -> c3d5e7f9a1b3, TOTP recovery codes (owner lockout protection)
+INFO  [alembic.runtime.migration] Running upgrade c3d5e7f9a1b3 -> d4e6f8a0b2c4, Worker-tablet PIN authentication columns
+INFO  [alembic.runtime.migration] Running upgrade d4e6f8a0b2c4 -> e5a7c9d1b3f5, Notification recipients and delivery log (ITEM 4, 2026-09-21 playbook)
+INFO  [alembic.runtime.migration] Running upgrade e5a7c9d1b3f5 -> f6b8d0e2a4c6, Data housekeeping (ITEM 9, 2026-09-21 playbook)
+INFO  [alembic.runtime.migration] Running upgrade f6b8d0e2a4c6 -> a8c0e2f4b6d8, Movement-restriction alert class (ITEM 4 remediation, 2026-09-21)
+INFO  [alembic.runtime.migration] Running upgrade a8c0e2f4b6d8 -> b9d1f3a5c7e9, Screening images PK int4 → bigint (ITEM 9 completion, 2026-09-21)
+INFO  [alembic.runtime.migration] Running upgrade b9d1f3a5c7e9 -> c3d4e5f6a7b8, the FAMACHA duty category (monthly anemia-scoring round)
+INFO  [alembic.runtime.migration] Running upgrade c3d4e5f6a7b8 -> d7e9f1a3b5c7, notification tenant hardening (2026-09-28 audit, N4)
+INFO  [alembic.runtime.migration] Running upgrade d7e9f1a3b5c7 -> e2f3a4b5c6d8, screening image FK columns int4 -> bigint (2026-09-28 audit, D1)
+INFO  [alembic.runtime.migration] Running upgrade e2f3a4b5c6d8 -> f3a4b5c6d7e8, bound sale_weight_kg like every sibling numeric (2026-09-28 audit, D5)
+INFO  [alembic.runtime.migration] Running upgrade f3a4b5c6d7e8 -> c6d7e8f9a0b1, screening run/crop FK columns int4 -> bigint (2026-09-28 audit, D1 part 2)
+INFO  [alembic.runtime.migration] Running upgrade c6d7e8f9a0b1 -> a4b5c6d7e8f9, screening join and cascade-reverse indexes (2026-09-28 audit, D6)
+INFO  [alembic.runtime.migration] Running upgrade a4b5c6d7e8f9 -> b5c6d7e8f9a0, UTC server defaults on the newest tables' timestamps (2026-09-28 audit, D7)
+INFO  [alembic.runtime.migration] Running upgrade b5c6d7e8f9a0 -> e8f9a0b1c2d3, screening_images.bucket varchar(30) -> varchar(20) (2026-09-28 audit)
+INFO  [alembic.runtime.migration] Running upgrade e8f9a0b1c2d3 -> c7d8e9f0a1b2, Drop redundant single-column indexes + subsumed birth-weight CHECK
+INFO  [alembic.runtime.migration] Running upgrade c7d8e9f0a1b2 -> d9e0f2a4b6c8, UTC server defaults on the remaining timestamp columns (D7 completion)
+INFO  [alembic.runtime.migration] Running upgrade d9e0f2a4b6c8 -> c1d3e5f7a9b4, notification_recipients membership tenant FK (2026-09-29 audit, L2)
+INFO  [alembic.runtime.migration] Running upgrade c1d3e5f7a9b4 -> e7b9d1f3a5c2, Server-side parity for out-of-band writers (2026-10-01 audit, 04-2 + 04-Info)
+INFO  [alembic.runtime.migration] Running upgrade e7b9d1f3a5c2 -> f4a8c2e6d1b9, Durable single-use guard for MFA challenge tokens (2026-10-01 audit, 01-3)
+INFO  [alembic.runtime.migration] Running upgrade f4a8c2e6d1b9 -> f5b9d3e7a2c0, Bind PIN refresh families to the authenticating farm and membership.
+INFO  [alembic.runtime.migration] Running upgrade f5b9d3e7a2c0 -> f6c0e4f8b3d1, Truthful screening review, durable call budgets and treatment-round evidence.
+INFO  [alembic.runtime.migration] Running upgrade f6c0e4f8b3d1 -> f7d1e5f9b4c2, Persist one-shot clinical alerts and cross-day per-recipient delivery claims.
+INFO  [alembic.runtime.migration] Running upgrade f7d1e5f9b4c2 -> f8e2f6a0c5d3, Keep bounded maintenance rotations fair across worker restarts.
+INFO  [alembic.runtime.migration] Running upgrade f8e2f6a0c5d3 -> f9a3b7c1d5e2, Preserve known legacy screening decisions before their first re-review.
+INFO  [alembic.runtime.migration] Running upgrade f9a3b7c1d5e2 -> fa1b2c3d4e5f, Add the append-only transactional security-event ledger.
+INFO  [alembic.runtime.migration] Running upgrade fa1b2c3d4e5f -> fb2c3d4e5f6a, Harden screening evidence states and tenant-bound actor attribution.
+INFO  [alembic.runtime.migration] Running upgrade fb2c3d4e5f6a -> fc3d4e5f6a7b, Index terminal task history by its displayed completion instant.
+INFO  [alembic.runtime.migration] Running upgrade fc3d4e5f6a7b -> fd4e5f6a7b8c, Persist screening retention deletion intent before object removal.
+INFO  [alembic.runtime.migration] Running upgrade fd4e5f6a7b8c -> fe5f6a7b8c9d, Build the raw-cleanup due queue index without blocking image writes.
+Migration target localhost:5432/goatfarm_test_a26_browser_9b83417e; current=base; target=fe5f6a7b8c9d

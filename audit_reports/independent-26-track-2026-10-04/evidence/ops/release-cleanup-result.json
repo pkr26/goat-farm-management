@@ -1,0 +1,46 @@
+{
+  "assumed_state": "v1.2.3 and per-arch publish tags from a previous successful release exist; this invocation publishes nothing",
+  "preflight_exit": 1,
+  "preflight_stdout": "::error::Release v1.2.3 already exists; publish changed bits under a new version.\n",
+  "assembly_ownership_marker_exists": false,
+  "cleanup_exit": 0,
+  "cleanup_stdout": "removed unverified ghcr.io/audit-owner/goatfarm-backend:v1.2.3-publish-amd64 (package version 101)\nremoved unverified ghcr.io/audit-owner/goatfarm-backend:v1.2.3-publish-arm64 (package version 102)\nremoved unverified ghcr.io/audit-owner/goatfarm-frontend:v1.2.3-publish-amd64 (package version 101)\nremoved unverified ghcr.io/audit-owner/goatfarm-frontend:v1.2.3-publish-arm64 (package version 102)\nremoved unverified ghcr.io/audit-owner/goatfarm-edge:v1.2.3-publish-amd64 (package version 101)\nremoved unverified ghcr.io/audit-owner/goatfarm-edge:v1.2.3-publish-arm64 (package version 102)\n",
+  "delete_requests": [
+    [
+      "api",
+      "-X",
+      "DELETE",
+      "orgs/audit-owner/packages/container/goatfarm-backend/versions/101"
+    ],
+    [
+      "api",
+      "-X",
+      "DELETE",
+      "orgs/audit-owner/packages/container/goatfarm-backend/versions/102"
+    ],
+    [
+      "api",
+      "-X",
+      "DELETE",
+      "orgs/audit-owner/packages/container/goatfarm-frontend/versions/101"
+    ],
+    [
+      "api",
+      "-X",
+      "DELETE",
+      "orgs/audit-owner/packages/container/goatfarm-frontend/versions/102"
+    ],
+    [
+      "api",
+      "-X",
+      "DELETE",
+      "orgs/audit-owner/packages/container/goatfarm-edge/versions/101"
+    ],
+    [
+      "api",
+      "-X",
+      "DELETE",
+      "orgs/audit-owner/packages/container/goatfarm-edge/versions/102"
+    ]
+  ]
+}

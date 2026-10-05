@@ -1549,7 +1549,14 @@ def test_breeding_purchases_capitalize_and_depreciate_straight_line() -> None:
     """Does/bucks bought during the run hit CASH in the purchase month but the
     P&L through straight-line depreciation over the useful life; EBITDA never
     sees the lump."""
-    a, res = _breeding_purchase_run()
+    a, _ = _breeding_purchase_run()
+    # Straight-line-only control: deaths/dispositions derecognize book value
+    # separately and must not be treated as surviving depreciation vintages.
+    a.mortality.adult = 0.0
+    a.culling.doe_cull_rate_annual = 0.0
+    a.culling.max_doe_age_months = 180
+    a.reproduction.max_services_before_cull = 0
+    res = run_simulation(a, with_break_even=False)
     life = a.costs.breeding_stock_useful_life_months
     # Cash lands in the purchase month (not project cost, not spread).
     assert res.months[12].breeding_stock_capex == pytest.approx(

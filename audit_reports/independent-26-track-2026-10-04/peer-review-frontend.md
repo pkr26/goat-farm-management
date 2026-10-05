@@ -1,0 +1,17 @@
+# Coordinating review of frontend findings
+
+The coordinating auditor reviewed all nine findings from the fresh frontend audit against current code, test/probe structure, and saved browser evidence. No previous audit findings were adopted. All nine findings are retained; the limitations below are part of the final finding, not optional caveats.
+
+| Finding | Independent challenge and disposition |
+| --- | --- |
+| F26-01 | Reviewed the catalog gate in `i18n/index.tsx`, worker shell startup, cache-generation implementation, VM receipts, and production browser cache snapshots. Viewed the blank-screen screenshot. The successful HTTP-cache control matters: two shell reloads remove the service-worker copy, but failure requires the ordinary browser HTTP cache to lack the chunk too. Retain Medium with this explicit condition; no claimed storage-pressure frequency. The blank fallback and cache eviction are combined as one failure chain, not counted twice. |
+| F26-02 | Checked parent catalog gating/persistence before WorkerShell mounts. The provider persists `en` while the child waits; the child's null-only default cannot then select `te`. Fresh Chromium independently corroborates the source ordering. Retain Medium; existing deliberate locale preferences must still be preserved by any fix. |
+| F26-03 | Checked the offsetless datetime wire shape against the actual health-round caller. JavaScript local parsing followed by farm-zone conversion can add the browser offset twice. The finding is a display-day error, not stored-data corruption. Retain Low. |
+| F26-04 | Read the upload's controller/epoch lifecycle and finish handler. Successful earlier uploads enable finish while another controller is active; closing aborts it. The backend permits submission of preregistered images. Retain Medium for interrupted user work, without asserting that a live object store necessarily loses already-transmitted bytes. |
+| F26-05 | Reviewed farm navigation's root-route query preservation and record-consuming pages. Global record IDs plus backend farm filtering prevent the hypothesized data leak; they do not prevent stale-ID requests and failed form context. Retain Low for navigation state only. |
+| F26-06 | Confirmed that an effect mutates the unobserved formatting-language module after context consumers render. The test separately observes DOM output and the later helper return, so it is not merely checking internal implementation state. Retain Low for stale language rendering. |
+| F26-07 | Actual nested `<main>` elements and axe receipts represent one landmark defect. Three rule labels are not three bugs. Retain Low; the existing serious/critical accessibility baseline passing is compatible with this moderate-impact rule result. |
+| F26-08 | Confirmed intake/retake UI lacks the same management gate as backend writes. This offers a dead-end action; authorization still rejects it. Retain Low, not an access-control bypass. |
+| F26-09 | Confirmed statistics' missing-data branch conflates error with a successful empty result. The page's separate image list may continue to function. Retain Low for misleading outage feedback, not fabricated clinical metrics. |
+
+The original frontend baseline, lint, typing and production build remain green. Those results do not invalidate the new narrowly targeted failures. Root real-stack Chromium/mobile/tablet and subsequent browser receipts are listed in the consolidated report. No changes to application source or acceptance assertions were made.

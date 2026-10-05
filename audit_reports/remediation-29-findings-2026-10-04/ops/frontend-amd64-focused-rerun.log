@@ -1,0 +1,117 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  4.548MB
+Step 1/25 : FROM node:24-alpine@sha256:83f1c388c31fb2e51f7cbd4dea949b96260798c98f206e8e4696bc93bd964e3a AS deps
+ ---> 83f1c388c31f
+Step 2/25 : WORKDIR /app
+ ---> Using cache
+ ---> 0c941dc147b0
+Step 3/25 : RUN corepack enable
+ ---> Using cache
+ ---> 3d580fc007d2
+Step 4/25 : COPY package.json pnpm-lock.yaml ./
+ ---> Using cache
+ ---> f543e828ffe5
+Step 5/25 : COPY patches/ ./patches/
+ ---> Using cache
+ ---> 3064522a5927
+Step 6/25 : RUN pnpm install --frozen-lockfile
+ ---> Using cache
+ ---> 4be01af983b5
+Step 7/25 : FROM node:24-alpine@sha256:83f1c388c31fb2e51f7cbd4dea949b96260798c98f206e8e4696bc93bd964e3a AS builder
+ ---> 83f1c388c31f
+Step 8/25 : WORKDIR /app
+ ---> Using cache
+ ---> 0c941dc147b0
+Step 9/25 : ARG BACKEND_URL=http://backend:8000
+ ---> Using cache
+ ---> db1294774922
+Step 10/25 : ENV BACKEND_URL=${BACKEND_URL}
+ ---> Using cache
+ ---> 77442c697aad
+Step 11/25 : COPY --from=deps /app/node_modules ./node_modules
+ ---> Using cache
+ ---> 0c163aaafe14
+Step 12/25 : COPY . .
+ ---> Using cache
+ ---> be94e1d95837
+Step 13/25 : RUN corepack enable && pnpm build
+ ---> [Warning] The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no specific platform was requested
+ ---> Running in ce32828dade3
+[91m! Corepack is about to download https://registry.npmjs.org/pnpm/-/pnpm-9.15.9.tgz
+[0m
+> frontend@0.1.0 build /app
+> next build
+
+▲ Next.js 16.3.8 (Turbopack)
+✓ Running next.config.ts took 875ms
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 50s
+  Running TypeScript ...
+  Finished TypeScript in 2.0min ...
+  Collecting page data using 5 workers ...
+  Generating static pages using 5 workers (0/4) ...
+  Generating static pages using 5 workers (1/4) 
+  Generating static pages using 5 workers (2/4) 
+  Generating static pages using 5 workers (3/4) 
+✓ Generating static pages using 5 workers (4/4) in 1167ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ƒ /_not-found
+├ ƒ /animals
+├ ƒ /animals/[id]
+├ ƒ /animals/new
+├ ○ /apple-icon.png
+├ ƒ /breeding
+├ ƒ /breeding/[id]/ultrasound
+├ ƒ /buckets
+├ ƒ /dashboard
+├ ƒ /farm-select
+├ ƒ /feeding
+├ ƒ /feeding/inventory
+├ ƒ /feeding/recipes
+├ ƒ /finance
+├ ƒ /finance/insurance
+├ ƒ /health
+├ ƒ /health/new
+├ ƒ /health/schedule/[animalId]
+├ ƒ /healthz
+├ ○ /icon.svg
+├ ƒ /kidding
+├ ƒ /kidding/new
+├ ƒ /login
+├ ○ /manifest.webmanifest
+├ ƒ /no-access
+├ ƒ /ops-simulation
+├ ƒ /owner
+├ ƒ /planner
+├ ƒ /purchases
+├ ƒ /register
+├ ƒ /reports
+├ ƒ /screening
+├ ƒ /simulation
+├ ƒ /tasks
+├ ƒ /team
+├ ƒ /worker
+├ ƒ /worker/login
+└ ƒ /worker/offline
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+[91mAssertion failed: errno == EEXIST (../deps/uv/src/unix/linux.c: uv__io_poll: 1427)
+[0m ELIFECYCLE  Command failed.
+The command '/bin/sh -c corepack enable && pnpm build' returned a non-zero code: 137

@@ -51,7 +51,10 @@ services:
           create_host_path: false
 
   db:
-    image: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
+    image: goatfarm-postgres:16-security-20261004
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
     restart: unless-stopped
     # Least privilege: the official image's bootstrap needs exactly these
     # capabilities — CHOWN/DAC_OVERRIDE/FSETID for initdb on the data volume,
@@ -310,7 +313,12 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    expose:
+      - "9101"
     environment:
+      GOATFARM_METRICS_ENABLED: ${GOATFARM_METRICS_ENABLED:-true}
+      GOATFARM_METRICS_BEARER_TOKEN: ${GOATFARM_METRICS_BEARER_TOKEN:-}
+      GOATFARM_METRICS_BEARER_TOKEN_FILE: ${GOATFARM_METRICS_BEARER_TOKEN_FILE:-}
       GOATFARM_DATABASE_URL: '${GOATFARM_DATABASE_URL:?copy .env.example to .env and set the full API URL}'
       GOATFARM_DB_SSLMODE: '${GOATFARM_DB_SSLMODE:?set GOATFARM_DB_SSLMODE explicitly (disable for local development)}'
       GOATFARM_ENVIRONMENT: '${GOATFARM_ENVIRONMENT:?set GOATFARM_ENVIRONMENT explicitly (development or production)}'

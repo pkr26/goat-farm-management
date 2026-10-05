@@ -23,6 +23,7 @@ export interface AnnualPLRow {
   selling_cost: number;
   stock_purchases: number;
   breeding_stock_capex: number;
+  breeding_stock_disposal_cost?: number;
   total_opex: number;
   ebitda: number;
   depreciation: number;

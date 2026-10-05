@@ -110,9 +110,9 @@ export function WorkerShell({ children }: { children: ReactNode }) {
       ? endShiftConfirmation.count : null;
 
   // Telugu-first: field workers are the primary audience of this surface; a
-  // manager who chose a language keeps their choice. Writing storage before
-  // the provider's first mount read makes the very first render Telugu;
-  // setLanguage covers arrival by client-side navigation.
+  // manager who chose a language keeps their choice. The root provider
+  // resolves a fresh worker route before it persists a fallback; this also
+  // covers standalone mounts and arrival by client-side navigation.
   useEffect(() => {
     try {
       if (safeStorage("local")?.getItem(LANGUAGE_STORAGE_KEY) === null) {
@@ -137,6 +137,18 @@ export function WorkerShell({ children }: { children: ReactNode }) {
           registration.update().catch(() => {
             /* offline tablets simply keep the current worker */
           });
+          // The initial Telugu import can finish before this first worker
+          // gains control. Explicitly warm already loaded immutable assets,
+          // so its first offline reload does not depend on the HTTP cache.
+          void navigator.serviceWorker.ready?.then((ready) => {
+            const assets = performance.getEntriesByType?.("resource")
+              .map((entry) => entry.name)
+              .filter((name) => {
+                const url = new URL(name, window.location.origin);
+                return url.origin === window.location.origin && url.pathname.startsWith("/_next/static/");
+              }) ?? [];
+            ready.active?.postMessage({ type: "CACHE_RUNTIME_ASSETS", assets });
+          }).catch(() => { /* unavailable worker: online UI remains usable */ });
         })
         .catch(() => {
           /* non-installed contexts (http:// IP dev) simply run without */

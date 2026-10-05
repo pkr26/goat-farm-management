@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { addDays, daysBetween, todayInTimeZone } from "./format";
+import { addDays, daysBetween, formatDate, todayInTimeZone } from "./format";
 
 describe("todayInTimeZone", () => {
   it("uses the farm's calendar date across UTC boundaries", () => {
@@ -59,4 +59,13 @@ describe("daysBetween", () => {
     expect(daysBetween("2026-02-30", "2026-03-01")).toBe(0);
     expect(daysBetween("2026-02-28", "not-a-date")).toBe(0);
   });
+});
+
+it("treats UTC-naive backend timestamps like their explicit UTC counterpart", () => {
+  // Run this suite with TZ=America/Phoenix as well: offsetless Date parsing
+  // would turn the first instant into the following farm calendar day.
+  expect(formatDate("2026-08-05T16:00:00", "en")).toBe("5 Aug 2026");
+  for (const timestamp of ["2026-08-05T16:00:00", "2026-08-05T23:30", "2026-08-05T16:00:00.123456"]) {
+    expect(formatDate(timestamp)).toBe(formatDate(`${timestamp}Z`));
+  }
 });

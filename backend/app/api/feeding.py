@@ -41,7 +41,7 @@ from ..services import (
     require_farm_not_future,
     set_daily_kg_per_head,
 )
-from ..utils import today
+from ..utils import business_date, today
 
 router = APIRouter(prefix="/api/feeding", tags=["feeding"], responses=COMMON_ERROR_RESPONSES)
 TODAY_PLAN_RECORD_LIMIT = 200
@@ -150,15 +150,8 @@ async def dispense(
             require_farm_not_future(record_date, farm, "dispensing date")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
-        if record_date < farm.created_at.date():
-            # Hardening floor (RT-HIJ-4): a dispensing record cannot predate
-            # the farm itself. created_at is UTC while record_date is the
-            # farm-local business date, so the comparison is exact for UTC
-            # farms and off by one day for others: east-of-UTC farms see the
-            # floor loosened by a day (harmless — it only admits records from
-            # the farm's true first local day), west-of-UTC farms see it one
-            # day stricter for the first hours of farm life (fail-closed; use
-            # tomorrow's local date for the very first dispense).
+        if record_date < business_date(farm.created_at, farm.timezone):
+            # Both sides must be dates in the farm's business timezone.
             raise HTTPException(
                 status_code=422,
                 detail="Dispensing date cannot be before the farm was created.",

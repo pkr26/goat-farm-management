@@ -1,0 +1,42 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  213.9MB
+Step 1/2 : FROM nginx:1.30.5-alpine3.24@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+1.30.5-alpine3.24: Pulling from library/nginx
+703c5424632f: Pulling fs layer
+b335b7ac3a40: Pulling fs layer
+22e5a8a110ec: Pulling fs layer
+6b4dfb2e8f8a: Pulling fs layer
+b27cf3f7c39d: Pulling fs layer
+e3320d02d578: Pulling fs layer
+3d85d110b167: Pulling fs layer
+ee0d72338cd2: Download complete
+b335b7ac3a40: Download complete
+703c5424632f: Download complete
+3d85d110b167: Download complete
+22e5a8a110ec: Download complete
+6b4dfb2e8f8a: Download complete
+57e209258aa3: Download complete
+e3320d02d578: Download complete
+b335b7ac3a40: Pull complete
+703c5424632f: Pull complete
+3d85d110b167: Pull complete
+22e5a8a110ec: Pull complete
+6b4dfb2e8f8a: Pull complete
+e3320d02d578: Pull complete
+b27cf3f7c39d: Download complete
+b27cf3f7c39d: Pull complete
+Digest: sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+Status: Image is up to date for nginx:1.30.5-alpine3.24@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+ ---> 0985e772fb9f
+Step 2/2 : RUN apk add --no-cache --upgrade       'libexpat=2.8.5-r0'       'pcre2=10.49-r0'     && apk cache clean
+ ---> Running in d8bd3dbb811d
+(1/2) Upgrading libexpat (2.8.4-r0 -> 2.8.5-r0)
+(2/2) Upgrading pcre2 (10.48-r0 -> 10.49-r0)
+OK: 58.5 MiB in 71 packages
+ ---> Removed intermediate container d8bd3dbb811d
+ ---> 95c644d15fe3
+Successfully built 95c644d15fe3
+Successfully tagged goatfarm-fix29-edge:104-amd64

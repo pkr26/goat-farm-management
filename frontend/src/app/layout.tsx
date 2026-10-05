@@ -35,6 +35,7 @@ const notoSansTelugu = Noto_Sans_Telugu({
 });
 
 export const metadata: Metadata = {
+  other: { "herdly-build": process.env.NEXT_PUBLIC_HERDLY_BUILD_ID ?? "development" },
   title: {
     default: `${APP_NAME} — Goat farm management`,
     template: `%s · ${APP_NAME}`,

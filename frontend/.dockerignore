@@ -15,7 +15,8 @@ Dockerfile
 .dockerignore
 **/*.test.ts
 **/*.test.tsx
-# Mutation-campaign artifacts are regenerable output (~12.6 MB) and are never
-# needed by the image — mirror of the root .dockerignore's backend/mutation
-# entry (2026-10-01 audit, 09-2).
-mutation
+# Mutation reports are regenerable; the transform imported by the checked
+# TypeScript config is a real build input and must remain in the context.
+mutation/*
+!mutation/mutate_transform.mjs
+!mutation/mutate_transform.d.mts

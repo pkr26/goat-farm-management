@@ -175,6 +175,10 @@ if [[ "${ENVIRONMENT}" == "production" && -z "${RECOVERY_INVENTORY_SOURCE}" ]]; 
     exit 2
 fi
 if [[ -n "${RECOVERY_INVENTORY_SOURCE}" ]]; then
+    if [[ -z "${GPG_SIGNER}" ]]; then
+        echo "Whole-system recovery inventories require a pinned GPG signing fingerprint" >&2
+        exit 2
+    fi
     if [[ ! -f "${RECOVERY_INVENTORY_SOURCE}" || -L "${RECOVERY_INVENTORY_SOURCE}" ]]; then
         echo "GOATFARM_RECOVERY_INVENTORY_FILE must name a regular, non-symlink file" >&2
         exit 2
@@ -409,6 +413,7 @@ if [[ -e "${FINAL_ARCHIVE}" || -e "${FINAL_CHECKSUM}" \
     exit 2
 fi
 
+DATABASE_RECOVERED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 PLAIN_TMP="${WORK_DIR}/backup.dump"
 echo "[$(date -Iseconds)] creating validated backup ${BASE_NAME}"
 pg_dump --format=custom --no-owner --no-password \
@@ -463,6 +468,8 @@ if [[ -n "${RECOVERY_INVENTORY_SOURCE}" ]]; then
         --output "${RECOVERY_INVENTORY_TMP}" \
         --archive-name "${BASE_NAME}" \
         --archive-sha256 "${checksum}" \
+        --database-recovered-at "${DATABASE_RECOVERED_AT}" \
+        --signer "${GPG_SIGNER}" \
         --max-age-hours "${RECOVERY_INVENTORY_MAX_AGE_HOURS}"
 fi
 

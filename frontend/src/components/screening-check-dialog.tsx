@@ -63,14 +63,16 @@ export function DiseaseCheckDialog({
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
   const [uploadedByBucket, setUploadedByBucket] = useState<Record<string, number>>({});
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const pendingFileRef = useRef<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Synchronous double-click lock, scoped to its walkthrough epoch.
-  // `disabled={uploading}` only applies after the re-render, so two events in
+  // `disabled={uploading || submitBatch.isPending}` only applies after the re-render, so two events in
   // the same React batch would otherwise mint two batches. Crucially, a stale
   // request from a closed walkthrough must not lock a newly opened one.
   const uploadInFlightEpoch = useRef<number | null>(null);
+  const finishInFlightEpoch = useRef<number | null>(null);
   // Bumped on every open/close boundary: an upload started under a previous
   // walkthrough session must not credit its photo to the freshly reset one.
   const walkthroughEpoch = useRef(0);
@@ -103,6 +105,7 @@ export function DiseaseCheckDialog({
     setBatchId(null);
     setSelectedBucket(null);
     setUploadedByBucket({});
+    pendingFileRef.current = null;
     setPendingFile(null);
     setPreviewUrl(null);
     // A stalled object-store upload from the closed session can never settle its
@@ -119,7 +122,7 @@ export function DiseaseCheckDialog({
   }, [previewUrl]);
 
   const onFileChosen = (file: File | null) => {
-    if (!file) return;
+    if (!file || uploadInFlightEpoch.current === walkthroughEpoch.current || finishInFlightEpoch.current === walkthroughEpoch.current) return;
     if (!["image/jpeg", "image/png"].includes(file.type)) {
       toast.error(t("screening.check.uploadFailed"));
       return;
@@ -129,6 +132,7 @@ export function DiseaseCheckDialog({
       return;
     }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
+    pendingFileRef.current = file;
     setPendingFile(file);
     setPreviewUrl(URL.createObjectURL(file));
   };
@@ -149,9 +153,9 @@ export function DiseaseCheckDialog({
         return result.data.id;
       }
       return null;
-    } catch {
+    } catch (error) {
       if (walkthroughEpoch.current === epoch && stillOwnsFarm()) {
-        toast.error(t("screening.check.noBatch"));
+        toast.error(t(error instanceof ApiError && error.status === 403 ? "serverErrors.permissionDenied" : "screening.check.noBatch"));
       }
       return null;
     }
@@ -160,7 +164,7 @@ export function DiseaseCheckDialog({
   const uploadPendingPhoto = async () => {
     if (!pendingFile || !selectedBucket) return;
     const epoch = walkthroughEpoch.current;
-    if (uploadInFlightEpoch.current === epoch) return;
+    if (uploadInFlightEpoch.current === epoch || finishInFlightEpoch.current === epoch) return;
     uploadInFlightEpoch.current = epoch;
     const stillOwnsFarm = captureFarmScope();
     const stillCurrentSession = () =>
@@ -216,6 +220,7 @@ export function DiseaseCheckDialog({
         ...counts,
         [selectedBucket]: (counts[selectedBucket] ?? 0) + 1,
       }));
+      pendingFileRef.current = null;
       setPendingFile(null);
       setPreviewUrl(null);
       toast.success(t("screening.check.uploaded"));
@@ -223,7 +228,9 @@ export function DiseaseCheckDialog({
       if (!stillCurrentSession()) return;
       // A 409 includes closed, expired or foreign batches and upload quotas.
       // Keep the session fence above: a late response cannot target a new dialog.
-      if (error instanceof ApiError && error.status === 409) {
+      if (error instanceof ApiError && error.status === 403) {
+        toast.error(t("serverErrors.permissionDenied"));
+      } else if (error instanceof ApiError && error.status === 409) {
         toast.error(t("screening.check.noBatch"));
       } else {
         toast.error(t("screening.check.uploadFailed"));
@@ -242,13 +249,17 @@ export function DiseaseCheckDialog({
   };
 
   const finishWalkthrough = async () => {
-    if (batchId === null) return;
+    const epoch = walkthroughEpoch.current;
+    // A selected photo must be uploaded or explicitly discarded before the
+    // batch can close. Refs also fence same-tick click/submit races.
+    if (batchId === null || pendingFileRef.current !== null || uploading ||
+      uploadInFlightEpoch.current === epoch || finishInFlightEpoch.current === epoch) return;
     const total = Object.values(uploadedByBucket).reduce((sum, count) => sum + count, 0);
     if (total === 0) {
       toast.error(t("screening.check.noPhotos"));
       return;
     }
-    const epoch = walkthroughEpoch.current;
+    finishInFlightEpoch.current = epoch;
     const stillOwnsFarm = captureFarmScope();
     const stillCurrentSession = () =>
       walkthroughEpoch.current === epoch && stillOwnsFarm();
@@ -262,10 +273,12 @@ export function DiseaseCheckDialog({
       toast.success(t("screening.check.finished"));
       onOpenChange(false);
       onFinished();
-    } catch {
+    } catch (error) {
       if (stillCurrentSession()) {
-        toast.error(t("screening.check.noBatch"));
+        toast.error(t(error instanceof ApiError && error.status === 403 ? "serverErrors.permissionDenied" : "screening.check.noBatch"));
       }
+    } finally {
+      if (finishInFlightEpoch.current === epoch) finishInFlightEpoch.current = null;
     }
   };
 
@@ -347,14 +360,14 @@ export function DiseaseCheckDialog({
               <Button
                 variant="outline"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
+                disabled={uploading || submitBatch.isPending}
               >
                 <Camera aria-hidden />
                 {pendingFile ? t("screening.check.retake") : t("screening.check.takePhoto")}
               </Button>
               <Button
                 onClick={uploadPendingPhoto}
-                disabled={pendingFile === null || uploading}
+                disabled={pendingFile === null || uploading || submitBatch.isPending}
               >
                 {uploading ? (
                   t("screening.check.uploading")
@@ -364,6 +377,10 @@ export function DiseaseCheckDialog({
                   </>
                 )}
               </Button>
+              {pendingFile && !uploading && <Button variant="outline" disabled={submitBatch.isPending}
+                onClick={() => { pendingFileRef.current = null; setPendingFile(null); setPreviewUrl(null); }}>
+                {t("screening.check.discardPhoto")}
+              </Button>}
             </div>
           </div>
         )}
@@ -375,7 +392,7 @@ export function DiseaseCheckDialog({
           </div>
           <Button
             onClick={finishWalkthrough}
-            disabled={submitBatch.isPending || totalUploaded === 0}
+            disabled={submitBatch.isPending || uploading || pendingFile !== null || totalUploaded === 0}
           >
             {submitBatch.isPending
               ? t("screening.check.finishing")

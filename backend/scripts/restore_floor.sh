@@ -104,6 +104,7 @@ RESTORE_ALLOWED_REVISIONS=(
     "fc3d4e5f6a7b"
     "fd4e5f6a7b8c"
     "fe5f6a7b8c9d"
+    "ff6a7b8c9d01"
 )
 
 revision="${1:-}"

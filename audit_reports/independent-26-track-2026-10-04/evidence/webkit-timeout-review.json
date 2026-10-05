@@ -1,0 +1,17 @@
+{
+  "trace": "audit_reports/independent-26-track-2026-10-04/evidence/browser-webkit-artifacts/a11y-gate-a11y-gate-financ-5a1f3-us-accessibility-violations-webkit/trace.zip",
+  "network_stream_bytes": {
+    "1-trace.network": 0,
+    "0-trace.network": 0
+  },
+  "failure_stage": "Initial signIn page.goto(/login), before target /finance/insurance and before axe",
+  "status": "Unresolved browser execution timeout, not a reproduced insurance accessibility defect; baseline remains failed.",
+  "focused_diagnostic": {
+    "command_filter": "e2e/a11y-gate.spec.ts --grep /finance/insurance \\(te\\)",
+    "report": "browser-webkit-focused-results.json",
+    "passed": 1,
+    "duration_ms": 5716.656,
+    "retries": 0,
+    "interpretation": "Exact original case passes in a separate fresh invocation. This narrows the full-run failure to an intermittent browser/login startup timeout, but does not prove its ultimate cause or erase the failed full baseline."
+  }
+}

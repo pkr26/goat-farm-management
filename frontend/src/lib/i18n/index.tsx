@@ -17,7 +17,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { setActiveLanguage } from "@/lib/active-language";
+import { getActiveLanguage, setActiveLanguage } from "@/lib/active-language";
 import { safeStorage } from "@/lib/safe-storage";
 
 import en, { type MessageKey } from "./en";
@@ -140,69 +140,84 @@ export function LanguageProvider({
   const initial = initialLanguage ?? "en";
   const [language, setLanguageState] = useState<Language>(initial);
   const [catalogReady, setCatalogReady] = useState(
-    () => initialLanguage !== null && languageCatalogIsLoaded(initial),
+    () => initialLanguage !== null && languageCatalogIsLoaded(initial) && getActiveLanguage() === initial,
   );
+  const [failedLanguage, setFailedLanguage] = useState<Language | null>(null);
   const switchVersion = useRef(0);
 
-  useEffect(() => {
-    const version = ++switchVersion.current;
-    // localStorage repairs a stale cached worker shell while offline; in the
-    // normal online path it matches the cookie written by persistLanguage.
-    const desired = readStoredLanguageChoice() ?? initialLanguage ?? "en";
-    void loadLanguageCatalog(desired)
-      .then(() => {
-        if (version !== switchVersion.current) return;
-        setLanguageState(desired);
-        setCatalogReady(true);
-        if (initialLanguage === null) persistLanguage(desired);
-      })
-      .catch(() => {
-        // A first-ever offline Telugu request cannot fetch the chunk. Keep a
-        // neutral loading surface and retry after a user choice or reload;
-        // never flash English while claiming Telugu is active.
-      });
-  }, [initialLanguage]);
+  // The root provider owns the helper default. Update it in the same
+  // committed transition BEFORE notifying context consumers, never during
+  // render or in an effect after those consumers have formatted their data.
+  const commitLanguage = useCallback((next: Language, persist: boolean) => {
+    setActiveLanguage(next);
+    document.documentElement.lang = next;
+    setLanguageState(next);
+    setCatalogReady(true);
+    setFailedLanguage(null);
+    if (persist) persistLanguage(next);
+  }, []);
 
-  // Keep <html lang> truthful for screen readers and Telugu keyboard hints,
-  // and mirror the choice into the module store so pure helpers (format.ts
-  // date rendering, enum-labels defaults) follow the same language.
-  useEffect(() => {
-    if (!catalogReady) return;
-    document.documentElement.lang = language;
-    setActiveLanguage(language);
-  }, [catalogReady, language]);
-
-  const setLanguage = useCallback((next: Language) => {
+  const requestLanguage = useCallback((next: Language, persist: boolean) => {
     const version = ++switchVersion.current;
+    const commit = () => {
+      if (version === switchVersion.current) commitLanguage(next, persist);
+    };
     if (languageCatalogIsLoaded(next)) {
-      setLanguageState(next);
-      setCatalogReady(true);
-      persistLanguage(next);
+      commit();
       return;
     }
-    void loadLanguageCatalog(next)
-      .then(() => {
-        if (version !== switchVersion.current) return;
-        setLanguageState(next);
-        setCatalogReady(true);
-        persistLanguage(next);
-      })
-      .catch(() => {
-        // Preserve the currently rendered language and stored choice. This
-        // matters on a cold offline visit where the Telugu chunk is not yet
-        // in the service worker cache.
-      });
-  }, []);
+    void loadLanguageCatalog(next).then(commit).catch(() => {
+      if (version === switchVersion.current) setFailedLanguage(next);
+    });
+  }, [commitLanguage]);
+
+  useEffect(() => {
+    // Resolve the worker's first preference before persisting any default.
+    // A stored preference or valid server cookie always wins.
+    const workerRoute = window.location.pathname === "/worker" || window.location.pathname.startsWith("/worker/");
+    const desired = readStoredLanguageChoice() ?? initialLanguage ?? (workerRoute ? "te" : "en");
+    if (initialLanguage === null) {
+      // Keep cookie-less hydration neutral until legacy storage is reconciled.
+      let active = true;
+      void Promise.resolve().then(() => { if (active) requestLanguage(desired, true); });
+      return () => { active = false; switchVersion.current += 1; };
+    }
+    requestLanguage(desired, false);
+    return () => { switchVersion.current += 1; };
+  }, [initialLanguage, requestLanguage]);
+
+  useEffect(() => {
+    if (!failedLanguage) return;
+    const retry = () => requestLanguage(failedLanguage, true);
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, [failedLanguage, requestLanguage]);
+
+  const setLanguage = useCallback((next: Language) => {
+    requestLanguage(next, true);
+  }, [requestLanguage]);
 
   const value = useMemo<LanguageContextValue>(
     () => ({ language, setLanguage, t: (key, vars) => translate(language, key, vars) }),
     [language, setLanguage],
   );
 
+  const recovery = failedLanguage && <div role="alert" className="space-y-3 border-b bg-card p-4">
+    {/* This small bilingual recovery surface must not depend on the failed
+        catalog; otherwise an offline locale failure hides its own remedy. */}
+    <p><span lang="en">{en["language.recovery.en"]}</span>{" "}
+      <span lang="te">{en["language.recovery.te"]}</span></p>
+    <div className="flex flex-wrap gap-3">
+      <button type="button" className="min-h-11 rounded-md border px-4" onClick={() => requestLanguage(failedLanguage, true)}>
+        {en["language.recovery.retry"]}
+      </button>
+      <button type="button" className="min-h-11 rounded-md border px-4" onClick={() => setLanguage("en")}>EN</button>
+    </div>
+  </div>;
   if (!catalogReady) {
-    return <div className="min-h-screen bg-background" aria-busy="true" />;
+    return <div className="min-h-screen bg-background" aria-busy={!failedLanguage}>{recovery}</div>;
   }
-  return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
+  return <LanguageContext.Provider value={value}>{recovery}{children}</LanguageContext.Provider>;
 }
 
 export function useLanguage(): LanguageContextValue {

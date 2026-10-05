@@ -105,7 +105,7 @@ describe("permittedAppPath — same-farm back links", () => {
 describe("permittedAppPathFromList — farm switching", () => {
   it("keeps module roots and id-free sub-routes with their page state", () => {
     expect(permittedAppPathFromList("/tasks?tab=overdue#task-7", ["tasks.view"])).toBe(
-      "/tasks?tab=overdue#task-7",
+      "/tasks?tab=overdue",
     );
     expect(
       permittedAppPathFromList("/animals?status=ACTIVE&page=2", ["animals.view"]),
@@ -124,15 +124,15 @@ describe("permittedAppPathFromList — farm switching", () => {
         "health.view",
         "health.manage",
       ]),
-    ).toBe("/health/new?task_id=41");
+    ).toBe("/health/new");
     expect(
       permittedAppPathFromList("/kidding/new/?task_id=42", [
         "kidding.view",
         "kidding.manage",
       ]),
-    ).toBe("/kidding/new/?task_id=42");
+    ).toBe("/kidding/new/");
     expect(permittedAppPathFromList("/tasks/?tab=overdue#task-7", ["tasks.view"])).toBe(
-      "/tasks/?tab=overdue#task-7",
+      "/tasks/?tab=overdue",
     );
     expect(
       permittedAppPathFromList("/feeding/inventory/?page=2", ["feeding.view"]),
@@ -180,5 +180,18 @@ describe("withReturnTo", () => {
     expect(withReturnTo("/health/new?task_id=8", "/tasks?tab=overdue")).toBe(
       "/health/new?task_id=8&returnTo=%2Ftasks%3Ftab%3Doverdue",
     );
+  });
+});
+
+describe("farm-switch record context regression", () => {
+  it.each([
+    ["/screening?image_id=71&status=FLAGGED&offset=20", "health.view", "/screening?status=FLAGGED&offset=20"],
+    ["/health?task_id=12&animal_id=7&purchase_batch_id=5&tab=events", "health.view", "/health?tab=events"],
+    ["/breeding?ultrasound_id=8&status=PREGNANT", "breeding.view", "/breeding?status=PREGNANT"],
+    ["/kidding?breeding_id=3&returnTo=%2Fanimals%2F7", "kidding.view", "/kidding"],
+    ["/animals?status=ACTIVE&bucket=BREEDING&page=2&animal_id=1&animal_id=2", "animals.view", "/animals?status=ACTIVE&bucket=BREEDING&page=2"],
+  ])("strips old-farm context while retaining portable state: %s", (url, permission, expected) => {
+    expect(permittedAppPathFromList(url, [permission])).toBe(expected);
+    expect(permittedAppPath(url, () => true)).toBe(url);
   });
 });

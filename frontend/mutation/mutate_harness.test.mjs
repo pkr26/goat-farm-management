@@ -45,6 +45,16 @@ test('concurrent real Vitest mutations pass exact clean baselines and never writ
   assert.deepEqual(results.map(result=>result.verdict),['KILLED','KILLED'],JSON.stringify(results));
   assert.ok(results.every(result=>result.baseline.verdict==='SURVIVED'&&result.receipt.tests.some(task=>task.errors.some(error=>error.name==='AssertionError'))));
   assert.equal(readFileSync(path.join(root,'src/logic.ts'),'utf8'),source);
+  // The final gate consumes the genuine judge receipts and producer summary.
+  const plan=path.join(root,'gate-plan.json'),report=path.join(root,'gate-report.json'),evidence=path.join(root,'gate-results.jsonl');
+  writeFileSync(plan,JSON.stringify({targets:results.map(result=>result.id),campaignId:campaign.id}));
+  writeFileSync(report,JSON.stringify(summarize(campaign,results)));
+  writeFileSync(evidence,results.map(result=>JSON.stringify(result)+'\n').join(''));
+  const localPython=path.resolve(directory,'../../backend/.venv/bin/python');
+  const python=process.env.PYTHON??(existsSync(localPython)?localPython:'python3');
+  const gate=spawnSync(python,[path.resolve(directory,'../../.github/scripts/check_mutation_report.py'),'--plan',plan,'--report',report,'--results',evidence,'--format','frontend','--minimum','80'],{encoding:'utf8'});
+  assert.equal(gate.status,0,`${gate.stdout}\n${gate.stderr}`);
+  assert.equal(JSON.parse(gate.stdout).raw_killed,2);
 });
 
 test('real thrown errors, collection failures, and assertion failures in setup are infrastructure',async()=>{

@@ -1,0 +1,64 @@
+{
+  "base": "HEAD",
+  "changed_rate": 93.98,
+  "changed_covered": 78,
+  "changed_executable": 83,
+  "files": [
+    {
+      "file": "frontend/src/app/(app)/screening/page.tsx",
+      "changed_executable": 3,
+      "changed_covered": 1,
+      "changed_rate": 33.33,
+      "file_rate": 87.6
+    },
+    {
+      "file": "frontend/src/app/worker/layout.tsx",
+      "changed_executable": 6,
+      "changed_covered": 6,
+      "changed_rate": 100.0,
+      "file_rate": 81.99
+    },
+    {
+      "file": "frontend/src/app/worker/offline/page.tsx",
+      "changed_executable": 1,
+      "changed_covered": 1,
+      "changed_rate": 100.0,
+      "file_rate": 85.11
+    },
+    {
+      "file": "frontend/src/components/screening-check-dialog.tsx",
+      "changed_executable": 18,
+      "changed_covered": 15,
+      "changed_rate": 83.33,
+      "file_rate": 88.73
+    },
+    {
+      "file": "frontend/src/lib/format.ts",
+      "changed_executable": 2,
+      "changed_covered": 2,
+      "changed_rate": 100.0,
+      "file_rate": 98.89
+    },
+    {
+      "file": "frontend/src/lib/i18n/index.tsx",
+      "changed_executable": 36,
+      "changed_covered": 36,
+      "changed_rate": 100.0,
+      "file_rate": 97.33
+    },
+    {
+      "file": "frontend/src/lib/image-deps-guard.ts",
+      "changed_executable": 12,
+      "changed_covered": 12,
+      "changed_rate": 100.0,
+      "file_rate": 100.0
+    },
+    {
+      "file": "frontend/src/lib/permission-navigation.ts",
+      "changed_executable": 5,
+      "changed_covered": 5,
+      "changed_rate": 100.0,
+      "file_rate": 94.87
+    }
+  ]
+}

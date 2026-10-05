@@ -1,0 +1,197 @@
+{
+  "at": "2026-10-05T04:33:02.958238+00:00",
+  "global_prune": false,
+  "removed": [
+    {
+      "path": "/Users/pradeepreddy/.cache/goatfarm-fix29-ops",
+      "bytes": 2470982822,
+      "type": "owned scanner cache, exported image tarballs and audit-tool venv"
+    },
+    {
+      "path": "/tmp/fix29_metrics.py",
+      "bytes": 3295,
+      "type": "own edit scaffolding"
+    },
+    {
+      "path": "/tmp/fix29_release.py",
+      "bytes": 2952,
+      "type": "own edit scaffolding"
+    },
+    {
+      "path": "/tmp/fix29_recovery.py",
+      "bytes": 9368,
+      "type": "own edit scaffolding"
+    },
+    {
+      "path": "/tmp/fix29_recovery_tests.py",
+      "bytes": 3527,
+      "type": "own edit scaffolding"
+    }
+  ],
+  "previous_exact_container_removals": [
+    "aborted-amd64-container-cleanup.json",
+    "old-build-context-container-cleanup.json"
+  ],
+  "retained_images": [
+    {
+      "reference": "goatfarm-fix29-postgres:104",
+      "image_id": "sha256:03f4548ce8c2a212635a7f0ee6f562506e39505fe99694ce6afa02b0d8a66ef2",
+      "purpose": "accepted final image retained for review"
+    },
+    {
+      "reference": "goatfarm-fix29-backend:104",
+      "image_id": "sha256:5cdea4e63f4bab0cc65b618d24359e1a3eb2d2464317e4e8c5542f34f9a07055",
+      "purpose": "accepted final image retained for review"
+    },
+    {
+      "reference": "goatfarm-fix29-postgres:104-amd64",
+      "image_id": "sha256:fbeea8538438475788a0ca733c5c90ed5c3bfe390ad3e8efc0d89d2632da3422",
+      "purpose": "accepted final image retained for review"
+    },
+    {
+      "reference": "goatfarm-fix29-backend:104-amd64",
+      "image_id": "sha256:9a4d0d96d10ed41be5b10552ccdcfcfec619e0dd3e8a869798d09e6e6560b49a",
+      "purpose": "accepted final image retained for review"
+    },
+    {
+      "reference": "goatfarm-fix29-edge:104",
+      "image_id": "sha256:379f67122ce5abf087fbefe282fb124a6e179bd868d1ab549cf04ae9c9c189d9",
+      "purpose": "accepted final image retained for review"
+    },
+    {
+      "reference": "goatfarm-fix29-edge:104-amd64",
+      "image_id": "sha256:105cfef723f251b37005061f69d2d295fac54a39b66dce7d960a18e7fb301bfb",
+      "purpose": "accepted final image retained for review"
+    },
+    {
+      "reference": "goatfarm-fix29-frontend:104-final",
+      "image_id": "sha256:5a1e68466ba2a49ba5b48b402414b50807fbea19fcc2fd43b49c06a33b9168ce",
+      "purpose": "accepted final image retained for review"
+    },
+    {
+      "reference": "goatfarm-fix29-frontend:104-final-amd64",
+      "image_id": "sha256:efcce7b2773bb8cfa0350ae4ae42e8fe4004230d3677c6683bfdcd2f36cc4d79",
+      "purpose": "accepted final image retained for review"
+    },
+    {
+      "image_id": "sha256:be94e1d9583733ac40bf9c859495c19a025296bf2fcc0000e40e42b0150afa52",
+      "purpose": "original failed-build input retained for diagnostic reproduction"
+    }
+  ],
+  "verified_scan_artifacts": [
+    {
+      "file": "trivy-postgres-service-raw.json",
+      "sha256": "b006b6016e7e6afaa797d24c1e077cc494668adaef44d8904a4c5cd73e075105"
+    },
+    {
+      "file": "trivy-postgres-service-repository-policy.json",
+      "sha256": "d44066cc708f8b74bdc1d54704f69a47d92bea61ad112b10178027d87e180b87"
+    },
+    {
+      "file": "postgres-service.spdx.json",
+      "sha256": "b10009a1d16f099968241473494d2a0022b3b569566f19ae31a7351ac4fcbf2b"
+    },
+    {
+      "file": "trivy-backend-current-build-raw.json",
+      "sha256": "39400650f1f1611ac87370a6798384b0989f47689c5bc4994e89dafa24d4ae93"
+    },
+    {
+      "file": "trivy-backend-current-build-repository-policy.json",
+      "sha256": "b799b261eaf52d12e547955e6a1827c8174677852ac0283b72e5d8c5802299b6"
+    },
+    {
+      "file": "backend-current-build.spdx.json",
+      "sha256": "2cb9471e8f28f216ab6fbffb33fc2abe8d373ebf4c393f0b810557521efa8b2d"
+    },
+    {
+      "file": "trivy-frontend-current-build-raw.json",
+      "sha256": "95e77dd000e5d7d7cc4a3558eca0631720a0407e6c70e3ac85bde777fcd7367b"
+    },
+    {
+      "file": "trivy-frontend-current-build-repository-policy.json",
+      "sha256": "2a2fbe8d1160deec5b5589268e9e922907700d688955c839950401bb79c79c92"
+    },
+    {
+      "file": "frontend-current-build.spdx.json",
+      "sha256": "adc57e1385a2907b9a31ddc6bda81c7d7bac3e6514568e1538deb70c52bd4060"
+    },
+    {
+      "file": "trivy-postgres-service-amd64-raw.json",
+      "sha256": "df7f03d8677111824e887a91f9d9a9f62902606da1d9ed8e20af2895b6706cee"
+    },
+    {
+      "file": "trivy-postgres-service-amd64-repository-policy.json",
+      "sha256": "22915e6f98159dd0a3cf1ec79d351093676dfabac8dfe86da038879cc20a6205"
+    },
+    {
+      "file": "postgres-service-amd64.spdx.json",
+      "sha256": "c44d52acb4b7af126add18c96d628a9d1fa77c8f03363b854a1623b10bc02819"
+    },
+    {
+      "file": "trivy-backend-current-build-amd64-raw.json",
+      "sha256": "748c0e6ef846f039b22738aae9dde170e4c3fb3687aaf2334dab3b5433e8d2f4"
+    },
+    {
+      "file": "trivy-backend-current-build-amd64-repository-policy.json",
+      "sha256": "cee3ca9f02c7bfc1e90d2712f22cc22f517eea11a40d4e22dd591262e9075aae"
+    },
+    {
+      "file": "backend-current-build-amd64.spdx.json",
+      "sha256": "c91196b32b40689a90bbfd7e556368d2957590c12ce0de75516e0c78aa9e96a6"
+    },
+    {
+      "file": "trivy-edge-supplement-arm64-raw.json",
+      "sha256": "beeed9eb709fb8a1b970b367ba9845246f12713b753109d3bcb6537c722e6937"
+    },
+    {
+      "file": "trivy-edge-supplement-arm64-repository-policy.json",
+      "sha256": "845c2b5ded8ae43b1c8254ec79d6dc79869a382f5665f0b72e1c41524f1a35f4"
+    },
+    {
+      "file": "edge-supplement-arm64.spdx.json",
+      "sha256": "6127aec0f68160f7133b4fa1272e60afaafa09927df73015372793a6996f33a7"
+    },
+    {
+      "file": "trivy-edge-supplement-amd64-raw.json",
+      "sha256": "cd09c5f1838a6975109e06c6ee933189a9900b1d8370f71c09febf84c3f79298"
+    },
+    {
+      "file": "trivy-edge-supplement-amd64-repository-policy.json",
+      "sha256": "d3b06565c751bbf4cc7aba5cb1dfabb3e3855c44a9fbd0a04d0d1f6c91463f90"
+    },
+    {
+      "file": "edge-supplement-amd64.spdx.json",
+      "sha256": "c1afd27056510663aab04772f73edef718042eb6da4f5a092ff5d53e01d42a4b"
+    },
+    {
+      "file": "trivy-frontend-final-arm64-raw.json",
+      "sha256": "7396d94d825667ff5cf098aa073b88f50f488b5cbf84c601e9f78bd921f7c1ef"
+    },
+    {
+      "file": "trivy-frontend-final-arm64-repository-policy.json",
+      "sha256": "5f3b9a5a7f85a3e9bca242c5ae7adfeeaca704ef238f2cc234a068b116802c53"
+    },
+    {
+      "file": "frontend-final-arm64.spdx.json",
+      "sha256": "ad9a2bb6e87f98c755ba4eeac288c28674d04ec0f82d466c7d8d50282cfed8a0"
+    },
+    {
+      "file": "trivy-frontend-final-amd64-raw.json",
+      "sha256": "dc6340b864b741c796c0ee94a6d4578e9cc9fb0246ff78651d824115f7127f46"
+    },
+    {
+      "file": "trivy-frontend-final-amd64-repository-policy.json",
+      "sha256": "c44a79dcbcb81fe9809133cd5634978e41944d193ef50a3ad64da4f73134bace"
+    },
+    {
+      "file": "frontend-final-amd64.spdx.json",
+      "sha256": "a474a9be01ecacc31e10378392906d5df5861398f6751a2ae010cd0ec4104c1f"
+    }
+  ],
+  "trivy_db_sha256_before_removal": "106e5889fbb30c23b20593c71a76b9237afacbc8068f8e0d1103fa094f25a288",
+  "trivy_metadata_retained": "trivy-db-metadata-final.json",
+  "owned_host_database": "goatfarm_test_fix29_ops_104",
+  "owned_host_database_remaining": [],
+  "owned_running_containers": [],
+  "unchanged_resources": "Root/user PostgreSQL databases, all user containers, accepted image tags, prior reproduction image and unrelated cache untouched."
+}

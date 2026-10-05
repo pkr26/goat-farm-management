@@ -8,7 +8,7 @@ Every collector is module-level and therefore per-process, matching the
 single-replica deployment model: counters reset on restart and are not
 aggregated across workers. ``GOATFARM_METRICS_ENABLED=false`` turns off both
 collection (all ``record_*``/``observe_*`` helpers become no-ops after one
-cached settings read). Endpoint exposure has separate public/private controls.
+startup configuration). Endpoint exposure has separate public/private controls.
 
 Label cardinality is deliberately bounded:
 - ``route`` is the route *template* (e.g. ``/api/animals/{animal_id}``), never
@@ -22,9 +22,8 @@ Label cardinality is deliberately bounded:
 from prometheus_client import CollectorRegistry, Counter, Histogram, generate_latest
 from prometheus_client.exposition import CONTENT_TYPE_LATEST
 
-from .core.config import get_settings
-
 REGISTRY = CollectorRegistry()
+_COLLECTION_ENABLED = True
 
 # Seconds; the last bucket is implicit (+Inf). Covers sub-millisecond health
 # probes through multi-second simulation runs without fine-grained noise.
@@ -84,9 +83,19 @@ MAINTENANCE_ROWS = Counter(
 )
 
 
+def configure(*, enabled: bool) -> None:
+    """Initialize collection from the owning process's validated settings.
+
+    Telemetry must never construct API settings inside a least-privilege worker.
+    Both process entrypoints call this before serving or processing work.
+    """
+    global _COLLECTION_ENABLED
+    _COLLECTION_ENABLED = enabled
+
+
 def enabled() -> bool:
     """Whether collection is enabled, independently of scrape authorization."""
-    return get_settings().metrics_enabled
+    return _COLLECTION_ENABLED
 
 
 def observe_http_request(method: str, route: str, status: int, duration_seconds: float) -> None:

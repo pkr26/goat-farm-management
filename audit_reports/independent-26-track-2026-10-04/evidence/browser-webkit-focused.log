@@ -1,0 +1,28 @@
+[WebServer] (node:83653) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] INFO:     Started server process [83658]
+[WebServer] INFO:     Waiting for application startup.
+[WebServer] 2026-10-04 15:43:33,590 INFO goatfarm [-] startup (environment=development)
+[WebServer] INFO:     Application startup complete.
+[WebServer] INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+[WebServer] 2026-10-04 15:43:34,561 INFO goatfarm [56e42290a97d43248ddc40e2a436ec19] request method=GET path=/openapi.json status=200 duration_ms=554.91
+[WebServer] 2026-10-04 15:43:34,707 INFO goatfarm [17afdf2db83445b5bf0c9be061407ac3] request method=POST path=/api/auth/register status=201 duration_ms=120.85
+[WebServer] 2026-10-04 15:43:34,729 INFO goatfarm [6ea349ebdd50406fbbc546a4aa0a4eb7] request method=POST path=/api/auth/farms status=201 duration_ms=20.13
+
+Running 1 test using 1 worker
+
+(node:83661) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] 2026-10-04 15:43:35,833 WARNING goatfarm.audit [3441dfb01894424bb6ea91bf4d0448c4] security_signal_started event='auth.refresh.invalid' aggregation='process-memory' — invalid or replayed refresh credentials rejected
+[WebServer] 2026-10-04 15:43:35,833 INFO goatfarm [3441dfb01894424bb6ea91bf4d0448c4] request method=POST path=/api/auth/refresh status=401 duration_ms=1.19
+[WebServer] 2026-10-04 15:43:36,142 INFO goatfarm [2f62df3412d74efda1f38d08e0e9d74d] request method=POST path=/api/auth/login status=200 duration_ms=138.30
+[WebServer] 2026-10-04 15:43:36,158 INFO goatfarm [ebb64fb75c524072886d9fbc117b74ce] request method=GET path=/api/auth/farms status=200 duration_ms=11.56
+[WebServer] 2026-10-04 15:43:36,171 INFO goatfarm [664f3863e39b4e11925289e323d6baea] request method=GET path=/api/auth/permissions status=200 duration_ms=6.82
+[WebServer] 2026-10-04 15:43:36,378 INFO goatfarm [49761b09871c4971bcdf5b526b08f9f1] request method=GET path=/api/dashboard status=200 duration_ms=164.55
+[WebServer] 2026-10-04 15:43:36,467 INFO goatfarm [bee2a177faa64ab297603362161151bf] request method=POST path=/api/auth/refresh status=200 duration_ms=101.61
+[WebServer] 2026-10-04 15:43:36,476 INFO goatfarm [130724c039904183a3b3d1c6c42d00d5] request method=GET path=/api/auth/farms status=200 duration_ms=6.06
+[WebServer] 2026-10-04 15:43:36,488 INFO goatfarm [cd37c143342d4876af05457616814354] request method=GET path=/api/auth/permissions status=200 duration_ms=4.17
+[WebServer] 2026-10-04 15:43:36,516 INFO goatfarm [ab07d6fd76dd4b618a7962bf3ccf54bb] request method=GET path=/api/finance/insurance status=200 duration_ms=11.26
+  ✓  1 [webkit] › e2e/a11y-gate.spec.ts:68:7 › a11y gate › /finance/insurance (te) has no serious accessibility violations (2.3s)
+
+  1 passed (5.7s)

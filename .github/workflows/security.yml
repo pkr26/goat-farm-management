@@ -134,10 +134,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      # Keep this digest-pinned reference in lockstep with docker-compose.
+      # Keep this derived build tag in lockstep with docker-compose.
+      # Immutable upstream/package inputs are in docker/postgres/Dockerfile.
       # The edge is a first-party source build below so fixes do not wait for
       # an upstream nginx image rebuild.
-      COMPOSE_POSTGRES_IMAGE: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
+      COMPOSE_POSTGRES_IMAGE: goatfarm-postgres:16-security-20261004
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -168,8 +169,8 @@ jobs:
           push: false
           load: true
           tags: goatfarm-edge:security
-      - name: Pull exact Compose PostgreSQL image
-        run: docker pull "${COMPOSE_POSTGRES_IMAGE}"
+      - name: Build exact Compose PostgreSQL image
+        run: docker build -f docker/postgres/Dockerfile -t "${COMPOSE_POSTGRES_IMAGE}" .
       - name: Generate backend SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
@@ -226,10 +227,10 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-          # Third-party compose images have no build step where a package
-          # upgrade could apply upstream fixes; the ignore file documents
-          # each residual (fix published upstream, image not yet rebuilt)
-          # and its refresh policy. It is scoped to this PostgreSQL scan only.
+          # Only existing upstream gosu Go exceptions apply to this derived
+          # image. All distro package exceptions were removed after exact-hash
+          # remediation. The freshness deadline and scope remain enforced;
+          # backend/frontend/edge scans never load this file.
           trivyignores: .trivyignore.compose-images
           # Debian's ssl-cert package ships a build-time-generated self-signed
           # "snakeoil" key pair at this path on every install — public

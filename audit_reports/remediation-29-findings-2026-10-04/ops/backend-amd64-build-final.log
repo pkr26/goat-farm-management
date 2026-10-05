@@ -1,0 +1,20 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  213.9MB
+Step 1/21 : FROM python:3.13-slim@sha256:3dd7cc108ec1493442514f5c2a871af6af0ec31d768ff6e378a93340c3b3db5f
+3.13-slim: Pulling from library/python
+Digest: sha256:3dd7cc108ec1493442514f5c2a871af6af0ec31d768ff6e378a93340c3b3db5f
+Status: Image is up to date for python:3.13-slim@sha256:3dd7cc108ec1493442514f5c2a871af6af0ec31d768ff6e378a93340c3b3db5f
+ ---> 3dd7cc108ec1
+Step 2/21 : ENV PYTHONDONTWRITEBYTECODE=1     PYTHONUNBUFFERED=1     UV_COMPILE_BYTECODE=1     UV_LINK_MODE=copy     PATH="/app/.venv/bin:$PATH"     GOATFARM_JWT_PRIVATE_KEY_PATH=/app/keys/jwt_private.pem     GOATFARM_JWT_PUBLIC_KEY_PATH=/app/keys/jwt_public.pem
+ ---> Running in 8741061f3987
+ ---> Removed intermediate container 8741061f3987
+ ---> 6b5a51bb22f5
+Step 3/21 : WORKDIR /app
+ ---> Running in f129c09a6185
+ ---> Removed intermediate container f129c09a6185
+ ---> 765f2024a78d
+Step 4/21 : COPY docker/debian-security-packages.json docker/fetch_debian_security_packages.py /tmp/security-fixes/
+failed to get destination image "sha256:765f2024a78defc439781d5a0d9af885623bf8aaaac1cdc3bf9fab4b03596b6b": image with reference sha256:765f2024a78defc439781d5a0d9af885623bf8aaaac1cdc3bf9fab4b03596b6b was found but does not provide the specified platform (linux/amd64)

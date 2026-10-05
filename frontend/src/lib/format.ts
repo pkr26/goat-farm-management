@@ -237,7 +237,8 @@ export function formatDate(iso: string | null | undefined, lang?: "en" | "te"): 
   const timestampSuffix = match[4];
   if (timestampSuffix) {
     const paddedDate = `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    const instant = new Date(`${paddedDate}${timestampSuffix}`);
+    const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/.test(timestampSuffix);
+    const instant = new Date(`${paddedDate}${timestampSuffix}${hasOffset ? "" : "Z"}`);
     if (Number.isNaN(instant.getTime())) return "—";
     const [fy, fm, fd] = todayInTimeZone(activeFarmTimezone, instant)
       .split("-")

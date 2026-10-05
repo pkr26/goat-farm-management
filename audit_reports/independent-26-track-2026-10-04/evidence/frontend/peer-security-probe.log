@@ -1,0 +1,6 @@
+Python: 3.13.15 (main, Sep  1 2026, 14:05:45) [Clang 22.1.3 ]
+integer string limit: 4300
+digits= 19 parse=ok range_validation_rejects= True
+digits= 4300 parse=ok range_validation_rejects= True
+digits= 4301 parse=ValueError Exceeds the limit (4300 digits) for integer string conversion: value has 4301 digits; use sys.set_int_max_str_digits() to increase the limit
+digits= 5000 parse=ValueError Exceeds the limit (4300 digits) for integer string conversion: value has 5000 digits; use sys.set_int_max_str_digits() to increase the limit

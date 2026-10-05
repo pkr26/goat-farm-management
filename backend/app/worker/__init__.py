@@ -18,6 +18,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from .. import metrics
 from ..core.config import ScreeningWorkerSettings, get_screening_worker_settings
 from ..db import create_sessionmaker
 from ..services.screening import (
@@ -28,6 +29,7 @@ from ..services.screening import (
     run_screening_cycle,
 )
 from .heartbeat import HeartbeatStatus, write_heartbeat
+from .metrics_server import worker_metrics_server
 
 logger = logging.getLogger("goatfarm.screening-worker")
 
@@ -132,6 +134,7 @@ async def _run_loop(stop: asyncio.Event, settings: ScreeningWorkerSettings | Non
     whole-cycle failures reached the configured safety limit.
     """
     settings = settings or get_screening_worker_settings()
+    metrics.configure(enabled=settings.metrics_enabled)
     sessionmaker = create_sessionmaker(settings)
     _publish_heartbeat(settings, "starting")
 
@@ -258,7 +261,8 @@ async def main() -> int:
         with suppress(NotImplementedError):
             loop.add_signal_handler(sig, stop.set)
     settings = get_screening_worker_settings()
-    exit_code = await _run_loop(stop, settings)
+    with worker_metrics_server(settings):
+        exit_code = await _run_loop(stop, settings)
     if exit_code:
         # Keep the final ``error`` heartbeat written by the failed cycle. It
         # gives a last useful diagnosis if Docker observes the container just

@@ -1,0 +1,26 @@
+{
+  "image": "be94e1d95837",
+  "platform": "linux/amd64",
+  "timeout_seconds": 240,
+  "application_ui_imported": false,
+  "safety_guard_imported": true,
+  "sharp_probe_in_subprocess": true,
+  "bundler": "turbopack",
+  "pnpm_wrapper": true,
+  "telemetry_disabled": false,
+  "exit_code": 0,
+  "elapsed_seconds": 41.006,
+  "container_state": {
+    "Status": "exited",
+    "Running": false,
+    "Paused": false,
+    "Restarting": false,
+    "OOMKilled": false,
+    "Dead": false,
+    "Pid": 0,
+    "ExitCode": 0,
+    "Error": "",
+    "StartedAt": "2026-10-05T04:14:59.032641616Z",
+    "FinishedAt": "2026-10-05T04:15:39.853206641Z"
+  }
+}

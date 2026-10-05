@@ -1,0 +1,276 @@
+[
+  {
+    "command": [
+      "/Users/pradeepreddy/.local/bin/docker",
+      "run",
+      "-d",
+      "--name",
+      "goatfarm-fix29-real-recovery",
+      "--network",
+      "none",
+      "-e",
+      "POSTGRES_PASSWORD=synthetic-recovery-fixture",
+      "--tmpfs",
+      "/var/lib/postgresql/data:rw,size=512m",
+      "-v",
+      "/Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control:/Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control",
+      "goatfarm-fix29-postgres:104"
+    ],
+    "exit": 0,
+    "stdout": "f62152dc4644bd6521749db8eb2e5029d70c691e28038c0a392dd8c16f0f0dab\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Users/pradeepreddy/.local/bin/docker",
+      "exec",
+      "goatfarm-fix29-real-recovery",
+      "pg_isready",
+      "-h",
+      "127.0.0.1",
+      "-U",
+      "postgres"
+    ],
+    "exit": 2,
+    "stdout": "127.0.0.1:5432 - no response\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Users/pradeepreddy/.local/bin/docker",
+      "exec",
+      "goatfarm-fix29-real-recovery",
+      "pg_isready",
+      "-h",
+      "127.0.0.1",
+      "-U",
+      "postgres"
+    ],
+    "exit": 0,
+    "stdout": "127.0.0.1:5432 - accepting connections\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Users/pradeepreddy/.local/bin/docker",
+      "exec",
+      "goatfarm-fix29-real-recovery",
+      "createdb",
+      "-U",
+      "postgres",
+      "goatfarm_test_fix29_ops_backup_source"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Users/pradeepreddy/.local/bin/docker",
+      "exec",
+      "goatfarm-fix29-real-recovery",
+      "createdb",
+      "-U",
+      "postgres",
+      "goatfarm_test_fix29_ops_backup_target"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Users/pradeepreddy/.local/bin/docker",
+      "exec",
+      "goatfarm-fix29-real-recovery",
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      "goatfarm_test_fix29_ops_backup_source",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-c",
+      "CREATE TABLE audit_probe (id integer PRIMARY KEY, label text NOT NULL); INSERT INTO audit_probe SELECT n, 'synthetic row ' || n FROM generate_series(1,29) n; CREATE TABLE alembic_version(version_num varchar(32) NOT NULL); INSERT INTO alembic_version VALUES ('ff6a7b8c9d01'); SELECT count(*), sum(id) FROM audit_probe;"
+    ],
+    "exit": 0,
+    "stdout": "CREATE TABLE\nINSERT 0 29\nCREATE TABLE\nINSERT 0 1\n count | sum \n-------+-----\n    29 | 435\n(1 row)\n\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "gpg",
+      "--batch",
+      "--pinentry-mode",
+      "loopback",
+      "--passphrase",
+      "",
+      "--quick-generate-key",
+      "Fix29 database recovery <synthetic@example.invalid>",
+      "rsa2048",
+      "sign",
+      "1d"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "gpg: keybox '/Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control/keys/pubring.kbx' created\ngpg: /Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control/keys/trustdb.gpg: trustdb created\ngpg: directory '/Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control/keys/openpgp-revocs.d' created\ngpg: revocation certificate stored as '/Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control/keys/openpgp-revocs.d/D5C400DDCDCA35A268FB937E646E68D7ADEDF3C6.rev'\n"
+  },
+  {
+    "command": [
+      "gpg",
+      "--batch",
+      "--with-colons",
+      "--list-secret-keys"
+    ],
+    "exit": 0,
+    "stdout": "sec:u:2048:1:646E68D7ADEDF3C6:1791172632:1791259032::u:::scSC:::+:::23::0:\nfpr:::::::::D5C400DDCDCA35A268FB937E646E68D7ADEDF3C6:\ngrp:::::::::EC730C3C82952FCD548104B359C7055AE292F13F:\nuid:u::::1791172632::34867373BD2571FD07516DC4B65FE7986697746C::Fix29 database recovery <synthetic@example.invalid>::::::::::0:\n",
+    "stderr": "gpg: checking the trustdb\ngpg: marginals needed: 3  completes needed: 1  trust model: pgp\ngpg: depth: 0  valid:   1  signed:   0  trust: 0-, 0q, 0n, 0m, 0f, 1u\ngpg: next trustdb check due at 2026-10-06\n"
+  },
+  {
+    "command": [
+      "gpg",
+      "--batch",
+      "--pinentry-mode",
+      "loopback",
+      "--passphrase",
+      "",
+      "--quick-add-key",
+      "D5C400DDCDCA35A268FB937E646E68D7ADEDF3C6",
+      "rsa2048",
+      "encrypt",
+      "1d"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python",
+      "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/recovery_inventory.py",
+      "capture",
+      "--output",
+      "/Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control/unbound.json",
+      "--object-bucket",
+      "synthetic-bucket",
+      "--object-prefix",
+      "raw",
+      "--object-recovery-point",
+      "synthetic-snapshot",
+      "--object-recovered-at",
+      "2026-10-05T03:57:13.621077+00:00",
+      "--object-restore-receipt",
+      "local-fixture-only",
+      "--object-manifest",
+      "/Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control/objects.jsonl",
+      "--identity",
+      "jwt_private=synthetic-key-identity",
+      "--escrow-receipt",
+      "jwt_private=synthetic-key-receipt",
+      "--identity",
+      "jwt_public=synthetic-key-identity",
+      "--escrow-receipt",
+      "jwt_public=synthetic-key-receipt",
+      "--identity",
+      "totp_encryption=synthetic-key-identity",
+      "--escrow-receipt",
+      "totp_encryption=synthetic-key-receipt",
+      "--identity",
+      "idempotency_hmac=synthetic-key-identity",
+      "--escrow-receipt",
+      "idempotency_hmac=synthetic-key-receipt",
+      "--identity",
+      "database_ca=synthetic-key-identity",
+      "--escrow-receipt",
+      "database_ca=synthetic-key-receipt",
+      "--identity",
+      "backup_gpg=synthetic-key-identity",
+      "--escrow-receipt",
+      "backup_gpg=synthetic-key-receipt"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "bash",
+      "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/backup.sh",
+      "/Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control/backups"
+    ],
+    "exit": 0,
+    "stdout": "[2026-10-04T20:57:13-07:00] creating validated backup goatfarm-2026-10-05T03-57-13Z-r6tNsTS3OC54.dump.gpg\n[2026-10-04T20:57:14-07:00] pruning to newest 30 dumps\n[2026-10-04T20:57:14-07:00] backup complete: /Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control/backups/goatfarm-2026-10-05T03-57-13Z-r6tNsTS3OC54.dump.gpg\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/.venv/bin/python",
+      "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/check_backup_freshness.py",
+      "/Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control/backups"
+    ],
+    "exit": 0,
+    "stdout": "fresh complete backup: /Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control/backups/goatfarm-2026-10-05T03-57-13Z-r6tNsTS3OC54.dump.gpg (0.0h old)\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "bash",
+      "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/restore.sh",
+      "/Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control/backups/goatfarm-2026-10-05T03-57-13Z-r6tNsTS3OC54.dump.gpg"
+    ],
+    "exit": 0,
+    "stdout": "SET\nDO\nSET\nSET\nSET\nSET\nSET\n set_config \n------------\n \n(1 row)\n\nSET\nSET\nSET\nSET\nSET\nSET\nCREATE TABLE\nCREATE TABLE\nCOPY 1\nCOPY 29\nALTER TABLE\nRestore complete: goatfarm_test_fix29_ops_backup_target, Alembic revision ff6a7b8c9d01\n",
+    "stderr": "gpg: encrypted with rsa2048 key, ID FB519876E0C84338, created 2026-10-05\n      \"Fix29 database recovery <synthetic@example.invalid>\"\ngpg: Signature made Mon Oct  5 03:57:14 2026 UTC\ngpg:                using RSA key D5C400DDCDCA35A268FB937E646E68D7ADEDF3C6\ngpg: Good signature from \"Fix29 database recovery <synthetic@example.invalid>\" [ultimate]\n"
+  },
+  {
+    "command": [
+      "/Users/pradeepreddy/.local/bin/docker",
+      "exec",
+      "goatfarm-fix29-real-recovery",
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      "goatfarm_test_fix29_ops_backup_target",
+      "-tA",
+      "-c",
+      "SELECT count(*),sum(id),min(label),max(label) FROM audit_probe;"
+    ],
+    "exit": 0,
+    "stdout": "29|435|synthetic row 1|synthetic row 9\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "bash",
+      "/Users/pradeepreddy/Desktop/goat-farm-management-main/backend/scripts/restore.sh",
+      "/Users/pradeepreddy/.cache/goatfarm-fix29-ops/restore-control/backups/goatfarm-2026-10-05T03-57-13Z-r6tNsTS3OC54.dump.gpg"
+    ],
+    "exit": 2,
+    "stdout": "",
+    "stderr": "gpg: encrypted with rsa2048 key, ID FB519876E0C84338, created 2026-10-05\n      \"Fix29 database recovery <synthetic@example.invalid>\"\ngpg: Signature made Mon Oct  5 03:57:14 2026 UTC\ngpg:                using RSA key D5C400DDCDCA35A268FB937E646E68D7ADEDF3C6\ngpg: Good signature from \"Fix29 database recovery <synthetic@example.invalid>\" [ultimate]\nRefusing restore: target database 'goatfarm_test_fix29_ops_backup_target' contains user schema objects\n"
+  },
+  {
+    "result": "passed",
+    "restored_rows": 29,
+    "restored_id_sum": 435,
+    "network": "none",
+    "TLS": "development-only disable",
+    "object_store": "synthetic receipt only; no live restoration claimed"
+  },
+  {
+    "command": [
+      "/Users/pradeepreddy/.local/bin/docker",
+      "rm",
+      "-f",
+      "-v",
+      "goatfarm-fix29-real-recovery"
+    ],
+    "exit": 0,
+    "stdout": "goatfarm-fix29-real-recovery\n",
+    "stderr": ""
+  },
+  {
+    "cleanup": "owned container/anonymous volume/temp keyring and plaintext removed"
+  }
+]

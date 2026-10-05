@@ -1,0 +1,8 @@
+{
+  "at_utc": "2026-10-05T04:39:06.681898+00:00",
+  "postgres_health": 1,
+  "remaining_fix29_databases": [],
+  "browser_api_ports_3000_8000": "",
+  "lsof_exit": 1,
+  "scope": "Read-only check of owned database prefix and previously owned browser/API listener ports; shared PostgreSQL service retained."
+}

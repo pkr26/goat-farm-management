@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 
@@ -37,7 +38,14 @@ const PROD_ONLY_HEADERS = [
 
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
+// Embedded in compiled HTML, so shell refreshes can distinguish a real
+// deployment from another request of the same build. The server's runtime
+// config evaluation cannot change the already compiled public constant.
+const workerBuildId = randomUUID();
+
 const nextConfig = {
+  generateBuildId: async () => workerBuildId,
+  env: { NEXT_PUBLIC_HERDLY_BUILD_ID: workerBuildId },
   poweredByHeader: false,
   turbopack: { root: projectRoot },
   // Produce the minimal Node server required by dynamic routes, rewrites and

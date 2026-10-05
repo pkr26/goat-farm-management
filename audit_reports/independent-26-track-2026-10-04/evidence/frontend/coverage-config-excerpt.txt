@@ -1,0 +1,30 @@
+    include: ["src/**/*.test.{ts,tsx}"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json", "html"],
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/**/*.test.{ts,tsx}", "src/api/generated/**", "src/test/**"],
+      thresholds: {
+        // Overall coverage ratchets protect the maintained application surface.
+        statements: 90,
+        branches: 87,
+        functions: 90,
+        lines: 90,
+        // Layer-level floors prevent strong modules from hiding untested areas.
+        // Escape route-group parentheses: picomatch treats bare (app) as an extglob.
+        "src/app/[(]app[)]/**": { statements: 80, branches: 60, functions: 80, lines: 80 },
+        "src/app/**": { statements: 55, branches: 50, functions: 55, lines: 55 },
+        "src/components/**": { statements: 75, branches: 70, functions: 80, lines: 75 },
+        "src/lib/**": { statements: 85, branches: 85, functions: 85, lines: 85 },
+        // Pin critical entrypoints separately so aggregate coverage cannot hide them.
+        // Avoid global perFile: it would also turn the layer floors into per-file floors.
+        "src/proxy.ts": { statements: 80, branches: 80, functions: 80, lines: 80 },
+        "src/app/error.tsx": { statements: 80, branches: 80, functions: 80, lines: 80 },
+        "src/app/manifest.ts": { statements: 80, branches: 80, functions: 80, lines: 80 },
+        "src/app/healthz/route.ts": { statements: 80, branches: 80, functions: 80, lines: 80 },
+        "src/app/[(]app[)]/layout.tsx": { statements: 80, branches: 80, functions: 80, lines: 80 },
+        "src/app/worker/layout.tsx": { statements: 80, branches: 70, functions: 70, lines: 80 },
+      },
+    },
+  },
+});

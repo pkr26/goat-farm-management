@@ -7,6 +7,14 @@ scrape_configs:
     static_configs:
       - targets: ["api.example.com"]
 
+  # Attach Prometheus to the worker's private Compose network; do not publish 9101.
+  - job_name: goatfarm-screening-worker
+    metrics_path: /metrics
+    authorization:
+      credentials_file: /etc/prometheus/secrets/goatfarm-metrics-token
+    static_configs:
+      - targets: ["screening-worker:9101"]
+
   - job_name: node
     static_configs:
       - targets: ["goatfarm-host.internal:9100"]

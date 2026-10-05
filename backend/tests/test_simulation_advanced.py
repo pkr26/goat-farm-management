@@ -402,6 +402,9 @@ def test_depreciation_terminal_value_and_cash_tax_reconcile() -> None:
         ),
     )
     a.herd.male_growers = 250
+    # This control isolates straight-line depreciation. Mortality writeoffs
+    # and vintage survival have their own disposal conservation tests.
+    a.mortality.adult = 0.0
     a.sales.meat_price_per_kg = 1_000.0
     a.finance.loan_fraction_of_project_cost = 0.0
     a.finance.income_tax_rate = 0.25
@@ -414,8 +417,8 @@ def test_depreciation_terminal_value_and_cash_tax_reconcile() -> None:
         + breakdown.equipment_cost * 0.80
         # Auto-purchased sires capitalize: each monthly vintage depreciates
         # straight-line over the 60-month breeding-stock life for the months
-        # it owns inside this 12-month horizon (the auto-restock tops up
-        # fractional mortality losses every month, so vintages keep arriving).
+        # it survives inside this 12-month horizon (adult mortality is zero
+        # in this straight-line-only control).
         + sum(
             month.breeding_stock_capex * (12.0 - month.month + 1.0) / 60.0
             for month in result.months
@@ -1505,7 +1508,7 @@ def test_mirr_and_model_fingerprint_are_reproducible() -> None:
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
     first = run_simulation(a, with_break_even=False)
     second = run_simulation(a, with_break_even=False)
-    assert first.model_version == "3.4.0"
+    assert first.model_version == "3.4.1"
     assert first.assumptions_fingerprint == second.assumptions_fingerprint
     changed = a.model_copy(deep=True)
     changed.sales.meat_price_per_kg += 1.0

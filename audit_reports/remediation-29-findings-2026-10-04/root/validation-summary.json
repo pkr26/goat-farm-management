@@ -1,0 +1,218 @@
+{
+  "completed_at_utc": "2026-10-05T04:41:00.209014+00:00",
+  "status": "29 findings fixed; validation complete with documented environment limits",
+  "baseline_head": "7245368fa91333fb39387df789fa4ef9a58dbea3",
+  "findings": {
+    "fixed": 29,
+    "high": 1,
+    "medium": 17,
+    "low": 11
+  },
+  "backend": {
+    "collected": 5483,
+    "passed": 5479,
+    "skipped": 4,
+    "failure": 0,
+    "error": 0,
+    "result_method": "Exact-node reconciliation of full execution and complete affected/new-file recheck, including teardown outcomes",
+    "initial_problem_nodes": 45,
+    "recheck_tests": 386,
+    "recheck_files": 14,
+    "recheck_seconds": 72.78,
+    "coverage": {
+      "covered_lines": 19384,
+      "num_statements": 20549,
+      "percent_covered": 92.47138975006698,
+      "percent_covered_display": "92",
+      "missing_lines": 1165,
+      "excluded_lines": 97,
+      "percent_statements_covered": 94.33062436128279,
+      "percent_statements_covered_display": "94",
+      "num_branches": 5578,
+      "num_partial_branches": 692,
+      "covered_branches": 4776,
+      "missing_branches": 802,
+      "percent_branches_covered": 85.62208676945141,
+      "percent_branches_covered_display": "86"
+    },
+    "coverage_floor": 92,
+    "receipt": "backend-reconciled-results.json"
+  },
+  "frontend": {
+    "passed": 5293,
+    "files": 328,
+    "seconds": 381.52,
+    "coverage": {
+      "lines": {
+        "total": 8782,
+        "covered": 8503,
+        "skipped": 0,
+        "pct": 96.82
+      },
+      "statements": {
+        "total": 9912,
+        "covered": 9377,
+        "skipped": 0,
+        "pct": 94.6
+      },
+      "functions": {
+        "total": 2634,
+        "covered": 2492,
+        "skipped": 0,
+        "pct": 94.6
+      },
+      "branches": {
+        "total": 10766,
+        "covered": 9896,
+        "skipped": 0,
+        "pct": 91.91
+      },
+      "branchesTrue": {
+        "total": 0,
+        "covered": 0,
+        "skipped": 0,
+        "pct": 100
+      }
+    },
+    "existing_thresholds": "unchanged; all pass"
+  },
+  "browsers": {
+    "chromium": {
+      "startTime": "2026-10-05T03:41:05.602Z",
+      "duration": 261122.296,
+      "expected": 107,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "webkit": {
+      "startTime": "2026-10-05T03:45:27.212Z",
+      "duration": 224831.807,
+      "expected": 103,
+      "skipped": 1,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  },
+  "changed_coverage": {
+    "backend": {
+      "changed_rate": 99.42,
+      "changed_covered": 170,
+      "changed_executable": 171
+    },
+    "frontend": {
+      "changed_rate": 93.98,
+      "changed_covered": 78,
+      "changed_executable": 83
+    }
+  },
+  "containers": {
+    "accepted_images": [
+      {
+        "category": "remediated runtime",
+        "image": "goatfarm-fix29-postgres:104",
+        "architecture": "arm64",
+        "image_id": "sha256:03f4548ce8c2a212635a7f0ee6f562506e39505fe99694ce6afa02b0d8a66ef2",
+        "gate_exit": 0,
+        "unsuppressed_fixable_high_critical_records": 0,
+        "sbom": "postgres-service.spdx.json",
+        "sbom_exit": 0,
+        "exception_policy": "existing gosu Go only"
+      },
+      {
+        "category": "remediated runtime",
+        "image": "goatfarm-fix29-backend:104",
+        "architecture": "arm64",
+        "image_id": "sha256:5cdea4e63f4bab0cc65b618d24359e1a3eb2d2464317e4e8c5542f34f9a07055",
+        "gate_exit": 0,
+        "unsuppressed_fixable_high_critical_records": 0,
+        "sbom": "backend-current-build.spdx.json",
+        "sbom_exit": 0,
+        "exception_policy": "none"
+      },
+      {
+        "category": "remediated runtime",
+        "image": "goatfarm-fix29-postgres:104-amd64",
+        "architecture": "amd64",
+        "image_id": "sha256:fbeea8538438475788a0ca733c5c90ed5c3bfe390ad3e8efc0d89d2632da3422",
+        "gate_exit": 0,
+        "unsuppressed_fixable_high_critical_records": 0,
+        "sbom": "postgres-service-amd64.spdx.json",
+        "sbom_exit": 0,
+        "exception_policy": "existing gosu Go only"
+      },
+      {
+        "category": "remediated runtime",
+        "image": "goatfarm-fix29-backend:104-amd64",
+        "architecture": "amd64",
+        "image_id": "sha256:9a4d0d96d10ed41be5b10552ccdcfcfec619e0dd3e8a869798d09e6e6560b49a",
+        "gate_exit": 0,
+        "unsuppressed_fixable_high_critical_records": 0,
+        "sbom": "backend-current-build-amd64.spdx.json",
+        "sbom_exit": 0,
+        "exception_policy": "none"
+      },
+      {
+        "category": "unchanged edge supplement",
+        "image": "goatfarm-fix29-edge:104",
+        "architecture": "arm64",
+        "image_id": "sha256:379f67122ce5abf087fbefe282fb124a6e179bd868d1ab549cf04ae9c9c189d9",
+        "gate_exit": 0,
+        "unsuppressed_fixable_high_critical_records": 0,
+        "sbom": "edge-supplement-arm64.spdx.json",
+        "sbom_exit": 0,
+        "exception_policy": "none"
+      },
+      {
+        "category": "unchanged edge supplement",
+        "image": "goatfarm-fix29-edge:104-amd64",
+        "architecture": "amd64",
+        "image_id": "sha256:105cfef723f251b37005061f69d2d295fac54a39b66dce7d960a18e7fb301bfb",
+        "gate_exit": 0,
+        "unsuppressed_fixable_high_critical_records": 0,
+        "sbom": "edge-supplement-amd64.spdx.json",
+        "sbom_exit": 0,
+        "exception_policy": "none"
+      },
+      {
+        "category": "remediated runtime",
+        "image": "goatfarm-fix29-frontend:104-final",
+        "architecture": "arm64",
+        "image_id": "sha256:5a1e68466ba2a49ba5b48b402414b50807fbea19fcc2fd43b49c06a33b9168ce",
+        "gate_exit": 0,
+        "unsuppressed_fixable_high_critical_records": 0,
+        "sbom": "frontend-final-arm64.spdx.json",
+        "sbom_exit": 0,
+        "exception_policy": "none"
+      },
+      {
+        "category": "remediated runtime",
+        "image": "goatfarm-fix29-frontend:104-final-amd64",
+        "architecture": "amd64",
+        "image_id": "sha256:efcce7b2773bb8cfa0350ae4ae42e8fe4004230d3677c6683bfdcd2f36cc4d79",
+        "gate_exit": 0,
+        "unsuppressed_fixable_high_critical_records": 0,
+        "sbom": "frontend-final-amd64.spdx.json",
+        "sbom_exit": 0,
+        "exception_policy": "none"
+      }
+    ],
+    "policy": "Existing fixable HIGH/CRITICAL gate; original narrow PostgreSQL gosu exceptions retained; raw unfixed findings disclosed"
+  },
+  "additional_checks": [
+    "Ruff lint/format; strict mypy; frontend ESLint/TypeScript",
+    "Migration upgrade/check/downgrade/upgrade/check and legacy-data refusal",
+    "OpenAPI/client generation and backward compatibility",
+    "Real isolated signed PostgreSQL backup/freshness/restore",
+    "Mutation/SARIF gates with genuine producer compatibility",
+    "Browser offline Telugu cache, fresh defaults and accessibility landmarks"
+  ],
+  "limits": [
+    "Firefox could not launch on this host before any product page; no Firefox product acceptance claimed",
+    "AMD64 images executed through QEMU, not physical AMD64 hardware",
+    "No live paid providers, real object-store/camera/device tests or production deployment",
+    "Initial backend run had disk-full failures and stale contracts; failed evidence is preserved and exact-node rechecks are explicit"
+  ],
+  "commit_status_at_validation": "uncommitted",
+  "deployment_status_at_validation": "not deployed"
+}

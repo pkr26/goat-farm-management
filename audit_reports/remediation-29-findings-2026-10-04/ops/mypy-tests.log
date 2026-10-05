@@ -1,0 +1,2 @@
+tests/test_release_cleanup_ownership.py:47: error: Value of type "object" is not indexable  [index]
+Found 1 error in 1 file (checked 159 source files)

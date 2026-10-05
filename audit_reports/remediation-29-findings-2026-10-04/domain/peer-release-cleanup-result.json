@@ -1,0 +1,42 @@
+{
+  "passed": 6,
+  "controls": [
+    {
+      "case": "failed-preflight",
+      "delete_calls": [],
+      "stdout": "No successfully published package-version receipts; cleanup is a no-op.\n"
+    },
+    {
+      "case": "multiple-pages-wrong-digest-same-tag",
+      "delete_calls": [],
+      "stdout": ""
+    },
+    {
+      "case": "unowned-tag-on-owned-digest",
+      "delete_calls": [],
+      "stdout": "::warning::Retaining ghcr.io/example/goatfarm-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: tags are not exclusively owned.\n"
+    },
+    {
+      "case": "untagged-owned-digest",
+      "delete_calls": [],
+      "stdout": "::warning::Retaining ghcr.io/example/goatfarm-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: tags are not exclusively owned.\n"
+    },
+    {
+      "case": "owned-final-plus-publish-alias",
+      "delete_calls": [
+        [
+          "api",
+          "-X",
+          "DELETE",
+          "orgs/example/packages/container/goatfarm-backend/versions/5"
+        ]
+      ],
+      "stdout": "Removed owned ghcr.io/example/goatfarm-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (version 5).\n"
+    },
+    {
+      "case": "foreign-final-on-owned-publish",
+      "delete_calls": [],
+      "stdout": "::warning::Retaining ghcr.io/example/goatfarm-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: tags are not exclusively owned.\n"
+    }
+  ]
+}

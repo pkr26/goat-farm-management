@@ -1,0 +1,80 @@
+
+ RUN  v4.1.11 /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
+
+stderr | ../audit_reports/independent-26-track-2026-10-04/evidence/frontend/worker-default-language.probe.test.tsx > CONFIRMED: real no-cookie bootstrap writes English before worker default can select Telugu
+An error occurred in the <WorkerShell> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+
+ ❯ ../audit_reports/independent-26-track-2026-10-04/evidence/frontend/worker-default-language.probe.test.tsx (1 test | 1 failed) 1010ms
+   × CONFIRMED: real no-cookie bootstrap writes English before worker default can select Telugu 1009ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  ../audit_reports/independent-26-track-2026-10-04/evidence/frontend/worker-default-language.probe.test.tsx > CONFIRMED: real no-cookie bootstrap writes English before worker default can select Telugu
+TestingLibraryElementError: Unable to find an element by: [data-testid="active-language"]
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div />[39m
+  [36m</body>[39m
+[36m</html>[39m...
+ ❯ Proxy.waitForWrapper node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../audit_reports/independent-26-track-2026-10-04/evidence/frontend/worker-default-language.probe.test.tsx:15:9
+     13|   window.localStorage.clear();
+     14|   render(<LanguageProvider initialLanguage={null}><WorkerShell><ReadLa…
+     15|   await waitFor(() => expect(screen.getByTestId('active-language').tex…
+       |         ^
+     16|   expect(window.localStorage.getItem('herdly.language')).toBe('en');
+     17|   expect(document.cookie).toContain('herdly.language=en');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: invariant expected app router to be mounted
+ ❯ useRouter node_modules/.pnpm/next@16.3.8_@babel+core@7.29.7_@playwright+test@1.62.1_@types+node@24.19.0_react-dom@19.2.8_react@19.2.8__react@19.2.8/node_modules/next/dist/client/components/navigation.js:148:37
+ ❯ WorkerShell src/app/worker/layout.tsx:77:18
+     75|   const { user, farmId, farms, signOut, loading } = useAuth();
+     76|   const perms = usePermissions();
+     77|   const router = useRouter();
+       |                  ^
+     78|   const pathname = usePathname();
+     79|   const t = useT();
+ ❯ Object.react_stack_bottom_frame node_modules/.pnpm/react-dom@19.2.8_react@19.2.8/node_modules/react-dom/cjs/react-dom-client.development.js:25904:20
+ ❯ renderWithHooks node_modules/.pnpm/react-dom@19.2.8_react@19.2.8/node_modules/react-dom/cjs/react-dom-client.development.js:7662:22
+ ❯ updateFunctionComponent node_modules/.pnpm/react-dom@19.2.8_react@19.2.8/node_modules/react-dom/cjs/react-dom-client.development.js:10166:19
+ ❯ beginWork node_modules/.pnpm/react-dom@19.2.8_react@19.2.8/node_modules/react-dom/cjs/react-dom-client.development.js:11778:18
+ ❯ runWithFiberInDEV node_modules/.pnpm/react-dom@19.2.8_react@19.2.8/node_modules/react-dom/cjs/react-dom-client.development.js:874:13
+ ❯ performUnitOfWork node_modules/.pnpm/react-dom@19.2.8_react@19.2.8/node_modules/react-dom/cjs/react-dom-client.development.js:17641:22
+ ❯ workLoopSync node_modules/.pnpm/react-dom@19.2.8_react@19.2.8/node_modules/react-dom/cjs/react-dom-client.development.js:17469:41
+ ❯ renderRootSync node_modules/.pnpm/react-dom@19.2.8_react@19.2.8/node_modules/react-dom/cjs/react-dom-client.development.js:17450:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { __NEXT_ERROR_CODE: 'E238' }
+This error originated in "../audit_reports/independent-26-track-2026-10-04/evidence/frontend/worker-default-language.probe.test.tsx" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "CONFIRMED: real no-cookie bootstrap writes English before worker default can select Telugu". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 1 passed (2)
+     Errors  1 error
+   Start at  15:19:58
+   Duration  2.17s (transform 116ms, setup 0ms, import 369ms, tests 1.13s, environment 525ms)
+

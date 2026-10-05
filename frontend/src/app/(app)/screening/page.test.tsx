@@ -608,3 +608,46 @@ describe("ScreeningPage", () => {
     expect((await screen.findByRole("button", { name: "Open screening photo #2 details" }))).toBeInTheDocument();
   });
 });
+
+describe("screening permission and outage regressions", () => {
+  it("keeps the quality guidance but hides intake and retake for health viewers", async () => {
+    installHappyHandlers();
+    nav.state.search = "image_id=2";
+    server.use(
+      permissionsHandler(["health.view"]),
+      http.get("/api/screening/images/2", () => HttpResponse.json({ ...DETAIL, status: "UNASSESSABLE" })),
+    );
+    renderPage();
+    await screen.findByText("Cannot assess");
+    expect(screen.queryByRole("button", { name: "Disease check" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload a clearer photo" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Export/ })).not.toBeInTheDocument();
+  });
+
+  it("distinguishes a stats outage from empty history and retries successfully", async () => {
+    installHappyHandlers();
+    let offline = true;
+    server.use(http.get("/api/screening/stats", () => offline
+      ? HttpResponse.json({ detail: "Unavailable" }, { status: 503 }) : HttpResponse.json(STATS)));
+    renderPage();
+    await screen.findByText("Screening statistics are unavailable. Try again.");
+    expect(screen.queryByText("No model runs recorded yet.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open screening photo #2 details" })).toBeInTheDocument();
+    offline = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByText("anthropic");
+    expect(screen.queryByText("Screening statistics are unavailable. Try again.")).not.toBeInTheDocument();
+  });
+
+  it("retains the last stats with an explicit stale warning when a refresh fails", async () => {
+    installHappyHandlers();
+    const queryClient = createTestQueryClient();
+    renderWithProviders(<ScreeningPage />, queryClient);
+    await screen.findByText("anthropic");
+    server.use(http.get("/api/screening/stats", () => HttpResponse.json({ detail: "Unavailable" }, { status: 503 })));
+    await act(async () => { await queryClient.refetchQueries({ predicate: (query) => JSON.stringify(query.queryKey).includes("/api/screening/stats") }); });
+    await screen.findByText("Screening statistics could not refresh. Showing the last available results.");
+    expect(screen.getByText("anthropic")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+});

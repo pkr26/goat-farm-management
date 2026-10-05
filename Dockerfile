@@ -7,7 +7,7 @@
 # Development can generate keys in the owned directory; production mounts
 # supply them. GOATFARM_JWT_*_PATH overrides remain supported.
 
-FROM python:3.13-slim@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285
+FROM python:3.13-slim@sha256:3dd7cc108ec1493442514f5c2a871af6af0ec31d768ff6e378a93340c3b3db5f
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -23,6 +23,14 @@ WORKDIR /app
 # reproducibility/security boundary; refresh it deliberately (and let Trivy
 # gate it) instead of producing different application images from the same
 # source and Dockerfile on different build dates.
+
+# Reviewed security update omitted by the upstream image: exact signed-index
+# package URL, version, size and SHA-256 pins for both supported architectures.
+COPY docker/debian-security-packages.json docker/fetch_debian_security_packages.py /tmp/security-fixes/
+RUN python /tmp/security-fixes/fetch_debian_security_packages.py \
+        /tmp/security-fixes/debian-security-packages.json /tmp/security-debs --package libpcre2-8-0 \
+    && dpkg -i /tmp/security-debs/*.deb \
+    && rm -rf /tmp/security-fixes /tmp/security-debs
 
 # Layer order: install deps from the manifest FIRST (cached across app-only
 # code changes), then copy the app source. Any change under backend/app/ no

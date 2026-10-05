@@ -1,0 +1,47 @@
+
+ RUN  v4.1.11 /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
+
+ ❯ src/test/adversarial/sw-update.test.ts (21 tests | 1 failed) 117ms
+     × retains locale/fonts across repeated document reloads and rotates only real builds 4ms
+ ❯ src/lib/format.utc.test.ts (10 tests | 1 failed) 10ms
+   × treats UTC-naive backend timestamps like their explicit UTC counterpart 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/lib/format.utc.test.ts > treats UTC-naive backend timestamps like their explicit UTC counterpart
+ReferenceError: formatDate is not defined
+ ❯ src/lib/format.utc.test.ts:68:5
+     66|   // would turn the first instant into the following farm calendar day.
+     67|   for (const timestamp of ["2026-08-05T16:00:00", "2026-08-05T23:30", …
+     68|     expect(formatDate(timestamp)).toBe(formatDate(`${timestamp}Z`));
+       |     ^
+     69|   }
+     70| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/test/adversarial/sw-update.test.ts > lazy assets survive same-build navigation > retains locale/fonts across repeated document reloads and rotates only real builds
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/test/adversarial/sw-update.test.ts:517:100
+    515|     build = "two";
+    516|     await worker.fire("install");
+    517|     expect(worker.cacheStore.get("herdly-worker-v3")!.has(`${ORIGIN}/_…
+       |                                                                                                    ^
+    518|     build = "three";
+    519|     await worker.fire("install");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 2 passed (4)
+      Tests  2 failed | 51 passed (53)
+   Start at  20:21:55
+   Duration  1.06s (transform 208ms, setup 598ms, import 40ms, tests 273ms, environment 908ms)
+

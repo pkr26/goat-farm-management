@@ -1,0 +1,161 @@
+........................................................................ [ 18%]
+........................................................................ [ 37%]
+........................................................................ [ 55%]
+........................................................................ [ 74%]
+........................................................................ [ 93%]
+..........................                                               [100%]
+================================ tests coverage ================================
+______________ coverage: platform darwin, python 3.13.15-final-0 _______________
+
+Name                                      Stmts   Miss Branch BrPart  Cover
+---------------------------------------------------------------------------
+app/__init__.py                               0      0      0      0   100%
+app/api/__init__.py                           0      0      0      0   100%
+app/api/_run_limits.py                      219    168     70      0    18%
+app/api/_shared.py                          168     75     62     11    51%
+app/api/animals.py                          395    185    180     46    46%
+app/api/auth.py                            1165    875    432     29    20%
+app/api/breeding.py                         132     47     26     10    61%
+app/api/buckets.py                           34     20      4      0    37%
+app/api/dashboard.py                        166    129     26      0    19%
+app/api/feeding.py                          100     41     16      2    53%
+app/api/finance.py                          330    249    126      4    20%
+app/api/health.py                           398    239    196     46    36%
+app/api/kidding.py                          113     45     38     12    57%
+app/api/operational_metrics.py               20      6      8      1    61%
+app/api/ops_simulation.py                    41     27      4      0    31%
+app/api/owner.py                             84     63     12      0    22%
+app/api/planner.py                          200    156     46      0    18%
+app/api/purchases.py                         95     26     26      6    67%
+app/api/screening.py                        337    270    112      0    15%
+app/api/simulation.py                       230    162     42      0    25%
+app/api/tasks.py                            263    140     92     18    41%
+app/api/team.py                             547    298    158     28    40%
+app/audit.py                                 48     15      8      0    62%
+app/characters.py                            13      5      4      0    47%
+app/core/__init__.py                          0      0      0      0   100%
+app/core/config.py                          840    234    288     90    64%
+app/db.py                                    64      7     12      4    86%
+app/deps.py                                 284    156    122     30    39%
+app/main.py                                 670    349    156     16    44%
+app/metrics.py                               55      6     18      3    79%
+app/models/__init__.py                       21      0      0      0   100%
+app/models/animals.py                       223     30     40      7    83%
+app/models/breeding.py                       75      0      0      0   100%
+app/models/constants.py                      35      0      0      0   100%
+app/models/core.py                          119      8      6      2    90%
+app/models/enums.py                         173      0      0      0   100%
+app/models/feed_rules.py                     45     13     16      6    66%
+app/models/feeding.py                        57      0      0      0   100%
+app/models/finance.py                        69      0      0      0   100%
+app/models/health.py                        103      0      0      0   100%
+app/models/helpers.py                        39      1      6      1    96%
+app/models/idempotency.py                    23      0      0      0   100%
+app/models/lifecycle.py                       6      0      0      0   100%
+app/models/maintenance.py                    12      0      0      0   100%
+app/models/notifications.py                  51      0      0      0   100%
+app/models/planner.py                        23      0      0      0   100%
+app/models/purchases.py                      27      0      0      0   100%
+app/models/screening.py                     169      1      0      0    99%
+app/models/security_events.py                17      0      0      0   100%
+app/models/simulation.py                     21      0      0      0   100%
+app/models/species.py                        35      0      0      0   100%
+app/models/tasks.py                          64      1      0      0    98%
+app/permissions.py                           22      1      0      0    95%
+app/ratelimit.py                            228     47     68     23    74%
+app/schemas/__init__.py                       0      0      0      0   100%
+app/schemas/animals.py                      214     23     40     18    82%
+app/schemas/auth.py                         129      9      6      2    90%
+app/schemas/breeding.py                      84      3      8      4    92%
+app/schemas/buckets.py                       13      0      0      0   100%
+app/schemas/common.py                        81     13     12      6    80%
+app/schemas/dashboard.py                     82      0      0      0   100%
+app/schemas/feeding.py                      107      5      4      1    93%
+app/schemas/finance.py                      139      6      6      1    92%
+app/schemas/health.py                       246     32     52     18    78%
+app/schemas/kidding.py                       79      3      6      3    93%
+app/schemas/ops.py                            8      0      0      0   100%
+app/schemas/ops_simulation.py                17      0      0      0   100%
+app/schemas/owner.py                         31      0      0      0   100%
+app/schemas/planner.py                       47      0      0      0   100%
+app/schemas/purchases.py                     69      6      8      2    84%
+app/schemas/screening.py                    216      1      0      0    99%
+app/schemas/simulation.py                    70      0      0      0   100%
+app/schemas/summaries.py                     42      0      0      0   100%
+app/schemas/tasks.py                         87      6      4      0    89%
+app/schemas/team.py                          70      0      0      0   100%
+app/security.py                             555    223    164     49    54%
+app/seed.py                                 155     81     50      6    41%
+app/services/__init__.py                     15      0      0      0   100%
+app/services/_common.py                      48      4     14      4    87%
+app/services/animals.py                     100     52     58     15    41%
+app/services/breeding.py                    291     94    114     28    61%
+app/services/cadence.py                     158     29     38      6    77%
+app/services/chronology.py                   35     14     10      4    56%
+app/services/dashboard.py                    86     71     22      0    14%
+app/services/feeding.py                     230     80     74     19    60%
+app/services/finance.py                     170    108     64      3    29%
+app/services/health.py                      280    170    148     22    36%
+app/services/health_rounds.py                52     28     20      3    38%
+app/services/idempotency.py                 149     52     48     13    59%
+app/services/kidding.py                     170     40     80     26    69%
+app/services/maintenance_progress.py         44      1     18      1    97%
+app/services/notifications/__init__.py        5      0      0      0   100%
+app/services/notifications/hooks.py          26     17      6      0    28%
+app/services/notifications/outbox.py         95     22     26      8    75%
+app/services/notifications/providers.py      60     27     10      0    47%
+app/services/notifications/service.py       267    112     68      9    54%
+app/services/purchases.py                    68     11     34     11    78%
+app/services/retention.py                   337    269     82      0    16%
+app/services/screening/__init__.py           10      0      0      0   100%
+app/services/screening/budget.py             48      9     14      5    74%
+app/services/screening/detect.py             49     19      6      0    55%
+app/services/screening/gate.py               72     15     26      6    74%
+app/services/screening/images.py             88     37     16      5    54%
+app/services/screening/live_contract.py     162    162     52      0     0%
+app/services/screening/pipeline.py          667    383    196     30    38%
+app/services/screening/providers.py         148     88     20      0    36%
+app/services/screening/raw_cleanup.py       126     82     20      0    30%
+app/services/screening/rotation.py           66     16     20      5    66%
+app/services/screening/s3.py                206    148     60      0    22%
+app/services/screening/specialists.py        73     31      6      0    53%
+app/services/simulation_calibration.py      411    378    166      0     6%
+app/services/tasks.py                       273    157    142     24    37%
+app/simulation/__init__.py                   11      0      0      0   100%
+app/simulation/assumptions.py               457     86    110     31    72%
+app/simulation/backward_planner.py          197    114     32      0    36%
+app/simulation/daily_ops.py                 833    551    276      0    25%
+app/simulation/defaults.py                   57     17      6      1    65%
+app/simulation/engine.py                    881    755    254      0    11%
+app/simulation/explain.py                   256    256     98      0     0%
+app/simulation/feed.py                       31     14      0      0    55%
+app/simulation/finance.py                   281    226    102      0    14%
+app/simulation/market.py                     46     15      4      0    70%
+app/simulation/montecarlo.py                251    202     52      0    16%
+app/simulation/optimization.py              113    113     46      0     0%
+app/simulation/planner.py                   294    225     86      0    18%
+app/simulation/results.py                   251      0      0      0   100%
+app/simulation/shocks.py                     20      2      0      0    90%
+app/simulation/snapshot.py                   14     11      8      0    14%
+app/simulation/subsidy.py                    11      6      6      0    29%
+app/simulation/vocabulary.py                 20      3      0      0    85%
+app/utils.py                                 41      7      6      3    79%
+app/worker/__init__.py                      120     25     28      8    76%
+app/worker/__main__.py                        3      3      0      0     0%
+app/worker/heartbeat.py                      23      0      0      0   100%
+app/worker/metrics_server.py                 44      0      6      0   100%
+---------------------------------------------------------------------------
+TOTAL                                     20549   9863   5578    795    46%
+Coverage XML written to file /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/remediation-29-findings-2026-10-04/root/backend-recheck-coverage.xml
+============================= slowest 10 durations =============================
+6.04s call     tests/test_migration_env_preflight.py::test_migration_quiescence_preflight_is_target_and_command_aware
+5.07s call     tests/test_mutation_harness.py::test_killed_pytest_attempt_reaps_its_real_disposable_database
+3.04s call     tests/test_maintenance_progress.py::test_alert_restart_only_marks_hour_complete_after_exhaustion
+2.41s call     tests/test_maintenance_progress.py::test_restarted_processes_reach_every_farm_beyond_tick_capacity
+1.91s call     tests/test_monetized_cull_migration.py::test_monetized_cull_constraint_and_downgrade_guard
+1.80s setup    tests/test_logic.py::test_seeded_breeding_guidance_uses_species_profile_minimum_age
+1.43s call     tests/test_maintenance_progress.py::test_process_death_after_business_commit_keeps_old_cursor_and_retries_safely
+1.08s call     tests/test_deployment_artifacts.py::test_compose_env_guard_enforces_exactly_one_delivery_route
+0.95s call     tests/test_notification_delivery_integrity.py::test_delivery_concurrency_is_bounded_per_farm_and_releases_caller_sessions
+0.93s call     tests/test_worker_metrics_regression.py::test_worker_registry_is_scraped_from_a_separate_process[True]
+386 passed in 72.78s (0:01:12)

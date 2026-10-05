@@ -19,6 +19,7 @@
  * decoding again — add the exact version to NEXT_VERSIONS_WITH_HEIF_DECODE_DISABLED.
  */
 
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -92,14 +93,39 @@ export function evaluateImageDecodeSafety(
   };
 }
 
-/** Default probe: read sharp's compiled-in dependency versions. */
-export function defaultSharpProbe(): SharpProbeResult {
+/** Read the installed native versions without loading sharp in Next's process. */
+export function defaultSharpProbe(rootDir: string = process.cwd()): SharpProbeResult {
   try {
-    // sharp is a native CJS module — must be require()d lazily so bundlers
-    // never inline it and jsdom test environments never load it at import.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const sharp = require("sharp") as { versions?: { heif?: string | undefined } };
-    return sharp.versions ?? {};
+    // Loading sharp while Next builds can leave an invalid libuv descriptor at
+    // process teardown (reproduced with the Linux AMD64 image under QEMU).
+    // Keep the native probe in a bounded child; its actual installed versions
+    // remain authoritative, and any probe failure still rejects the build.
+    const probe = spawnSync(
+      process.execPath,
+      ["--input-type=commonjs", "-e", 'process.stdout.write(JSON.stringify(require("sharp").versions))'],
+      {
+        cwd: rootDir,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 10_000,
+        killSignal: "SIGKILL",
+        maxBuffer: 16 * 1024,
+        windowsHide: true,
+      },
+    );
+    if (probe.error || probe.signal || probe.status !== 0) return "unloadable";
+    const versions: unknown = JSON.parse(probe.stdout);
+    if (versions === null || typeof versions !== "object" || Array.isArray(versions)) {
+      return "unloadable";
+    }
+    const report = versions as Record<string, unknown>;
+    const isVersion = (value: unknown): value is string =>
+      typeof value === "string" && /^\d+(?:\.\d+)+$/.test(value);
+    // A missing HEIF entry means no decoder only after a valid native version
+    // report. Empty/malformed output must not turn into that safe verdict.
+    if (!isVersion(report.sharp) || !isVersion(report.vips)) return "unloadable";
+    if (report.heif === undefined) return {};
+    return isVersion(report.heif) ? { heif: report.heif } : "unloadable";
   } catch {
     return "unloadable";
   }
@@ -117,7 +143,7 @@ export type InstalledImageDeps = {
  * directory). Every input is injectable for tests.
  */
 export function checkInstalledImageDecodeSafety(deps: InstalledImageDeps = {}): ImageDecodeSafety {
-  const sharpProbe = deps.sharpProbe ?? defaultSharpProbe();
+  const sharpProbe = deps.sharpProbe ?? defaultSharpProbe(deps.rootDir);
   let nextVersion = deps.nextVersion;
   if (nextVersion === undefined) {
     const manifest = join(deps.rootDir ?? process.cwd(), "node_modules", "next", "package.json");

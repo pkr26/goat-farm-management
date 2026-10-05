@@ -1,0 +1,141 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  213.9MB
+Step 1/21 : FROM python:3.13-slim@sha256:3dd7cc108ec1493442514f5c2a871af6af0ec31d768ff6e378a93340c3b3db5f
+ ---> 3dd7cc108ec1
+Step 2/21 : ENV PYTHONDONTWRITEBYTECODE=1     PYTHONUNBUFFERED=1     UV_COMPILE_BYTECODE=1     UV_LINK_MODE=copy     PATH="/app/.venv/bin:$PATH"     GOATFARM_JWT_PRIVATE_KEY_PATH=/app/keys/jwt_private.pem     GOATFARM_JWT_PUBLIC_KEY_PATH=/app/keys/jwt_public.pem
+ ---> Using cache
+ ---> 6b5a51bb22f5
+Step 3/21 : WORKDIR /app
+ ---> Using cache
+ ---> 765f2024a78d
+Step 4/21 : COPY docker/debian-security-packages.json docker/fetch_debian_security_packages.py /tmp/security-fixes/
+ ---> aa5887afed48
+Step 5/21 : RUN python /tmp/security-fixes/fetch_debian_security_packages.py         /tmp/security-fixes/debian-security-packages.json /tmp/security-debs --package libpcre2-8-0     && dpkg -i /tmp/security-debs/*.deb     && rm -rf /tmp/security-fixes /tmp/security-debs
+ ---> Running in a6ce7d63fe7c
+(Reading database ... 5657 files and directories currently installed.)
+Preparing to unpack .../libpcre2-8-0_10.46-1~deb13u3_arm64.deb ...
+Unpacking libpcre2-8-0:arm64 (10.46-1~deb13u3) over (10.46-1~deb13u2) ...
+Setting up libpcre2-8-0:arm64 (10.46-1~deb13u3) ...
+Processing triggers for libc-bin (2.41-12+deb13u4) ...
+ ---> Removed intermediate container a6ce7d63fe7c
+ ---> 58f8e94c2f78
+Step 6/21 : COPY backend/pyproject.toml backend/uv.lock ./
+ ---> 314b37626a3d
+Step 7/21 : COPY backend/pins/uv.txt ./pins/uv.txt
+ ---> fd0780e3452e
+Step 8/21 : RUN pip install --no-cache-dir --require-hashes -r pins/uv.txt     && uv sync --locked --no-dev --no-install-project --no-cache     && groupadd --system --gid 10001 goatfarm     && useradd --system --uid 10001 --gid goatfarm goatfarm     && install -d -o goatfarm -g goatfarm -m 0700 /app/keys
+ ---> Running in 91fcb1fdb0ad
+Collecting uv==0.12.1 (from -r pins/uv.txt (line 11))
+  Downloading uv-0.12.1-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl (21.3 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 21.3/21.3 MB 4.9 MB/s  0:00:04
+Installing collected packages: uv
+Successfully installed uv-0.12.1
+[91mWARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+[0m[91mUsing CPython 3.13.16 interpreter at: /usr/local/bin/python3
+Creating virtual environment at: .venv
+[0m[91mResolved 62 packages in 0.79ms
+[0m[91mDownloading uvloop (4.1MiB)
+[0m[91mDownloading sqlalchemy (3.1MiB)
+[0m[91mDownloading cryptography (4.5MiB)
+[0m[91mDownloading asyncpg (3.3MiB)
+[0m[91mDownloading pillow (6.0MiB)
+[0m[91mDownloading pydantic-core (1.9MiB)
+[0m[91mDownloading botocore (13.5MiB)
+[0m[91m Downloaded pydantic-core
+[0m[91m Downloaded sqlalchemy
+[0m[91m Downloaded asyncpg
+[0m[91m Downloaded uvloop
+[0m[91m Downloaded cryptography
+[0m[91m Downloaded pillow
+[0m[91m Downloaded botocore
+[0m[91mPrepared 44 packages in 7.33s
+[0m[91mInstalled 44 packages in 155ms
+[0m[91mBytecode compiled 1365 files in 411ms
+ + alembic==1.19.0
+ + annotated-doc==0.0.5
+ + annotated-types==0.8.0
+ + anyio==4.14.2
+[0m[91m + argon2-cffi==25.1.0
+ + argon2-cffi-bindings==25.1.0
+ +[0m[91m asyncpg==0.31.0
+ + [0m[91mboto3==1.40.11
+ [0m[91m+[0m[91m [0m[91mbotocore[0m[91m==1.40.76
+ + certifi==2026.7.22
+ +[0m[91m cffi==2.1.1
+ + click==8.[0m[91m4.2[0m[91m
+[0m[91m +[0m[91m cryptography==50.0.0
+ + fastapi==0.141[0m[91m.1
+ + greenlet==3.5.4
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httptools==0.8.0
+ + httpx==0.28.1
+ + [0m[91midna==3.18
+ + jmespath==1.1.0
+ + mako==1.4.1
+ + markupsafe==3.0.3
+ [0m[91m+ pillow==12.3.0
+ + prometheus-client[0m[91m==[0m[91m0.26.0
+ + pycparser==3.0
+ + pydantic==2.13.4
+ + pydantic-core==2.46.4
+ + pydantic-settings==2.14.2
+ + pyjwt==2.15.1
+ + python-dateutil[0m[91m==2.9.0.post0[0m[91m
+[0m[91m + python-dotenv==1.2.2
+ +[0m[91m pyyaml==6.0.3
+ + s3transfer==0.13.[0m[91m1
+ [0m[91m+[0m[91m six==1.17.0
+ + sqlalchemy==2.0.51
+ + starlette==1.4.1
+ + typing-extensions==4.16.0
+ + typing-inspection==0[0m[91m.4.2
+ [0m[91m+ [0m[91murllib3[0m[91m==2.8.0
+ + uvicorn==0.52.1
+ + uvloop==0.22.1
+ +[0m[91m watchfiles==1.2.0
+ + websockets==17.0.1
+[0m[91museradd warning: goatfarm's uid 10001 is greater than SYS_UID_MAX 999
+[0m ---> Removed intermediate container 91fcb1fdb0ad
+ ---> 56ef5253dc51
+Step 9/21 : COPY backend/app ./app
+ ---> 8a57a2fbf11b
+Step 10/21 : COPY backend/alembic ./alembic
+ ---> dcbe7e37bd49
+Step 11/21 : COPY backend/alembic.ini ./
+ ---> dc4ec3c7b56d
+Step 12/21 : COPY backend/scripts/healthcheck.py ./healthcheck.py
+ ---> b93af31d56e5
+Step 13/21 : COPY backend/scripts/screening_worker_healthcheck.py ./screening_worker_healthcheck.py
+ ---> 471c6e2e80e8
+Step 14/21 : COPY backend/scripts/compose_env_guard.py ./scripts/compose_env_guard.py
+ ---> 601a618be41a
+Step 15/21 : COPY backend/scripts/rekey_totp_secrets.py ./scripts/rekey_totp_secrets.py
+ ---> 228e21d7c1fd
+Step 16/21 : COPY backend/scripts/totp_breakglass.py ./scripts/totp_breakglass.py
+ ---> a0a93199b646
+Step 17/21 : RUN rm -rf /usr/local/lib/python3.13/site-packages/pip         /usr/local/lib/python3.13/site-packages/pip-*.dist-info     && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.13         /usr/local/bin/uv /usr/local/bin/uvx
+ ---> Running in a2bf13b79ffd
+ ---> Removed intermediate container a2bf13b79ffd
+ ---> 013e48fecd40
+Step 18/21 : USER goatfarm
+ ---> Running in aadc3f2c58fa
+ ---> Removed intermediate container aadc3f2c58fa
+ ---> 437d76298372
+Step 19/21 : EXPOSE 8000
+ ---> Running in e8ee115d2b24
+ ---> Removed intermediate container e8ee115d2b24
+ ---> 3f497bb51dfd
+Step 20/21 : HEALTHCHECK --interval=30s --timeout=5s --start-period=15s     CMD python healthcheck.py
+ ---> Running in 4e8074112bed
+ ---> Removed intermediate container 4e8074112bed
+ ---> 7255ab5191bf
+Step 21/21 : CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-graceful-shutdown", "30", "--no-proxy-headers", "--no-server-header"]
+ ---> Running in 729e9c034876
+ ---> Removed intermediate container 729e9c034876
+ ---> c8b46356f06b
+Successfully built c8b46356f06b
+Successfully tagged goatfarm-fix29-backend:104

@@ -1,0 +1,6 @@
+scripts/backup_legacy_lock.py: error: Source file found twice under different module names: "backup_legacy_lock" and "scripts.backup_legacy_lock"
+scripts/backup_legacy_lock.py: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#mapping-file-paths-to-modules for more info
+scripts/backup_legacy_lock.py: note: Common resolutions include:
+scripts/backup_legacy_lock.py: note:     a) adding `__init__.py` somewhere,
+scripts/backup_legacy_lock.py: note:     b) using `--explicit-package-bases` or adjusting `MYPYPATH`
+Found 1 error in 1 file (errors prevented further checking)

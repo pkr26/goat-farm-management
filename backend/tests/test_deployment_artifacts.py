@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import base64
 import errno
 import hashlib
 import http.client
@@ -206,6 +207,21 @@ else:
 {common}
 record("gpg")
 arguments = sys.argv[1:]
+if "--detach-sign" in arguments:
+    import hashlib
+    payload = sys.stdin.buffer.read()
+    sys.stdout.buffer.write(hashlib.sha256(payload).digest())
+    raise SystemExit(5 if os.environ.get("MOCK_GPG_FAIL") == "1" else 0)
+if "--verify" in arguments:
+    import hashlib, time
+    signature, content = (Path(value) for value in arguments[-2:])
+    if signature.read_bytes() != hashlib.sha256(content.read_bytes()).digest():
+        print("[GNUPG:] BADSIG tampered")
+        raise SystemExit(1)
+    stamp = str(int(time.time()))
+    print("[GNUPG:] VALIDSIG {SIGNER_A} 2026-10-04 " + stamp
+          + " 0 4 0 1 10 00 {SIGNER_A}")
+    raise SystemExit(0)
 output = arguments[arguments.index("--output") + 1]
 if "--decrypt" in arguments:
     Path(output).write_bytes(b"mock decrypted custom archive")
@@ -314,13 +330,14 @@ def _write_recovery_inventory(path: Path, archive: Path | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     entry = {"sha256": "a" * 64, "escrow_receipt": "vault-receipt-1"}
     payload: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "screening_objects": {
             "bucket": "goatfarm-screening",
             "prefix": "raw",
             "versioning": "Enabled",
             "recovery_point": "replica-snapshot-1",
+            "recovered_at": datetime.now(UTC).isoformat(),
             "restore_receipt": "quarterly-drill-1",
             "manifest": {"name": "inventory.csv", "bytes": 10, "sha256": "b" * 64},
         },
@@ -340,6 +357,14 @@ def _write_recovery_inventory(path: Path, archive: Path | None = None) -> None:
         payload["database_artifact"] = {
             "name": archive.name,
             "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+            "recovered_at": datetime.now(UTC).isoformat(),
+        }
+        canonical = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode()
+        payload["authentication"] = {
+            "format": "openpgp-detached",
+            "signature": base64.b64encode(hashlib.sha256(canonical).digest()).decode(),
         }
     path.write_text(json.dumps(payload))
 
@@ -3188,9 +3213,7 @@ def test_bootstrap_tools_are_hash_pinned() -> None:
     assert "uvx --from pip-audit==" not in ci and "uvx --from pip-audit==" not in security
 
     # pnpm: Corepack verifies the +sha512 integrity suffix from packageManager.
-    assert re.search(
-        r'"packageManager": "pnpm@\d+\.\d+\.\d+\+sha512-[A-Za-z0-9+/=]+"', package_json
-    )
+    assert re.search(r'"packageManager": "pnpm@\d+\.\d+\.\d+\+sha512\.[0-9a-f]{128}"', package_json)
 
 
 def test_every_app_service_runs_with_a_read_only_root_filesystem() -> None:
@@ -4622,3 +4645,25 @@ def test_trivy_ignore_freshness_gate_enforces_the_refresh_marker(tmp_path: Path)
     result = run_gate(future)
     assert result.returncode == 1
     assert "future" in result.stderr
+
+
+def test_frontend_container_receives_frozen_patch_and_typecheck_inputs() -> None:
+    """A clean context must include every patch and config import before use."""
+    dockerfile = (REPO_ROOT / "frontend/Dockerfile").read_text()
+    manifest = json.loads((REPO_ROOT / "frontend/package.json").read_text())
+    lock = (REPO_ROOT / "frontend/pnpm-lock.yaml").read_text()
+    for relative in manifest["pnpm"]["patchedDependencies"].values():
+        patch = REPO_ROOT / "frontend" / relative
+        assert patch.is_file()
+        assert relative in lock
+        parent = Path(relative).parent.as_posix()
+        assert dockerfile.index(f"COPY {parent}/") < dockerfile.index(
+            "pnpm install --frozen-lockfile"
+        )
+    # Next's production typecheck includes this config; ignore generated
+    # mutation reports without omitting its source import from the context.
+    config = (REPO_ROOT / "frontend/vitest.mutation.config.ts").read_text()
+    dockerignore = (REPO_ROOT / "frontend/.dockerignore").read_text().splitlines()
+    for relative in re.findall(r'from ["\']\./(mutation/[^"\']+)["\']', config):
+        assert (REPO_ROOT / "frontend" / relative).is_file()
+        assert f"!{relative}" in dockerignore

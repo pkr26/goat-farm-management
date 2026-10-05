@@ -1,0 +1,6 @@
+
+> frontend@0.1.0 check:route-js-budget /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
+> node scripts/check-route-js-budget.mjs
+
+/login: 22 initial scripts, 1541525 raw bytes, 446517 gzip bytes (437 KiB; budget 455 KiB)
+/simulation: 27 initial scripts, 1830643 raw bytes, 529323 gzip bytes (517 KiB; budget 535 KiB)

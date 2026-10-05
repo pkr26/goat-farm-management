@@ -1,0 +1,22 @@
+{
+  "gpg_image": "ruby:3.3@sha256:8c53fba677325dcb3666a9ac8ad710d21356cc61753faf3db5520e40a36abe07",
+  "fingerprint": "F6D76EAE8A441273CC594C6F50225D00C44CE6A7",
+  "signed_at_utc": "2026-10-01T22:42:16.805234+00:00",
+  "gpg_signature_before": [
+    "[GNUPG:] GOODSIG 50225D00C44CE6A7 Audit Temporary <backup-audit@example.invalid>",
+    "[GNUPG:] VALIDSIG F6D76EAE8A441273CC594C6F50225D00C44CE6A7 2026-10-01 1790894536 0 4 0 1 10 00 F6D76EAE8A441273CC594C6F50225D00C44CE6A7"
+  ],
+  "gpg_signature_after": [
+    "[GNUPG:] GOODSIG 50225D00C44CE6A7 Audit Temporary <backup-audit@example.invalid>",
+    "[GNUPG:] VALIDSIG F6D76EAE8A441273CC594C6F50225D00C44CE6A7 2026-10-01 1790894536 0 4 0 1 10 00 F6D76EAE8A441273CC594C6F50225D00C44CE6A7"
+  ],
+  "same_valid_signature": true,
+  "before_exit": 2,
+  "before_stderr": "newest complete whole-system backup is 72.0h old; policy is 26h\n",
+  "after_exit": 0,
+  "after_stdout": "fresh complete backup: /Users/pradeepreddy/.cache/goatfarm-a26-gpg-tjg1vxux/backups/goatfarm-2026-10-01T22-42-16Z-signedfixture.dump.gpg (0.0h old)\n",
+  "archive_sha256": "a83cb64f026f69e9fb9c3cecfa9efff3f255456ac575b5ee379ba2b3a0853958",
+  "archive_bytes_unchanged": true,
+  "only_changed_field": "unsigned recovery.json generated_at",
+  "scope": "Real 72-hour-old GPG signature+encryption over fixture payload; not a PostgreSQL restore or production key."
+}

@@ -1,0 +1,74 @@
+2026-10-04 15:24:59,652 INFO goatfarm [a6df2983e13643a6a51b983d50764686] request method=POST path=/api/auth/register status=201 duration_ms=262.53
+2026-10-04 15:24:59,653 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:24:59,699 INFO goatfarm [dc61625f4ad8476bbe53b427eab88ccc] request method=POST path=/api/auth/farms status=201 duration_ms=45.79
+2026-10-04 15:24:59,700 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:24:59,764 INFO goatfarm [8bd7251302dd4b8c9497c2d66e985b3b] request method=POST path=/api/animals status=201 duration_ms=63.42
+2026-10-04 15:24:59,765 INFO httpx [-] HTTP Request: POST http://test/api/animals "HTTP/1.1 201 Created"
+2026-10-04 15:24:59,810 INFO goatfarm [74c04a08864b423a94c375f9aff86105] request method=POST path=/api/animals/1/status status=200 duration_ms=44.40
+2026-10-04 15:24:59,810 INFO httpx [-] HTTP Request: POST http://test/api/animals/1/status "HTTP/1.1 200 OK"
+DOB_CHRONOLOGY {"id": 1, "purchase_date": "2024-10-05", "estimated_dob": "2025-10-05", "status": "SOLD", "sale_price": 1000.0}
+.2026-10-04 15:25:00,214 INFO goatfarm [eeecbda66c554490aab2c4e82d1efd20] request method=POST path=/api/auth/register status=201 duration_ms=163.35
+2026-10-04 15:25:00,214 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:25:00,238 INFO goatfarm [e7f79789e954466d8409871f75145f54] request method=POST path=/api/auth/farms status=201 duration_ms=23.00
+2026-10-04 15:25:00,238 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:25:00,960 INFO goatfarm [70ff0672d1024368a43aca0dc20c5d65] request method=GET path=/api/simulation/calibration status=200 duration_ms=354.14
+2026-10-04 15:25:00,962 INFO httpx [-] HTTP Request: GET http://test/api/simulation/calibration?lookback_months=12 "HTTP/1.1 200 OK"
+COST_TRUNCATION {"recorded_other_expense": 61000, "expected_misc_per_month": 10166.666666666666, "returned_misc_per_month": 166.66666666666666, "cost_evidence": {"costs.misc_overhead_per_month": {"path": "costs.misc_overhead_per_month", "previous_value": 2000.0, "calibrated_value": 166.66666666666666, "sample_size": 20000, "confidence": "high", "method": "Total other operating expense divided by the 6 month(s) of ledger history", "source": "transactions", "period_start": "2025-10-05", "period_end": "2026-10-05"}}, "warnings": ["No active animals were found; herd counts were calibrated to zero.", "Cost calibration used the 20,000 most recent ledger rows (ledger history actually reaches back to 2026-04-08).", "Recurring costs were averaged over the 6 month(s) of ledger history that exist, not the 12 month(s) requested.", "No sufficient farm evidence for: feed, growth, mortality, reproduction, sales; preset values remain.", "8 calibrated input(s) have low confidence; review them before lending or investment decisions."]}
+.2026-10-04 15:25:01,343 INFO goatfarm [85a99e4f8b4f428a841de114d1efc4ed] request method=POST path=/api/auth/register status=201 duration_ms=164.19
+2026-10-04 15:25:01,343 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:25:01,363 INFO goatfarm [b8a524e91ba44cbc85a1183d46e68e7b] request method=POST path=/api/auth/farms status=201 duration_ms=19.26
+2026-10-04 15:25:01,364 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+EMPTY_FLAG {"image_status": "FLAGGED", "finding_count": 0, "cycle_flagged": 1}
+.2026-10-04 15:25:01,829 INFO goatfarm [783f9e172c244e1bbc736be193397347] request method=POST path=/api/auth/register status=201 duration_ms=168.40
+2026-10-04 15:25:01,830 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:25:01,852 INFO goatfarm [6adf8d9b8c0446349711a75dee30a080] request method=POST path=/api/auth/farms status=201 duration_ms=21.61
+2026-10-04 15:25:01,853 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:25:01,965 INFO goatfarm [9b5c74624de64c19bccf17d3c5da3b8d] request method=POST path=/api/feeding/dispense status=422 duration_ms=101.01
+2026-10-04 15:25:01,966 INFO httpx [-] HTTP Request: POST http://test/api/feeding/dispense "HTTP/1.1 422 Unprocessable Entity"
+DISPENSE_TIMEZONE {"created_utc": "2026-10-04T00:30:00", "farm_local_date": "2026-10-03", "timezone": "America/Phoenix", "response": {"detail": "Dispensing date cannot be before the farm was created.", "code": "VALIDATION_ERROR"}}
+.2026-10-04 15:25:02,350 INFO goatfarm [b0ba5a0327824710ba2a769905305e23] request method=POST path=/api/auth/register status=201 duration_ms=164.77
+2026-10-04 15:25:02,351 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:25:02,383 INFO goatfarm [da7a68e5c9cd4e9bb85e494279fd7d85] request method=POST path=/api/auth/farms status=201 duration_ms=31.91
+2026-10-04 15:25:02,384 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+LOST_REGION {"gate_regions": ["mouth", "eye"], "reviewable_findings": [["mouth", "ORF"]]}
+.2026-10-04 15:25:02,827 INFO goatfarm [b6640ce387bc4bbbacc6bb0da85d1fec] request method=POST path=/api/auth/register status=201 duration_ms=166.46
+2026-10-04 15:25:02,827 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:25:02,851 INFO goatfarm [0250639971a548f2b6c2f8a89f3ca085] request method=POST path=/api/auth/farms status=201 duration_ms=23.55
+2026-10-04 15:25:02,852 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:25:02,967 INFO goatfarm [87359017694a45e3b74c0f8094b1213e] request method=POST path=/api/animals/3/status status=200 duration_ms=42.44
+2026-10-04 15:25:02,968 INFO httpx [-] HTTP Request: POST http://test/api/animals/3/status "HTTP/1.1 200 OK"
+2026-10-04 15:25:03,134 INFO goatfarm [a9a63289521d473782fd88d1dc46fa91] request method=GET path=/api/simulation/calibration status=200 duration_ms=165.72
+2026-10-04 15:25:03,135 INFO httpx [-] HTTP Request: GET http://test/api/simulation/calibration?lookback_months=24 "HTTP/1.1 200 OK"
+MISSED_KID_DEATH {"live_births": 10, "recorded_deaths_by_3_months": 1, "weaned_age_days": 60, "died_age_days": 70, "birth_entry_status": "ALIVE", "returned_preweaning_mortality": 0.0, "evidence": {"path": "mortality.kid_pre_weaning", "previous_value": 0.15, "calibrated_value": 0.0, "sample_size": 10, "confidence": "medium", "method": "Dependent-kid deaths as the observed whole-phase pre-weaning fraction, counting only kids born early enough to have completed it and deaths reported within that three-month window", "source": "kid_entries", "period_start": "2024-10-05", "period_end": "2026-10-05"}}
+.DISPOSAL_TAX {"purchase_and_sale_same_month": 100000, "closing_herd": 0.0, "total_tax": 24000.0, "total_depreciation": 20000.0, "terminal_breeding_stock": 71999.99999999996, "terminal_livestock": -71999.99999999996}
+.2026-10-04 15:25:03,671 INFO goatfarm [d812fa1d520c4b0496542869e011ab0b] request method=POST path=/api/auth/register status=201 duration_ms=163.59
+2026-10-04 15:25:03,672 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:25:03,692 INFO goatfarm [71be0abe697645689d6a20c74a0b3c2a] request method=POST path=/api/auth/farms status=201 duration_ms=19.70
+2026-10-04 15:25:03,692 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:25:03,875 INFO goatfarm [b4fdaaad20314579a0ae914d9ace3db6] request method=GET path=/api/simulation/calibration status=200 duration_ms=173.62
+2026-10-04 15:25:03,876 INFO httpx [-] HTTP Request: GET http://test/api/simulation/calibration?lookback_months=24 "HTTP/1.1 200 OK"
+SEASONAL_LEVEL_DRIFT {"observed_monthly_prices": [100, 100, 100, 400], "calibrated_base": 100.0, "implied_same_month_prices_before_growth": [80.0, 80.0, 80.0, 320.0], "multipliers": [0.8, 0.8, 0.8, 3.2, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8]}
+.2026-10-04 15:25:04,237 INFO goatfarm [bc4a6020039b4c18849017f2f904e3b5] request method=POST path=/api/auth/register status=201 duration_ms=161.95
+2026-10-04 15:25:04,237 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:25:04,261 INFO goatfarm [a6fc08938c214e978a767e2a3cbecc9f] request method=POST path=/api/auth/farms status=201 duration_ms=23.59
+2026-10-04 15:25:04,262 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:25:04,398 INFO goatfarm [bf982be3fccb4cbabf1e3c00317ee28a] request method=POST path=/api/auth/register status=201 duration_ms=136.10
+2026-10-04 15:25:04,399 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:25:04,414 INFO goatfarm [a9f01ccada2041a9926368b9c38893c7] request method=POST path=/api/auth/farms status=201 duration_ms=15.04
+2026-10-04 15:25:04,415 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:25:04,449 INFO goatfarm [f6680ebff0704e6682e55d3f8986c127] request method=POST path=/api/animals status=201 duration_ms=34.26
+2026-10-04 15:25:04,450 INFO httpx [-] HTTP Request: POST http://test/api/animals "HTTP/1.1 201 Created"
+CATALOG_CONTROL {"head": ["fe5f6a7b8c9d"], "invalid_indexes": [], "unvalidated_constraints": [], "cross_tenant_ledger_link": "rejected"}
+.2026-10-04 15:25:04,961 INFO goatfarm [1623e9f36f3b4b18b37976d9c4d7198b] request method=POST path=/api/auth/register status=201 duration_ms=313.88
+2026-10-04 15:25:04,961 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:25:04,986 INFO goatfarm [2031e631ca71494c94c077ca6e8a9d2d] request method=POST path=/api/auth/farms status=201 duration_ms=24.30
+2026-10-04 15:25:04,987 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:25:05,026 INFO goatfarm [7d2c396fed5b44e3a22791348f1c97d6] request method=POST path=/api/animals status=201 duration_ms=38.91
+2026-10-04 15:25:05,027 INFO httpx [-] HTTP Request: POST http://test/api/animals "HTTP/1.1 201 Created"
+2026-10-04 15:25:05,051 INFO goatfarm [bd025c476cbf433aa43755acdee24b56] request method=POST path=/api/animals/1/status status=200 duration_ms=23.16
+2026-10-04 15:25:05,051 INFO httpx [-] HTTP Request: POST http://test/api/animals/1/status "HTTP/1.1 200 OK"
+2026-10-04 15:25:05,051 INFO goatfarm [662b7b33b63640889f7d7774c3b6dfa7] request method=POST path=/api/animals/1/status status=409 duration_ms=24.18
+2026-10-04 15:25:05,052 INFO httpx [-] HTTP Request: POST http://test/api/animals/1/status "HTTP/1.1 409 Conflict"
+SALE_CONCURRENCY_CONTROL {"responses": [200, 409], "sale_transactions": 1}
+.
+10 passed in 12.35s

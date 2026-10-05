@@ -232,14 +232,17 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
         with_sensitivity=True,
     )
 
+    # D26-07: explicit disposal book cost changes P&L, tax explanations and
+    # surviving terminal book components. The reviewed full narratives are
+    # retained in the remediation evidence/explanation-contract.json.
     assert _explanation_digest(default) == (
-        "d0c053aa3efc3816b64e7e018ab6dbf41682883d90109b7718b6bf9fe007d60a"
+        "801771cabdf1b9d7c23d755b8fdcc3f9eaea5afa8d3cc44f64645eb2216cd99a"
     )
     assert _explanation_digest(viable) == (
-        "081a58625a39309b56d0f003f7751333ccf3a85b736be4291b5a01e979a89033"
+        "92a0624641937a42cabbfea61b90ff171b318497f34a286cf6b9dcc6bea3f080"
     )
     assert _explanation_digest(no_debt) == (
-        "a425f54dfce9b02958869601fd4dfa52efc918294cd68f015694de6f8a4b311c"
+        "31629b0970f59c0f6170852ab4d35e605d0cf207678cc83917a7e74ef2f24e1c"
     )
     assert _report_digest(default) == (
         "aa162bfebac906f870148b13b8141558e866c9515889bddef7c15a058b0b8c1c"
@@ -269,7 +272,7 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     # explanation, parity-keyed litter expectations and the water-demand
     # paragraph changed the quoted figures and texts.
     assert _report_digest(risk) == (
-        "1eb22b40a92e2cb4ebd88e50080adf57a3429c793a8293c28dfb4ebffa9e0659"
+        "a718d77671cd5a3e8eb0410d6d4054f4a9bbf800ba456ee4a2f2cba3eb1efed8"
     )
 
 
@@ -511,7 +514,8 @@ def test_metric_explanations_cover_undefined_and_dscr_boundary_branches() -> Non
     assert tax.explanation == (
         f"The model pays {_inr(result.metrics.tax_total)} of cash tax at an assumed "
         f"{_pct(without_loss_carryforward.finance.income_tax_rate)} rate after interest, "
-        "straight-line depreciation and current-period losses only."
+        "straight-line depreciation, disposed breeding-stock carrying costs "
+        "and current-period losses only."
     )
 
 

@@ -1,0 +1,37 @@
+[
+  {
+    "case": "fresh-signed-manifest",
+    "exit": 0,
+    "stdout": "fresh complete backup: /Users/pradeepreddy/.cache/goatfarm-fix29-ops/gpg-control/goatfarm-probe.dump.gpg (0.0h old)\n",
+    "stderr": ""
+  },
+  {
+    "case": "timestamp-tamper",
+    "exit": 2,
+    "stdout": "",
+    "stderr": "invalid backup set: goatfarm-probe.dump.gpg: invalid recovery timestamp: recovery manifest signature verification failed\nnewest complete whole-system backup is absent; policy is 26h\n"
+  },
+  {
+    "case": "escrow-tamper",
+    "exit": 2,
+    "stdout": "",
+    "stderr": "invalid backup set: goatfarm-probe.dump.gpg: invalid recovery timestamp: recovery manifest signature verification failed\nnewest complete whole-system backup is absent; policy is 26h\n"
+  },
+  {
+    "case": "unexpected-trust-anchor",
+    "exit": 2,
+    "stdout": "",
+    "stderr": "invalid backup set: goatfarm-probe.dump.gpg: invalid recovery timestamp: recovery manifest signature is from an unexpected signer\nnewest complete whole-system backup is absent; policy is 26h\n"
+  },
+  {
+    "case": "fresh-signature-stale-object-component",
+    "exit": 2,
+    "stdout": "",
+    "stderr": "newest complete whole-system backup is 72.0h old; policy is 26h\n"
+  },
+  {
+    "gpg_image_id": "sha256:8c53fba677325dcb3666a9ac8ad710d21356cc61753faf3db5520e40a36abe07",
+    "signer_fingerprint": "69B3A080E2654D24D63B7C9246C18C8FDD65D8A2",
+    "no_private_key_retained": true
+  }
+]

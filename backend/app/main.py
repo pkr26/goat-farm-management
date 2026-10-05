@@ -1270,6 +1270,7 @@ async def metrics_endpoint() -> Response:
 def create_app() -> FastAPI:
     _configure_logging()
     settings = get_settings()
+    metrics.configure(enabled=settings.metrics_enabled)
     # Fail fast (and loudly, with the single-replica explanation) if the
     # configured limiter backend does not exist. Settings validation rejects
     # unknown values first; this keeps the seam honest for direct Settings()

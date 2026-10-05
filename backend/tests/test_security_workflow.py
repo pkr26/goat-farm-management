@@ -98,6 +98,83 @@ def test_sarif_gate_allows_lower_severity_findings_and_rejects_missing_output(
     assert "No SARIF files found" in missing.stderr
 
 
+@pytest.mark.parametrize(
+    "run_patch",
+    [
+        {"invocations": [{"executionSuccessful": False}]},
+        {"invocations": [{"executionSuccessful": "true"}]},
+        {"invocations": [{}]},
+        {"invocations": []},
+        {"invocations": None},
+        {"invocations": [{"executionSuccessful": True, "processStartFailureMessage": "failed"}]},
+        {
+            "invocations": [
+                {"executionSuccessful": True, "toolExecutionNotifications": [{"level": "error"}]}
+            ]
+        },
+        {
+            "invocations": [
+                {
+                    "executionSuccessful": True,
+                    "toolConfigurationNotifications": [{"level": "error"}],
+                }
+            ]
+        },
+        {"invocations": [{"executionSuccessful": True, "toolExecutionNotifications": "invalid"}]},
+        {"invocations": [{"executionSuccessful": True, "toolExecutionNotifications": [None]}]},
+        {"tool": {"driver": {"name": "UnknownScanner"}}},
+        {"tool": {"driver": {"name": []}}},
+        {"results": None},
+        {"results": [None]},
+        {"results": [{}]},
+        {"results": [{"ruleId": "bad-score", "properties": {"security-severity": "NaN"}}]},
+    ],
+)
+def test_sarif_gate_rejects_failed_or_incomplete_runs(
+    tmp_path: Path, run_patch: JsonObject
+) -> None:
+    path = tmp_path / "incomplete.sarif"
+    run: JsonObject = {"tool": {"driver": {"name": "CodeQL"}}, "results": []}
+    run.update(run_patch)
+    path.write_text(json.dumps({"version": "2.1.0", "runs": [run]}))
+    result = _run_gate(path)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "passed" not in result.stdout
+
+
+@pytest.mark.parametrize("runs", [[], None, [None]])
+def test_sarif_gate_never_equates_absent_runs_with_a_clean_scan(
+    tmp_path: Path, runs: object
+) -> None:
+    path = tmp_path / "missing-runs.sarif"
+    path.write_text(json.dumps({"version": "2.1.0", "runs": runs}))
+    assert _run_gate(path).returncode == 2
+
+
+@pytest.mark.parametrize("tool_name", ["CodeQL", "CodeQL command-line toolchain"])
+@pytest.mark.parametrize("with_invocation", [False, True])
+def test_sarif_gate_accepts_valid_zero_findings_with_optional_invocation_metadata(
+    tmp_path: Path, tool_name: str, with_invocation: bool
+) -> None:
+    path = tmp_path / "clean.sarif"
+    run: JsonObject = {"tool": {"driver": {"name": tool_name}}, "results": []}
+    if with_invocation:
+        run["invocations"] = [
+            {"executionSuccessful": True, "toolExecutionNotifications": [{"level": "warning"}]}
+        ]
+    path.write_text(json.dumps({"version": "2.1.0", "runs": [run]}))
+    result = _run_gate(path)
+    assert result.returncode == 0, result.stderr
+
+
+def test_one_failed_sarif_run_rejects_an_otherwise_clean_directory(tmp_path: Path) -> None:
+    _write_sarif(tmp_path / "clean.sarif", [], [])
+    (tmp_path / "broken.sarif").write_text(json.dumps({"version": "2.1.0", "runs": []}))
+    result = _run_gate(tmp_path)
+    assert result.returncode == 2
+    assert "passed" not in result.stdout
+
+
 def test_security_workflow_gates_private_codeql_and_scans_deployed_images() -> None:
     workflow = SECURITY_WORKFLOW.read_text()
     compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
@@ -149,10 +226,12 @@ def test_security_and_release_workflows_cover_digest_pinned_production_edge() ->
     assert 'cosign sign --yes "${EDGE_IMAGE}@${EDGE_DIGEST}"' in release
     assert "edge_digest=${edge_digest}" in release
 
-    # The scoped ignore list remains only for the exact third-party database;
+    # The scoped ignore list remains only for inherited upstream gosu in the local database;
     # first-party edge findings cannot be waived by this file.
     trivyignore = (REPO_ROOT / ".trivyignore.compose-images").read_text()
     assert dev_compose["services"]["db"]["image"] in trivyignore
+    assert dev_compose["services"]["db"]["build"]["dockerfile"] == "docker/postgres/Dockerfile"
+    assert 'docker build -f docker/postgres/Dockerfile -t "${COMPOSE_POSTGRES_IMAGE}" .' in workflow
     assert "nginx:" not in trivyignore
 
 
@@ -192,3 +271,48 @@ def test_privileged_qemu_and_buildkit_toolchain_are_immutable() -> None:
         "400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0"
     )
     assert qemu_inputs["platforms"] == "arm64"
+
+
+@pytest.mark.parametrize(
+    "result_patch",
+    [
+        {"ruleId": "high", "ruleIndex": 0},
+        {"ruleId": "high", "ruleIndex": -1},
+        {"ruleId": "high", "ruleIndex": 99},
+        {"ruleId": "high", "ruleIndex": True},
+        {"ruleId": [], "ruleIndex": 0},
+        {"ruleId": "low", "level": "ERROR"},
+        {"ruleId": "low", "level": []},
+    ],
+)
+def test_sarif_gate_rejects_contradictory_rule_identity_and_invalid_levels(
+    tmp_path: Path, result_patch: JsonObject
+) -> None:
+    path = tmp_path / "contradictory.sarif"
+    _write_sarif(
+        path,
+        [result_patch],
+        [
+            {"id": "low", "properties": {"security-severity": "1.0"}},
+            {"id": "high", "properties": {"security-severity": "9.8"}},
+        ],
+    )
+    result = _run_gate(path)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "passed" not in result.stdout
+
+
+def test_sarif_gate_accepts_matching_or_index_only_rule_identity(tmp_path: Path) -> None:
+    path = tmp_path / "consistent.sarif"
+    _write_sarif(
+        path,
+        [{"ruleId": "low", "ruleIndex": 0}, {"ruleIndex": 0}],
+        [
+            {
+                "id": "low",
+                "defaultConfiguration": {"level": "warning"},
+                "properties": {"security-severity": "1.0"},
+            },
+        ],
+    )
+    assert _run_gate(path).returncode == 0

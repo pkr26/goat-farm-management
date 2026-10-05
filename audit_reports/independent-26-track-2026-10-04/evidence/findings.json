@@ -1,0 +1,185 @@
+{
+  "commit": "7245368fa91333fb39387df789fa4ef9a58dbea3",
+  "counts": {
+    "High": 1,
+    "Medium": 17,
+    "Low": 11
+  },
+  "total": 29,
+  "findings": [
+    {
+      "id": "O26-01",
+      "severity": "High",
+      "title": "Production screening consumes provider calls but terminally fails provider-processed images",
+      "source_report": "ops.md"
+    },
+    {
+      "id": "D26-01",
+      "severity": "Medium",
+      "title": "A sale can record an animal as purchased before it was born",
+      "source_report": "domain.md"
+    },
+    {
+      "id": "D26-02",
+      "severity": "Medium",
+      "title": "Ledger truncation systematically underestimates recurring costs",
+      "source_report": "domain.md"
+    },
+    {
+      "id": "D26-03",
+      "severity": "Medium",
+      "title": "A valid flagged cascade can end with no reviewable finding",
+      "source_report": "domain.md"
+    },
+    {
+      "id": "D26-04",
+      "severity": "Medium",
+      "title": "New western-timezone farms cannot record feeding on their first local day",
+      "source_report": "domain.md"
+    },
+    {
+      "id": "D26-05",
+      "severity": "Medium",
+      "title": "A malformed specialist response can silently erase one observed region",
+      "source_report": "domain.md"
+    },
+    {
+      "id": "D26-06",
+      "severity": "Medium",
+      "title": "Deaths after day-60 weaning vanish from the model's first-three-month mortality",
+      "source_report": "domain.md"
+    },
+    {
+      "id": "D26-07",
+      "severity": "Medium",
+      "title": "Disposed breeding stock retains book value and creates tax on a sale at cost",
+      "source_report": "domain.md"
+    },
+    {
+      "id": "D26-08",
+      "severity": "Medium",
+      "title": "Seasonal normalization changes the observed price level without adjusting the base",
+      "source_report": "domain.md"
+    },
+    {
+      "id": "F26-01",
+      "severity": "Medium",
+      "title": "Same-build shell refreshes evict live lazy assets; an offline Telugu reload can become a blank screen",
+      "source_report": "frontend.md"
+    },
+    {
+      "id": "F26-02",
+      "severity": "Medium",
+      "title": "First-time worker setup defaults to English instead of Telugu",
+      "source_report": "frontend.md"
+    },
+    {
+      "id": "F26-04",
+      "severity": "Medium",
+      "title": "Finishing a walkthrough can abort an actively uploading photo while reporting success",
+      "source_report": "frontend.md"
+    },
+    {
+      "id": "O26-02",
+      "severity": "Medium",
+      "title": "Screening counters are collected in a process that has no scrape endpoint",
+      "source_report": "ops.md"
+    },
+    {
+      "id": "O26-03",
+      "severity": "Medium",
+      "title": "Re-running an existing release deletes package versions owned by the earlier successful run",
+      "source_report": "ops.md"
+    },
+    {
+      "id": "O26-04",
+      "severity": "Medium",
+      "title": "Unsigned recovery metadata can make an unchanged stale backup appear fresh",
+      "source_report": "ops.md"
+    },
+    {
+      "id": "O26-07",
+      "severity": "Medium",
+      "title": "Current frontend Docker build fails on malformed Corepack package-manager declaration",
+      "source_report": "ops.md"
+    },
+    {
+      "id": "O26-08",
+      "severity": "Medium",
+      "title": "Frontend dependency layer omits the required local vulnerability patch",
+      "source_report": "ops.md"
+    },
+    {
+      "id": "O26-09",
+      "severity": "Medium",
+      "title": "Pinned backend and PostgreSQL images fail the current vulnerability policy",
+      "source_report": "ops.md"
+    },
+    {
+      "id": "D26-09",
+      "severity": "Low",
+      "title": "Income rows falsely increase confidence in expense estimates",
+      "source_report": "domain.md"
+    },
+    {
+      "id": "F26-03",
+      "severity": "Low",
+      "title": "UTC-naive health snapshot timestamps display a browser-dependent farm date",
+      "source_report": "frontend.md"
+    },
+    {
+      "id": "F26-05",
+      "severity": "Low",
+      "title": "Switching farms preserves tenant-specific record IDs in root-route query state",
+      "source_report": "frontend.md"
+    },
+    {
+      "id": "F26-06",
+      "severity": "Low",
+      "title": "Language-sensitive formatting lags a locale switch until another render",
+      "source_report": "frontend.md"
+    },
+    {
+      "id": "F26-07",
+      "severity": "Low",
+      "title": "Offline worker page nests duplicate main landmarks",
+      "source_report": "frontend.md"
+    },
+    {
+      "id": "F26-08",
+      "severity": "Low",
+      "title": "Health viewers are offered a screening workflow they cannot submit",
+      "source_report": "frontend.md"
+    },
+    {
+      "id": "F26-09",
+      "severity": "Low",
+      "title": "Screening statistics outages are presented as an empty history",
+      "source_report": "frontend.md"
+    },
+    {
+      "id": "O26-05",
+      "severity": "Low",
+      "title": "Mutation gate trusts summary scores that contradict the raw attempts",
+      "source_report": "ops.md"
+    },
+    {
+      "id": "O26-06",
+      "severity": "Low",
+      "title": "SARIF gate reports a passed scan for zero runs or an explicitly failed invocation",
+      "source_report": "ops.md"
+    },
+    {
+      "id": "S26-01",
+      "severity": "Low",
+      "title": "Oversized numeric farm header produces an internal server error",
+      "source_report": "security-api.md"
+    },
+    {
+      "id": "S26-02",
+      "severity": "Low",
+      "title": "Successful logout revocations have no durable attributed security event",
+      "source_report": "security-api.md"
+    }
+  ]
+}

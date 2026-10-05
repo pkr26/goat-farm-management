@@ -1,0 +1,703 @@
+{
+  "node": "/Users/pradeepreddy/.local/opt/node24/bin/node",
+  "probe_root_pid": 82558,
+  "outer_deadline_seconds": 20,
+  "outer_deadline_reached": false,
+  "exit_code": 1,
+  "elapsed_seconds": 15.814,
+  "cleanup_signals": [],
+  "remaining_owned_processes": [],
+  "snapshots": [
+    {
+      "elapsed_seconds": 0.041,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:00",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 0.584,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:01",
+          "cpu": "20.2",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:01",
+          "cpu": "8.5",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 1.129,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:01",
+          "cpu": "1.5",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:01",
+          "cpu": "0.7",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 1.672,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:02",
+          "cpu": "0.2",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:02",
+          "cpu": "0.2",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 2.21,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:02",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:02",
+          "cpu": "0.1",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 2.752,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:03",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:03",
+          "cpu": "0.1",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 3.289,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:03",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:03",
+          "cpu": "0.1",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 3.832,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:04",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:04",
+          "cpu": "0.1",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 4.378,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:04",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:04",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 4.921,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:05",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:05",
+          "cpu": "0.1",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 5.461,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:06",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:06",
+          "cpu": "9.3",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:01",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 5.998,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:06",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:06",
+          "cpu": "78.2",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:01",
+          "cpu": "13.4",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 6.534,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:07",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:07",
+          "cpu": "97.3",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:02",
+          "cpu": "1.1",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 7.078,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:07",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:07",
+          "cpu": "98.4",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:02",
+          "cpu": "0.1",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 7.613,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:08",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:08",
+          "cpu": "99.4",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:03",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 8.155,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:08",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:08",
+          "cpu": "99.6",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:03",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 8.701,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:09",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:09",
+          "cpu": "99.2",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:04",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 9.239,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:09",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:09",
+          "cpu": "100.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:04",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 9.781,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:10",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:10",
+          "cpu": "99.2",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:05",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 10.32,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:10",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:10",
+          "cpu": "99.3",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:05",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 10.86,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:11",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:11",
+          "cpu": "98.8",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:06",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 11.398,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:11",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:11",
+          "cpu": "100.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:06",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 11.934,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:12",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:12",
+          "cpu": "100.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:07",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 12.472,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:13",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:13",
+          "cpu": "100.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:08",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 13.011,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:13",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:13",
+          "cpu": "100.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:08",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 13.557,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:14",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:14",
+          "cpu": "99.6",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:09",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 14.093,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:14",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:14",
+          "cpu": "96.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:09",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 14.634,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:15",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:15",
+          "cpu": "98.2",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:10",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 15.171,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:15",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/.local/opt/node24/bin/node /Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/root/firefox-launch-control.mjs"
+        },
+        {
+          "pid": 82560,
+          "ppid": 82558,
+          "etime": "00:15",
+          "cpu": "99.3",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/firefox -no-remote -headless -profile /var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/playwright_firefoxdev_profile-oJ4IRz -juggler-pipe -silent"
+        },
+        {
+          "pid": 82583,
+          "ppid": 82560,
+          "etime": "00:10",
+          "cpu": "0.0",
+          "command": "/Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/MacOS/plugin-container.app/Contents/MacOS/plugin-container -parentBuildID 20260722112722 -prefsHandle 0:25807 -prefMapHandle 1:286627 -sbStartup -sbAppPath /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app -ipcHandle 0 -initialChannelId {497c2de3-aeaf-4446-aefe-8321e4124c5f} -parentPid 82560 -appDir /Users/pradeepreddy/Library/Caches/ms-playwright/firefox-1538/firefox/Nightly.app/Contents/Resources/browser org.mozilla.machname.57402720 1 socket"
+        }
+      ]
+    },
+    {
+      "elapsed_seconds": 15.715,
+      "owned_processes": [
+        {
+          "pid": 82558,
+          "ppid": 82556,
+          "etime": "00:16",
+          "cpu": "0.0",
+          "command": "<defunct>"
+        }
+      ]
+    }
+  ],
+  "scope": "Firefox launch plus about:blank only; no application ports, API, database, or external page navigation.",
+  "completed_utc": "2026-10-04T22:38:44.374540+00:00"
+}

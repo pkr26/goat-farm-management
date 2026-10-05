@@ -537,12 +537,15 @@ async def calibrate_farm_assumptions(
                 KidEntry.status,
                 KidEntry.birth_weight,
                 KidEntry.mortality_reported_at,
+                Animal.status.label("linked_status"),
+                Animal.status_date.label("linked_status_date"),
             )
             .join(
                 BreedingRecord,
                 BreedingRecord.id == KiddingRecord.breeding_record_id,
             )
             .join(KidEntry, KidEntry.kidding_record_id == KiddingRecord.id)
+            .outerjoin(Animal, Animal.id == KidEntry.animal_id)
             .where(
                 KiddingRecord.farm_id == farm.id,
                 KiddingRecord.date >= period_start,
@@ -692,13 +695,33 @@ async def calibrate_farm_assumptions(
         # or three of its pre-weaning life. Counting it in the denominator
         # dilutes the rate, so only kiddings old enough to have completed the
         # exposure are eligible.
-        weaning_cutoff = add_months(reference_date, -3)
-        weaned_rows = [row for row in alive_rows if row.date <= weaning_cutoff]
+        weaned_rows = [
+            row
+            for row in alive_rows
+            if _class_boundary(row.date, 3) <= reference_date
+            and not (
+                row.linked_status in {AnimalStatus.SOLD.value, AnimalStatus.CULLED.value}
+                and row.linked_status_date is not None
+                and row.linked_status_date < _class_boundary(row.date, 3)
+            )
+        ]
         if weaned_rows:
             died = sum(
-                kid_row.status == "DIED"
-                and kid_row.mortality_reported_at is not None
-                and kid_row.mortality_reported_at <= add_months(kid_row.date, 3)
+                (
+                    kid_row.linked_status == AnimalStatus.DEAD.value
+                    and kid_row.linked_status_date is not None
+                    and kid_row.date
+                    <= kid_row.linked_status_date
+                    < _class_boundary(kid_row.date, 3)
+                )
+                or (
+                    kid_row.linked_status_date is None
+                    and kid_row.status == "DIED"
+                    and kid_row.mortality_reported_at is not None
+                    and kid_row.date
+                    <= kid_row.mortality_reported_at
+                    < _class_boundary(kid_row.date, 3)
+                )
                 for kid_row in weaned_rows
             )
             previous_kid_mortality = assumptions.mortality.kid_pre_weaning
@@ -714,10 +737,12 @@ async def calibrate_farm_assumptions(
                 previous_kid_mortality,
                 assumptions.mortality.kid_pre_weaning,
                 len(weaned_rows),
-                "Dependent-kid deaths as the observed whole-phase pre-weaning fraction, "
-                "counting only kids born early enough to have completed it and deaths "
-                "reported within that three-month window",
-                "kid_entries",
+                "Live-born kid deaths in the model's first three 30.44-day months, "
+                "from linked animal "
+                "death dates (birth-entry report date only when no linked exit date exists), "
+                "divided by births old enough to have completed that phase, excluding earlier "
+                "sales/culls; each kid counts once",
+                "kid_entries/animals",
             )
 
     # Class mortality is measured as deaths per animal-month at risk. Counting heads instead put
@@ -931,17 +956,6 @@ async def calibrate_farm_assumptions(
             (sold_on, _deflated(sold_on, price)) for sold_on, price in sale_prices_per_kg
         ]
         sale_calibrated = min(MAX_MONEY, median([price for _sold_on, price in deflated_prices]))
-        assumptions.sales.meat_price_per_kg = sale_calibrated
-        record(
-            "sales.meat_price_per_kg",
-            sale_previous,
-            sale_calibrated,
-            len(sale_prices_per_kg),
-            "Median sale amount divided by latest pre-sale recorded live weight "
-            "(Bakrid-month observations deflated to the plain market level when "
-            "festival pricing will re-apply the premium)",
-            "animals/weight_records",
-        )
         by_month: dict[int, list[float]] = defaultdict(list)
         for sold_on, price in deflated_prices:
             by_month[sold_on.month].append(price)
@@ -954,7 +968,12 @@ async def calibrate_farm_assumptions(
             # Renormalise to mean exactly 1.0: the base price is the annual
             # mean, and a curve averaging 0.9 silently redefines it as a
             # peak-month price (the same fix the schema default factory makes).
-            curve = _normalized_seasonality([_clamp(value, 0.25, 4.0) for value in raw_curve])
+            clamped_curve = [_clamp(value, 0.25, 4.0) for value in raw_curve]
+            seasonal_mean = sum(clamped_curve) / 12.0
+            curve = _normalized_seasonality(clamped_curve)
+            # Transfer the normalization scale into the base, preserving the
+            # fitted (clamped) monthly levels rather than lowering every price.
+            sale_calibrated = min(MAX_MONEY, sale_calibrated * seasonal_mean)
             assumptions.sales.monthly_meat_price_multipliers = curve
             record(
                 "sales.monthly_meat_price_multipliers",
@@ -962,9 +981,22 @@ async def calibrate_farm_assumptions(
                 curve,
                 len(sale_prices_per_kg),
                 "Calendar-month median live-weight price divided by overall median "
-                "(festival-deflated, renormalised to mean 1.0)",
+                "(festival-deflated, ratios clamped to 0.25–4, normalized to mean 1.0 "
+                "with the scale transferred to the base price)",
                 "animals/weight_records",
             )
+        assumptions.sales.meat_price_per_kg = sale_calibrated
+        record(
+            "sales.meat_price_per_kg",
+            sale_previous,
+            sale_calibrated,
+            len(sale_prices_per_kg),
+            "Median sale amount divided by latest pre-sale recorded live weight, "
+            "scaled by the mean of the fitted seasonal curve when available "
+            "(Bakrid-month observations deflated to the plain market level when "
+            "festival pricing will re-apply the premium)",
+            "animals/weight_records",
+        )
     for values, field_name in (
         (cull_doe_prices_per_kg, "cull_doe_price_per_kg"),
         (cull_buck_prices_per_kg, "cull_buck_price_per_kg"),
@@ -982,16 +1014,28 @@ async def calibrate_farm_assumptions(
                 "animals/weight_records",
             )
 
-    transaction_rows = (
+    # Complete-window aggregates keep both numerators and evidence counts exact
+    # without transferring an unbounded ledger (income never consumes a row quota).
+    structured_feed = (
+        FeedInventory.category.is_not(None)
+        & Transaction.feed_quantity_kg.is_not(None)
+        & Transaction.feed_unit_price_per_kg.is_not(None)
+    )
+    expense_rows = (
         await db.execute(
             select(
-                Transaction.date,
-                Transaction.type,
                 Transaction.category,
-                Transaction.amount,
-                Transaction.feed_quantity_kg,
-                Transaction.feed_unit_price_per_kg,
                 FeedInventory.category.label("feed_category"),
+                func.min(Transaction.date).label("first_expense"),
+                func.sum(Transaction.amount).label("amount"),
+                func.count(Transaction.id).label("expense_count"),
+                func.sum(Transaction.feed_quantity_kg)
+                .filter(structured_feed)
+                .label("feed_quantity"),
+                func.sum(Transaction.feed_quantity_kg * Transaction.feed_unit_price_per_kg)
+                .filter(structured_feed)
+                .label("feed_spend"),
+                func.count(Transaction.id).filter(structured_feed).label("feed_count"),
             )
             .outerjoin(FeedInventory, FeedInventory.id == Transaction.feed_inventory_id)
             .where(
@@ -999,57 +1043,24 @@ async def calibrate_farm_assumptions(
                 Transaction.date >= period_start,
                 Transaction.date <= reference_date,
                 Transaction.voided_at.is_(None),
-            )
-            .order_by(Transaction.date.desc(), Transaction.id.desc())
-            .limit(_MAX_HISTORY_ROWS + 1)
-        )
-    ).all()
-    # The truncation keeps the per-row scan bounded but hides the window's
-    # true first expense: with more than _MAX_HISTORY_ROWS ledger rows the
-    # newest-first window starts mid-history, and min() over the truncated
-    # slice would divide the same truncated totals by even fewer months —
-    # understating every per-month cost (the direction that makes an
-    # unviable project look financeable). One extra indexed scalar probe
-    # recovers the true earliest EXPENSE date over the FULL window; the
-    # per-row aggregation below stays truncated.
-    true_first_expense = (
-        await db.execute(
-            select(func.min(Transaction.date)).where(
-                Transaction.farm_id == farm.id,
-                Transaction.date >= period_start,
-                Transaction.date <= reference_date,
-                Transaction.voided_at.is_(None),
                 Transaction.type == "EXPENSE",
             )
+            .group_by(Transaction.category, FeedInventory.category)
         )
-    ).scalar_one()
-    if len(transaction_rows) > _MAX_HISTORY_ROWS:
-        transaction_rows = transaction_rows[:_MAX_HISTORY_ROWS]
-        span_note = (
-            f" (ledger history actually reaches back to {true_first_expense.isoformat()})"
-            if true_first_expense is not None
-            else ""
-        )
-        warnings.append(
-            f"Cost calibration used the {_MAX_HISTORY_ROWS:,} most recent ledger rows{span_note}."
-        )
+    ).all()
+    true_first_expense = min((row.first_expense for row in expense_rows), default=None)
     feed_spend: dict[str, float] = defaultdict(float)
     feed_quantity: dict[str, float] = defaultdict(float)
+    feed_samples: dict[str, int] = defaultdict(int)
     category_expense: dict[str, float] = defaultdict(float)
-    for transaction_row in transaction_rows:
-        if transaction_row.type != "EXPENSE":
-            continue
-        category_expense[transaction_row.category] += _as_float(transaction_row.amount)
-        if (
-            transaction_row.feed_category is not None
-            and transaction_row.feed_quantity_kg is not None
-            and transaction_row.feed_unit_price_per_kg is not None
-        ):
-            quantity = _as_float(transaction_row.feed_quantity_kg)
-            feed_quantity[transaction_row.feed_category] += quantity
-            feed_spend[transaction_row.feed_category] += quantity * _as_float(
-                transaction_row.feed_unit_price_per_kg
-            )
+    category_samples: dict[str, int] = defaultdict(int)
+    for row in expense_rows:
+        category_expense[row.category] += _as_float(row.amount)
+        category_samples[row.category] += row.expense_count
+        if row.feed_category is not None and row.feed_count:
+            feed_quantity[row.feed_category] += _as_float(row.feed_quantity)
+            feed_spend[row.feed_category] += _as_float(row.feed_spend)
+            feed_samples[row.feed_category] += row.feed_count
     for feed_category, field_name in (
         ("ROUGHAGE_WET", "purchased_green_price_per_kg"),
         ("ROUGHAGE_DRY", "dry_price_per_kg"),
@@ -1060,13 +1071,7 @@ async def calibrate_farm_assumptions(
             feed_previous = float(getattr(assumptions.feed, field_name))
             feed_calibrated = min(MAX_MONEY, feed_spend[feed_category] / quantity)
             setattr(assumptions.feed, field_name, feed_calibrated)
-            sample_size = sum(
-                1
-                for transaction_row in transaction_rows
-                if transaction_row.feed_category == feed_category
-                and transaction_row.feed_quantity_kg is not None
-                and transaction_row.feed_unit_price_per_kg is not None
-            )
+            sample_size = feed_samples[feed_category]
             record(
                 f"feed.{field_name}",
                 feed_previous,
@@ -1081,7 +1086,7 @@ async def calibrate_farm_assumptions(
     # farm queried with the default lookback_months=24 had every recurring cost
     # reported at a quarter of its real level, which is the direction that makes
     # an unviable project look financeable. The span reads the full-window
-    # minimum above, so it stays correct even when the per-row scan truncated.
+    # minimum above, from the same complete expense window as the numerator.
     if true_first_expense is not None:
         # ceil(), not round()+1: the +1 counted the first month inclusive, which over-counted by a
         # full month at exact whole-month spans (a 12.0-month ledger divided by 13 understated every
@@ -1121,9 +1126,7 @@ async def calibrate_farm_assumptions(
             # books no cash labour whatever the wage, so no wage can be
             # inferred from the bill. Keep the configured wage and say so
             # instead of silently zeroing or dividing by zero.
-            sample_size = sum(
-                1 for transaction_row in transaction_rows if transaction_row.category == "LABOUR"
-            )
+            sample_size = category_samples["LABOUR"]
             record(
                 "costs.labour_per_month",
                 labour_previous,
@@ -1139,9 +1142,7 @@ async def calibrate_farm_assumptions(
         else:
             labour_calibrated = min(MAX_MONEY, labour_total / cost_months / labour_units)
             assumptions.costs.labour_per_month = labour_calibrated
-            sample_size = sum(
-                1 for transaction_row in transaction_rows if transaction_row.category == "LABOUR"
-            )
+            sample_size = category_samples["LABOUR"]
             record(
                 "costs.labour_per_month",
                 labour_previous,
@@ -1160,11 +1161,7 @@ async def calibrate_farm_assumptions(
         vet_previous = assumptions.costs.vet_per_animal_per_year
         vet_calibrated = min(MAX_MONEY, vet_total * 12.0 / cost_months / current_head)
         assumptions.costs.vet_per_animal_per_year = vet_calibrated
-        sample_size = sum(
-            1
-            for transaction_row in transaction_rows
-            if transaction_row.category in {"VET", "MEDICINE"}
-        )
+        sample_size = category_samples["VET"] + category_samples["MEDICINE"]
         record(
             "costs.vet_per_animal_per_year",
             vet_previous,
@@ -1178,9 +1175,7 @@ async def calibrate_farm_assumptions(
         misc_previous = assumptions.costs.misc_overhead_per_month
         misc_calibrated = min(MAX_MONEY, misc_total / cost_months)
         assumptions.costs.misc_overhead_per_month = misc_calibrated
-        sample_size = sum(
-            1 for transaction_row in transaction_rows if transaction_row.category == "OTHER"
-        )
+        sample_size = category_samples["OTHER"]
         record(
             "costs.misc_overhead_per_month",
             misc_previous,

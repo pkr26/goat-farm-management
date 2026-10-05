@@ -1,0 +1,38 @@
+[
+  {
+    "purchase": 100000,
+    "sale": 100000,
+    "tax_rate": 0.3,
+    "economic_gain": 0,
+    "tax_on_gain": 0.0,
+    "actual_tax": 24000.0,
+    "closing_head": 0.0,
+    "book_depreciation": 20000.0,
+    "terminal_book": 71999.99999999996,
+    "terminal_livestock": -71999.99999999996
+  },
+  {
+    "purchase": 100000,
+    "sale": 120000,
+    "tax_rate": 0.3,
+    "economic_gain": 20000,
+    "tax_on_gain": 6000.0,
+    "actual_tax": 30000.0,
+    "closing_head": 0.0,
+    "book_depreciation": 20000.0,
+    "terminal_book": 71999.99999999996,
+    "terminal_livestock": -71999.99999999996
+  },
+  {
+    "purchase": 100000,
+    "sale": 100000,
+    "tax_rate": 0.0,
+    "economic_gain": 0,
+    "tax_on_gain": 0.0,
+    "actual_tax": 0.0,
+    "closing_head": 0.0,
+    "book_depreciation": 20000.0,
+    "terminal_book": 71999.99999999996,
+    "terminal_livestock": -71999.99999999996
+  }
+]

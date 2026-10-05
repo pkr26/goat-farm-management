@@ -1,0 +1,169 @@
+...............................................................F........ [  8%]
+........................................................................ [ 17%]
+........................................................................ [ 26%]
+........................................................................ [ 34%]
+.....................F.................................................. [ 43%]
+........................................................................ [ 52%]
+........................................................................ [ 60%]
+........................................................................ [ 69%]
+......................................F................................. [ 78%]
+........................................................................ [ 86%]
+........................................................................ [ 95%]
+......................................                                   [100%]
+=================================== FAILURES ===================================
+_ test_specialist_parse_tolerates_degenerate_but_valid_json[{"conditions": [7, "sick", null]}] _
+
+text = '{"conditions": [7, "sick", null]}'
+kind = <SpecialistKind.EYE: 'SPECIALIST_EYE'>
+
+    def parse_specialist_response(text: str, kind: SpecialistKind) -> SpecialistResponse:
+        """Validate and vocabulary-coerce a specialist answer; unknown disease
+        codes become OTHER with the original guess kept in the note."""
+        try:
+            raw = json.loads(_extract_json_object(text))
+            # {"conditions": null} is a plausible "nothing visible" answer and
+            # parses as empty; a non-object answer or a present-but-non-list
+            # value becomes SpecialistParseError, which run_specialist maps to
+            # ProviderResponseError so the image row follows its normal
+            # error/retry path instead of crashing the cycle.
+            items = answer_list(raw, "conditions")
+        except (ValueError, GateParseError) as exc:
+            raise SpecialistParseError(f"no valid JSON in specialist answer: {exc}") from exc
+        vocabulary = DISEASE_VOCABULARY[kind]
+        conditions: list[SpecialistCondition] = []
+        for item in items[:MAX_SPECIALIST_CONDITIONS]:
+            try:
+>               condition = SpecialistCondition.model_validate(item)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               pydantic_core._pydantic_core.ValidationError: 1 validation error for SpecialistCondition
+E                 Input should be a valid dictionary or instance of SpecialistCondition [type=model_type, input_value=7, input_type=int]
+E                   For further information visit https://errors.pydantic.dev/2.13/v/model_type
+
+app/services/screening/specialists.py:175: ValidationError
+
+The above exception was the direct cause of the following exception:
+
+answer = '{"conditions": [7, "sick", null]}'
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            json.dumps({"unrelated": True}),  # key missing entirely
+            json.dumps({"conditions": None}),  # null = "nothing visible" phrasing
+            json.dumps({"conditions": {}}),  # empty wrapper object
+            json.dumps({"conditions": [7, "sick", None]}),  # garbage items drop, not crash
+        ],
+    )
+    def test_specialist_parse_tolerates_degenerate_but_valid_json(answer: str) -> None:
+>       assert parse_specialist_response(answer, SpecialistKind.EYE).conditions == []
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_screening.py:261: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+text = '{"conditions": [7, "sick", null]}'
+kind = <SpecialistKind.EYE: 'SPECIALIST_EYE'>
+
+    def parse_specialist_response(text: str, kind: SpecialistKind) -> SpecialistResponse:
+        """Validate and vocabulary-coerce a specialist answer; unknown disease
+        codes become OTHER with the original guess kept in the note."""
+        try:
+            raw = json.loads(_extract_json_object(text))
+            # {"conditions": null} is a plausible "nothing visible" answer and
+            # parses as empty; a non-object answer or a present-but-non-list
+            # value becomes SpecialistParseError, which run_specialist maps to
+            # ProviderResponseError so the image row follows its normal
+            # error/retry path instead of crashing the cycle.
+            items = answer_list(raw, "conditions")
+        except (ValueError, GateParseError) as exc:
+            raise SpecialistParseError(f"no valid JSON in specialist answer: {exc}") from exc
+        vocabulary = DISEASE_VOCABULARY[kind]
+        conditions: list[SpecialistCondition] = []
+        for item in items[:MAX_SPECIALIST_CONDITIONS]:
+            try:
+                condition = SpecialistCondition.model_validate(item)
+            except ValueError as exc:
+                # A malformed positive is not evidence of a negative assessment.
+                # Reject partial answers too: the cascade preserves this specialist's
+                # gate observations through its existing provider-error fallback.
+>               raise SpecialistParseError("invalid condition in specialist answer") from exc
+E               app.services.screening.specialists.SpecialistParseError: invalid condition in specialist answer
+
+app/services/screening/specialists.py:180: SpecialistParseError
+___________ test_depreciation_terminal_value_and_cash_tax_reconcile ____________
+
+    def test_depreciation_terminal_value_and_cash_tax_reconcile() -> None:
+        a = SimulationAssumptions(
+            meta=MetaAssumptions(horizon_months=12),
+            costs=CostsAssumptions(
+                shed_useful_life_years=1,
+                equipment_useful_life_years=1,
+                shed_residual_fraction=0.10,
+                equipment_residual_fraction=0.20,
+            ),
+        )
+        a.herd.male_growers = 250
+        a.sales.meat_price_per_kg = 1_000.0
+        a.finance.loan_fraction_of_project_cost = 0.0
+        a.finance.income_tax_rate = 0.25
+        result = run_simulation(a, with_break_even=False)
+        breakdown = result.project_cost_breakdown
+        annual = result.annual_pl[0]
+    
+        expected_depreciation = (
+            breakdown.shed_cost * 0.90
+            + breakdown.equipment_cost * 0.80
+            # Auto-purchased sires capitalize: each monthly vintage depreciates
+            # straight-line over the 60-month breeding-stock life for the months
+            # it owns inside this 12-month horizon (the auto-restock tops up
+            # fractional mortality losses every month, so vintages keep arriving).
+            + sum(
+                month.breeding_stock_capex * (12.0 - month.month + 1.0) / 60.0
+                for month in result.months
+            )
+        )
+>       assert annual.depreciation == pytest.approx(expected_depreciation)
+E       assert 1991216.727549462 == 1991302.5072095331 ± 1.9913
+E         
+E         comparison failed
+E         Obtained: 1991216.727549462
+E         Expected: 1991302.5072095331 ± 1.9913
+
+tests/test_simulation_advanced.py:424: AssertionError
+_______ test_metric_narratives_are_stable_across_core_financial_branches _______
+
+    def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
+        """Bank-facing explanations change only through an explicit contract update.
+    
+        Digests refreshed for the 2026-09-20 audit's intentional narrative fixes
+        (payback-by-liquidation wording, balloon-excluded debt_years, per-month
+        family-labour imputation, toggle-aware Monte Carlo paragraph)."""
+        default = run_simulation(SimulationAssumptions(), with_break_even=False)
+        viable = run_simulation(_viable_assumptions(), with_break_even=False)
+        no_debt_or_terminal = SimulationAssumptions()
+        no_debt_or_terminal.finance.loan_fraction_of_project_cost = 0.0
+        no_debt_or_terminal.finance.include_terminal_value = False
+        no_debt = run_simulation(no_debt_or_terminal, with_break_even=False)
+        risk_assumptions = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24))
+        risk_assumptions.risk.monte_carlo_runs = 10
+        risk = run_simulation(
+            risk_assumptions,
+            with_break_even=False,
+            with_monte_carlo=True,
+            with_sensitivity=True,
+        )
+    
+>       assert _explanation_digest(default) == (
+            "d0c053aa3efc3816b64e7e018ab6dbf41682883d90109b7718b6bf9fe007d60a"
+        )
+E       AssertionError: assert '801771cabdf1...45eb2216cd99a' == 'd0c053aa3efc...6bf9fe007d60a'
+E         
+E         - d0c053aa3efc3816b64e7e018ab6dbf41682883d90109b7718b6bf9fe007d60a
+E         + 801771cabdf1b9d7c23d755b8fdcc3f9eaea5afa8d3cc44f64645eb2216cd99a
+
+tests/test_simulation_explain.py:235: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_screening.py::test_specialist_parse_tolerates_degenerate_but_valid_json[{"conditions": [7, "sick", null]}]
+FAILED tests/test_simulation_advanced.py::test_depreciation_terminal_value_and_cash_tax_reconcile
+FAILED tests/test_simulation_explain.py::test_metric_narratives_are_stable_across_core_financial_branches
+3 failed, 827 passed in 215.55s (0:03:35)

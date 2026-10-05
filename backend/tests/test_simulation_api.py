@@ -1281,7 +1281,7 @@ async def test_run_can_return_bounded_optimization(client: httpx.AsyncClient) ->
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["model_version"] == "3.4.0"
+    assert body["model_version"] == "3.4.1"
     assert len(body["assumptions_fingerprint"]) == 64
     assert body["optimization"]["evaluated_candidates"] <= 3
     assert body["optimization"]["feasible_candidates"] >= 0

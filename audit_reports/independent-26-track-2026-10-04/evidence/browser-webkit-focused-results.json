@@ -1,0 +1,157 @@
+{
+  "config": {
+    "argv": [
+      "/Users/pradeepreddy/.local/opt/node24/bin/node",
+      "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config=../audit_reports/independent-26-track-2026-10-04/evidence/playwright.audit.config.mts",
+      "e2e/a11y-gate.spec.ts",
+      "--grep",
+      "/finance/insurance \\(te\\)",
+      "--max-failures=1"
+    ],
+    "configFile": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/playwright.audit.config.mts",
+    "rootDir": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/global-setup.ts",
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 1,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/browser-webkit-focused-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "webkit",
+        "name": "webkit",
+        "testDir": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e",
+        "testIgnore": [
+          "/mobile-worker-journey\\.spec\\.ts|worker-tablet-journey\\.spec\\.ts/"
+        ],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/browser-webkit-focused-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "Mobile Safari",
+        "name": "Mobile Safari",
+        "testDir": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/worker-tablet-journey\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/browser-webkit-focused-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "a11y-gate.spec.ts",
+      "file": "a11y-gate.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "a11y gate",
+          "file": "a11y-gate.spec.ts",
+          "line": 65,
+          "column": 6,
+          "specs": [
+            {
+              "title": "/finance/insurance (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2273,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-04T22:43:34.947Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--finance-insurance-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2ZpbmFuY2UvaW5zdXJhbmNlIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-29c807c35bb9b3e2c264",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-04T22:43:31.755Z",
+    "duration": 5716.656,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

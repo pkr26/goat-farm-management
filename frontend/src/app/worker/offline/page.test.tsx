@@ -110,3 +110,9 @@ it("returns an authenticated worker to the live board", async () => {
   auth.user = { id: 7 }; mount();
   await waitFor(() => expect(replace).toHaveBeenCalledWith("/worker"));
 });
+
+it("leaves primary landmark ownership to the enclosing worker shell", async () => {
+  render(<LanguageProvider><main><OfflineWorkerPage /></main></LanguageProvider>);
+  await screen.findByRole("heading", { level: 1 });
+  expect(screen.getAllByRole("main")).toHaveLength(1);
+});

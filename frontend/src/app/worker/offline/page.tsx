@@ -70,7 +70,7 @@ export default function OfflineWorkerPage() {
   }
 
   if (!ready || loading) return <p role="status" className="p-6">{t("common.loading")}</p>;
-  return <main className="mx-auto max-w-3xl space-y-5 p-4">
+  return <div className="mx-auto max-w-3xl space-y-5 p-4">
     <h1 className="flex items-center gap-2 text-2xl font-semibold"><WifiOff aria-hidden />{t("worker.offlineShift.title")}</h1>
     <p className="text-muted-foreground">{t("worker.offlineShift.description")}</p>
     {storageError && <p role="alert" className="text-destructive">{t("worker.queueFull")}</p>}
@@ -91,5 +91,5 @@ export default function OfflineWorkerPage() {
       <Button variant="outline" className="h-11" onClick={() => void endShift()}>{t("worker.endShift")}</Button>
     </> : <p>{t("worker.offlineShift.unavailable")}</p>}
     <a href="/worker/login" className="inline-flex min-h-11 items-center rounded-lg border px-4 py-2 font-medium">{t("worker.offlineShift.signIn")}</a>
-  </main>;
+  </div>;
 }

@@ -1,0 +1,47 @@
+
+ RUN  v4.1.11 /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
+
+ ❯ src/lib/permission-navigation.routes.test.ts (10 tests | 2 failed) 6ms
+     × keeps query strings and hashes on permitted module roots 1ms
+     × drops record-id sub-routes to their module root 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/lib/permission-navigation.routes.test.ts > permittedAppPathFromList — route → permission mapping > keeps query strings and hashes on permitted module roots
+AssertionError: /dashboard: expected '/dashboard?tab=active' to be '/dashboard?tab=active#row-7' // Object.is equality
+
+Expected: "/dashboard?tab=active#row-7"
+Received: "/dashboard?tab=active"
+
+ ❯ src/lib/permission-navigation.routes.test.ts:96:9
+     94|         permittedAppPathFromList(`${route}?tab=active#row-7`, [permiss…
+     95|         route,
+     96|       ).toBe(`${route}?tab=active#row-7`);
+       |         ^
+     97|     }
+     98|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/lib/permission-navigation.routes.test.ts > permittedAppPathFromList — route → permission mapping > drops record-id sub-routes to their module root
+AssertionError: expected '/dashboard' to be '/dashboard?q=1' // Object.is equality
+
+Expected: "/dashboard?q=1"
+Received: "/dashboard"
+
+ ❯ src/lib/permission-navigation.routes.test.ts:104:7
+    102|     expect(
+    103|       permittedAppPathFromList("/dashboard?q=1", ["dashboard.view"]),
+    104|     ).toBe("/dashboard?q=1");
+       |       ^
+    105|   });
+    106|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 26 passed (27)
+      Tests  2 failed | 387 passed (389)
+   Start at  20:30:17
+   Duration  14.22s (transform 699ms, setup 3.51s, import 2.17s, tests 13.74s, environment 7.13s)
+

@@ -35,6 +35,7 @@ export interface MonthlyRow {
   purchases_head: number;
   purchase_cost: number;
   breeding_stock_capex: number;
+  breeding_stock_disposal_cost?: number;
   feed_green_kg: number;
   feed_homegrown_green_kg: number;
   feed_purchased_green_kg: number;

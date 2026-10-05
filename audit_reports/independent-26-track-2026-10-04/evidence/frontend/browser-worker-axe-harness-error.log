@@ -1,0 +1,10 @@
+file:///Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/node_modules/.pnpm/@axe-core+playwright@4.13.0_playwright-core@1.62.1/node_modules/@axe-core/playwright/dist/index.mjs:218
+      throw new Error(
+            ^
+
+Error: Please use browser.newContext()
+ Please check out https://github.com/dequelabs/axe-core-npm/blob/develop/packages/playwright/error-handling.md
+    at AxeBuilder.analyze (file:///Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/node_modules/.pnpm/@axe-core+playwright@4.13.0_playwright-core@1.62.1/node_modules/@axe-core/playwright/dist/index.mjs:218:13)
+    at async file:///Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/independent-26-track-2026-10-04/evidence/frontend/browser-worker-axe.mjs:9:15
+
+Node.js v24.21.0

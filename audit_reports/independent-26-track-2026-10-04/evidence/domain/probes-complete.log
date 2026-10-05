@@ -1,0 +1,119 @@
+2026-10-04 15:22:46,233 INFO goatfarm [fda5bd7412b344ffa990ccc7ba0554ec] request method=POST path=/api/auth/register status=201 duration_ms=255.54
+2026-10-04 15:22:46,234 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:22:46,257 INFO goatfarm [ab7da03b80e647b5a48d9cb709a43239] request method=POST path=/api/auth/farms status=201 duration_ms=23.22
+2026-10-04 15:22:46,258 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:22:46,308 INFO goatfarm [f627e9da8aed431094bebb7a22cfa4d8] request method=POST path=/api/animals status=201 duration_ms=49.89
+2026-10-04 15:22:46,309 INFO httpx [-] HTTP Request: POST http://test/api/animals "HTTP/1.1 201 Created"
+2026-10-04 15:22:46,332 INFO goatfarm [ca9c82aa665a4113bdac2080b6c9e750] request method=POST path=/api/animals/1/status status=200 duration_ms=23.40
+2026-10-04 15:22:46,333 INFO httpx [-] HTTP Request: POST http://test/api/animals/1/status "HTTP/1.1 200 OK"
+DOB_CHRONOLOGY {"id": 1, "purchase_date": "2024-10-05", "estimated_dob": "2025-10-05", "status": "SOLD", "sale_price": 1000.0}
+.2026-10-04 15:22:46,596 INFO goatfarm [9d7e899f6cd947f78f35b47fcdbe22de] request method=POST path=/api/auth/register status=201 duration_ms=135.65
+2026-10-04 15:22:46,596 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:22:46,611 INFO goatfarm [a1c0d7fa33d049bcbf9189bb9bc2b4d0] request method=POST path=/api/auth/farms status=201 duration_ms=13.69
+2026-10-04 15:22:46,611 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:22:47,181 INFO goatfarm [ab7d0ac938d148f990ad95cff1cdbf26] request method=GET path=/api/simulation/calibration status=200 duration_ms=252.10
+2026-10-04 15:22:47,182 INFO httpx [-] HTTP Request: GET http://test/api/simulation/calibration?lookback_months=12 "HTTP/1.1 200 OK"
+COST_TRUNCATION {"recorded_other_expense": 61000, "expected_misc_per_month": 10166.666666666666, "returned_misc_per_month": 166.66666666666666, "cost_evidence": {"costs.misc_overhead_per_month": {"path": "costs.misc_overhead_per_month", "previous_value": 2000.0, "calibrated_value": 166.66666666666666, "sample_size": 20000, "confidence": "high", "method": "Total other operating expense divided by the 6 month(s) of ledger history", "source": "transactions", "period_start": "2025-10-05", "period_end": "2026-10-05"}}, "warnings": ["No active animals were found; herd counts were calibrated to zero.", "Cost calibration used the 20,000 most recent ledger rows (ledger history actually reaches back to 2026-04-08).", "Recurring costs were averaged over the 6 month(s) of ledger history that exist, not the 12 month(s) requested.", "No sufficient farm evidence for: feed, growth, mortality, reproduction, sales; preset values remain.", "8 calibrated input(s) have low confidence; review them before lending or investment decisions."]}
+.2026-10-04 15:22:47,447 INFO goatfarm [d6535cae3f7f4df9a67091c3d5cb4904] request method=POST path=/api/auth/register status=201 duration_ms=137.81
+2026-10-04 15:22:47,448 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:22:47,462 INFO goatfarm [903c0ab495a7429e9384fb3178a47d66] request method=POST path=/api/auth/farms status=201 duration_ms=13.90
+2026-10-04 15:22:47,462 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+EMPTY_FLAG {"image_status": "FLAGGED", "finding_count": 0, "cycle_flagged": 1}
+.2026-10-04 15:22:47,785 INFO goatfarm [d87831a627b2445ea93cd08d949cc8ee] request method=POST path=/api/auth/register status=201 duration_ms=138.23
+2026-10-04 15:22:47,785 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:22:47,799 INFO goatfarm [8acba209734d4deaa3b7d823a3577a3c] request method=POST path=/api/auth/farms status=201 duration_ms=13.90
+2026-10-04 15:22:47,800 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:22:47,892 INFO goatfarm [026126b21dee433a9768865e76f678b7] request method=POST path=/api/feeding/dispense status=422 duration_ms=84.53
+2026-10-04 15:22:47,892 INFO httpx [-] HTTP Request: POST http://test/api/feeding/dispense "HTTP/1.1 422 Unprocessable Entity"
+DISPENSE_TIMEZONE {"created_utc": "2026-10-04T00:30:00", "farm_local_date": "2026-10-03", "timezone": "America/Phoenix", "response": {"detail": "Dispensing date cannot be before the farm was created.", "code": "VALIDATION_ERROR"}}
+.2026-10-04 15:22:48,162 INFO goatfarm [3a82a4357b0a48a79958fb0cda8acc7b] request method=POST path=/api/auth/register status=201 duration_ms=134.85
+2026-10-04 15:22:48,162 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:22:48,182 INFO goatfarm [276defad98fb43908311c7d9c1691b3a] request method=POST path=/api/auth/farms status=201 duration_ms=18.91
+2026-10-04 15:22:48,182 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+LOST_REGION {"gate_regions": ["mouth", "eye"], "reviewable_findings": [["mouth", "ORF"]]}
+.2026-10-04 15:22:48,490 INFO goatfarm [997098296e8c46d8b48f2f73c4c169c3] request method=POST path=/api/auth/register status=201 duration_ms=135.84
+2026-10-04 15:22:48,490 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:22:48,511 INFO goatfarm [58984642024a42dc8501230be30f0f2c] request method=POST path=/api/auth/farms status=201 duration_ms=20.52
+2026-10-04 15:22:48,511 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:22:48,598 INFO goatfarm [44f3fa7b3ded4caf8fc14157d16331a4] request method=POST path=/api/animals/3/status status=200 duration_ms=31.89
+2026-10-04 15:22:48,598 INFO httpx [-] HTTP Request: POST http://test/api/animals/3/status "HTTP/1.1 200 OK"
+2026-10-04 15:22:48,739 INFO goatfarm [25ef2513b4e74fef8921662b9d42d083] request method=GET path=/api/simulation/calibration status=200 duration_ms=140.77
+2026-10-04 15:22:48,740 INFO httpx [-] HTTP Request: GET http://test/api/simulation/calibration?lookback_months=24 "HTTP/1.1 200 OK"
+MISSED_KID_DEATH {"live_births": 10, "recorded_deaths_by_3_months": 1, "weaned_age_days": 60, "died_age_days": 70, "birth_entry_status": "ALIVE", "returned_preweaning_mortality": 0.0, "evidence": {"path": "mortality.kid_pre_weaning", "previous_value": 0.15, "calibrated_value": 0.0, "sample_size": 10, "confidence": "medium", "method": "Dependent-kid deaths as the observed whole-phase pre-weaning fraction, counting only kids born early enough to have completed it and deaths reported within that three-month window", "source": "kid_entries", "period_start": "2024-10-05", "period_end": "2026-10-05"}}
+.F
+=================================== FAILURES ===================================
+_______ test_disposed_breeding_stock_keeps_depreciating_and_inflates_tax _______
+
+    def test_disposed_breeding_stock_keeps_depreciating_and_inflates_tax():
+        from app.simulation.assumptions import SimulationAssumptions,HerdEventAssumptions
+        from app.simulation.engine import _run_core
+        a=SimulationAssumptions()
+        a.meta.horizon_months=12
+        a.herd.does=0;a.herd.bucks=0;a.herd.auto_purchase_bucks=False
+        a.costs.shed_cost_per_animal_place=0.0;a.costs.equipment_cost_per_animal=0.0
+        a.costs.misc_overhead_per_month=0.0;a.costs.family_labour=True
+        a.finance.loan_fraction_of_project_cost=0.0;a.finance.working_capital_months=0
+        a.finance.income_tax_rate=0.3
+>       a.sales.transport_cost_per_head=0.0;a.sales.marketing_commission_pct=0.0
+                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../audit_reports/independent-26-track-2026-10-04/evidence/domain/test_domain_probes.py:166: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.13/site-packages/pydantic/main.py:1048: in __setattr__
+    elif (setattr_handler := self._setattr_handler(name, value)) is not None:
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = SalesAssumptions(meat_price_per_kg=370.0, breed_price_premium_pct=0.0, cull_doe_price_per_kg=220.0, cull_buck_price_pe...cost_per_head=0.0, milk_sale_litres_per_doe_day=0.0, milk_price_per_litre=30.0, manure_income_per_adult_per_year=900.0)
+name = 'marketing_commission_pct', value = 0.0
+
+    def _setattr_handler(self, name: str, value: Any) -> Callable[[BaseModel, str, Any], None] | None:
+        """Get a handler for setting an attribute on the model instance.
+    
+        Returns:
+            A handler for setting an attribute on the model instance. Used for memoization of the handler.
+            Memoizing the handlers leads to a dramatic performance improvement in `__setattr__`
+            Returns `None` when memoization is not safe, then the attribute is set directly.
+        """
+        cls = self.__class__
+        if name in cls.__class_vars__:
+            raise AttributeError(
+                f'{name!r} is a ClassVar of `{cls.__name__}` and cannot be set on an instance. '
+                f'If you want to set a value on the class, use `{cls.__name__}.{name} = value`.'
+            )
+        elif not _fields.is_valid_field_name(name):
+            if (attribute := cls.__private_attributes__.get(name)) is not None:
+                if hasattr(attribute, '__set__'):
+                    return lambda model, _name, val: attribute.__set__(model, val)
+                else:
+                    return _SIMPLE_SETATTR_HANDLERS['private']
+            else:
+                _object_setattr(self, name, value)
+                return None  # Can not return memoized handler with possibly freeform attr names
+    
+        attr = getattr(cls, name, None)
+        # NOTE: We currently special case properties and `cached_property`, but we might need
+        # to generalize this to all data/non-data descriptors at some point. For non-data descriptors
+        # (such as `cached_property`), it isn't obvious though. `cached_property` caches the value
+        # to the instance's `__dict__`, but other non-data descriptors might do things differently.
+        if isinstance(attr, cached_property):
+            return _SIMPLE_SETATTR_HANDLERS['cached_property']
+    
+        _check_frozen(cls, name, value)
+    
+        # We allow properties to be set only on non frozen models for now (to match dataclasses).
+        # This can be changed if it ever gets requested.
+        if isinstance(attr, property):
+            return lambda model, _name, val: attr.__set__(model, val)
+        elif cls.model_config.get('validate_assignment'):
+            return _SIMPLE_SETATTR_HANDLERS['validate_assignment']
+        elif name not in cls.__pydantic_fields__:
+            if cls.model_config.get('extra') != 'allow':
+                # TODO - matching error
+>               raise ValueError(f'"{cls.__name__}" object has no field "{name}"')
+E               ValueError: "SalesAssumptions" object has no field "marketing_commission_pct"
+
+.venv/lib/python3.13/site-packages/pydantic/main.py:1095: ValueError
+=========================== short test summary info ============================
+FAILED ::test_disposed_breeding_stock_keeps_depreciating_and_inflates_tax - V...
+1 failed, 6 passed in 7.16s

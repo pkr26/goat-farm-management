@@ -1,0 +1,10 @@
+{
+  "browser_servers_ports3000_8000_free": true,
+  "prior_ignored_e2e_state_restored_byte_exact": true,
+  "owned_temporary_jwt_directory_removed": true,
+  "prior_state_backup_removed_after_restore": true,
+  "browser_database_dropped": "goatfarm_test_a26_browser_9b83417e",
+  "remaining_audit_databases_at_browser_cleanup": [
+    "goatfarm_test_a26_root_9b83417e"
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "network_policy": "Corepack network disabled; pnpm --offline; no container builds",
+  "package_sha256_before": "f01d81e68a55fa2c9cca2705fcb1c7fe95afef0ed9e8392eb508de27b66e6492",
+  "package_sha256_after": "f01d81e68a55fa2c9cca2705fcb1c7fe95afef0ed9e8392eb508de27b66e6492",
+  "patch_exists_in_repository": true,
+  "results": [
+    {
+      "case": "actual packageManager via Corepack; network disabled",
+      "command": [
+        "/Users/pradeepreddy/.local/opt/node24/bin/node",
+        "/Users/pradeepreddy/.local/opt/node24/lib/node_modules/corepack/dist/pnpm.js",
+        "--version"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Invalid package manager specification in package.json (pnpm@9.15.9+sha512-aARhQYk8ZvrQHAeSMRKOmvuJ74fiaR1p5NQO7iKJiClf1GghgbrlW1hBjDolO95lpQXsfF+UA+zlzDzTfc8lMQ==); expected a semver version\n"
+    },
+    {
+      "case": "temporary valid version countercontrol; network disabled",
+      "command": [
+        "/Users/pradeepreddy/.local/opt/node24/bin/node",
+        "/Users/pradeepreddy/.local/opt/node24/lib/node_modules/corepack/dist/pnpm.js",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "9.15.9\n",
+      "stderr": ""
+    },
+    {
+      "case": "same Docker COPY inputs; direct pinned pnpm offline install",
+      "command": [
+        "/Users/pradeepreddy/.local/opt/node24/bin/node",
+        "/Users/pradeepreddy/.cache/node/corepack/v1/pnpm/9.15.9/bin/pnpm.cjs",
+        "install",
+        "--offline",
+        "--ignore-scripts",
+        "--frozen-lockfile"
+      ],
+      "exit": 254,
+      "stdout": "\u2009ENOENT\u2009 ENOENT: no such file or directory, open '/private/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/goatfarm-a26-peer-container-urn7tvwf/patches/braces@3.0.3.patch'\n\npnpm: ENOENT: no such file or directory, open '/private/var/folders/yy/8vxx571s72vbb5jg4zt6v2fm0000gn/T/goatfarm-a26-peer-container-urn7tvwf/patches/braces@3.0.3.patch'\n    at async open (node:internal/fs/promises:1345:25)\n    at async Object.readFile (node:internal/fs/promises:1996:14)\n    at async createBase32HashFromFile (/Users/pradeepreddy/.cache/node/corepack/v1/pnpm/9.15.9/dist/pnpm.cjs:8500:23)\n    at async /Users/pradeepreddy/.cache/node/corepack/v1/pnpm/9.15.9/dist/pnpm.cjs:135567:17\n    at async /Users/pradeepreddy/.cache/node/corepack/v1/pnpm/9.15.9/dist/pnpm.cjs:135544:24\n    at async Promise.all (index 0)\n    at async pMapValue (/Users/pradeepreddy/.cache/node/corepack/v1/pnpm/9.15.9/dist/pnpm.cjs:135543:7)\n    at async _install (/Users/pradeepreddy/.cache/node/corepack/v1/pnpm/9.15.9/dist/pnpm.cjs:181295:134)\n    at async mutateModules (/Users/pradeepreddy/.cache/node/corepack/v1/pnpm/9.15.9/dist/pnpm.cjs:181254:23)\n    at async install (/Users/pradeepreddy/.cache/node/corepack/v1/pnpm/9.15.9/dist/pnpm.cjs:181180:45)\n",
+      "stderr": "(node:83800) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.\n(Use `node --trace-deprecation ...` to show where the warning was created)\n"
+    }
+  ]
+}

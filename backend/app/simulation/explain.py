@@ -470,7 +470,7 @@ def build_metric_explanations(
                 explanation=(
                     f"The model pays {_inr(m.tax_total)} of cash tax at an assumed "
                     f"{_pct(fin.income_tax_rate)} rate after interest, straight-line "
-                    f"depreciation and "
+                    f"depreciation, disposed breeding-stock carrying costs and "
                     + (
                         "carried-forward losses."
                         if fin.tax_loss_carryforward
@@ -483,9 +483,11 @@ def build_metric_explanations(
                 key="accounting_profit_total",
                 title="Accounting profit",
                 explanation=(
-                    f"Cumulative profit after depreciation, interest and tax is "
+                    "Cumulative profit after depreciation, disposed breeding-stock carrying costs, "
+                    "interest and tax is "
                     f"{_inr(m.accounting_profit_total)}. This accrual profit excludes terminal "
-                    "asset recovery and differs from cash flow because depreciation is non-cash "
+                    "asset recovery and differs from cash flow because depreciation and disposal "
+                    "book costs are non-cash "
                     "while principal repayment is not an expense."
                 ),
                 figures={"accounting_profit_total": m.accounting_profit_total},

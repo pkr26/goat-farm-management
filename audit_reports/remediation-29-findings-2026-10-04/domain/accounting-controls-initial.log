@@ -1,0 +1,25 @@
+.................................F.................................      [100%]
+=================================== FAILURES ===================================
+____________ test_non_cash_disposal_does_not_reduce_cash_dscr_twice ____________
+
+    def test_non_cash_disposal_does_not_reduce_cash_dscr_twice() -> None:
+        a = _assumptions()
+        a.herd.does = 1
+        a.finance.loan_fraction_of_project_cost = 0.5
+        a.finance.loan_term_months = 12
+        a.finance.moratorium_months = 0
+        a.finance.interest_rate_annual = 0
+        a.events = [_event(1, "purchase", "buck", 1, 100000), _event(1, "sale", "buck", 1, 120000)]
+        result = _run_core(SimulationAssumptions.model_validate(a.model_dump()))
+        annual = result.annual_pl[0]
+>       assert annual.profit_before_tax == pytest.approx(20000)
+E       assert 22012.619598250327 == 20000 ± 0.02
+E         
+E         comparison failed
+E         Obtained: 22012.619598250327
+E         Expected: 20000 ± 0.02
+
+tests/test_remediation_26_disposal.py:207: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_remediation_26_disposal.py::test_non_cash_disposal_does_not_reduce_cash_dscr_twice
+1 failed, 66 passed in 10.88s

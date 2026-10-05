@@ -715,7 +715,13 @@ async def current_farm(
     # security-relevant header. Canonical [0-9]+ only.
     if not re.fullmatch(r"[0-9]+", x_farm_id):
         raise HTTPException(status_code=400, detail="X-Farm-Id must be an integer")
-    farm_id = int(x_farm_id)
+    # Keep the established leading-zero spelling without passing unbounded
+    # input to int() (Python rejects thousands of digits before our range
+    # guard). No valid selector below 2**62 has more than 19 significant digits.
+    significant_digits = x_farm_id.lstrip("0") or "0"
+    if len(significant_digits) > 19:
+        raise HTTPException(status_code=400, detail="X-Farm-Id out of range")
+    farm_id = int(significant_digits)
     if not 0 < farm_id < 2**62:
         raise HTTPException(status_code=400, detail="X-Farm-Id out of range")
     # Above the int4 PK ceiling no farm can exist — 404, never an asyncpg

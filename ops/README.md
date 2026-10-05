@@ -68,3 +68,9 @@ Ship Docker JSON logs off-host before the local three-file rotation window. The 
 collector must preserve timestamp, service/container, request ID, and the append-only
 security-event signal; the repository intentionally does not embed an
 environment-specific log vendor or receiver credential.
+
+### Authenticated recovery metadata and worker scrapes
+
+The freshness service reads `/etc/goatfarm/backup-freshness.env` (root owned, mode 0600). Set `GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT` to the full independently verified signer fingerprint and `GNUPGHOME=/etc/goatfarm/backup-public-keyring`. Import only the signing public key into that keyring; make it readable by `goatfarm-backup`. No private key is required for freshness checks. Schema-v2 recovery manifests include a detached signature over all metadata and explicit database/object recovery times. Follow `docs/backup-recovery.md` when transitioning historical unsigned inventories.
+
+Screening counters are served from the worker process at `screening-worker:9101/metrics`, exclusively over the private Compose network. Provision the same purpose-specific metrics token in the worker's own secret directory when using `GOATFARM_METRICS_BEARER_TOKEN_FILE` (the file path is relative to that service's isolated mount), and give Prometheus the matching token. Do not mount the API secret directory into the worker. The supplied scrape example includes both API and worker jobs. Without a token, or with metrics disabled, the worker opens no metrics listener. Counters reset on worker restart; use Prometheus counter/rate semantics rather than treating them as a billing ledger.

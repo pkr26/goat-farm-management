@@ -30,7 +30,7 @@ inventory created by `backend/scripts/recovery_inventory.py capture`. That inven
 records an independently recoverable, versioned screening-object manifest/recovery-point
 receipt and escrow receipts plus non-secret SHA-256 identities for JWT, TOTP encryption,
 idempotency HMAC, database CA, and backup GPG material. `backup.sh` binds those facts to
-the exact encrypted archive name/digest before local or off-site publication. The
+the exact encrypted archive name/digest and the database dump-start timestamp before local or off-site publication. It signs the canonical schema-v2 manifest with the configured backup signer, embedding the detached GPG signature in `authentication`. The signature covers every recovery field, object manifest hash, key identity, and archive digest; it is verified again before publication. The
 screening bucket must keep version history/replication at least as long as a database
 restore point can reference its objects. Privacy-retention deletion is intentional and
 is not a promise that an already-expired image will be recoverable.
@@ -96,7 +96,7 @@ GOATFARM_RECOVERY_INVENTORY_FILE='/secure/goatfarm-recovery-unbound.json' \
 ```
 
 Generate that unbound file immediately before the job from the object replica/inventory
-receipt and secret-manager escrow receipts. Use `--check-s3-versioning` in production;
+receipt and secret-manager escrow receipts. Pass `--object-recovered-at` with the actual RFC 3339 snapshot/replica recovery timestamp from that receipt, never the time the inventory description was rewritten. Use `--check-s3-versioning` in production;
 `capture --help` lists the six required `--key-file`/`--identity` and matching
 `--escrow-receipt` names. The executable systemd timers, freshness check, Prometheus
 scrape/rules, alert acceptance exercise, and off-host log-sink boundary are in the
@@ -150,8 +150,12 @@ Cleanup similarly removes only the exact directory identity it published. Alert 
 non-zero backup exit and on a missing complete archive/checksum/inventory set; an upload
 failure keeps the complete local backup and makes a best-effort removal of any remote
 partial. The supplied freshness checker does not trust filename presence: it hashes the
-newest candidate, validates the exact checksum record and bound recovery inventory, and
-reports any newer rejected sets through the node-exporter textfile metric.
+newest authenticated candidate, validates the exact checksum record and signed recovery inventory, and
+reports rejected sets through the node-exporter textfile metric. The whole-system age is the older of the signed database dump-start and object recovery timestamps. Changing an unsigned timestamp, capture time, filename, or mtime cannot refresh it.
+
+The freshness monitor needs GPG, the trusted signing public key in its readable keyring, and an externally configured `GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT` (or `--signer`). It needs no private signing/decryption key. Configure its dedicated environment file as described in `ops/README.md`. Restore uses `GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT` to verify both the manifest and encrypted database payload. Missing, tampered, expired, revoked, or unexpected-signer manifests fail closed before database access.
+
+Schema-v1 inventories remain unauthenticated historical material and are rejected by the new freshness/restore path. Keep old archives for historical recovery, but establish a fresh complete v2 backup before relying on the new monitor. Do not assign current component timestamps to an older archive. Historical recovery requires a separately reviewed offline provenance verification and trusted manifest attestation with the original component times; no automatic legacy trust bypass is provided.
 
 ## Recovery objectives
 

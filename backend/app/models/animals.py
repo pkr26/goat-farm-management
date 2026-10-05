@@ -104,6 +104,11 @@ class Animal(Base):
             name="ck_animals_source_fields",
         ),
         CheckConstraint(
+            "purchase_date IS NULL OR COALESCE(date_of_birth, estimated_dob) IS NULL "
+            "OR purchase_date >= COALESCE(date_of_birth, estimated_dob)",
+            name="ck_animals_purchase_after_birth",
+        ),
+        CheckConstraint(
             "(status = 'ACTIVE' AND status_date IS NULL) OR "
             "(status IN ('SOLD', 'DEAD', 'CULLED') AND status_date IS NOT NULL)",
             name="ck_animals_status_date",

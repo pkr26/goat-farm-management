@@ -1,0 +1,6 @@
+{"label": "python-base", "raw": {"LOW": 67, "HIGH": 65, "MEDIUM": 103, "UNKNOWN": 2, "CRITICAL": 3}, "repository_policy": {"HIGH": 21, "CRITICAL": 3}, "gate_exit": 1}
+{"label": "node-base", "raw": {"HIGH": 10, "MEDIUM": 17, "LOW": 13}, "repository_policy": {"HIGH": 9}, "gate_exit": 1}
+{"label": "nginx-base", "raw": {"HIGH": 2, "UNKNOWN": 1, "MEDIUM": 1}, "repository_policy": {"HIGH": 2}, "gate_exit": 1}
+{"label": "postgres-service", "raw": {"LOW": 151, "HIGH": 114, "MEDIUM": 197, "UNKNOWN": 7, "CRITICAL": 14}, "repository_policy": {"HIGH": 8}, "gate_exit": 1}
+{"label": "edge-current-build", "raw": {"UNKNOWN": 1, "MEDIUM": 1}, "repository_policy": {}, "gate_exit": 0}
+{"label": "backend-current-build", "raw": {"LOW": 67, "HIGH": 61, "MEDIUM": 101, "UNKNOWN": 2, "CRITICAL": 3}, "repository_policy": {"HIGH": 17, "CRITICAL": 3}, "gate_exit": 1}

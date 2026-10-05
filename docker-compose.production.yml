@@ -305,7 +305,12 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    expose:
+      - "9101"
     environment:
+      GOATFARM_METRICS_ENABLED: ${GOATFARM_METRICS_ENABLED:-true}
+      GOATFARM_METRICS_BEARER_TOKEN: ${GOATFARM_METRICS_BEARER_TOKEN:-}
+      GOATFARM_METRICS_BEARER_TOKEN_FILE: ${GOATFARM_METRICS_BEARER_TOKEN_FILE:-}
       # Same dual-mode secret delivery as the backend: a set *_FILE
       # container path wins over the plain value; the
       # worker receives only the secrets its image-processing role needs.

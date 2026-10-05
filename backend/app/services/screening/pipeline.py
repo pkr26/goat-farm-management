@@ -1136,7 +1136,15 @@ async def _run_cascade(
 
     await db.flush()  # gate_run.id backs the cross-check provenance below
 
-    observations = gate_result.response.observations
+    observations = gate_result.response.observations or [
+        GateObservation(
+            region="general",
+            label="Unspecified concern — review photo",
+            confidence=gate_result.response.confidence,
+            note="The screening gate flagged this photo without describing an abnormality. "
+            "Human assessment is required; no specific condition was identified.",
+        )
+    ]
     # One specialist call per body-region kind per photo/crop: kind per
     # observation, order preserved, duplicates collapsed.
     kinds: list[tuple[SpecialistKind, str | None]] = []
@@ -1146,10 +1154,6 @@ async def _run_cascade(
         if kind not in seen_kinds:
             seen_kinds.add(kind)
             kinds.append((kind, observation.region))
-    if not kinds:
-        # Flagged with no observations: still worth the whole-animal look.
-        kinds = [(SpecialistKind.GENERAL, None)]
-
     # ---- specialists on the provider that served the gate ---------------
     serving = rotation.provider_named(gate_result.provider)
     specialist_conditions: list[tuple[int, str | None, SpecialistCondition]] = []

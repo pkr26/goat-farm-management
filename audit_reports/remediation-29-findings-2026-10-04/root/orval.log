@@ -1,0 +1,7 @@
+
+> frontend@0.1.0 orval /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
+> orval --config orval.config.ts
+
+🍻 orval v8.23.0 - A swagger client generator for typescript
+goatfarm Cleaning output folder
+🎉 goatfarm - Your OpenAPI spec has been converted into ready to use orval!

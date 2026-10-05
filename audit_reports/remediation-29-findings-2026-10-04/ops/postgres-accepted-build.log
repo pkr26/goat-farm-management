@@ -1,0 +1,23 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  213.9MB
+Step 1/6 : FROM python:3.13-slim@sha256:3dd7cc108ec1493442514f5c2a871af6af0ec31d768ff6e378a93340c3b3db5f AS packages
+ ---> 3dd7cc108ec1
+Step 2/6 : COPY docker/debian-security-packages.json docker/fetch_debian_security_packages.py /pins/
+ ---> 7bc2f4711d24
+Step 3/6 : RUN python /pins/fetch_debian_security_packages.py /pins/debian-security-packages.json /fixes
+ ---> Running in d80232401fc9
+ ---> Removed intermediate container d80232401fc9
+ ---> 873d9e263b77
+Step 4/6 : FROM postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+ ---> 1a6ab3f5345e
+Step 5/6 : COPY --from=packages /fixes /tmp/security-debs
+ ---> Using cache
+ ---> 2ed5d04fd373
+Step 6/6 : RUN dpkg -i /tmp/security-debs/*.deb && rm -rf /tmp/security-debs
+ ---> Using cache
+ ---> 03f4548ce8c2
+Successfully built 03f4548ce8c2
+Successfully tagged goatfarm-fix29-postgres:104

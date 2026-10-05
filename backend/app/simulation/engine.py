@@ -51,8 +51,9 @@ Documented model approximations:
   (scheduled events and automatic sire restocking) are capitalized on a
   breeding-livestock asset account and depreciated straight-line over
   ``costs.breeding_stock_useful_life_months`` (cash outlay still hits the
-  purchase month; EBITDA/PBT/tax/DSCR carry the depreciation instead of the
-  lump purchase; the residual book value is an explicit terminal-value
+  purchase month; EBITDA excludes the purchase, while EBIT/PBT/tax deduct
+  depreciation and the carrying value derecognized on exits; the residual
+  book value of surviving vintages is an explicit terminal-value
   component, while the livestock line carries the closing herd's value above
   book so the total recovers exactly the closing market value).
 - Weaning is modelled at month 3 (the kid class spans ages 0-2) versus the
@@ -151,7 +152,7 @@ from .vocabulary import GOAT_NOUNS, SpeciesNouns
 # puberty ~11.5 months), growth_regime (stall_fed/semi_intensive CIRG field
 # curve), weaning_days policy (60/90), per-class water demand in the resource
 # plan, and the NLM 50% capital-subsidy toggle.
-MODEL_VERSION = "3.4.0"
+MODEL_VERSION = "3.4.1"
 
 
 def monthly_mortality_rate(annual_fraction: float) -> float:
@@ -197,6 +198,28 @@ def male_weight_at_age(age_months: int, growth: GrowthAssumptions, adult_weight_
     if age_months < growth.adult_weight_age_months:
         return weight * (1.0 + growth.young_male_weight_premium)
     return weight
+
+
+@dataclass
+class _BreedingVintage:
+    """Surviving acquisition cost, age-partitioned for exact maximum-age exits.
+
+    All other removals use the cohort model's proportional allocation, separately
+    for does and bucks. Opening stock and homebred replacements have no in-run
+    capitalized basis. Dispositions occur before the current month's depreciation.
+    """
+
+    month: int
+    kind: str
+    cost_by_age: list[float]
+
+    def remove_fraction(self, fraction: float, month: int, life: int) -> float:
+        fraction = min(1.0, max(0.0, fraction))
+        if fraction == 0.0:
+            return 0.0
+        disposed_cost = sum(self.cost_by_age) * fraction
+        self.cost_by_age = [cost * (1.0 - fraction) for cost in self.cost_by_age]
+        return disposed_cost * max(0.0, 1.0 - (month - self.month) / life)
 
 
 @dataclass
@@ -525,11 +548,35 @@ def _run_core(
             weighted += count * table[index]
         return weighted / total
 
-    # Breeding-livestock asset account: (purchase_month, cost) vintages of
+    # Breeding-livestock asset account: surviving acquisition-cost vintages of
     # does/bucks bought during the run, depreciated straight-line over
     # costs.breeding_stock_useful_life_months. Foundation stock stays in the
     # month-0 project cost as before; only in-run purchases capitalize.
-    breeding_vintages: list[tuple[int, float]] = []
+    breeding_vintages: list[_BreedingVintage] = []
+    breeding_life = costs.breeding_stock_useful_life_months
+    breeding_depreciation = [0.0] * a.meta.horizon_months
+    breeding_disposal_cost = [0.0] * a.meta.horizon_months
+
+    def _capitalize(month: int, kind: str, cost: float) -> None:
+        if cost <= 0.0:
+            return
+        if kind == "doe":
+            age_ceiling = max(cull.max_doe_age_months - 12, 0)
+            low = min(a.herd.foundation_doe_age_min_months, age_ceiling)
+            high = max(low, min(a.herd.foundation_doe_age_max_months, age_ceiling))
+            ages = [0.0] * len(doe_ages)
+            for age in range(low, high + 1):
+                ages[age] = cost / (high - low + 1)
+        else:
+            ages = [cost]
+        breeding_vintages.append(_BreedingVintage(month, kind, ages))
+
+    def _dispose_fraction(kind: str, fraction: float, *, before_month: int | None = None) -> None:
+        for vintage in breeding_vintages:
+            if vintage.kind == kind and (before_month is None or vintage.month < before_month):
+                breeding_disposal_cost[month - 1] += vintage.remove_fraction(
+                    fraction, month, breeding_life
+                )
 
     def _add_purchased_does(count: float) -> None:
         """Spread bought-in adult does over the mixed-age range, like foundation stock.
@@ -630,7 +677,7 @@ def _run_core(
     # binding at definition time).
     culls_head = cull_revenue = 0.0
 
-    def _cull_does(count: float, cull_price: float) -> None:
+    def _cull_does(count: float, cull_price: float, *, age_exit: bool = False) -> None:
         """Remove ``count`` breeding does, proportionally across the doe state
         pools. The parallel ``doe_ages`` ledger is NOT touched: every caller
         owns its own age accounting (the max-age caller has already shifted
@@ -652,6 +699,8 @@ def _run_core(
         # live pool, wiping the pools while crediting phantom head.
         count = min(count, pool_total)
         factor = max(0.0, 1.0 - count / pool_total)
+        if not age_exit:
+            _dispose_fraction("doe", 1.0 - factor)
         svc = _scale(svc, factor)
         open_waiting = _scale(open_waiting, factor)
         settling = _scale(settling, factor)
@@ -785,7 +834,7 @@ def _run_core(
                 # trading inventory and stays an operating cost.
                 if event.animal_class in _EVENT_ADULT_CLASSES:
                     breeding_capex_month += n * price
-                    breeding_vintages.append((month, n * price))
+                    _capitalize(month, event.animal_class, n * price)
                 else:
                     purchase_cost += n * price
                 event_fills.append(
@@ -810,6 +859,7 @@ def _run_core(
                     take = min(requested, available)
                     if take > 0.0:
                         factor = 1.0 - take / available
+                        _dispose_fraction("doe", take / available)
                         svc = _scale(svc, factor)
                         open_waiting = _scale(open_waiting, factor)
                         settling = _scale(settling, factor)
@@ -819,6 +869,9 @@ def _run_core(
                     default_price = cull_doe_price * doe_w
                 elif event.animal_class == "buck":
                     take = min(requested, bucks)
+                    if bucks > 0.0:
+                        _dispose_fraction("buck", take / bucks)
+                        bucks_purchased_this_month *= 1.0 - take / bucks
                     bucks -= take
                     default_price = cull_buck_price * buck_w
                 elif event.animal_class == "female_kid":
@@ -1054,7 +1107,7 @@ def _run_core(
             buy = needed_bucks - bucks
             purchases_head += buy
             breeding_capex_month += buy * buck_purchase_price
-            breeding_vintages.append((month, buy * buck_purchase_price))
+            _capitalize(month, "buck", buy * buck_purchase_price)
             bucks += buy
             bucks_purchased_this_month += buy
 
@@ -1124,6 +1177,7 @@ def _run_core(
             # exceeded the live pool and wiped it via _cull_does's clamp.
             breeding_total_before = breeding_pool_before
             if breeding_total_before > 0.0:
+                _dispose_fraction("doe", repeat_culls / breeding_total_before)
                 doe_ages = _scale(doe_ages, max(0.0, 1.0 - repeat_culls / breeding_total_before))
             culls_head += repeat_culls
             cull_revenue += repeat_culls * cull_doe_price * doe_w
@@ -1154,6 +1208,8 @@ def _run_core(
         settling = _scale(settling, s_adult)
         preg = _scale(preg, s_adult)
         lact = _scale(lact, s_adult)
+        _dispose_fraction("doe", 1.0 - s_adult)
+        _dispose_fraction("buck", 1.0 - s_adult)
         bucks *= s_adult
         bucks_purchased_this_month *= s_adult
         doe_ages = _scale(doe_ages, s_adult)
@@ -1165,8 +1221,15 @@ def _run_core(
         # Max-age cull: does aging past max_doe_age_months leave the herd.
         overflow = doe_ages[-1]
         doe_ages = [0.0, *doe_ages[:-1]]
+        for vintage in breeding_vintages:
+            if vintage.kind == "doe":
+                expired_cost = vintage.cost_by_age[-1]
+                breeding_disposal_cost[month - 1] += expired_cost * max(
+                    0.0, 1.0 - (month - vintage.month) / breeding_life
+                )
+                vintage.cost_by_age = [0.0, *vintage.cost_by_age[:-1]]
         if overflow > 0.0:
-            _cull_does(overflow, cull_doe_price)
+            _cull_does(overflow, cull_doe_price, age_exit=True)
 
         # Rate-based doe cull, applied from month 13 (foundation-year grace).
         # The annual fraction compounds monthly like every other annual rate in
@@ -1197,6 +1260,7 @@ def _run_core(
             and month % (cull.buck_rotation_years * 12) == 0
         ):
             cull_pool = max(0.0, bucks - bucks_purchased_this_month)
+            _dispose_fraction("buck", 1.0, before_month=month)
             culls_head += cull_pool
             cull_revenue += cull_pool * cull_buck_price * buck_w
             bucks -= cull_pool
@@ -1213,10 +1277,22 @@ def _run_core(
             buy = needed_bucks - bucks
             purchases_head += buy
             breeding_capex_month += buy * buck_purchase_price
-            breeding_vintages.append((month, buy * buck_purchase_price))
+            _capitalize(month, "buck", buy * buck_purchase_price)
             bucks += buy
 
         physical_peak_head = max(physical_peak_head, _physical_head())
+
+        breeding_depreciation[month - 1] = sum(
+            sum(vintage.cost_by_age) / breeding_life
+            for vintage in breeding_vintages
+            if month - vintage.month < breeding_life
+        )
+        # Fully written-off vintages have no remaining account to track.
+        breeding_vintages[:] = [
+            vintage
+            for vintage in breeding_vintages
+            if month - vintage.month + 1 < breeding_life and sum(vintage.cost_by_age) > 0.0
+        ]
 
         # --- 7. feed, opex and revenue accounting ---------------------------
         # Settling does are open does for every account: maintenance ration,
@@ -1668,18 +1744,16 @@ def _run_core(
         )
         for month in range(1, horizon + 1)
     ]
-    # Breeding-livestock asset account: straight-line depreciation per
-    # purchase vintage (full month in the purchase month), stopping at the
-    # useful life or the horizon. The residual (undepreciated book value at
-    # the horizon) is recovered as an explicit terminal-value component.
-    breeding_life = costs.breeding_stock_useful_life_months
-    breeding_book_residual = 0.0
-    for purchase_month, vintage_cost in breeding_vintages:
-        breeding_book_residual += vintage_cost
-        monthly_vintage_depreciation = vintage_cost / breeding_life
-        for dep_month in range(purchase_month, min(purchase_month + breeding_life, horizon + 1)):
-            depreciation_by_month[dep_month - 1] += monthly_vintage_depreciation
-            breeding_book_residual -= monthly_vintage_depreciation
+    # Only surviving acquisition basis depreciates; exits have already
+    # derecognized the remaining carrying amount in their actual month.
+    depreciation_by_month = [
+        facilities + breeding
+        for facilities, breeding in zip(depreciation_by_month, breeding_depreciation, strict=True)
+    ]
+    breeding_book_residual = sum(
+        sum(vintage.cost_by_age) * max(0.0, 1.0 - (horizon - vintage.month + 1) / breeding_life)
+        for vintage in breeding_vintages
+    )
     accumulated_shed_depreciation = min(
         shed_cost * (1.0 - costs.shed_residual_fraction),
         shed_monthly_depreciation * horizon,
@@ -1752,6 +1826,7 @@ def _run_core(
             sum(record.revenue - record.opex + record.breeding_capex for record in raw_block)
             - block_interest
             - block_depreciation
+            - sum(breeding_disposal_cost[start : start + len(raw_block)])
         )
         if taxable_profit <= 0.0:
             if fin.tax_loss_carryforward:
@@ -1809,6 +1884,7 @@ def _run_core(
                 purchases_head=rec.purchases_head,
                 purchase_cost=rec.purchase_cost,
                 breeding_stock_capex=rec.breeding_capex,
+                breeding_stock_disposal_cost=breeding_disposal_cost[rec.month - 1],
                 feed_green_kg=rec.feed_green_kg,
                 feed_homegrown_green_kg=rec.feed_homegrown_green_kg,
                 feed_purchased_green_kg=rec.feed_purchased_green_kg,
@@ -1859,6 +1935,7 @@ def _run_core(
         breeding_capex = sum(m.breeding_stock_capex for m in block)
         debt = sum(m.debt_service for m in block)
         depreciation = sum(m.depreciation for m in block)
+        disposal_cost = sum(m.breeding_stock_disposal_cost for m in block)
         tax = sum(m.tax for m in block)
         terminal_value = sum(m.terminal_value for m in block)
         total_revenue = meat + cull_rev + milk + manure
@@ -1868,7 +1945,7 @@ def _run_core(
         # breeding_stock_capex, which is what net_cash_flow nets against.
         total_opex = feed_cost + vet + labour + insurance + misc + selling + purchases
         ebitda = total_revenue - total_opex
-        ebit = ebitda - depreciation
+        ebit = ebitda - depreciation - disposal_cost
         profit_before_tax = ebit - interest
         net_cash = sum(m.net_cash_flow for m in block)
         annual_pl.append(
@@ -1887,6 +1964,7 @@ def _run_core(
                 selling_cost=selling,
                 stock_purchases=purchases,
                 breeding_stock_capex=breeding_capex,
+                breeding_stock_disposal_cost=disposal_cost,
                 total_opex=total_opex,
                 ebitda=ebitda,
                 depreciation=depreciation,

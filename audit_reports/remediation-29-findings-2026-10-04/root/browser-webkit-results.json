@@ -1,0 +1,4380 @@
+{
+  "config": {
+    "argv": [
+      "/Users/pradeepreddy/.local/opt/node24/bin/node",
+      "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config",
+      "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/remediation-29-findings-2026-10-04/root/playwright.remediation.config.mts"
+    ],
+    "configFile": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/remediation-29-findings-2026-10-04/root/playwright.remediation.config.mts",
+    "rootDir": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/global-setup.ts",
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/remediation-29-findings-2026-10-04/root/browser-webkit-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "webkit",
+        "name": "webkit",
+        "testDir": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e",
+        "testIgnore": [
+          "/mobile-worker-journey\\.spec\\.ts|worker-tablet-journey\\.spec\\.ts/"
+        ],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/remediation-29-findings-2026-10-04/root/browser-webkit-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "Mobile Safari",
+        "name": "Mobile Safari",
+        "testDir": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/worker-tablet-journey\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/remediation-29-findings-2026-10-04/root/browser-webkit-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "a11y-gate.spec.ts",
+      "file": "a11y-gate.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "a11y gate",
+          "file": "a11y-gate.spec.ts",
+          "line": 65,
+          "column": 6,
+          "specs": [
+            {
+              "title": "/dashboard (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3311,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:31.662Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--dashboard-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2Rhc2hib2FyZCIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-ba256e47fbf5a90e1d87",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/owner (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2084,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:35.747Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--owner-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL293bmVyIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-731e16f4af2c1cb7d5d0",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/animals (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2058,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:37.836Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--animals-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2FuaW1hbHMiLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-72f4f4038d874cd699cc",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/buckets (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2051,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:39.899Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--buckets-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2J1Y2tldHMiLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-f4a1163b7a71bb019383",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/breeding (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2056,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:41.954Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--breeding-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2JyZWVkaW5nIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-5bd2494728998d88fb02",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/kidding (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2067,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:44.015Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--kidding-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2tpZGRpbmciLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-b994fe056e0dd16dfd10",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/feeding (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2076,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:46.086Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--feeding-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2ZlZWRpbmciLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-df338accde1758efe63a",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/feeding/inventory (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2205,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:48.168Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--feeding-inventory-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2ZlZWRpbmcvaW52ZW50b3J5IiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-bc28d0015beb67c6c163",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/feeding/recipes (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2154,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:50.378Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--feeding-recipes-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2ZlZWRpbmcvcmVjaXBlcyIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-bd0619b763173dd5dccc",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/purchases (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2068,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:52.537Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--purchases-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3B1cmNoYXNlcyIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-10acd8f6828627c9fef0",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/reports (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2124,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:54.610Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--reports-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3JlcG9ydHMiLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-b6936082c6824512ed19",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/tasks (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2071,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:56.741Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--tasks-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3Rhc2tzIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-c719c38b9b4332dedb31",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/worker (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1937,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:45:58.817Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--worker-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3dvcmtlciIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-3a91294de46cbe8d0c0e",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/login (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1326,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:00.759Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--login-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2xvZ2luIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-dd5adf31f56d9bf27f2e",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/register (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1286,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:02.090Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--register-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3JlZ2lzdGVyIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-a2a66cddce6753e53974",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/farm-select (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1860,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:03.380Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--farm-select-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2Zhcm0tc2VsZWN0IiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-4e349f15d0b2d1b68830",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/worker/login (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1876,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:05.244Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--worker-login-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3dvcmtlci9sb2dpbiIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-d1fcafa40e5d6bacaafa",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/worker/offline (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1538,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:07.125Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--worker-offline-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3dvcmtlci9vZmZsaW5lIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-3d02a046f930076d99f9",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/screening (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2212,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:08.670Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--screening-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3NjcmVlbmluZyIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-9c1bf75fabdd6d3a3dfb",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/team (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2314,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:10.895Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--team-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3RlYW0iLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-447bd277a8e9aa8ec946",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/finance/insurance (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2051,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:13.213Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--finance-insurance-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2ZpbmFuY2UvaW5zdXJhbmNlIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-df2fa1b6daaa4d0dfd9a",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/health (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2100,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:15.269Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--health-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2hlYWx0aCIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-674c48c938ab3237a55c",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/planner (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2098,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:17.374Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--planner-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3BsYW5uZXIiLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-c5e5fe040eebad33245a",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/simulation (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2803,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:19.478Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--simulation-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3NpbXVsYXRpb24iLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-ee5ccdff29415fc3cbba",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/finance (en) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2226,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:22.287Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--finance-en-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2ZpbmFuY2UiLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-41308de429cac0a1ae02",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/dashboard (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2355,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:24.517Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--dashboard-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2Rhc2hib2FyZCIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-acdd16df3fc9f21fa4ca",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/owner (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2234,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:26.877Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--owner-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL293bmVyIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-197dfdb265964138b8e7",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/animals (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2195,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:29.116Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--animals-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2FuaW1hbHMiLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-903a52b7b6b015c0851c",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/buckets (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2177,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:31.317Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--buckets-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2J1Y2tldHMiLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-bc540ab111092de12f78",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/breeding (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2209,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:33.499Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--breeding-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2JyZWVkaW5nIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-4fda0cb9a7ce84f79666",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/kidding (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2046,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:35.713Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--kidding-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2tpZGRpbmciLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-a008d010f22787940b94",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/feeding (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2176,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:37.766Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--feeding-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2ZlZWRpbmciLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-4e2a7fa1a8887146b6ea",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/feeding/inventory (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2228,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:39.948Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--feeding-inventory-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2ZlZWRpbmcvaW52ZW50b3J5IiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-2caf8ffb957256f5a46b",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/feeding/recipes (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2309,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:42.181Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--feeding-recipes-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2ZlZWRpbmcvcmVjaXBlcyIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-32b296433051753f1cc0",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/purchases (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2159,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:44.496Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--purchases-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3B1cmNoYXNlcyIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-b44807da68e69ff84164",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/reports (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2166,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:46.661Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--reports-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3JlcG9ydHMiLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-a8b0e7a379ba21872ee0",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/tasks (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2617,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:48.832Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--tasks-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3Rhc2tzIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-deb7fc77fd8c6d11b2e4",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/worker (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2058,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:51.454Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--worker-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3dvcmtlciIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-6839ffda8a9dce02e688",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/login (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1410,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:53.517Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--login-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2xvZ2luIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-c07b4070327751519c23",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/register (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1361,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:54.932Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--register-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3JlZ2lzdGVyIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-83925646fd966c1fe1ec",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/farm-select (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2003,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:56.298Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--farm-select-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2Zhcm0tc2VsZWN0IiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-5329e317e537480cc161",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/worker/login (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1923,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:46:58.305Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--worker-login-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3dvcmtlci9sb2dpbiIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-7c4080aa08f28746ba4c",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/worker/offline (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1415,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:00.233Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--worker-offline-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3dvcmtlci9vZmZsaW5lIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-c682e70df91b73749361",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/screening (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2105,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:01.651Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--screening-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3NjcmVlbmluZyIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-deae429b9999c737750c",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/team (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2238,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:03.761Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--team-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3RlYW0iLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-2630c489be97992de62c",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/finance/insurance (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2044,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:06.004Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--finance-insurance-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2ZpbmFuY2UvaW5zdXJhbmNlIiwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-29c807c35bb9b3e2c264",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/health (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2177,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:08.053Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--health-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2hlYWx0aCIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-acda345a29e8f44a9a20",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/planner (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2224,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:10.236Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--planner-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3BsYW5uZXIiLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-3d3a9714988276c0b260",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/simulation (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3251,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:12.466Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--simulation-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3NpbXVsYXRpb24iLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-52989315165a08dff6b7",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "/finance (te) has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2731,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:15.722Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe--finance-te-landing.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2ZpbmFuY2UiLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-fdd0a541a46a2e47fe25",
+              "file": "a11y-gate.spec.ts",
+              "line": 68,
+              "column": 7
+            },
+            {
+              "title": "animal validation modal on a manager phone and dashboard on a portrait tablet",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2464,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:18.459Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe-animals-invalid-create-phone.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2FuaW1hbHMiLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        },
+                        {
+                          "name": "axe-dashboard-portrait-tablet.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2Rhc2hib2FyZCIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-378ea16a5c12196de3c3",
+              "file": "a11y-gate.spec.ts",
+              "line": 115,
+              "column": 3
+            },
+            {
+              "title": "animal detail state has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3292,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:20.927Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe-animal-detail.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2FuaW1hbHMvMzIiLAogICJ2aW9sYXRpb25zIjogW10KfQ=="
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-4887b460db18a0304a60",
+              "file": "a11y-gate.spec.ts",
+              "line": 135,
+              "column": 3
+            },
+            {
+              "title": "permissions error recovery state has no serious accessibility violations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1198,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:24.223Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "axe-permissions-error.json",
+                          "contentType": "application/json",
+                          "body": "ewogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL2Rhc2hib2FyZCIsCiAgInZpb2xhdGlvbnMiOiBbXQp9"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff0f71ce2e697869650f-eb73732cdb938eebd1b4",
+              "file": "a11y-gate.spec.ts",
+              "line": 149,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "animals.spec.ts",
+      "file": "animals.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "animals",
+          "file": "animals.spec.ts",
+          "line": 12,
+          "column": 6,
+          "specs": [
+            {
+              "title": "create animal, record a weight, move bucket — profile reflects all",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4838,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:25.437Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "6ead1a02399a42553f57-716d08a5d033a1eaedfd",
+              "file": "animals.spec.ts",
+              "line": 13,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "api-contract-auth-team.spec.ts",
+      "file": "api-contract-auth-team.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "frontend proxy auth and team API contracts",
+          "file": "api-contract-auth-team.spec.ts",
+          "line": 237,
+          "column": 6,
+          "specs": [
+            {
+              "title": "proxies the liveness and database-readiness probes",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 321,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:30.292Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "937e0cc8608c3a23be94-d96e8c2fa7517a65676d",
+              "file": "api-contract-auth-team.spec.ts",
+              "line": 240,
+              "column": 3
+            },
+            {
+              "title": "persists password changes and returns exact me/export data through the proxy",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 754,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:30.616Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "937e0cc8608c3a23be94-079ac4fa8c51306da429",
+              "file": "api-contract-auth-team.spec.ts",
+              "line": 254,
+              "column": 3
+            },
+            {
+              "title": "deletes a separate registered non-owner and makes its login unusable",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 351,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:31.375Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "937e0cc8608c3a23be94-5d09dd14429da30734b3",
+              "file": "api-contract-auth-team.spec.ts",
+              "line": 370,
+              "column": 3
+            },
+            {
+              "title": "persists worker resets and the full custom-role create/update/delete lifecycle",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 965,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:31.730Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "937e0cc8608c3a23be94-9662fb839afe3f514544",
+              "file": "api-contract-auth-team.spec.ts",
+              "line": 403,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "api-contract-domain.spec.ts",
+      "file": "api-contract-domain.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "frontend proxy domain API contracts",
+          "file": "api-contract-domain.spec.ts",
+          "line": 118,
+          "column": 15,
+          "specs": [
+            {
+              "title": "animal status mutation returns and persists the requested lifecycle facts",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 115,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:32.705Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "8da32281bc2bfdb8c6b5-1a1790c158f28e22ebcd",
+              "file": "api-contract-domain.spec.ts",
+              "line": 158,
+              "column": 3
+            },
+            {
+              "title": "breeding GET, live-pregnancy GET, and pregnancy abort agree on one record",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 327,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:33.029Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "8da32281bc2bfdb8c6b5-490d8b2fe3559da7c0ba",
+              "file": "api-contract-domain.spec.ts",
+              "line": 206,
+              "column": 3
+            },
+            {
+              "title": "health batch lookup/preview and restriction clearance round-trip their data",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 311,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:33.361Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "8da32281bc2bfdb8c6b5-a5a487a1ce536d58e16c",
+              "file": "api-contract-domain.spec.ts",
+              "line": 328,
+              "column": 3
+            },
+            {
+              "title": "task GET returns the created duty and skip remains visible on readback",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 95,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:33.678Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "8da32281bc2bfdb8c6b5-b12eeef1d17d5b69bdab",
+              "file": "api-contract-domain.spec.ts",
+              "line": 510,
+              "column": 3
+            },
+            {
+              "title": "feeding setting and recipe mix are reflected by plan, inventory, and finished stock",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 370,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:33.776Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "8da32281bc2bfdb8c6b5-43a9caa7b20228cd4f13",
+              "file": "api-contract-domain.spec.ts",
+              "line": 568,
+              "column": 3
+            },
+            {
+              "title": "finance correction returns the replacement and preserves the voided source audit",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 82,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:34.149Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "8da32281bc2bfdb8c6b5-703893a013c8d2dea605",
+              "file": "api-contract-domain.spec.ts",
+              "line": 669,
+              "column": 3
+            },
+            {
+              "title": "herd snapshot and scenario GET/PATCH/compare/DELETE stay consistent",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 357,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:34.235Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "8da32281bc2bfdb8c6b5-c84f576577dece4f660f",
+              "file": "api-contract-domain.spec.ts",
+              "line": 748,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "auth.spec.ts",
+      "file": "auth.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "auth",
+          "file": "auth.spec.ts",
+          "line": 20,
+          "column": 6,
+          "specs": [
+            {
+              "title": "owner signs in, sees the full nav, and logout returns to /login",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 996,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:34.599Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-330ffb029dcdb50802d1",
+              "file": "auth.spec.ts",
+              "line": 21,
+              "column": 3
+            },
+            {
+              "title": "unauthenticated visit to an app page redirects to /login",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 431,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:35.598Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-610f7128e1c0da865f46",
+              "file": "auth.spec.ts",
+              "line": 47,
+              "column": 3
+            },
+            {
+              "title": "wrong password shows an error and stays on /login",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 622,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:36.035Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-123895b3481dc84489cf",
+              "file": "auth.spec.ts",
+              "line": 52,
+              "column": 3
+            },
+            {
+              "title": "signIn helper lands on the dashboard",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 853,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:36.663Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-84c6851f9ee566266f3b",
+              "file": "auth.spec.ts",
+              "line": 63,
+              "column": 3
+            },
+            {
+              "title": "authenticated shell fits supported narrow widths and hands off navigation focus",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1061,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:37.521Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-3c903ce5756ebfd72e1c",
+              "file": "auth.spec.ts",
+              "line": 69,
+              "column": 3
+            },
+            {
+              "title": "sign-out propagates between farmless tabs without a farm storage key",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1421,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:38.587Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-81d171c39c817db7938a",
+              "file": "auth.spec.ts",
+              "line": 105,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "breeding-flow.spec.ts",
+      "file": "breeding-flow.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "breeding flow",
+          "file": "breeding-flow.spec.ts",
+          "line": 15,
+          "column": 6,
+          "specs": [
+            {
+              "title": "doe is bred, confirmed pregnant via ultrasound, moves to PREGNANCY_EARLY",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5425,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:40.018Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "16e484bff46490d85df1-50339fc9e52896b2c589",
+              "file": "breeding-flow.spec.ts",
+              "line": 16,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "cross-tenant.spec.ts",
+      "file": "cross-tenant.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "cross-tenant and horizontal authorization negatives",
+          "file": "cross-tenant.spec.ts",
+          "line": 93,
+          "column": 6,
+          "specs": [
+            {
+              "title": "a provisioned worker without finance.view is refused 403 on the finance API",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 935,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:45.452Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7dbdb56572461e2f74b8-bc3bffa811fdd83ffdff",
+              "file": "cross-tenant.spec.ts",
+              "line": 94,
+              "column": 3
+            },
+            {
+              "title": "another farm's owner cannot read this farm's animal: uniform 404s",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 405,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:46.390Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7dbdb56572461e2f74b8-fd6b88a8fb117dd4dec0",
+              "file": "cross-tenant.spec.ts",
+              "line": 157,
+              "column": 3
+            },
+            {
+              "title": "logged-out API access is refused 401",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:46.798Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7dbdb56572461e2f74b8-fbc89a8c853163a7eff9",
+              "file": "cross-tenant.spec.ts",
+              "line": 202,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "farm-switch.spec.ts",
+      "file": "farm-switch.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "farm switching",
+          "file": "farm-switch.spec.ts",
+          "line": 21,
+          "column": 6,
+          "specs": [
+            {
+              "title": "switching farms renders none of the previous farm's cached data",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 7007,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:46.809Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "43901cfab03ace738bc3-b4330336325026def6a1",
+              "file": "farm-switch.spec.ts",
+              "line": 22,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "feeding-finance.spec.ts",
+      "file": "feeding-finance.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "feeding and finance",
+          "file": "feeding-finance.spec.ts",
+          "line": 5,
+          "column": 6,
+          "specs": [
+            {
+              "title": "feeding plan shows the 40/20/40 shift split and records a dispense",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2926,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:53.824Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "1cbe27804a9f5c4ce430-754da76276e6417ecb22",
+              "file": "feeding-finance.spec.ts",
+              "line": 6,
+              "column": 3
+            },
+            {
+              "title": "adding an expense transaction lists it in the ledger",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1467,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:56.754Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "1cbe27804a9f5c4ce430-8f21849787d75e81a8e3",
+              "file": "feeding-finance.spec.ts",
+              "line": 77,
+              "column": 3
+            },
+            {
+              "title": "reports page renders herd summary, breeding performance and mortality",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1980,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:47:58.225Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "1cbe27804a9f5c4ce430-00e66b42db8d6a23741d",
+              "file": "feeding-finance.spec.ts",
+              "line": 113,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "health-flow.spec.ts",
+      "file": "health-flow.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "health flow",
+          "file": "health-flow.spec.ts",
+          "line": 13,
+          "column": 6,
+          "specs": [
+            {
+              "title": "record a vaccine event — event log, profile health card, schedule badge",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4188,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:00.214Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "81c33c93555e8730ebe4-2d4584c03ce7956bf310",
+              "file": "health-flow.spec.ts",
+              "line": 14,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "kidding-flow.spec.ts",
+      "file": "kidding-flow.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "kidding flow",
+          "file": "kidding-flow.spec.ts",
+          "line": 15,
+          "column": 6,
+          "specs": [
+            {
+              "title": "overdue pregnancy is kidded with twins — kids become animals, doe moves to RECOVERY",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 9284,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:04.410Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "bc4898187d87082df83d-e85b204458bbcecab61c",
+              "file": "kidding-flow.spec.ts",
+              "line": 16,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "navigation-rbac.spec.ts",
+      "file": "navigation-rbac.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "navigation and access control",
+          "file": "navigation-rbac.spec.ts",
+          "line": 24,
+          "column": 6,
+          "specs": [
+            {
+              "title": "every nav item loads its page without errors",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5681,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:13.705Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2a81b879416fac24e133-70a92f161a7bcedb9167",
+              "file": "navigation-rbac.spec.ts",
+              "line": 25,
+              "column": 3
+            },
+            {
+              "title": "logged-out direct-URL access redirects every app page to /login",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1792,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:19.390Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2a81b879416fac24e133-c264a9ec4a3f7f0db682",
+              "file": "navigation-rbac.spec.ts",
+              "line": 42,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "ops-simulation.spec.ts",
+      "file": "ops-simulation.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "ops simulation",
+          "file": "ops-simulation.spec.ts",
+          "line": 16,
+          "column": 6,
+          "specs": [
+            {
+              "title": "renders its sections and replays the toy herd for one week",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1237,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:21.197Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "957627015fc4f94d9019-cfc77db59d15c049f56a",
+              "file": "ops-simulation.spec.ts",
+              "line": 17,
+              "column": 3
+            },
+            {
+              "title": "a row without a tag is reported inline, blocks the run, and never reaches the API",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1142,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:22.438Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "957627015fc4f94d9019-d3568190d357940edc64",
+              "file": "ops-simulation.spec.ts",
+              "line": 62,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "ownership-transfer.spec.ts",
+      "file": "ownership-transfer.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "an owner transfers a separate farm to a password-rotated member through Team",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "webkit",
+              "projectName": "webkit",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2625,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-05T03:48:23.589Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "868df08b4adac37ea13b-665634791ffa835f51f3",
+          "file": "ownership-transfer.spec.ts",
+          "line": 18,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "planner.spec.ts",
+      "file": "planner.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "planner",
+          "file": "planner.spec.ts",
+          "line": 22,
+          "column": 6,
+          "specs": [
+            {
+              "title": "renders its sections, plans a sale target, and keeps owner access",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2568,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:26.222Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "5d42237028e62295b8dc-fbc1cebb31b0f992d08c",
+              "file": "planner.spec.ts",
+              "line": 23,
+              "column": 3
+            },
+            {
+              "title": "a target in the plan's start month is rejected inline and blocks the run",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1141,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:28.795Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "5d42237028e62295b8dc-44a964f1518961c1c03e",
+              "file": "planner.spec.ts",
+              "line": 68,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "purchases.spec.ts",
+      "file": "purchases.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "purchases",
+          "file": "purchases.spec.ts",
+          "line": 5,
+          "column": 6,
+          "specs": [
+            {
+              "title": "a new batch stubs animals into QUARANTINE with the 45-day task schedule",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2604,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:29.944Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "8e6a4a141a13fc9e7c90-f7c0de7570e7cd9904d6",
+              "file": "purchases.spec.ts",
+              "line": 6,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "register.spec.ts",
+      "file": "register.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "registration",
+          "file": "register.spec.ts",
+          "line": 5,
+          "column": 6,
+          "specs": [
+            {
+              "title": "a new user registers, creates a farm and reaches its dashboard",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1856,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:32.554Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ab6fb19b790d2390d751-cd8b57e90e40135184a3",
+              "file": "register.spec.ts",
+              "line": 6,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "screening.spec.ts",
+      "file": "screening.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "screening review",
+          "file": "screening.spec.ts",
+          "line": 160,
+          "column": 6,
+          "specs": [
+            {
+              "title": "scoreboard → queue → detail → confirm → conflict toast, all stubbed at the API",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1336,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:34.419Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "9123332de111b3c77dd7-8cd29d1fb38a10bd8297",
+              "file": "screening.spec.ts",
+              "line": 161,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "simulation.spec.ts",
+      "file": "simulation.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "simulation",
+          "file": "simulation.spec.ts",
+          "line": 73,
+          "column": 6,
+          "specs": [
+            {
+              "title": "defaults + herd events run end-to-end; save and re-run as a scenario",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4684,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:35.765Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "8812daf840a2e145bc16-88ad9b181fba805d79e4",
+              "file": "simulation.spec.ts",
+              "line": 74,
+              "column": 3
+            },
+            {
+              "title": "an event month beyond the horizon blocks the run with an inline error",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1481,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:40.455Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "8812daf840a2e145bc16-47eb8ff6223e7b1e59db",
+              "file": "simulation.spec.ts",
+              "line": 183,
+              "column": 3
+            },
+            {
+              "title": "farm calibration and all decision analyses render responsively",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3657,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:41.940Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "8812daf840a2e145bc16-5fe37f19bfbb0d3de7a1",
+              "file": "simulation.spec.ts",
+              "line": 202,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "tasks-guards.spec.ts",
+      "file": "tasks-guards.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "tasks guards",
+          "file": "tasks-guards.spec.ts",
+          "line": 14,
+          "column": 6,
+          "specs": [
+            {
+              "title": "auto duties are form-linked; a completed duty lands in awaiting verification",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5776,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:45.606Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e7f3366de81a06cb1087-1656def4395dabe0602d",
+              "file": "tasks-guards.spec.ts",
+              "line": 15,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "tasks-verify.spec.ts",
+      "file": "tasks-verify.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "tasks verification",
+          "file": "tasks-verify.spec.ts",
+          "line": 31,
+          "column": 6,
+          "specs": [
+            {
+              "title": "owner completes and verifies a cleaning duty — it lands in Completed as VERIFIED",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1811,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:51.392Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "09e682d4c8d429b8e6d8-b00c6eae521f842cfc18",
+              "file": "tasks-verify.spec.ts",
+              "line": 32,
+              "column": 3
+            },
+            {
+              "title": "rejected duty is sent back to pending with the note visible",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2029,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:53.207Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "09e682d4c8d429b8e6d8-6a8a2ab3d649bfcc2452",
+              "file": "tasks-verify.spec.ts",
+              "line": 58,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "team.spec.ts",
+      "file": "team.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "team management",
+          "file": "team.spec.ts",
+          "line": 5,
+          "column": 6,
+          "specs": [
+            {
+              "title": "owner adds a worker, changes their role and toggles them inactive/active",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2299,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:48:55.243Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "67b0f0445c69ee5cec18-639f28abeb2bae530831",
+              "file": "team.spec.ts",
+              "line": 6,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "worker-offline-regressions.spec.ts",
+      "file": "worker-offline-regressions.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "fresh worker is Telugu-first and the offline route owns one primary landmark",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "webkit",
+              "projectName": "webkit",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 724,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-05T03:48:57.550Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "worker-landmarks.json",
+                      "contentType": "application/json",
+                      "body": "ewogICJ0ZXN0RW5naW5lIjogewogICAgIm5hbWUiOiAiYXhlLWNvcmUiLAogICAgInZlcnNpb24iOiAiNC4xMy4wIgogIH0sCiAgInRlc3RSdW5uZXIiOiB7CiAgICAibmFtZSI6ICJheGUiCiAgfSwKICAidGVzdEVudmlyb25tZW50IjogewogICAgInVzZXJBZ2VudCI6ICJNb3ppbGxhLzUuMCAoTWFjaW50b3NoOyBJbnRlbCBNYWMgT1MgWCAxMF8xNV83KSBBcHBsZVdlYktpdC82MDUuMS4xNSAoS0hUTUwsIGxpa2UgR2Vja28pIFZlcnNpb24vMjYuNSBTYWZhcmkvNjA1LjEuMTUiLAogICAgIndpbmRvd1dpZHRoIjogMTI4MCwKICAgICJ3aW5kb3dIZWlnaHQiOiA3MjAsCiAgICAib3JpZW50YXRpb25BbmdsZSI6IDAsCiAgICAib3JpZW50YXRpb25UeXBlIjogImxhbmRzY2FwZS1wcmltYXJ5IgogIH0sCiAgInRpbWVzdGFtcCI6ICIyMDI2LTEwLTA1VDAzOjQ4OjU4LjA4N1oiLAogICJ1cmwiOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwL3dvcmtlci9vZmZsaW5lIiwKICAidG9vbE9wdGlvbnMiOiB7CiAgICAicnVuT25seSI6IHsKICAgICAgInR5cGUiOiAicnVsZSIsCiAgICAgICJ2YWx1ZXMiOiBbCiAgICAgICAgImxhbmRtYXJrLW1haW4taXMtdG9wLWxldmVsIiwKICAgICAgICAibGFuZG1hcmstbm8tZHVwbGljYXRlLW1haW4iLAogICAgICAgICJsYW5kbWFyay11bmlxdWUiCiAgICAgIF0KICAgIH0sCiAgICAicmVwb3J0ZXIiOiAidjEiCiAgfSwKICAiaW5hcHBsaWNhYmxlIjogW10sCiAgInBhc3NlcyI6IFsKICAgIHsKICAgICAgImlkIjogImxhbmRtYXJrLW1haW4taXMtdG9wLWxldmVsIiwKICAgICAgImltcGFjdCI6IG51bGwsCiAgICAgICJ0YWdzIjogWwogICAgICAgICJjYXQuc2VtYW50aWNzIiwKICAgICAgICAiYmVzdC1wcmFjdGljZSIKICAgICAgXSwKICAgICAgImRlc2NyaXB0aW9uIjogIkVuc3VyZSB0aGUgbWFpbiBsYW5kbWFyayBpcyBhdCB0b3AgbGV2ZWwiLAogICAgICAiaGVscCI6ICJNYWluIGxhbmRtYXJrIHNob3VsZCBub3QgYmUgY29udGFpbmVkIGluIGFub3RoZXIgbGFuZG1hcmsiLAogICAgICAiaGVscFVybCI6ICJodHRwczovL2RlcXVldW5pdmVyc2l0eS5jb20vcnVsZXMvYXhlLzQuMTMvbGFuZG1hcmstbWFpbi1pcy10b3AtbGV2ZWw/YXBwbGljYXRpb249cGxheXdyaWdodCIsCiAgICAgICJub2RlcyI6IFsKICAgICAgICB7CiAgICAgICAgICAiYW55IjogWwogICAgICAgICAgICB7CiAgICAgICAgICAgICAgImlkIjogImxhbmRtYXJrLWlzLXRvcC1sZXZlbCIsCiAgICAgICAgICAgICAgImRhdGEiOiB7CiAgICAgICAgICAgICAgICAicm9sZSI6ICJtYWluIgogICAgICAgICAgICAgIH0sCiAgICAgICAgICAgICAgInJlbGF0ZWROb2RlcyI6IFtdLAogICAgICAgICAgICAgICJpbXBhY3QiOiAibW9kZXJhdGUiLAogICAgICAgICAgICAgICJtZXNzYWdlIjogIlRoZSBtYWluIGxhbmRtYXJrIGlzIGF0IHRoZSB0b3AgbGV2ZWwuIgogICAgICAgICAgICB9CiAgICAgICAgICBdLAogICAgICAgICAgImFsbCI6IFtdLAogICAgICAgICAgIm5vbmUiOiBbXSwKICAgICAgICAgICJpbXBhY3QiOiBudWxsLAogICAgICAgICAgImh0bWwiOiAiPG1haW4+IiwKICAgICAgICAgICJ0YXJnZXQiOiBbCiAgICAgICAgICAgICJtYWluIgogICAgICAgICAgXQogICAgICAgIH0KICAgICAgXQogICAgfSwKICAgIHsKICAgICAgImlkIjogImxhbmRtYXJrLW5vLWR1cGxpY2F0ZS1tYWluIiwKICAgICAgImltcGFjdCI6IG51bGwsCiAgICAgICJ0YWdzIjogWwogICAgICAgICJjYXQuc2VtYW50aWNzIiwKICAgICAgICAiYmVzdC1wcmFjdGljZSIKICAgICAgXSwKICAgICAgImRlc2NyaXB0aW9uIjogIkVuc3VyZSB0aGUgZG9jdW1lbnQgaGFzIGF0IG1vc3Qgb25lIG1haW4gbGFuZG1hcmsiLAogICAgICAiaGVscCI6ICJEb2N1bWVudCBzaG91bGQgbm90IGhhdmUgbW9yZSB0aGFuIG9uZSBtYWluIGxhbmRtYXJrIiwKICAgICAgImhlbHBVcmwiOiAiaHR0cHM6Ly9kZXF1ZXVuaXZlcnNpdHkuY29tL3J1bGVzL2F4ZS80LjEzL2xhbmRtYXJrLW5vLWR1cGxpY2F0ZS1tYWluP2FwcGxpY2F0aW9uPXBsYXl3cmlnaHQiLAogICAgICAibm9kZXMiOiBbCiAgICAgICAgewogICAgICAgICAgImFueSI6IFsKICAgICAgICAgICAgewogICAgICAgICAgICAgICJpZCI6ICJwYWdlLW5vLWR1cGxpY2F0ZS1tYWluIiwKICAgICAgICAgICAgICAiZGF0YSI6IG51bGwsCiAgICAgICAgICAgICAgInJlbGF0ZWROb2RlcyI6IFtdLAogICAgICAgICAgICAgICJpbXBhY3QiOiAibW9kZXJhdGUiLAogICAgICAgICAgICAgICJtZXNzYWdlIjogIkRvY3VtZW50IGRvZXMgbm90IGhhdmUgbW9yZSB0aGFuIG9uZSBtYWluIGxhbmRtYXJrIgogICAgICAgICAgICB9CiAgICAgICAgICBdLAogICAgICAgICAgImFsbCI6IFtdLAogICAgICAgICAgIm5vbmUiOiBbXSwKICAgICAgICAgICJpbXBhY3QiOiBudWxsLAogICAgICAgICAgImh0bWwiOiAiPG1haW4+IiwKICAgICAgICAgICJ0YXJnZXQiOiBbCiAgICAgICAgICAgICJtYWluIgogICAgICAgICAgXQogICAgICAgIH0KICAgICAgXQogICAgfSwKICAgIHsKICAgICAgImlkIjogImxhbmRtYXJrLXVuaXF1ZSIsCiAgICAgICJpbXBhY3QiOiBudWxsLAogICAgICAidGFncyI6IFsKICAgICAgICAiY2F0LnNlbWFudGljcyIsCiAgICAgICAgImJlc3QtcHJhY3RpY2UiCiAgICAgIF0sCiAgICAgICJkZXNjcmlwdGlvbiI6ICJFbnN1cmUgbGFuZG1hcmtzIGFyZSB1bmlxdWUiLAogICAgICAiaGVscCI6ICJMYW5kbWFya3Mgc2hvdWxkIGhhdmUgYSB1bmlxdWUgcm9sZSBvciByb2xlL2xhYmVsL3RpdGxlIChpLmUuIGFjY2Vzc2libGUgbmFtZSkgY29tYmluYXRpb24iLAogICAgICAiaGVscFVybCI6ICJodHRwczovL2RlcXVldW5pdmVyc2l0eS5jb20vcnVsZXMvYXhlLzQuMTMvbGFuZG1hcmstdW5pcXVlP2FwcGxpY2F0aW9uPXBsYXl3cmlnaHQiLAogICAgICAibm9kZXMiOiBbCiAgICAgICAgewogICAgICAgICAgImFueSI6IFsKICAgICAgICAgICAgewogICAgICAgICAgICAgICJpZCI6ICJsYW5kbWFyay1pcy11bmlxdWUiLAogICAgICAgICAgICAgICJkYXRhIjogewogICAgICAgICAgICAgICAgInJvbGUiOiAiYmFubmVyIiwKICAgICAgICAgICAgICAgICJhY2Nlc3NpYmxlVGV4dCI6IG51bGwKICAgICAgICAgICAgICB9LAogICAgICAgICAgICAgICJyZWxhdGVkTm9kZXMiOiBbXSwKICAgICAgICAgICAgICAiaW1wYWN0IjogIm1vZGVyYXRlIiwKICAgICAgICAgICAgICAibWVzc2FnZSI6ICJMYW5kbWFya3MgbXVzdCBoYXZlIGEgdW5pcXVlIHJvbGUgb3Igcm9sZS9sYWJlbC90aXRsZSAoaS5lLiBhY2Nlc3NpYmxlIG5hbWUpIGNvbWJpbmF0aW9uIgogICAgICAgICAgICB9CiAgICAgICAgICBdLAogICAgICAgICAgImFsbCI6IFtdLAogICAgICAgICAgIm5vbmUiOiBbXSwKICAgICAgICAgICJpbXBhY3QiOiBudWxsLAogICAgICAgICAgImh0bWwiOiAiPGhlYWRlciBjbGFzcz1cImZsZXgganVzdGlmeS1lbmQgYm9yZGVyLWIgYmctY2FyZCBweC0zIHB5LTJcIj4iLAogICAgICAgICAgInRhcmdldCI6IFsKICAgICAgICAgICAgImhlYWRlciIKICAgICAgICAgIF0KICAgICAgICB9LAogICAgICAgIHsKICAgICAgICAgICJhbnkiOiBbCiAgICAgICAgICAgIHsKICAgICAgICAgICAgICAiaWQiOiAibGFuZG1hcmstaXMtdW5pcXVlIiwKICAgICAgICAgICAgICAiZGF0YSI6IHsKICAgICAgICAgICAgICAgICJyb2xlIjogIm1haW4iLAogICAgICAgICAgICAgICAgImFjY2Vzc2libGVUZXh0IjogbnVsbAogICAgICAgICAgICAgIH0sCiAgICAgICAgICAgICAgInJlbGF0ZWROb2RlcyI6IFtdLAogICAgICAgICAgICAgICJpbXBhY3QiOiAibW9kZXJhdGUiLAogICAgICAgICAgICAgICJtZXNzYWdlIjogIkxhbmRtYXJrcyBtdXN0IGhhdmUgYSB1bmlxdWUgcm9sZSBvciByb2xlL2xhYmVsL3RpdGxlIChpLmUuIGFjY2Vzc2libGUgbmFtZSkgY29tYmluYXRpb24iCiAgICAgICAgICAgIH0KICAgICAgICAgIF0sCiAgICAgICAgICAiYWxsIjogW10sCiAgICAgICAgICAibm9uZSI6IFtdLAogICAgICAgICAgImltcGFjdCI6IG51bGwsCiAgICAgICAgICAiaHRtbCI6ICI8bWFpbj4iLAogICAgICAgICAgInRhcmdldCI6IFsKICAgICAgICAgICAgIm1haW4iCiAgICAgICAgICBdCiAgICAgICAgfSwKICAgICAgICB7CiAgICAgICAgICAiYW55IjogWwogICAgICAgICAgICB7CiAgICAgICAgICAgICAgImlkIjogImxhbmRtYXJrLWlzLXVuaXF1ZSIsCiAgICAgICAgICAgICAgImRhdGEiOiB7CiAgICAgICAgICAgICAgICAicm9sZSI6ICJyZWdpb24iLAogICAgICAgICAgICAgICAgImFjY2Vzc2libGVUZXh0IjogIm5vdGlmaWNhdGlvbnMgYWx0K3QiCiAgICAgICAgICAgICAgfSwKICAgICAgICAgICAgICAicmVsYXRlZE5vZGVzIjogW10sCiAgICAgICAgICAgICAgImltcGFjdCI6ICJtb2RlcmF0ZSIsCiAgICAgICAgICAgICAgIm1lc3NhZ2UiOiAiTGFuZG1hcmtzIG11c3QgaGF2ZSBhIHVuaXF1ZSByb2xlIG9yIHJvbGUvbGFiZWwvdGl0bGUgKGkuZS4gYWNjZXNzaWJsZSBuYW1lKSBjb21iaW5hdGlvbiIKICAgICAgICAgICAgfQogICAgICAgICAgXSwKICAgICAgICAgICJhbGwiOiBbXSwKICAgICAgICAgICJub25lIjogW10sCiAgICAgICAgICAiaW1wYWN0IjogbnVsbCwKICAgICAgICAgICJodG1sIjogIjxzZWN0aW9uIGFyaWEtbGFiZWw9XCJOb3RpZmljYXRpb25zIGFsdCtUXCIgdGFiaW5kZXg9XCItMVwiIGFyaWEtbGl2ZT1cInBvbGl0ZVwiIGFyaWEtcmVsZXZhbnQ9XCJhZGRpdGlvbnMgdGV4dFwiIGFyaWEtYXRvbWljPVwiZmFsc2VcIj48L3NlY3Rpb24+IiwKICAgICAgICAgICJ0YXJnZXQiOiBbCiAgICAgICAgICAgICJzZWN0aW9uIgogICAgICAgICAgXQogICAgICAgIH0KICAgICAgXQogICAgfQogIF0sCiAgImluY29tcGxldGUiOiBbXSwKICAidmlvbGF0aW9ucyI6IFtdCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9f8f7c3d2cea0f116ff5-a5b6f0a257066624bb73",
+          "file": "worker-offline-regressions.spec.ts",
+          "line": 4,
+          "column": 1
+        },
+        {
+          "title": "Telugu cold reload survives same-build shell refreshes without the HTTP cache",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [
+                {
+                  "type": "skip",
+                  "description": "CDP controls the independent HTTP cache prerequisite on Chromium.",
+                  "location": {
+                    "file": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/worker-offline-regressions.spec.ts",
+                    "line": 20,
+                    "column": 8
+                  }
+                }
+              ],
+              "expectedStatus": "skipped",
+              "projectId": "webkit",
+              "projectName": "webkit",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "skipped",
+                  "duration": 133,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-05T03:48:58.279Z",
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "description": "CDP controls the independent HTTP cache prerequisite on Chromium.",
+                      "location": {
+                        "file": "/Users/pradeepreddy/Desktop/goat-farm-management-main/frontend/e2e/worker-offline-regressions.spec.ts",
+                        "line": 20,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "skipped"
+            }
+          ],
+          "id": "9f8f7c3d2cea0f116ff5-3c437fdd8c5acafa3751",
+          "file": "worker-offline-regressions.spec.ts",
+          "line": 19,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "worker-onboarding.spec.ts",
+      "file": "worker-onboarding.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "task-only password worker completes first password rotation on the worker board",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "webkit",
+              "projectName": "webkit",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3468,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-05T03:48:58.420Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "50341d17225de1634f7d-ef59ffd9c1f2689dbdc1",
+          "file": "worker-onboarding.spec.ts",
+          "line": 44,
+          "column": 1
+        },
+        {
+          "title": "owner creates and resets a PIN worker through Team and pins the tablet through the UI",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "webkit",
+              "projectName": "webkit",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3318,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-05T03:49:01.893Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "50341d17225de1634f7d-7ef7d75dd0ac314fe7d3",
+          "file": "worker-onboarding.spec.ts",
+          "line": 71,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "worker-tablet-journey.spec.ts",
+      "file": "worker-tablet-journey.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "worker tablet",
+          "file": "worker-tablet-journey.spec.ts",
+          "line": 56,
+          "column": 6,
+          "specs": [
+            {
+              "title": "PIN login, offline completion, sync with attribution",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3792,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:49:05.713Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "5a27a678627eb5a70605-094a3a655a944a0de442",
+              "file": "worker-tablet-journey.spec.ts",
+              "line": 57,
+              "column": 3
+            },
+            {
+              "title": "form-linked duty deep-links to its form and carries returnTo=/worker",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2290,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-05T03:49:09.706Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "5a27a678627eb5a70605-99666c3ffb14f4734078",
+              "file": "worker-tablet-journey.spec.ts",
+              "line": 248,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-05T03:45:27.212Z",
+    "duration": 224831.807,
+    "expected": 103,
+    "skipped": 1,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

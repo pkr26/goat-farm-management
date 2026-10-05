@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import argparse
 import collections
+import hashlib
 import json
+import math
+import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 
 def _object(path: Path) -> dict[str, Any]:
@@ -33,6 +36,169 @@ def _records(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _number(value: object) -> TypeGuard[int | float]:
+    return type(value) is int or (type(value) is float and math.isfinite(value))
+
+
+def _receipt_verdict(record: dict[str, Any], format_name: str) -> str | None:
+    """Reclassify structured test outcomes; a label alone cannot prove a kill."""
+    receipt = record.get("pytest_receipt" if format_name == "backend" else "receipt")
+    if not isinstance(receipt, dict):
+        return None
+    if format_name == "backend":
+        if (
+            type(receipt.get("exit_code")) is not int
+            or receipt.get("collection_errors") != []
+            or not (type(receipt.get("collected")) is int and receipt["collected"] > 0)
+        ):
+            return None
+        reports = receipt.get("reports")
+        selection = record.get("selection")
+        if (
+            not isinstance(selection, list)
+            or not all(isinstance(node, str) for node in selection)
+            or receipt["collected"] != len(selection)
+        ):
+            return None
+        selected = set(selection)
+        if (
+            not isinstance(reports, list)
+            or not reports
+            or any(
+                not isinstance(row, dict)
+                or row.get("when") not in ("setup", "call", "teardown")
+                or row.get("outcome") not in ("passed", "failed", "skipped")
+                or not isinstance(row.get("nodeid"), str)
+                or row["nodeid"] not in selected
+                for row in reports
+            )
+        ):
+            return None
+        failures = [row for row in reports if row["outcome"] == "failed"]
+        if (
+            receipt.get("exit_code") == 0
+            and not failures
+            and any(row["when"] == "call" and row["outcome"] == "passed" for row in reports)
+            and {
+                row["nodeid"]
+                for row in reports
+                if row["when"] == "call" or (row["when"] == "setup" and row["outcome"] == "skipped")
+            }
+            == selected
+        ):
+            return "SURVIVED"
+        if (
+            receipt.get("exit_code") == 1
+            and failures
+            and all(row["when"] == "call" and row.get("assertion") is True for row in failures)
+        ):
+            return "KILLED"
+    else:
+        tests = receipt.get("tests")
+        if (
+            type(record.get("exitCode")) is not int
+            or receipt.get("suiteErrors") != []
+            or receipt.get("unhandledErrors") != []
+            or receipt.get("reason") not in ("passed", "failed")
+            or not isinstance(tests, list)
+            or not tests
+        ):
+            return None
+        for test in tests:
+            if not isinstance(test, dict) or test.get("state") not in (
+                "pass",
+                "fail",
+                "skip",
+                "todo",
+            ):
+                return None
+            hooks = test.get("hooks", {})
+            if not isinstance(hooks, dict) or any(state != "pass" for state in hooks.values()):
+                return None
+        failures = [test for test in tests if test["state"] == "fail"]
+        if (
+            record.get("exitCode") == 0
+            and not failures
+            and any(test["state"] == "pass" for test in tests)
+        ):
+            return "SURVIVED"
+        if (
+            record.get("exitCode") == 1
+            and failures
+            and all(
+                isinstance(test.get("errors"), list)
+                and test["errors"]
+                and all(
+                    isinstance(error, dict) and error.get("name") == "AssertionError"
+                    for error in test["errors"]
+                )
+                for test in failures
+            )
+        ):
+            return "KILLED"
+    return None
+
+
+def _complete_record(record: dict[str, Any], format_name: str) -> bool:
+    baseline = record.get("baseline")
+    if not isinstance(baseline, dict):
+        return False
+    if format_name == "backend":
+        selection = record.get("selection")
+        if (
+            record.get("selection_mode") != "complete"
+            or baseline.get("status") != "pass"
+            or type(record.get("n_tests")) is not int
+            or not isinstance(selection, list)
+            or not selection
+            or not all(isinstance(test, str) and test for test in selection)
+            or len(set(selection)) != len(selection)
+            or record["n_tests"] != len(selection)
+        ):
+            return False
+        digest = hashlib.sha256(json.dumps(selection, separators=(",", ":")).encode()).hexdigest()
+        return record.get("selection_sha256") == digest == baseline.get("selection_sha256")
+    count = record.get("tests")
+    selection_sha = record.get("selectionSha")
+    return (
+        record.get("selectionMode") == "complete"
+        and baseline.get("verdict") == "SURVIVED"
+        and _receipt_verdict(baseline, "frontend") == "SURVIVED"
+        and type(count) is int
+        and count > 0
+        and type(record.get("totalTests")) is int
+        and count == record["totalTests"]
+        and isinstance(selection_sha, str)
+        and re.fullmatch(r"[0-9a-f]{64}", selection_sha) is not None
+    )
+
+
+def _measured_evidence(
+    records: list[dict[str, Any]], format_name: str
+) -> tuple[collections.Counter[str], int, int, list[str]]:
+    statuses: collections.Counter[str] = collections.Counter()
+    measured = killed = 0
+    errors: list[str] = []
+    for record in records:
+        status = record.get("status" if format_name == "backend" else "verdict")
+        if isinstance(status, str):
+            statuses[status] += 1
+        if status not in ("KILLED", "SURVIVED") or not _complete_record(record, format_name):
+            errors.append(
+                f"attempt {record.get('id')!r} has no complete-selection verdict "
+                "with a passing baseline"
+            )
+            continue
+        if _receipt_verdict(record, format_name) != status:
+            errors.append(
+                f"attempt {record.get('id')!r} verdict contradicts its structured test receipt"
+            )
+            continue
+        measured += 1
+        killed += status == "KILLED"
+    return statuses, measured, killed, errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--plan", type=Path, required=True)
@@ -46,6 +212,8 @@ def main() -> int:
     parser.add_argument("--format", choices=("backend", "frontend"), required=True)
     parser.add_argument("--minimum", type=float, default=80.0)
     args = parser.parse_args()
+    if not math.isfinite(args.minimum) or not 0 <= args.minimum <= 100:
+        parser.error("--minimum must be finite and between 0 and 100")
 
     plan = _object(args.plan)
     report = _object(args.report)
@@ -70,14 +238,10 @@ def main() -> int:
     else:
         measured = report.get("scored")
         raw_score = report.get("score")
-        score = raw_score * 100 if isinstance(raw_score, (int, float)) else raw_score
+        score = raw_score * 100 if _number(raw_score) else raw_score
         counts = report.get("counts")
         attempted = (
-            sum(
-                value
-                for key, value in counts.items()
-                if key != "PENDING" and isinstance(value, int)
-            )
+            sum(value for key, value in counts.items() if key != "PENDING" and type(value) is int)
             if isinstance(counts, dict)
             else None
         )
@@ -86,7 +250,7 @@ def main() -> int:
         campaign_key = "campaignId"
 
     errors: list[str] = []
-    evidence_ids = [record.get("id") for record in records]
+    evidence_ids = [record.get("id") for record in records if isinstance(record.get("id"), str)]
     if len(records) != target_count:
         errors.append(
             f"expected {target_count} fresh JSONL attempts, evidence contains {len(records)}"
@@ -103,10 +267,12 @@ def main() -> int:
             f"; missing={missing!r}, unexpected={unexpected!r}"
         )
 
-    evidence_campaigns = {record.get(campaign_key) for record in records}
+    evidence_campaigns = {
+        record[campaign_key] for record in records if isinstance(record.get(campaign_key), str)
+    }
     if target_count:
         if len(evidence_campaigns) != 1 or not all(
-            isinstance(campaign, str) and campaign for campaign in evidence_campaigns
+            isinstance(record.get(campaign_key), str) and record[campaign_key] for record in records
         ):
             errors.append("fresh attempts do not all belong to one identified campaign")
         else:
@@ -124,20 +290,53 @@ def main() -> int:
     elif records:
         errors.append("an empty plan must not have mutation attempts")
 
-    if attempted != target_count:
+    if type(attempted) is not int or attempted != target_count:
         errors.append(f"expected {target_count} fresh attempts, report contains {attempted!r}")
-    if measured != target_count:
+    if type(measured) is not int or measured != target_count:
         errors.append(
             f"expected {target_count} complete-selection verdicts, report contains {measured!r}; "
             "timeouts, invalid mutants, uncovered sites, and infrastructure errors cannot pass"
         )
+    statuses, actual_measured, actual_killed, evidence_errors = _measured_evidence(
+        records, args.format
+    )
+    errors.extend(evidence_errors)
+    actual_score = 100 * actual_killed / actual_measured if actual_measured else None
+    if measured != actual_measured:
+        errors.append(
+            f"report measured count {measured!r} contradicts raw evidence {actual_measured}"
+        )
+    status_key = "statuses" if args.format == "backend" else "counts"
+    reported_statuses = report.get(status_key)
+    if isinstance(reported_statuses, dict):
+        if any(type(value) is not int or value < 0 for value in reported_statuses.values()):
+            errors.append("reported status counts must be nonnegative integers")
+        nonpending = {
+            key: value
+            for key, value in reported_statuses.items()
+            if key != "PENDING" and value != 0
+        }
+        if nonpending != dict(statuses):
+            errors.append("reported status counts contradict raw evidence")
+    for field, actual in (
+        ("killed", actual_killed),
+        ("survived", actual_measured - actual_killed),
+    ):
+        if field in report and (type(report[field]) is not int or report[field] != actual):
+            errors.append(f"reported {field} count contradicts raw evidence")
+    mode_key = "selection_mode" if args.format == "backend" else "selectionMode"
+    sampled = sum(record.get(mode_key) != "complete" for record in records)
+    if "sampled" in report and (type(report["sampled"]) is not int or report["sampled"] != sampled):
+        errors.append("reported sampled count contradicts raw evidence")
     if target_count == 0:
         if score is not None:
             errors.append("an empty plan must have an unmeasured mutation score")
-    elif not isinstance(score, (int, float)):
-        errors.append("mutation score is unmeasured")
-    elif score + 1e-9 < args.minimum:
-        errors.append(f"mutation score {score:.2f}% is below {args.minimum:.2f}%")
+    elif not _number(score) or not 0 <= score <= 100:
+        errors.append("mutation score must be finite and between 0 and 100")
+    elif actual_score is None or not math.isclose(score, actual_score, rel_tol=0, abs_tol=1e-9):
+        errors.append(f"reported score {score!r} contradicts raw evidence {actual_score!r}")
+    if actual_score is not None and actual_score + 1e-9 < args.minimum:
+        errors.append(f"mutation score {actual_score:.2f}% is below {args.minimum:.2f}%")
 
     print(
         json.dumps(
@@ -147,7 +346,10 @@ def main() -> int:
                 "campaign": report_campaign,
                 "attempted": attempted,
                 "complete_measured": measured,
-                "score_percent": score,
+                "score_percent": score if _number(score) and 0 <= score <= 100 else None,
+                "raw_complete_measured": actual_measured,
+                "raw_killed": actual_killed,
+                "raw_score_percent": actual_score,
                 "minimum_percent": args.minimum,
             },
             indent=2,

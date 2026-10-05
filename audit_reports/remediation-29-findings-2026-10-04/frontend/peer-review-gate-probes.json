@@ -1,0 +1,15 @@
+{
+  "backend_wrong_test_receipt": [
+    {
+      "KILLED": 1
+    },
+    1,
+    1,
+    []
+  ],
+  "sarif_rule_id_index_mismatch": {
+    "exit_code": 0,
+    "stdout": "SARIF gate passed: no error/high findings in 1 file(s).\n",
+    "stderr": ""
+  }
+}

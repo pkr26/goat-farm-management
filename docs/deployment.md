@@ -381,3 +381,9 @@ change.
 See [Backup and recovery](backup-recovery.md), [Data retention](data-retention.md),
 [Security operations](security-operations.md), and the [Operations
 baseline](../ops/README.md) for ongoing maintenance.
+
+### Local PostgreSQL runtime security pins
+
+Development Compose builds `goatfarm-postgres:16-security-20261004` from `docker/postgres/Dockerfile`; the upstream `postgres:16` digest is an input, not the accepted derived runtime. The derived image preserves PostgreSQL 16 and Debian trixie/glibc, installing only reviewed PCRE/OpenSSL security packages. Their amd64/arm64 filenames, exact versions, sizes and SHA-256 values are committed in `docker/debian-security-packages.json` and verified before installation. The backend similarly applies the PCRE fix. Builds fail closed if package bytes or metadata differ; unsupported architectures are rejected. Refresh these pins from authenticated Debian indexes alongside image digests, rebuild and scan both architectures.
+
+Security CI builds and scans the same local database Dockerfile and records its SBOM. Existing scoped exceptions cover only upstream gosu's embedded Go standard library, with the existing 30-day review deadline; they do not suppress backend/frontend/edge findings or newly introduced advisories. The production manifest uses an external PostgreSQL service, whose provider/version/patch policy must be assessed separately. CI's disposable PostgreSQL test service is also distinct from the Compose runtime. These repository changes do not upgrade a running database or its data volumes.

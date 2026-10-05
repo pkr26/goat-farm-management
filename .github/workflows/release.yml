@@ -97,13 +97,18 @@ jobs:
         # contain uppercase, so normalize once here and reuse via env.
         run: |
           owner="$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
-          echo "backend_image=ghcr.io/${owner}/goatfarm-backend" >> "$GITHUB_OUTPUT"
-          echo "frontend_image=ghcr.io/${owner}/goatfarm-frontend" >> "$GITHUB_OUTPUT"
-          echo "edge_image=ghcr.io/${owner}/goatfarm-edge" >> "$GITHUB_OUTPUT"
-          echo "BACKEND_IMAGE=ghcr.io/${owner}/goatfarm-backend" >> "$GITHUB_ENV"
-          echo "FRONTEND_IMAGE=ghcr.io/${owner}/goatfarm-frontend" >> "$GITHUB_ENV"
-          echo "EDGE_IMAGE=ghcr.io/${owner}/goatfarm-edge" >> "$GITHUB_ENV"
-          echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          {
+            echo "backend_image=ghcr.io/${owner}/goatfarm-backend"
+            echo "frontend_image=ghcr.io/${owner}/goatfarm-frontend"
+            echo "edge_image=ghcr.io/${owner}/goatfarm-edge"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "BACKEND_IMAGE=ghcr.io/${owner}/goatfarm-backend"
+            echo "FRONTEND_IMAGE=ghcr.io/${owner}/goatfarm-frontend"
+            echo "EDGE_IMAGE=ghcr.io/${owner}/goatfarm-edge"
+            echo "TAG=${GITHUB_REF_NAME}"
+            echo "PUBLISH_TAG=${GITHUB_REF_NAME}-run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          } >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
         env:
@@ -343,73 +348,79 @@ jobs:
       # these are never deployment references and are cleaned up on failure.
 
       - name: Publish backend image (linux/amd64, exact gate bits)
+        id: publish_backend_amd64
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}-publish-amd64
+          tags: ${{ env.BACKEND_IMAGE }}:${{ env.PUBLISH_TAG }}-publish-amd64
           provenance: mode=max
           sbom: true
           cache-from: type=gha
 
       - name: Publish backend image (linux/arm64, exact gate bits)
+        id: publish_backend_arm64
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: Dockerfile
           push: true
           platforms: linux/arm64
-          tags: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}-publish-arm64
+          tags: ${{ env.BACKEND_IMAGE }}:${{ env.PUBLISH_TAG }}-publish-arm64
           provenance: mode=max
           sbom: true
           cache-from: type=gha
 
       - name: Publish frontend image (linux/amd64, exact gate bits)
+        id: publish_frontend_amd64
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: frontend
           file: frontend/Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}-publish-amd64
+          tags: ${{ env.FRONTEND_IMAGE }}:${{ env.PUBLISH_TAG }}-publish-amd64
           provenance: mode=max
           sbom: true
           cache-from: type=gha
 
       - name: Publish frontend image (linux/arm64, exact gate bits)
+        id: publish_frontend_arm64
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: frontend
           file: frontend/Dockerfile
           push: true
           platforms: linux/arm64
-          tags: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}-publish-arm64
+          tags: ${{ env.FRONTEND_IMAGE }}:${{ env.PUBLISH_TAG }}-publish-arm64
           provenance: mode=max
           sbom: true
           cache-from: type=gha
 
       - name: Publish edge image (linux/amd64, exact gate bits)
+        id: publish_edge_amd64
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: docker/edge/Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ${{ env.EDGE_IMAGE }}:${{ env.TAG }}-publish-amd64
+          tags: ${{ env.EDGE_IMAGE }}:${{ env.PUBLISH_TAG }}-publish-amd64
           provenance: mode=max
           sbom: true
           cache-from: type=gha
 
       - name: Publish edge image (linux/arm64, exact gate bits)
+        id: publish_edge_arm64
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: docker/edge/Dockerfile
           push: true
           platforms: linux/arm64
-          tags: ${{ env.EDGE_IMAGE }}:${{ env.TAG }}-publish-arm64
+          tags: ${{ env.EDGE_IMAGE }}:${{ env.PUBLISH_TAG }}-publish-arm64
           provenance: mode=max
           sbom: true
           cache-from: type=gha
@@ -432,11 +443,11 @@ jobs:
             local image="$1" arch="$2"
             local gate_id index image_manifest config_digest
             gate_id="$(docker inspect --format '{{.Id}}' "${image}:${TAG}-gate-${arch}")"
-            index="$(docker buildx imagetools inspect --raw "${image}:${TAG}-publish-${arch}")"
+            index="$(docker buildx imagetools inspect --raw "${image}:${PUBLISH_TAG}-publish-${arch}")"
             image_manifest="$(printf '%s' "$index" | jq -r --arg arch "$arch" \
               '.manifests[] | select(.platform.architecture == $arch and .platform.os == "linux" and (has("vnd.docker.reference.type") | not)) | .digest')"
             if [ -z "$image_manifest" ] || [ "$image_manifest" = "null" ]; then
-              echo "::error::no ${arch} image manifest found under ${image}:${TAG}-publish-${arch}"
+              echo "::error::no ${arch} image manifest found under ${image}:${PUBLISH_TAG}-publish-${arch}"
               exit 1
             fi
             config_digest="$(docker buildx imagetools inspect --raw "${image}@${image_manifest}" | jq -r '.config.digest')"
@@ -464,22 +475,30 @@ jobs:
           TAG: ${{ env.TAG }}
         run: |
           set -euo pipefail
-          # The immutable version tags did not exist at preflight. Once this
-          # marker exists, failure cleanup may remove only version tags owned
-          # by this run; it must never touch a tag that made preflight fail.
-          touch "${RUNNER_TEMP}/goatfarm-release-assembly-owned"
+          # Record the exact digest only AFTER each successful assembly.
+          # Run/attempt-specific receipts cannot authorize another run's objects.
+          # A preflight refusal therefore leaves no cleanup ownership evidence.
+          : > "${RUNNER_TEMP}/goatfarm-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-owned.jsonl"
+          record_owned() {
+            local image="$1" digest
+            digest="$(docker buildx imagetools inspect "${image}:${TAG}" --format '{{json .Manifest}}' | jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))')"
+            jq -cn --arg image "$image" --arg digest "$digest" --arg tag "$TAG" '{image:$image,digest:$digest,tag:$tag}' >> "${RUNNER_TEMP}/goatfarm-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-owned.jsonl"
+          }
           docker buildx imagetools create \
             -t "${BACKEND_IMAGE}:${TAG}" \
-            "${BACKEND_IMAGE}:${TAG}-publish-amd64" \
-            "${BACKEND_IMAGE}:${TAG}-publish-arm64"
+            "${BACKEND_IMAGE}:${PUBLISH_TAG}-publish-amd64" \
+            "${BACKEND_IMAGE}:${PUBLISH_TAG}-publish-arm64"
+          record_owned "${BACKEND_IMAGE}"
           docker buildx imagetools create \
             -t "${FRONTEND_IMAGE}:${TAG}" \
-            "${FRONTEND_IMAGE}:${TAG}-publish-amd64" \
-            "${FRONTEND_IMAGE}:${TAG}-publish-arm64"
+            "${FRONTEND_IMAGE}:${PUBLISH_TAG}-publish-amd64" \
+            "${FRONTEND_IMAGE}:${PUBLISH_TAG}-publish-arm64"
+          record_owned "${FRONTEND_IMAGE}"
           docker buildx imagetools create \
             -t "${EDGE_IMAGE}:${TAG}" \
-            "${EDGE_IMAGE}:${TAG}-publish-amd64" \
-            "${EDGE_IMAGE}:${TAG}-publish-arm64"
+            "${EDGE_IMAGE}:${PUBLISH_TAG}-publish-amd64" \
+            "${EDGE_IMAGE}:${PUBLISH_TAG}-publish-arm64"
+          record_owned "${EDGE_IMAGE}"
           manifest_digest() {
             docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' \
               | jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))'
@@ -487,9 +506,11 @@ jobs:
           backend_digest="$(manifest_digest "${BACKEND_IMAGE}:${TAG}")"
           frontend_digest="$(manifest_digest "${FRONTEND_IMAGE}:${TAG}")"
           edge_digest="$(manifest_digest "${EDGE_IMAGE}:${TAG}")"
-          echo "backend_digest=${backend_digest}" >> "$GITHUB_OUTPUT"
-          echo "frontend_digest=${frontend_digest}" >> "$GITHUB_OUTPUT"
-          echo "edge_digest=${edge_digest}" >> "$GITHUB_OUTPUT"
+          {
+            echo "backend_digest=${backend_digest}"
+            echo "frontend_digest=${frontend_digest}"
+            echo "edge_digest=${edge_digest}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2 / cosign v3.0.6
@@ -505,44 +526,19 @@ jobs:
           cosign sign --yes "${FRONTEND_IMAGE}@${FRONTEND_DIGEST}"
           cosign sign --yes "${EDGE_IMAGE}@${EDGE_DIGEST}"
 
-      - name: Remove incomplete release and per-arch publish tags on failure
-        # Delete only this run's temporary tags and owned release tags.
-        # Registry policy can block deletion; report that without hiding the
-        # original failure. Final tags require the assembly ownership marker.
+      - name: Remove only package versions proven owned by this attempt on failure
         if: failure() || cancelled()
         env:
           GH_TOKEN: ${{ github.token }}
-          BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
-          FRONTEND_IMAGE: ${{ env.FRONTEND_IMAGE }}
-          EDGE_IMAGE: ${{ env.EDGE_IMAGE }}
-          TAG: ${{ env.TAG }}
-        run: |
-          set -euo pipefail
-          owner="$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
-          if gh api "orgs/${owner}" >/dev/null 2>&1; then
-            api_base="orgs/${owner}"
-          else
-            api_base="user"
-          fi
-          for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$EDGE_IMAGE"; do
-            package="${image##*/}"
-            tags=("${TAG}-publish-amd64" "${TAG}-publish-arm64")
-            if [ -f "${RUNNER_TEMP}/goatfarm-release-assembly-owned" ]; then
-              tags+=("${TAG}")
-            fi
-            for tag in "${tags[@]}"; do
-              ids="$(gh api --paginate "${api_base}/packages/container/${package}/versions" \
-                | jq -r --arg tag "$tag" \
-                  '.[] | select((.metadata.container.tags // []) | index($tag)) | .id' || true)"
-              for id in $ids; do
-                if gh api -X DELETE "${api_base}/packages/container/${package}/versions/${id}"; then
-                  echo "removed unverified ${image}:${tag} (package version ${id})"
-                else
-                  echo "::warning::could not remove ${image}:${tag} (package version ${id}); delete it manually in the package settings"
-                fi
-              done
-            done
-          done
+          RELEASE_OWNER: ${{ github.repository_owner }}
+          OWNED_PUBLISHES: >-
+            [{"image":"${{ env.BACKEND_IMAGE }}","tag":"${{ env.PUBLISH_TAG }}-publish-amd64","digest":"${{ steps.publish_backend_amd64.outputs.digest }}"},
+             {"image":"${{ env.BACKEND_IMAGE }}","tag":"${{ env.PUBLISH_TAG }}-publish-arm64","digest":"${{ steps.publish_backend_arm64.outputs.digest }}"},
+             {"image":"${{ env.FRONTEND_IMAGE }}","tag":"${{ env.PUBLISH_TAG }}-publish-amd64","digest":"${{ steps.publish_frontend_amd64.outputs.digest }}"},
+             {"image":"${{ env.FRONTEND_IMAGE }}","tag":"${{ env.PUBLISH_TAG }}-publish-arm64","digest":"${{ steps.publish_frontend_arm64.outputs.digest }}"},
+             {"image":"${{ env.EDGE_IMAGE }}","tag":"${{ env.PUBLISH_TAG }}-publish-amd64","digest":"${{ steps.publish_edge_amd64.outputs.digest }}"},
+             {"image":"${{ env.EDGE_IMAGE }}","tag":"${{ env.PUBLISH_TAG }}-publish-arm64","digest":"${{ steps.publish_edge_arm64.outputs.digest }}"}]
+        run: python .github/scripts/cleanup_release_versions.py
 
   release:
     name: GitHub release with SBOMs

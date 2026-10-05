@@ -1,0 +1,57 @@
+[
+  {
+    "attempt": 1,
+    "summary_claimed": 1,
+    "summary_errors": 1,
+    "status": "ERROR",
+    "error": "unexpected screening failure (INTERNAL_ERROR)",
+    "screening_attempts": 1,
+    "provider_calls": 1,
+    "durable_runs": 0,
+    "durable_call_reservations": 1
+  },
+  {
+    "attempt": 2,
+    "summary_claimed": 1,
+    "summary_errors": 1,
+    "status": "ERROR",
+    "error": "unexpected screening failure (INTERNAL_ERROR)",
+    "screening_attempts": 2,
+    "provider_calls": 2,
+    "durable_runs": 0,
+    "durable_call_reservations": 2
+  },
+  {
+    "attempt": 3,
+    "summary_claimed": 1,
+    "summary_errors": 1,
+    "status": "ERROR",
+    "error": "unexpected screening failure (INTERNAL_ERROR)",
+    "screening_attempts": 3,
+    "provider_calls": 3,
+    "durable_runs": 0,
+    "durable_call_reservations": 3
+  },
+  {
+    "attempt": 4,
+    "summary_claimed": 1,
+    "summary_errors": 1,
+    "status": "ERROR",
+    "error": "unexpected screening failure (INTERNAL_ERROR)",
+    "screening_attempts": 4,
+    "provider_calls": 4,
+    "durable_runs": 0,
+    "durable_call_reservations": 4
+  },
+  {
+    "attempt": 5,
+    "summary_claimed": 1,
+    "summary_errors": 1,
+    "status": "ERROR",
+    "error": "unexpected screening failure (INTERNAL_ERROR); terminal after 5 attempts",
+    "screening_attempts": 5,
+    "provider_calls": 5,
+    "durable_runs": 0,
+    "durable_call_reservations": 5
+  }
+]

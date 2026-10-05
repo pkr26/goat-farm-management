@@ -88,12 +88,12 @@ describe("permittedAppPathFromList — route → permission mapping", () => {
     }
   });
 
-  it("keeps query strings and hashes on permitted module roots", () => {
+  it("keeps portable tabs and drops previous-farm record anchors", () => {
     for (const [route, permission] of ROUTE_PERMISSIONS) {
       expect(
         permittedAppPathFromList(`${route}?tab=active#row-7`, [permission]),
         route,
-      ).toBe(`${route}?tab=active#row-7`);
+      ).toBe(`${route}?tab=active`);
     }
   });
 
@@ -101,7 +101,7 @@ describe("permittedAppPathFromList — route → permission mapping", () => {
     expect(permittedAppPathFromList("/team/members/3", ["team.manage"])).toBe("/team");
     expect(
       permittedAppPathFromList("/dashboard?q=1", ["dashboard.view"]),
-    ).toBe("/dashboard?q=1");
+    ).toBe("/dashboard");
   });
 
   it("rejects unknown routes even with every permission held", () => {

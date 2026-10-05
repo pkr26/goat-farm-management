@@ -25,6 +25,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from app import main as main_module
 from app.core.config import Settings
 
+from .test_deployment_artifacts import SIGNER_A, _install_mock_tools
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_DIR = REPO_ROOT / "backend"
 RECOVERY_INVENTORY = BACKEND_DIR / "scripts" / "recovery_inventory.py"
@@ -47,6 +49,15 @@ def _database() -> None:
 @pytest.fixture(autouse=True)
 def _clean_tables() -> None:
     """Override the global per-test truncation fixture for this module."""
+
+
+@pytest.fixture(autouse=True)
+def _manifest_gpg_contract_double(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise manifest integrity plumbing; genuine GPG integration is separately retained."""
+    mock_bin = _install_mock_tools(tmp_path)
+    monkeypatch.setenv("PATH", f"{mock_bin}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("MOCK_LOG", str(tmp_path / "calls.jsonl"))
+    monkeypatch.setenv("GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT", SIGNER_A)
 
 
 def _run(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -73,6 +84,8 @@ def _capture_inventory(tmp_path: Path) -> Path:
         "goatfarm-screening-replica",
         "--object-prefix",
         "raw/",
+        "--object-recovered-at",
+        datetime.now(UTC).isoformat(),
         "--object-recovery-point",
         "replica-snapshot-2026-10-04",
         "--object-restore-receipt",
@@ -103,6 +116,10 @@ def _bind_inventory(source: Path, archive: Path) -> Path:
         archive.name,
         "--archive-sha256",
         digest,
+        "--database-recovered-at",
+        datetime.now(UTC).isoformat(),
+        "--max-age-hours",
+        "744",
     )
     assert result.returncode == 0, result.stderr
     return bound
@@ -184,11 +201,12 @@ def test_backup_freshness_ignores_a_touched_archive_mtime(tmp_path: Path) -> Non
     archive.write_bytes(b"old but otherwise valid database artifact")
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     archive.with_name(f"{archive.name}.sha256").write_text(f"{digest}  {archive.name}\n")
-    bound = _bind_inventory(source, archive)
-
-    payload = json.loads(bound.read_text())
-    payload["generated_at"] = (datetime.now(UTC) - timedelta(hours=30)).isoformat()
-    bound.write_text(json.dumps(payload))
+    payload = json.loads(source.read_text())
+    payload["screening_objects"]["recovered_at"] = (
+        datetime.now(UTC) - timedelta(hours=30)
+    ).isoformat()
+    source.write_text(json.dumps(payload))
+    _bind_inventory(source, archive)
     # This is the precise false-green regression: mutable filesystem metadata
     # says "now", while the verified recovery inventory says the set is old.
     os.utime(archive, None)
@@ -344,7 +362,9 @@ def test_supported_deployment_and_release_artifacts_are_fail_closed() -> None:
     assert release.count("cosign sign --yes") == 3
     assert "cosign sign-blob --yes" in release
     assert "--format '{{json .Manifest}}'" in release
-    assert "goatfarm-release-assembly-owned" in release
+    assert "goatfarm-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-owned.jsonl" in release
+    assert "cleanup_release_versions.py" in release
+    assert "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" in release
     assert "--clobber" not in release
     assert "gh release create" in release
 
@@ -386,3 +406,48 @@ def test_operations_and_governance_baseline_is_shipped() -> None:
     assert 'node_textfile_mtime_seconds{file="goatfarm_backup.prom"} > 7200' in stale_expression
     assert "GoatFarmBackupFreshnessUnitFailed" in alerts
     assert "GoatFarmBackupTimersInactive" in alerts
+
+
+@pytest.mark.parametrize("field", ["generated_at", "objects", "database", "escrow", "signature"])
+def test_recovery_manifest_rejects_metadata_tamper(tmp_path: Path, field: str) -> None:
+    source = _capture_inventory(tmp_path)
+    archive = tmp_path / "goatfarm-signed-fixture.dump.gpg"
+    archive.write_bytes(b"authentic database fixture")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    archive.with_name(f"{archive.name}.sha256").write_text(f"{digest}  {archive.name}\n")
+    bound = _bind_inventory(source, archive)
+    data = json.loads(bound.read_text())
+    if field == "generated_at":
+        data[field] = (datetime.now(UTC) + timedelta(seconds=1)).isoformat()
+    elif field == "objects":
+        data["screening_objects"]["recovered_at"] = datetime.now(UTC).isoformat()
+    elif field == "database":
+        data["database_artifact"]["sha256"] = "0" * 64
+    elif field == "escrow":
+        data["key_material"]["jwt_private"]["escrow_receipt"] = "substituted-vault"
+    else:
+        del data["authentication"]
+    bound.write_text(json.dumps(data))
+    result = _run(str(BACKUP_FRESHNESS), str(tmp_path))
+    assert result.returncode == 2
+    assert "signature" in result.stderr
+    assert "fresh complete backup" not in result.stdout
+
+
+def test_recovery_manifest_rejects_unexpected_signer(tmp_path: Path) -> None:
+    source = _capture_inventory(tmp_path)
+    archive = tmp_path / "goatfarm-signed-fixture.dump.gpg"
+    archive.write_bytes(b"authentic database fixture")
+    bound = _bind_inventory(source, archive)
+    result = _run(
+        str(RECOVERY_INVENTORY),
+        "verify",
+        "--archive",
+        str(archive),
+        "--inventory",
+        str(bound),
+        "--signer",
+        "B" * 40,
+    )
+    assert result.returncode == 2
+    assert "unexpected signer" in result.stderr

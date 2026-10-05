@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "tracks": 26,
+  "distinct_findings": 29,
+  "severity_counts": {
+    "High": 1,
+    "Medium": 17,
+    "Low": 11
+  },
+  "detail_anchors": 29,
+  "validation_rows": 25,
+  "existing_local_links": 89,
+  "verified_current_source_hashes": 1453,
+  "tracked_source_changes": [],
+  "revision": "7245368fa91333fb39387df789fa4ef9a58dbea3",
+  "scope": "Report structure, retained evidence paths and source integrity; not a replacement for audit judgment or runtime validation."
+}

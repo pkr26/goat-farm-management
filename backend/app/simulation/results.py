@@ -59,6 +59,10 @@ class MonthlyRow(BaseModel):
     # costs.breeding_stock_useful_life_months; the cash outlay itself still
     # lands in this month's cash flow, and EBITDA/tax exclude it.
     breeding_stock_capex: float
+    # Noncash carrying value removed on a capitalized animal's sale, cull or
+    # death. Reported separately from depreciation, deducted in EBIT/PBT;
+    # disposal proceeds remain in cull revenue and cash purchase timing is unchanged.
+    breeding_stock_disposal_cost: float = 0.0
     feed_green_kg: float  # as-fed
     feed_homegrown_green_kg: float  # as-fed green requirement supplied on-farm
     feed_purchased_green_kg: float  # as-fed green requirement bought at market
@@ -117,6 +121,10 @@ class AnnualPLRow(BaseModel):
     # so it is excluded from total_opex/EBITDA and recovered through the
     # depreciation line and the terminal breeding-stock book value.
     breeding_stock_capex: float
+    # Noncash carrying value removed on a capitalized animal's sale, cull or
+    # death. Reported separately from depreciation, deducted in EBIT/PBT;
+    # disposal proceeds remain in cull revenue and cash purchase timing is unchanged.
+    breeding_stock_disposal_cost: float = 0.0
     total_opex: float
     ebitda: float
     depreciation: float
@@ -209,7 +217,7 @@ class TerminalValueBreakdown(BaseModel):
     """Recoverable closing assets included in the final project cash flow.
 
     ``breeding_stock`` is the residual BOOK value of breeding does/bucks
-    capitalized during the run (purchases less straight-line depreciation).
+    capitalized during the run (surviving purchases less straight-line depreciation).
     ``livestock`` then carries the closing herd's market value ABOVE that
     book value (young stock at market value plus the disposal gain/loss on
     the capitalized breeding animals), so the two lines together recover

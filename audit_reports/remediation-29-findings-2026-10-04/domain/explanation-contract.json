@@ -1,0 +1,1204 @@
+{
+  "default": {
+    "explanation_digest": "801771cabdf1b9d7c23d755b8fdcc3f9eaea5afa8d3cc44f64645eb2216cd99a",
+    "report_digest": "aa162bfebac906f870148b13b8141558e866c9515889bddef7c15a058b0b8c1c",
+    "explanation": [
+      {
+        "key": "project_cost",
+        "title": "Project cost",
+        "explanation": "The total capital needed to start the project: shed \u20b99.09 lakh + equipment \u20b975,737 + starting stock \u20b95.05 lakh + working capital \u20b95.29 lakh (12 month(s) of average year-1 recurring operating cost \u2014 feed, vet, labour, insurance, overheads and selling; stock purchases are excluded). Shed and equipment are funded for 151.5 animal places using the projected peak capacity basis; the peak funded headcount \u2014 the larger of the opening herd and the highest physical headcount reached during the projection \u2014 is 137.7 head.",
+        "figures": {
+          "project_cost": 2018644.5754804565,
+          "shed_cost": 908842.3408757348,
+          "equipment_cost": 75736.86173964456,
+          "stock_cost": 505000.0,
+          "working_capital": 529065.3728650771,
+          "capacity_places": 151.47372347928913,
+          "capacity_basis": "projected_peak",
+          "projected_peak_head": 137.70338498117192
+        }
+      },
+      {
+        "key": "loan_amount",
+        "title": "Bank loan",
+        "explanation": "85.0% of the project cost (\u20b920.19 lakh) is financed by the bank: \u20b917.16 lakh. It is repaid over 72 months at 11.0% annual interest, with an interest-only moratorium for the first 12 month(s).",
+        "figures": {
+          "loan_amount": 1715847.889158388,
+          "loan_fraction": 0.85,
+          "interest_rate_annual": 0.11,
+          "loan_term_months": 72.0,
+          "moratorium_months": 12.0
+        }
+      },
+      {
+        "key": "subsidy_amount",
+        "title": "Subsidy",
+        "explanation": "No capital subsidy is booked.",
+        "figures": {
+          "subsidy_amount": 0.0,
+          "subsidy_fraction": 0.0,
+          "nlm_subsidy": "off",
+          "subsidy_estimate_amount": null,
+          "subsidy_status": "disabled",
+          "subsidy_policy_version": null,
+          "subsidy_policy_source": null
+        }
+      },
+      {
+        "key": "equity",
+        "title": "Your investment (equity)",
+        "explanation": "What you pay out of pocket at the start: project cost \u20b920.19 lakh \u2212 loan \u20b917.16 lakh \u2212 up-front subsidy \u20b90 = \u20b93.03 lakh. All returns below are measured against this outflow. ",
+        "figures": {
+          "equity": 302796.68632206856
+        }
+      },
+      {
+        "key": "npv",
+        "title": "Net present value (NPV)",
+        "explanation": "Net present value: every month's net cash flow, including the recoverable closing assets of \u20b922.51 lakh, is discounted to today at 12.0% per year, and the \u20b93.03 lakh equity outflow is subtracted. These are levered, equity-holder flows \u2014 debt service is a cost and only your share of the project is invested \u2014 so the figure measures the return on your equity, not the whole project's unlevered return. The NPV is -\u20b98.56 lakh \u2014 negative, so at this discount rate the project destroys value; improve margins, prices or costs before investing.",
+        "figures": {
+          "npv": -856292.5725736223,
+          "discount_rate_annual": 0.12
+        }
+      },
+      {
+        "key": "mirr",
+        "title": "Modified IRR (MIRR)",
+        "explanation": "MIRR is 5.8% using the loan rate (11.0%) to finance negative cash flows and 8.0% to reinvest positive cash flows. It gives one conservative annual return even when ordinary IRR is ambiguous.",
+        "figures": {
+          "mirr": 0.05845017477057879,
+          "finance_rate_annual": 0.11,
+          "reinvestment_rate_annual": 0.08
+        }
+      },
+      {
+        "key": "irr",
+        "title": "Internal rate of return (IRR)",
+        "explanation": "IRR is undefined or unproven for this cash-flow pattern (status: indeterminate). A unique root has not been established inside the declared solver domain. Judge the project on NPV and MIRR instead.",
+        "figures": {
+          "irr": null,
+          "irr_status": "indeterminate",
+          "irr_solver_domain": "Annual rates [-0.99, 10.0]; one-sign-change series or exact isolation of <=24 nonzero terms with rational period denominator <=120; otherwise indeterminate",
+          "discount_rate_annual": 0.12
+        }
+      },
+      {
+        "key": "bcr",
+        "title": "Benefit-cost ratio (BCR)",
+        "explanation": "Present value of gross operating revenue plus terminal recovery divided by the present value of equity, operating cost, tax and debt service: 0.87. Above 1.0 the project earns more than it costs (at the 12.0% discount rate). This is an equity-holder ratio (the loan is a cost, not a benefit), so it runs lower than the total-investment BCR a lender computes and cannot be compared directly with a bank's customary 1.5 benchmark.",
+        "figures": {
+          "bcr": 0.8667349987976936
+        }
+      },
+      {
+        "key": "avg_dscr",
+        "title": "Average DSCR",
+        "explanation": "Debt-service coverage ratio: operating surplus after cash tax divided by the year's loan repayment, averaged over the 5 principal-repaying year(s) of the operating repayment period: 0.37. Above 1.0 the farm can service the loan from operations; banks usually want 1.5 or better.",
+        "figures": {
+          "avg_dscr": 0.36900780832807173,
+          "min_dscr": 0.22253093510530117,
+          "debt_years": 5.0
+        }
+      },
+      {
+        "key": "min_dscr",
+        "title": "Weakest-year DSCR",
+        "explanation": "The worst single debt year: 0.22. That is below 1.0, so the farm cannot cover that year's repayment from operations and needs a cash buffer or a rescheduling.",
+        "figures": {
+          "min_dscr": 0.22253093510530117
+        }
+      },
+      {
+        "key": "peak_capacity_head",
+        "title": "Funded capacity",
+        "explanation": "The project funds 151.5 animal places against a peak funded headcount of 137.7 head \u2014 the larger of the opening herd and the highest physical headcount reached during the projection. The reserve is 13.8 places.",
+        "figures": {
+          "capacity_places": 151.47372347928913,
+          "projected_peak_head": 137.70338498117192,
+          "capacity_reserve_head": 13.770338498117212
+        }
+      },
+      {
+        "key": "terminal_value",
+        "title": "Terminal value",
+        "explanation": "The final cash flow recovers \u20b922.51 lakh: livestock (value above the depreciated book of bought breeding stock) \u20b911.73 lakh, breeding-stock book value \u20b945,378, shed \u20b95.00 lakh, equipment \u20b93,787 and working capital \u20b95.29 lakh. These are closing assets, not operating revenue.",
+        "figures": {
+          "terminal_value": 2250620.6255953317,
+          "livestock": 1172526.676146622,
+          "breeding_stock": 45378.44601499622,
+          "shed": 499863.28748165414,
+          "equipment": 3786.843086982233,
+          "working_capital": 529065.3728650771
+        }
+      },
+      {
+        "key": "tax_total",
+        "title": "Cash tax",
+        "explanation": "The model pays \u20b90 of cash tax at an assumed 0.0% rate after interest, straight-line depreciation, disposed breeding-stock carrying costs and carried-forward losses.",
+        "figures": {
+          "tax_total": 0.0,
+          "income_tax_rate": 0.0
+        }
+      },
+      {
+        "key": "accounting_profit_total",
+        "title": "Accounting profit",
+        "explanation": "Cumulative profit after depreciation, disposed breeding-stock carrying costs, interest and tax is -\u20b91.07 lakh. This accrual profit excludes terminal asset recovery and differs from cash flow because depreciation and disposal book costs are non-cash while principal repayment is not an expense.",
+        "figures": {
+          "accounting_profit_total": -106982.2198212468
+        }
+      },
+      {
+        "key": "minimum_cash_balance",
+        "title": "Liquidity low point",
+        "explanation": "The operating cash reserve reaches its low point of -\u20b915.76 lakh in month 72 (year 6). The plan therefore needs at least another \u20b915.76 lakh beyond the funded working-capital reserve to avoid a cash shortfall.",
+        "figures": {
+          "minimum_cash_balance": -1576246.9405567646,
+          "minimum_cash_month": 72.0,
+          "additional_working_capital_required": 1576246.9405567646
+        }
+      },
+      {
+        "key": "operating_margin",
+        "title": "Operating margin",
+        "explanation": "EBITDA is 14.1% of operating revenue over the projection. This isolates farm operations before depreciation, financing and tax.",
+        "figures": {
+          "operating_margin": 0.14088849612595578
+        }
+      },
+      {
+        "key": "payback_month",
+        "title": "Payback period",
+        "explanation": "Cumulative cash flow first covers your \u20b93.03 lakh equity in month 120 (year 10). Recovery arrives only in the final month, and it is the terminal value of the closing assets (\u20b922.51 lakh) \u2014 not operating cash \u2014 that closes the gap: this is a payback by liquidation.",
+        "figures": {
+          "payback_month": 120.0,
+          "equity": 302796.68632206856,
+          "terminal_driven": 1.0
+        }
+      },
+      {
+        "key": "break_even_meat_price_per_kg",
+        "title": "Break-even meat price",
+        "explanation": "The break-even meat price was not computed for this run. Re-run with the break-even search enabled to see how far the price can fall.",
+        "figures": {
+          "break_even_meat_price_per_kg": null,
+          "assumed_meat_price_per_kg": 370.0,
+          "safety_margin": null
+        }
+      }
+    ],
+    "report": [
+      {
+        "key": "overview",
+        "title": "Overview",
+        "paragraphs": [
+          "This projection runs 120 months (10 years) from 2026-08. You start with 50 does and 2 bucks \u2014 61 head on the ground in month 1.",
+          "The project needs \u20b920.19 lakh in total: \u20b917.16 lakh from the bank and \u20b93.03 lakh from your own pocket, with \u20b90 assumed up-front subsidy."
+        ],
+        "figures": {
+          "horizon_months": 120.0,
+          "starting_does": 50.0,
+          "starting_bucks": 2.0,
+          "scheduled_events": 0.0,
+          "project_cost": 2018644.5754804565,
+          "loan_amount": 1715847.889158388,
+          "subsidy_amount": 0.0,
+          "equity": 302796.68632206856
+        }
+      },
+      {
+        "key": "herd_trajectory",
+        "title": "Herd trajectory",
+        "paragraphs": [
+          "The herd grows from 61 head in month 1 to a peak of 135 in month 90 (year 8), ending at 126 head (48 breeding does and 3 bucks).",
+          "Over the 10 years the farm produces 1018 kids, loses 232 animals to mortality, sells 556 for meat and disposes of 167 as culls.",
+          "Expect multiples at kidding: this breed twins in about 35-40% of kiddings and triplets run 5-13%, so the average mature litter is ~1.60 kids. First-time does (parity 1) run lighter \u2014 about 1.36 on average, mostly singles \u2014 so a maiden crop of singles is normal, not a problem."
+        ],
+        "figures": {
+          "start_herd": 60.93947182088094,
+          "peak_herd": 134.50392335886332,
+          "peak_month": 90.0,
+          "end_herd": 126.30266796675458,
+          "total_births": 1018.4050363397295,
+          "total_deaths": 231.90682492493872,
+          "total_sold": 556.2395977724611,
+          "total_culled": 167.45307256649878
+        }
+      },
+      {
+        "key": "revenue_mix",
+        "title": "Where the money comes from",
+        "paragraphs": [
+          "Total revenue over 10 years is \u20b988.60 lakh, largest source first: meat sales \u20b967.77 lakh (76.5%), cull sales \u20b915.26 lakh (17.2%), manure \u20b95.57 lakh (6.3%) and surplus milk \u20b90 (0.0%).",
+          "Bakrid pricing (+35% on the base rate) applies in months 10, 22, 33, 45, 57, 68, 80, 91, 103, 115; 108 head sell inside them."
+        ],
+        "figures": {
+          "total_revenue": 8860181.38575535,
+          "meat_revenue": 6776583.051024577,
+          "cull_revenue": 1526137.22854191,
+          "milk_revenue": 0.0,
+          "manure_revenue": 557461.106188865,
+          "festival_months": "10, 22, 33, 45, 57, 68, 80, 91, 103, 115",
+          "festival_uplift": 0.35
+        }
+      },
+      {
+        "key": "cost_mix",
+        "title": "Where the money goes",
+        "paragraphs": [
+          "Operating costs total \u20b976.12 lakh over 10 years, largest first: feed \u20b936.45 lakh (47.9%), labour \u20b921.61 lakh (28.4%), vet \u20b97.15 lakh (9.4%), insurance \u20b94.38 lakh (5.8%), selling \u20b93.44 lakh (4.5%), overheads \u20b93.09 lakh (4.1%) and stock purchases \u20b90 (0.0%).",
+          "Buying breeding stock cost \u20b92.13 lakh in cash; it is capitalized and depreciated over 60 months rather than expensed, so EBITDA above excludes it.",
+          "Growing green fodder needs about 3.06 acre(s) on average; your cultivated area falls short in 93 month(s). This is a physical and financial shortfall: 29,184 kg as-fed is bought at the configured market price, while on-farm supply is costed separately.",
+          "Water demand runs about 754 litres/day on average, peaking near 824 litres/day \u2014 a lactating doe needs 10-15 L/day in the Deccan summer, so plan storage and supply for the peak, not the average."
+        ],
+        "figures": {
+          "total_opex": 7611883.7549130935,
+          "feed_cost": 3644922.82630263,
+          "labour_cost": 2161084.258220523,
+          "stock_purchases": 0.0,
+          "selling_cost": 344049.2426902499,
+          "vet_cost": 714623.3391354498,
+          "insurance_cost": 438477.76596130774,
+          "misc_cost": 308726.3226029319,
+          "land_requirement_acres": 3.0631560931882285,
+          "annual_water_litres": 2752424.4294666387,
+          "peak_water_litres_per_day": 823.7370053701012
+        }
+      },
+      {
+        "key": "viability_verdict",
+        "title": "Bottom line",
+        "paragraphs": [
+          "At these assumptions the project is NOT VIABLE. Over 10 years it earns \u20b988.60 lakh against \u20b976.12 lakh of operating costs \u2014 an operating surplus (EBITDA) of \u20b912.48 lakh.",
+          "Watch out: the NPV is negative; the benefit-cost ratio is below 1.0; a unique IRR is not established (assessment: indeterminate); use NPV and MIRR; the weakest debt year has a DSCR below 1.0; the funded working-capital reserve becomes negative and additional liquidity is needed."
+        ],
+        "figures": {
+          "verdict": "NOT VIABLE",
+          "npv": -856292.5725736223,
+          "irr": null,
+          "bcr": 0.8667349987976936,
+          "avg_dscr": 0.36900780832807173,
+          "min_dscr": 0.22253093510530117,
+          "payback_month": 120.0,
+          "ebitda_total": 1248297.6308422573
+        }
+      },
+      {
+        "key": "risks",
+        "title": "Risks",
+        "paragraphs": [
+          "Run with Monte Carlo and sensitivity enabled to see how robust these results are to price swings, disease and poor breeding years.",
+          "Ordinary IRR uniqueness is unproven in this solver domain; use NPV and MIRR.",
+          "Embedded future festival dates are projections requiring local confirmation; moon sighting can change the sale month near a month boundary. 2039 has both January and December occurrences."
+        ],
+        "figures": {}
+      }
+    ]
+  },
+  "viable": {
+    "explanation_digest": "92a0624641937a42cabbfea61b90ff171b318497f34a286cf6b9dcc6bea3f080",
+    "report_digest": "797390ec42df990383032229b4a1bd1b6ff7d46e8294d5cfc711f16de6da43a7",
+    "explanation": [
+      {
+        "key": "project_cost",
+        "title": "Project cost",
+        "explanation": "The total capital needed to start the project: shed \u20b920.57 lakh + equipment \u20b91.71 lakh + starting stock \u20b958.13 lakh + working capital \u20b94.24 lakh (6 month(s) of average year-1 recurring operating cost \u2014 feed, vet, labour, insurance, overheads and selling; stock purchases are excluded). Shed and equipment are funded for 342.8 animal places using the projected peak capacity basis; the peak funded headcount \u2014 the larger of the opening herd and the highest physical headcount reached during the projection \u2014 is 311.6 head.",
+        "figures": {
+          "project_cost": 8464255.861128794,
+          "shed_cost": 2056603.4133333336,
+          "equipment_cost": 171383.6177777778,
+          "stock_cost": 5812500.000000001,
+          "working_capital": 423768.8300176827,
+          "capacity_places": 342.7672355555556,
+          "capacity_basis": "projected_peak",
+          "projected_peak_head": 311.6065777777778
+        }
+      },
+      {
+        "key": "loan_amount",
+        "title": "Bank loan",
+        "explanation": "50.0% of the project cost (\u20b984.64 lakh) is financed by the bank: \u20b942.32 lakh. It is repaid over 12 months at 11.0% annual interest, with an interest-only moratorium for the first 6 month(s).",
+        "figures": {
+          "loan_amount": 4232127.930564397,
+          "loan_fraction": 0.5,
+          "interest_rate_annual": 0.11,
+          "loan_term_months": 12.0,
+          "moratorium_months": 6.0
+        }
+      },
+      {
+        "key": "subsidy_amount",
+        "title": "Subsidy",
+        "explanation": "No capital subsidy is booked.",
+        "figures": {
+          "subsidy_amount": 0.0,
+          "subsidy_fraction": 0.0,
+          "nlm_subsidy": "off",
+          "subsidy_estimate_amount": null,
+          "subsidy_status": "disabled",
+          "subsidy_policy_version": null,
+          "subsidy_policy_source": null
+        }
+      },
+      {
+        "key": "equity",
+        "title": "Your investment (equity)",
+        "explanation": "What you pay out of pocket at the start: project cost \u20b984.64 lakh \u2212 loan \u20b942.32 lakh \u2212 up-front subsidy \u20b90 = \u20b942.32 lakh. All returns below are measured against this outflow. ",
+        "figures": {
+          "equity": 4232127.930564397
+        }
+      },
+      {
+        "key": "npv",
+        "title": "Net present value (NPV)",
+        "explanation": "Net present value: every month's net cash flow, including the recoverable closing assets of \u20b937.16 lakh, is discounted to today at 12.0% per year, and the \u20b942.32 lakh equity outflow is subtracted. These are levered, equity-holder flows \u2014 debt service is a cost and only your share of the project is invested \u2014 so the figure measures the return on your equity, not the whole project's unlevered return. A positive NPV of \u20b944.81 lakh means the project creates that much wealth for the equity holder over and above a 12.0% annual return.",
+        "figures": {
+          "npv": 4481104.822464723,
+          "discount_rate_annual": 0.12
+        }
+      },
+      {
+        "key": "mirr",
+        "title": "Modified IRR (MIRR)",
+        "explanation": "MIRR is 14.1% using the loan rate (11.0%) to finance negative cash flows and 8.0% to reinvest positive cash flows. It gives one conservative annual return even when ordinary IRR is ambiguous.",
+        "figures": {
+          "mirr": 0.14065330045441615,
+          "finance_rate_annual": 0.11,
+          "reinvestment_rate_annual": 0.08
+        }
+      },
+      {
+        "key": "irr",
+        "title": "Internal rate of return (IRR)",
+        "explanation": "IRR is undefined or unproven for this cash-flow pattern (status: indeterminate). A unique root has not been established inside the declared solver domain. Judge the project on NPV and MIRR instead.",
+        "figures": {
+          "irr": null,
+          "irr_status": "indeterminate",
+          "irr_solver_domain": "Annual rates [-0.99, 10.0]; one-sign-change series or exact isolation of <=24 nonzero terms with rational period denominator <=120; otherwise indeterminate",
+          "discount_rate_annual": 0.12
+        }
+      },
+      {
+        "key": "bcr",
+        "title": "Benefit-cost ratio (BCR)",
+        "explanation": "Present value of gross operating revenue plus terminal recovery divided by the present value of equity, operating cost, tax and debt service: 1.33. Above 1.0 the project earns more than it costs (at the 12.0% discount rate). This is an equity-holder ratio (the loan is a cost, not a benefit), so it runs lower than the total-investment BCR a lender computes and cannot be compared directly with a bank's customary 1.5 benchmark.",
+        "figures": {
+          "bcr": 1.3308069818129042
+        }
+      },
+      {
+        "key": "avg_dscr",
+        "title": "Average DSCR",
+        "explanation": "Debt-service coverage ratio: operating surplus after cash tax divided by the year's loan repayment, averaged over the 1 principal-repaying year(s) of the operating repayment period: 1.15. Above 1.0 the farm can service the loan from operations; banks usually want 1.5 or better.",
+        "figures": {
+          "avg_dscr": 1.1488945568052447,
+          "min_dscr": 1.1488945568052447,
+          "debt_years": 1.0
+        }
+      },
+      {
+        "key": "min_dscr",
+        "title": "Weakest-year DSCR",
+        "explanation": "The worst single debt year: 1.15. If this dips below 1.0 the farm cannot cover that year's repayment from operations and needs a cash buffer or rescheduling.",
+        "figures": {
+          "min_dscr": 1.1488945568052447
+        }
+      },
+      {
+        "key": "peak_capacity_head",
+        "title": "Funded capacity",
+        "explanation": "The project funds 342.8 animal places against a peak funded headcount of 311.6 head \u2014 the larger of the opening herd and the highest physical headcount reached during the projection. The reserve is 31.2 places.",
+        "figures": {
+          "capacity_places": 342.7672355555556,
+          "projected_peak_head": 311.6065777777778,
+          "capacity_reserve_head": 31.16065777777783
+        }
+      },
+      {
+        "key": "terminal_value",
+        "title": "Terminal value",
+        "explanation": "The final cash flow recovers \u20b937.16 lakh: livestock (value above the depreciated book of bought breeding stock) \u20b921.07 lakh, breeding-stock book value \u20b945,378, shed \u20b911.31 lakh, equipment \u20b98,569 and working capital \u20b94.24 lakh. These are closing assets, not operating revenue.",
+        "figures": {
+          "terminal_value": 3716152.7418315657,
+          "livestock": 2107304.4075766644,
+          "breeding_stock": 45378.44601499622,
+          "shed": 1131131.8773333335,
+          "equipment": 8569.180888888892,
+          "working_capital": 423768.8300176827
+        }
+      },
+      {
+        "key": "tax_total",
+        "title": "Cash tax",
+        "explanation": "The model pays \u20b90 of cash tax at an assumed 0.0% rate after interest, straight-line depreciation, disposed breeding-stock carrying costs and carried-forward losses.",
+        "figures": {
+          "tax_total": 0.0,
+          "income_tax_rate": 0.0
+        }
+      },
+      {
+        "key": "accounting_profit_total",
+        "title": "Accounting profit",
+        "explanation": "Cumulative profit after depreciation, disposed breeding-stock carrying costs, interest and tax is \u20b91.60 crore. This accrual profit excludes terminal asset recovery and differs from cash flow because depreciation and disposal book costs are non-cash while principal repayment is not an expense.",
+        "figures": {
+          "accounting_profit_total": 15985392.181292702
+        }
+      },
+      {
+        "key": "minimum_cash_balance",
+        "title": "Liquidity low point",
+        "explanation": "The operating cash reserve reaches its low point of \u20b92.38 lakh in month 1 (year 1). The funded working-capital reserve remains non-negative throughout.",
+        "figures": {
+          "minimum_cash_balance": 237521.26343130274,
+          "minimum_cash_month": 1.0,
+          "additional_working_capital_required": 0.0
+        }
+      },
+      {
+        "key": "operating_margin",
+        "title": "Operating margin",
+        "explanation": "EBITDA is 67.2% of operating revenue over the projection. This isolates farm operations before depreciation, financing and tax.",
+        "figures": {
+          "operating_margin": 0.6721356772003797
+        }
+      },
+      {
+        "key": "payback_month",
+        "title": "Payback period",
+        "explanation": "Cumulative cash flow first covers your \u20b942.32 lakh equity in month 2 (year 1).",
+        "figures": {
+          "payback_month": 2.0,
+          "equity": 4232127.930564397,
+          "terminal_driven": 0.0
+        }
+      },
+      {
+        "key": "break_even_meat_price_per_kg",
+        "title": "Break-even meat price",
+        "explanation": "The break-even meat price was not computed for this run. Re-run with the break-even search enabled to see how far the price can fall.",
+        "figures": {
+          "break_even_meat_price_per_kg": null,
+          "assumed_meat_price_per_kg": 1000.0,
+          "safety_margin": null
+        }
+      }
+    ],
+    "report": [
+      {
+        "key": "overview",
+        "title": "Overview",
+        "paragraphs": [
+          "This projection runs 120 months (10 years) from 2026-08. You start with 50 does and 2 bucks plus 0 kids, 0 weaners and 250 growers \u2014 310 head on the ground in month 1.",
+          "The project needs \u20b984.64 lakh in total: \u20b942.32 lakh from the bank and \u20b942.32 lakh from your own pocket, with \u20b90 assumed up-front subsidy."
+        ],
+        "figures": {
+          "horizon_months": 120.0,
+          "starting_does": 50.0,
+          "starting_bucks": 2.0,
+          "scheduled_events": 0.0,
+          "project_cost": 8464255.861128794,
+          "loan_amount": 4232127.930564397,
+          "subsidy_amount": 0.0,
+          "equity": 4232127.930564397
+        }
+      },
+      {
+        "key": "herd_trajectory",
+        "title": "Herd trajectory",
+        "paragraphs": [
+          "The herd grows from 310 head in month 1 to a peak of 310 in month 1 (year 1), ending at 126 head (48 breeding does and 3 bucks).",
+          "Over the 10 years the farm produces 1018 kids, loses 233 animals to mortality, sells 805 for meat and disposes of 167 as culls.",
+          "Expect multiples at kidding: this breed twins in about 35-40% of kiddings and triplets run 5-13%, so the average mature litter is ~1.60 kids. First-time does (parity 1) run lighter \u2014 about 1.36 on average, mostly singles \u2014 so a maiden crop of singles is normal, not a problem."
+        ],
+        "figures": {
+          "start_herd": 310.09045852115156,
+          "peak_herd": 310.09045852115156,
+          "peak_month": 1.0,
+          "end_herd": 126.30266796675458,
+          "total_births": 1018.4050363397295,
+          "total_deaths": 232.7558382246681,
+          "total_sold": 805.3905844727317,
+          "total_culled": 167.45307256649878
+        }
+      },
+      {
+        "key": "revenue_mix",
+        "title": "Where the money comes from",
+        "paragraphs": [
+          "Total revenue over 10 years is \u20b92.62 crore, largest source first: meat sales \u20b92.41 crore (92.0%), cull sales \u20b915.26 lakh (5.8%), manure \u20b95.57 lakh (2.1%) and surplus milk \u20b90 (0.0%).",
+          "Bakrid pricing (+35% on the base rate) applies in months 10, 22, 33, 45, 57, 68, 80, 91, 103, 115; 108 head sell inside them."
+        ],
+        "figures": {
+          "total_revenue": 26194580.872236762,
+          "meat_revenue": 24110982.537505988,
+          "cull_revenue": 1526137.22854191,
+          "milk_revenue": 0.0,
+          "manure_revenue": 557461.106188865,
+          "festival_months": "10, 22, 33, 45, 57, 68, 80, 91, 103, 115",
+          "festival_uplift": 0.35
+        }
+      },
+      {
+        "key": "cost_mix",
+        "title": "Where the money goes",
+        "paragraphs": [
+          "Operating costs total \u20b985.88 lakh over 10 years, largest first: feed \u20b937.16 lakh (43.3%), labour \u20b921.61 lakh (25.2%), selling \u20b98.89 lakh (10.4%), insurance \u20b97.90 lakh (9.2%), vet \u20b97.24 lakh (8.4%), overheads \u20b93.09 lakh (3.6%) and stock purchases \u20b90 (0.0%).",
+          "Buying breeding stock cost \u20b92.13 lakh in cash; it is capitalized and depreciated over 60 months rather than expensed, so EBITDA above excludes it.",
+          "Growing green fodder needs about 3.12 acre(s) on average; your cultivated area falls short in 94 month(s). This is a physical and financial shortfall: 40,368 kg as-fed is bought at the configured market price, while on-farm supply is costed separately.",
+          "Water demand runs about 767 litres/day on average, peaking near 1,981 litres/day \u2014 a lactating doe needs 10-15 L/day in the Deccan summer, so plan storage and supply for the peak, not the average."
+        ],
+        "figures": {
+          "total_opex": 8588268.518695792,
+          "feed_cost": 3715823.856114665,
+          "labour_cost": 2161084.258220523,
+          "stock_purchases": 0.0,
+          "selling_cost": 889097.8331507829,
+          "vet_cost": 723966.50113671,
+          "insurance_cost": 789569.7474701786,
+          "misc_cost": 308726.3226029319,
+          "land_requirement_acres": 3.117141801214478,
+          "annual_water_litres": 2797929.365677576,
+          "peak_water_litres_per_day": 1980.7601429311148
+        }
+      },
+      {
+        "key": "viability_verdict",
+        "title": "Bottom line",
+        "paragraphs": [
+          "At these assumptions the project is VIABLE WITH CAUTION. Over 10 years it earns \u20b92.62 crore against \u20b985.88 lakh of operating costs \u2014 an operating surplus (EBITDA) of \u20b91.76 crore.",
+          "Watch out: a unique IRR is not established (assessment: indeterminate); use NPV and MIRR."
+        ],
+        "figures": {
+          "verdict": "VIABLE WITH CAUTION",
+          "npv": 4481104.822464723,
+          "irr": null,
+          "bcr": 1.3308069818129042,
+          "avg_dscr": 1.1488945568052447,
+          "min_dscr": 1.1488945568052447,
+          "payback_month": 2.0,
+          "ebitda_total": 17606312.353540972
+        }
+      },
+      {
+        "key": "risks",
+        "title": "Risks",
+        "paragraphs": [
+          "Run with Monte Carlo and sensitivity enabled to see how robust these results are to price swings, disease and poor breeding years.",
+          "Ordinary IRR uniqueness is unproven in this solver domain; use NPV and MIRR.",
+          "Embedded future festival dates are projections requiring local confirmation; moon sighting can change the sale month near a month boundary. 2039 has both January and December occurrences."
+        ],
+        "figures": {}
+      }
+    ]
+  },
+  "no_debt": {
+    "explanation_digest": "31629b0970f59c0f6170852ab4d35e605d0cf207678cc83917a7e74ef2f24e1c",
+    "report_digest": "e0a0227f1ce21f5513a4aff753e8d30f21f217751b3729857bac6357164dedab",
+    "explanation": [
+      {
+        "key": "project_cost",
+        "title": "Project cost",
+        "explanation": "The total capital needed to start the project: shed \u20b99.09 lakh + equipment \u20b975,737 + starting stock \u20b95.05 lakh + working capital \u20b95.29 lakh (12 month(s) of average year-1 recurring operating cost \u2014 feed, vet, labour, insurance, overheads and selling; stock purchases are excluded). Shed and equipment are funded for 151.5 animal places using the projected peak capacity basis; the peak funded headcount \u2014 the larger of the opening herd and the highest physical headcount reached during the projection \u2014 is 137.7 head.",
+        "figures": {
+          "project_cost": 2018644.5754804565,
+          "shed_cost": 908842.3408757348,
+          "equipment_cost": 75736.86173964456,
+          "stock_cost": 505000.0,
+          "working_capital": 529065.3728650771,
+          "capacity_places": 151.47372347928913,
+          "capacity_basis": "projected_peak",
+          "projected_peak_head": 137.70338498117192
+        }
+      },
+      {
+        "key": "loan_amount",
+        "title": "Bank loan",
+        "explanation": "0.0% of the project cost (\u20b920.19 lakh) is financed by the bank: \u20b90. It is repaid over 72 months at 11.0% annual interest, with an interest-only moratorium for the first 12 month(s).",
+        "figures": {
+          "loan_amount": 0.0,
+          "loan_fraction": 0.0,
+          "interest_rate_annual": 0.11,
+          "loan_term_months": 72.0,
+          "moratorium_months": 12.0
+        }
+      },
+      {
+        "key": "subsidy_amount",
+        "title": "Subsidy",
+        "explanation": "No capital subsidy is booked.",
+        "figures": {
+          "subsidy_amount": 0.0,
+          "subsidy_fraction": 0.0,
+          "nlm_subsidy": "off",
+          "subsidy_estimate_amount": null,
+          "subsidy_status": "disabled",
+          "subsidy_policy_version": null,
+          "subsidy_policy_source": null
+        }
+      },
+      {
+        "key": "equity",
+        "title": "Your investment (equity)",
+        "explanation": "What you pay out of pocket at the start: project cost \u20b920.19 lakh \u2212 loan \u20b90 \u2212 up-front subsidy \u20b90 = \u20b920.19 lakh. All returns below are measured against this outflow. ",
+        "figures": {
+          "equity": 2018644.5754804565
+        }
+      },
+      {
+        "key": "npv",
+        "title": "Net present value (NPV)",
+        "explanation": "Net present value: every month's net cash flow, including the recoverable closing assets of \u20b90, is discounted to today at 12.0% per year, and the \u20b920.19 lakh equity outflow is subtracted. These are levered, equity-holder flows \u2014 debt service is a cost and only your share of the project is invested \u2014 so the figure measures the return on your equity, not the whole project's unlevered return. The NPV is -\u20b916.01 lakh \u2014 negative, so at this discount rate the project destroys value; improve margins, prices or costs before investing.",
+        "figures": {
+          "npv": -1600671.5539724934,
+          "discount_rate_annual": 0.12
+        }
+      },
+      {
+        "key": "mirr",
+        "title": "Modified IRR (MIRR)",
+        "explanation": "MIRR is 0.4% using the loan rate (11.0%) to finance negative cash flows and 8.0% to reinvest positive cash flows. It gives one conservative annual return even when ordinary IRR is ambiguous.",
+        "figures": {
+          "mirr": 0.004001800222859009,
+          "finance_rate_annual": 0.11,
+          "reinvestment_rate_annual": 0.08
+        }
+      },
+      {
+        "key": "irr",
+        "title": "Internal rate of return (IRR)",
+        "explanation": "IRR is undefined or unproven for this cash-flow pattern (status: indeterminate). A unique root has not been established inside the declared solver domain. Judge the project on NPV and MIRR instead.",
+        "figures": {
+          "irr": null,
+          "irr_status": "indeterminate",
+          "irr_solver_domain": "Annual rates [-0.99, 10.0]; one-sign-change series or exact isolation of <=24 nonzero terms with rational period denominator <=120; otherwise indeterminate",
+          "discount_rate_annual": 0.12
+        }
+      },
+      {
+        "key": "bcr",
+        "title": "Benefit-cost ratio (BCR)",
+        "explanation": "Present value of gross operating revenue plus terminal recovery divided by the present value of equity, operating cost, tax and debt service: 0.75. Above 1.0 the project earns more than it costs (at the 12.0% discount rate). This is an equity-holder ratio (the loan is a cost, not a benefit), so it runs lower than the total-investment BCR a lender computes and cannot be compared directly with a bank's customary 1.5 benchmark.",
+        "figures": {
+          "bcr": 0.7516500760605371
+        }
+      },
+      {
+        "key": "avg_dscr",
+        "title": "Average DSCR",
+        "explanation": "No principal-repaying year falls inside the projection horizon (zero loan, full repayment before year 1, or every debt year still inside the interest-only moratorium), so no DSCR is computed.",
+        "figures": {
+          "avg_dscr": null,
+          "min_dscr": null,
+          "debt_years": 0.0
+        }
+      },
+      {
+        "key": "min_dscr",
+        "title": "Weakest-year DSCR",
+        "explanation": "No principal-repaying year in the horizon, so there is no weak year to report.",
+        "figures": {
+          "min_dscr": null
+        }
+      },
+      {
+        "key": "peak_capacity_head",
+        "title": "Funded capacity",
+        "explanation": "The project funds 151.5 animal places against a peak funded headcount of 137.7 head \u2014 the larger of the opening herd and the highest physical headcount reached during the projection. The reserve is 13.8 places.",
+        "figures": {
+          "capacity_places": 151.47372347928913,
+          "projected_peak_head": 137.70338498117192,
+          "capacity_reserve_head": 13.770338498117212
+        }
+      },
+      {
+        "key": "terminal_value",
+        "title": "Terminal value",
+        "explanation": "Terminal value is disabled, so the projection assumes no livestock, facility or working-capital recovery at the horizon.",
+        "figures": {
+          "terminal_value": 0.0,
+          "livestock": 0.0,
+          "breeding_stock": 0.0,
+          "shed": 0.0,
+          "equipment": 0.0,
+          "working_capital": 0.0
+        }
+      },
+      {
+        "key": "tax_total",
+        "title": "Cash tax",
+        "explanation": "The model pays \u20b90 of cash tax at an assumed 0.0% rate after interest, straight-line depreciation, disposed breeding-stock carrying costs and carried-forward losses.",
+        "figures": {
+          "tax_total": 0.0,
+          "income_tax_rate": 0.0
+        }
+      },
+      {
+        "key": "accounting_profit_total",
+        "title": "Accounting profit",
+        "explanation": "Cumulative profit after depreciation, disposed breeding-stock carrying costs, interest and tax is \u20b96.04 lakh. This accrual profit excludes terminal asset recovery and differs from cash flow because depreciation and disposal book costs are non-cash while principal repayment is not an expense.",
+        "figures": {
+          "accounting_profit_total": 604314.6028908073
+        }
+      },
+      {
+        "key": "minimum_cash_balance",
+        "title": "Liquidity low point",
+        "explanation": "The operating cash reserve reaches its low point of \u20b91.44 lakh in month 13 (year 2). The funded working-capital reserve remains non-negative throughout.",
+        "figures": {
+          "minimum_cash_balance": 144123.3212650515,
+          "minimum_cash_month": 13.0,
+          "additional_working_capital_required": 0.0
+        }
+      },
+      {
+        "key": "operating_margin",
+        "title": "Operating margin",
+        "explanation": "EBITDA is 14.1% of operating revenue over the projection. This isolates farm operations before depreciation, financing and tax.",
+        "figures": {
+          "operating_margin": 0.14088849612595578
+        }
+      },
+      {
+        "key": "payback_month",
+        "title": "Payback period",
+        "explanation": "Cumulative cash flow never covers your \u20b920.19 lakh equity within the 120-month horizon.",
+        "figures": {
+          "payback_month": null,
+          "equity": 2018644.5754804565,
+          "terminal_driven": 0.0
+        }
+      },
+      {
+        "key": "break_even_meat_price_per_kg",
+        "title": "Break-even meat price",
+        "explanation": "The break-even meat price was not computed for this run. Re-run with the break-even search enabled to see how far the price can fall.",
+        "figures": {
+          "break_even_meat_price_per_kg": null,
+          "assumed_meat_price_per_kg": 370.0,
+          "safety_margin": null
+        }
+      }
+    ],
+    "report": [
+      {
+        "key": "overview",
+        "title": "Overview",
+        "paragraphs": [
+          "This projection runs 120 months (10 years) from 2026-08. You start with 50 does and 2 bucks \u2014 61 head on the ground in month 1.",
+          "The project needs \u20b920.19 lakh in total: \u20b90 from the bank and \u20b920.19 lakh from your own pocket, with \u20b90 assumed up-front subsidy."
+        ],
+        "figures": {
+          "horizon_months": 120.0,
+          "starting_does": 50.0,
+          "starting_bucks": 2.0,
+          "scheduled_events": 0.0,
+          "project_cost": 2018644.5754804565,
+          "loan_amount": 0.0,
+          "subsidy_amount": 0.0,
+          "equity": 2018644.5754804565
+        }
+      },
+      {
+        "key": "herd_trajectory",
+        "title": "Herd trajectory",
+        "paragraphs": [
+          "The herd grows from 61 head in month 1 to a peak of 135 in month 90 (year 8), ending at 126 head (48 breeding does and 3 bucks).",
+          "Over the 10 years the farm produces 1018 kids, loses 232 animals to mortality, sells 556 for meat and disposes of 167 as culls.",
+          "Expect multiples at kidding: this breed twins in about 35-40% of kiddings and triplets run 5-13%, so the average mature litter is ~1.60 kids. First-time does (parity 1) run lighter \u2014 about 1.36 on average, mostly singles \u2014 so a maiden crop of singles is normal, not a problem."
+        ],
+        "figures": {
+          "start_herd": 60.93947182088094,
+          "peak_herd": 134.50392335886332,
+          "peak_month": 90.0,
+          "end_herd": 126.30266796675458,
+          "total_births": 1018.4050363397295,
+          "total_deaths": 231.90682492493872,
+          "total_sold": 556.2395977724611,
+          "total_culled": 167.45307256649878
+        }
+      },
+      {
+        "key": "revenue_mix",
+        "title": "Where the money comes from",
+        "paragraphs": [
+          "Total revenue over 10 years is \u20b988.60 lakh, largest source first: meat sales \u20b967.77 lakh (76.5%), cull sales \u20b915.26 lakh (17.2%), manure \u20b95.57 lakh (6.3%) and surplus milk \u20b90 (0.0%).",
+          "Bakrid pricing (+35% on the base rate) applies in months 10, 22, 33, 45, 57, 68, 80, 91, 103, 115; 108 head sell inside them."
+        ],
+        "figures": {
+          "total_revenue": 8860181.38575535,
+          "meat_revenue": 6776583.051024577,
+          "cull_revenue": 1526137.22854191,
+          "milk_revenue": 0.0,
+          "manure_revenue": 557461.106188865,
+          "festival_months": "10, 22, 33, 45, 57, 68, 80, 91, 103, 115",
+          "festival_uplift": 0.35
+        }
+      },
+      {
+        "key": "cost_mix",
+        "title": "Where the money goes",
+        "paragraphs": [
+          "Operating costs total \u20b976.12 lakh over 10 years, largest first: feed \u20b936.45 lakh (47.9%), labour \u20b921.61 lakh (28.4%), vet \u20b97.15 lakh (9.4%), insurance \u20b94.38 lakh (5.8%), selling \u20b93.44 lakh (4.5%), overheads \u20b93.09 lakh (4.1%) and stock purchases \u20b90 (0.0%).",
+          "Buying breeding stock cost \u20b92.13 lakh in cash; it is capitalized and depreciated over 60 months rather than expensed, so EBITDA above excludes it.",
+          "Growing green fodder needs about 3.06 acre(s) on average; your cultivated area falls short in 93 month(s). This is a physical and financial shortfall: 29,184 kg as-fed is bought at the configured market price, while on-farm supply is costed separately.",
+          "Water demand runs about 754 litres/day on average, peaking near 824 litres/day \u2014 a lactating doe needs 10-15 L/day in the Deccan summer, so plan storage and supply for the peak, not the average."
+        ],
+        "figures": {
+          "total_opex": 7611883.7549130935,
+          "feed_cost": 3644922.82630263,
+          "labour_cost": 2161084.258220523,
+          "stock_purchases": 0.0,
+          "selling_cost": 344049.2426902499,
+          "vet_cost": 714623.3391354498,
+          "insurance_cost": 438477.76596130774,
+          "misc_cost": 308726.3226029319,
+          "land_requirement_acres": 3.0631560931882285,
+          "annual_water_litres": 2752424.4294666387,
+          "peak_water_litres_per_day": 823.7370053701012
+        }
+      },
+      {
+        "key": "viability_verdict",
+        "title": "Bottom line",
+        "paragraphs": [
+          "At these assumptions the project is NOT VIABLE. Over 10 years it earns \u20b988.60 lakh against \u20b976.12 lakh of operating costs \u2014 an operating surplus (EBITDA) of \u20b912.48 lakh.",
+          "Watch out: the NPV is negative; the benefit-cost ratio is below 1.0; a unique IRR is not established (assessment: indeterminate); use NPV and MIRR; the equity is never paid back inside the horizon."
+        ],
+        "figures": {
+          "verdict": "NOT VIABLE",
+          "npv": -1600671.5539724934,
+          "irr": null,
+          "bcr": 0.7516500760605371,
+          "avg_dscr": null,
+          "min_dscr": null,
+          "payback_month": null,
+          "ebitda_total": 1248297.6308422573
+        }
+      },
+      {
+        "key": "risks",
+        "title": "Risks",
+        "paragraphs": [
+          "Run with Monte Carlo and sensitivity enabled to see how robust these results are to price swings, disease and poor breeding years.",
+          "Ordinary IRR uniqueness is unproven in this solver domain; use NPV and MIRR.",
+          "Embedded future festival dates are projections requiring local confirmation; moon sighting can change the sale month near a month boundary. 2039 has both January and December occurrences."
+        ],
+        "figures": {}
+      }
+    ]
+  },
+  "risk": {
+    "explanation_digest": "800cd9f15856d7cce372eb7e12bb955cafac799fba17274c29e7d674b335bde5",
+    "report_digest": "a718d77671cd5a3e8eb0410d6d4054f4a9bbf800ba456ee4a2f2cba3eb1efed8",
+    "explanation": [
+      {
+        "key": "project_cost",
+        "title": "Project cost",
+        "explanation": "The total capital needed to start the project: shed \u20b98.99 lakh + equipment \u20b974,877 + starting stock \u20b95.05 lakh + working capital \u20b95.29 lakh (12 month(s) of average year-1 recurring operating cost \u2014 feed, vet, labour, insurance, overheads and selling; stock purchases are excluded). Shed and equipment are funded for 149.8 animal places using the projected peak capacity basis; the peak funded headcount \u2014 the larger of the opening herd and the highest physical headcount reached during the projection \u2014 is 136.1 head.",
+        "figures": {
+          "project_cost": 2007470.5508555518,
+          "shed_cost": 898527.8566065921,
+          "equipment_cost": 74877.32138388268,
+          "stock_cost": 505000.0,
+          "working_capital": 529065.3728650771,
+          "capacity_places": 149.75464276776535,
+          "capacity_basis": "projected_peak",
+          "projected_peak_head": 136.14058433433212
+        }
+      },
+      {
+        "key": "loan_amount",
+        "title": "Bank loan",
+        "explanation": "85.0% of the project cost (\u20b920.07 lakh) is financed by the bank: \u20b917.06 lakh. It is repaid over 72 months at 11.0% annual interest, with an interest-only moratorium for the first 12 month(s). The 24-month projection ends first, so the \u20b914.35 lakh still outstanding is charged as a single balloon repayment in the final month.",
+        "figures": {
+          "loan_amount": 1706349.968227219,
+          "loan_fraction": 0.85,
+          "interest_rate_annual": 0.11,
+          "loan_term_months": 72.0,
+          "moratorium_months": 12.0
+        }
+      },
+      {
+        "key": "subsidy_amount",
+        "title": "Subsidy",
+        "explanation": "No capital subsidy is booked.",
+        "figures": {
+          "subsidy_amount": 0.0,
+          "subsidy_fraction": 0.0,
+          "nlm_subsidy": "off",
+          "subsidy_estimate_amount": null,
+          "subsidy_status": "disabled",
+          "subsidy_policy_version": null,
+          "subsidy_policy_source": null
+        }
+      },
+      {
+        "key": "equity",
+        "title": "Your investment (equity)",
+        "explanation": "What you pay out of pocket at the start: project cost \u20b920.07 lakh \u2212 loan \u20b917.06 lakh \u2212 up-front subsidy \u20b90 = \u20b93.01 lakh. All returns below are measured against this outflow. ",
+        "figures": {
+          "equity": 301120.5826283328
+        }
+      },
+      {
+        "key": "npv",
+        "title": "Net present value (NPV)",
+        "explanation": "Net present value: every month's net cash flow, including the recoverable closing assets of \u20b922.97 lakh, is discounted to today at 12.0% per year, and the \u20b93.01 lakh equity outflow is subtracted. These are levered, equity-holder flows \u2014 debt service is a cost and only your share of the project is invested \u2014 so the figure measures the return on your equity, not the whole project's unlevered return. The NPV is -\u20b93.79 lakh \u2014 negative, so at this discount rate the project destroys value; improve margins, prices or costs before investing.",
+        "figures": {
+          "npv": -378940.90494921274,
+          "discount_rate_annual": 0.12
+        }
+      },
+      {
+        "key": "mirr",
+        "title": "Modified IRR (MIRR)",
+        "explanation": "MIRR is -9.6% using the loan rate (11.0%) to finance negative cash flows and 8.0% to reinvest positive cash flows. It gives one conservative annual return even when ordinary IRR is ambiguous.",
+        "figures": {
+          "mirr": -0.09633173537424267,
+          "finance_rate_annual": 0.11,
+          "reinvestment_rate_annual": 0.08
+        }
+      },
+      {
+        "key": "irr",
+        "title": "Internal rate of return (IRR)",
+        "explanation": "IRR is undefined or unproven for this cash-flow pattern (status: indeterminate). A unique root has not been established inside the declared solver domain. Judge the project on NPV and MIRR instead.",
+        "figures": {
+          "irr": null,
+          "irr_status": "indeterminate",
+          "irr_solver_domain": "Annual rates [-0.99, 10.0]; one-sign-change series or exact isolation of <=24 nonzero terms with rational period denominator <=120; otherwise indeterminate",
+          "discount_rate_annual": 0.12
+        }
+      },
+      {
+        "key": "bcr",
+        "title": "Benefit-cost ratio (BCR)",
+        "explanation": "Present value of gross operating revenue plus terminal recovery divided by the present value of equity, operating cost, tax and debt service: 0.88. Above 1.0 the project earns more than it costs (at the 12.0% discount rate). This is an equity-holder ratio (the loan is a cost, not a benefit), so it runs lower than the total-investment BCR a lender computes and cannot be compared directly with a bank's customary 1.5 benchmark.",
+        "figures": {
+          "bcr": 0.876755614571606
+        }
+      },
+      {
+        "key": "avg_dscr",
+        "title": "Average DSCR",
+        "explanation": "Debt-service coverage ratio: operating surplus after cash tax divided by the year's loan repayment, averaged over the 1 principal-repaying year(s) of the operating repayment period: 0.41. Above 1.0 the farm can service the loan from operations; banks usually want 1.5 or better.",
+        "figures": {
+          "avg_dscr": 0.41318038819911873,
+          "min_dscr": 0.41318038819911873,
+          "debt_years": 1.0
+        }
+      },
+      {
+        "key": "min_dscr",
+        "title": "Weakest-year DSCR",
+        "explanation": "The worst single debt year: 0.41. That is below 1.0, so the farm cannot cover that year's repayment from operations and needs a cash buffer or a rescheduling.",
+        "figures": {
+          "min_dscr": 0.41318038819911873
+        }
+      },
+      {
+        "key": "peak_capacity_head",
+        "title": "Funded capacity",
+        "explanation": "The project funds 149.8 animal places against a peak funded headcount of 136.1 head \u2014 the larger of the opening herd and the highest physical headcount reached during the projection. The reserve is 13.6 places.",
+        "figures": {
+          "capacity_places": 149.75464276776535,
+          "projected_peak_head": 136.14058433433212,
+          "capacity_reserve_head": 13.614058433433229
+        }
+      },
+      {
+        "key": "terminal_value",
+        "title": "Terminal value",
+        "explanation": "The final cash flow recovers \u20b922.97 lakh: livestock (value above the depreciated book of bought breeding stock) \u20b98.85 lakh, breeding-stock book value \u20b910,584, shed \u20b98.18 lakh, equipment \u20b954,553 and working capital \u20b95.29 lakh. These are closing assets, not operating revenue.",
+        "figures": {
+          "terminal_value": 2296814.0080625475,
+          "livestock": 884951.0191382092,
+          "breeding_stock": 10583.789539005167,
+          "shed": 817660.3495119988,
+          "equipment": 54553.47700825738,
+          "working_capital": 529065.3728650771
+        }
+      },
+      {
+        "key": "tax_total",
+        "title": "Cash tax",
+        "explanation": "The model pays \u20b90 of cash tax at an assumed 0.0% rate after interest, straight-line depreciation, disposed breeding-stock carrying costs and carried-forward losses.",
+        "figures": {
+          "tax_total": 0.0,
+          "income_tax_rate": 0.0
+        }
+      },
+      {
+        "key": "accounting_profit_total",
+        "title": "Accounting profit",
+        "explanation": "Cumulative profit after depreciation, disposed breeding-stock carrying costs, interest and tax is -\u20b96.54 lakh. This accrual profit excludes terminal asset recovery and differs from cash flow because depreciation and disposal book costs are non-cash while principal repayment is not an expense.",
+        "figures": {
+          "accounting_profit_total": -654126.0682296408
+        }
+      },
+      {
+        "key": "minimum_cash_balance",
+        "title": "Liquidity low point",
+        "explanation": "The operating cash reserve reaches its low point of -\u20b93.27 lakh in month 21 (year 2). The plan therefore needs at least another \u20b93.27 lakh beyond the funded working-capital reserve to avoid a cash shortfall.",
+        "figures": {
+          "minimum_cash_balance": -326683.4101129212,
+          "minimum_cash_month": 21.0,
+          "additional_working_capital_required": 326683.4101129212
+        }
+      },
+      {
+        "key": "operating_margin",
+        "title": "Operating margin",
+        "explanation": "EBITDA is -18.0% of operating revenue over the projection. This isolates farm operations before depreciation, financing and tax.",
+        "figures": {
+          "operating_margin": -0.17979531956723838
+        }
+      },
+      {
+        "key": "payback_month",
+        "title": "Payback period",
+        "explanation": "Cumulative cash flow never covers your \u20b93.01 lakh equity within the 24-month horizon.",
+        "figures": {
+          "payback_month": null,
+          "equity": 301120.5826283328,
+          "terminal_driven": 0.0
+        }
+      },
+      {
+        "key": "break_even_meat_price_per_kg",
+        "title": "Break-even meat price",
+        "explanation": "The break-even meat price was not computed for this run. Re-run with the break-even search enabled to see how far the price can fall.",
+        "figures": {
+          "break_even_meat_price_per_kg": null,
+          "assumed_meat_price_per_kg": 370.0,
+          "safety_margin": null
+        }
+      }
+    ],
+    "report": [
+      {
+        "key": "overview",
+        "title": "Overview",
+        "paragraphs": [
+          "This projection runs 24 months (2 years) from 2026-08. You start with 50 does and 2 bucks \u2014 61 head on the ground in month 1.",
+          "The project needs \u20b920.07 lakh in total: \u20b917.06 lakh from the bank and \u20b93.01 lakh from your own pocket, with \u20b90 assumed up-front subsidy."
+        ],
+        "figures": {
+          "horizon_months": 24.0,
+          "starting_does": 50.0,
+          "starting_bucks": 2.0,
+          "scheduled_events": 0.0,
+          "project_cost": 2007470.5508555518,
+          "loan_amount": 1706349.968227219,
+          "subsidy_amount": 0.0,
+          "equity": 301120.5826283328
+        }
+      },
+      {
+        "key": "herd_trajectory",
+        "title": "Herd trajectory",
+        "paragraphs": [
+          "The herd grows from 61 head in month 1 to a peak of 133 in month 21 (year 2), ending at 127 head (49 breeding does and 3 bucks).",
+          "Over the 2 years the farm produces 212 kids, loses 45 animals to mortality, sells 78 for meat and disposes of 15 as culls.",
+          "Expect multiples at kidding: this breed twins in about 35-40% of kiddings and triplets run 5-13%, so the average mature litter is ~1.60 kids. First-time does (parity 1) run lighter \u2014 about 1.36 on average, mostly singles \u2014 so a maiden crop of singles is normal, not a problem."
+        ],
+        "figures": {
+          "start_herd": 60.93947182088094,
+          "peak_herd": 133.24565196813768,
+          "peak_month": 21.0,
+          "end_herd": 127.30723873419169,
+          "total_births": 212.46104630755076,
+          "total_deaths": 45.309918126200735,
+          "total_sold": 78.15039882538493,
+          "total_culled": 15.000593573757797
+        }
+      },
+      {
+        "key": "revenue_mix",
+        "title": "Where the money comes from",
+        "paragraphs": [
+          "Total revenue over 2 years is \u20b910.17 lakh, largest source first: meat sales \u20b98.07 lakh (79.3%), cull sales \u20b91.15 lakh (11.3%), manure \u20b995,502 (9.4%) and surplus milk \u20b90 (0.0%).",
+          "Bakrid pricing (+35% on the base rate) applies in months 10, 22; 15 head sell inside them."
+        ],
+        "figures": {
+          "total_revenue": 1017272.0331470761,
+          "meat_revenue": 806890.2310990071,
+          "cull_revenue": 114880.29661435762,
+          "milk_revenue": 0.0,
+          "manure_revenue": 95501.50543371144,
+          "festival_months": "10, 22",
+          "festival_uplift": 0.35
+        }
+      },
+      {
+        "key": "cost_mix",
+        "title": "Where the money goes",
+        "paragraphs": [
+          "Operating costs total \u20b912.00 lakh over 2 years, largest first: feed \u20b95.83 lakh (48.6%), labour \u20b93.52 lakh (29.3%), vet \u20b91.08 lakh (9.0%), insurance \u20b968,771 (5.7%), overheads \u20b950,318 (4.2%), selling \u20b937,620 (3.1%) and stock purchases \u20b90 (0.0%).",
+          "Buying breeding stock cost \u20b919,784 in cash; it is capitalized and depreciated over 60 months rather than expensed, so EBITDA above excludes it.",
+          "Growing green fodder needs about 2.86 acre(s) on average; your cultivated area falls short in 14 month(s). This is a physical and financial shortfall: 5,052 kg as-fed is bought at the configured market price, while on-farm supply is costed separately.",
+          "Water demand runs about 707 litres/day on average, peaking near 819 litres/day \u2014 a lactating doe needs 10-15 L/day in the Deccan summer, so plan storage and supply for the peak, not the average."
+        ],
+        "figures": {
+          "total_opex": 1200172.783433569,
+          "feed_cost": 583186.2332034514,
+          "labour_cost": 352222.97509944194,
+          "stock_purchases": 0.0,
+          "selling_cost": 37620.33549501425,
+          "vet_cost": 108054.70543572976,
+          "insurance_cost": 68770.96632858261,
+          "misc_cost": 50317.56787134886,
+          "land_requirement_acres": 2.8648930773137904,
+          "annual_water_litres": 516281.01103278983,
+          "peak_water_litres_per_day": 819.3111088523291
+        }
+      },
+      {
+        "key": "viability_verdict",
+        "title": "Bottom line",
+        "paragraphs": [
+          "At these assumptions the project is NOT VIABLE. Over 2 years it earns \u20b910.17 lakh against \u20b912.00 lakh of operating costs \u2014 an operating surplus (EBITDA) of -\u20b91.83 lakh.",
+          "Watch out: the NPV is negative; the benefit-cost ratio is below 1.0; a unique IRR is not established (assessment: indeterminate); use NPV and MIRR; the weakest debt year has a DSCR below 1.0; the equity is never paid back inside the horizon; the funded working-capital reserve becomes negative and additional liquidity is needed."
+        ],
+        "figures": {
+          "verdict": "NOT VIABLE",
+          "npv": -378940.90494921274,
+          "irr": null,
+          "bcr": 0.876755614571606,
+          "avg_dscr": 0.41318038819911873,
+          "min_dscr": 0.41318038819911873,
+          "payback_month": null,
+          "ebitda_total": -182900.75028649275
+        }
+      },
+      {
+        "key": "risks",
+        "title": "Risks",
+        "paragraphs": [
+          "Across 10 correlated Monte Carlo runs (varying prices, feed, fodder yield, operating cost, mortality and reproduction, plus monthly adverse events and year-to-year price swings within each run), the NPV averages -\u20b94.59 lakh with a 90% range of -\u20b95.51 lakh to -\u20b93.65 lakh. The project loses money in 100.0% of runs and runs short of operating cash in 100.0%. Every risk path also draws disease events/drought events/market-crash events events, so this distribution sits below the headline (no-disaster) figures \u2014 compare runs against each other, not against the deterministic base case.",
+          "These figures carry sampling noise at 10 runs: the 5th-percentile NPV is -\u20b95.51 lakh with a bootstrap 95% interval of -\u20b95.63 lakh to -\u20b94.89 lakh, and the loss probability of 100.0% has a standard error of 0.0%. More runs narrow both.",
+          "The assumptions that move NPV the most: meat price (+20.0% moves NPV by \u20b91.92 lakh), litter size (-20.0% moves NPV by -\u20b91.35 lakh), feed prices (-20.0% moves NPV by \u20b91.13 lakh).",
+          "Ordinary IRR uniqueness is unproven in this solver domain; use NPV and MIRR.",
+          "Embedded future festival dates are projections requiring local confirmation; moon sighting can change the sale month near a month boundary. 2039 has both January and December occurrences."
+        ],
+        "figures": {
+          "mc_runs": 10.0,
+          "npv_mean": -458568.57362560835,
+          "npv_p5": -551125.3092493732,
+          "npv_p95": -365052.81569279043,
+          "npv_p5_ci_low": -563342.6209866132,
+          "npv_p5_ci_high": -489063.8704122317,
+          "npv_p50_ci_low": -513275.43163426424,
+          "npv_p50_ci_high": -400107.9559245148,
+          "npv_p95_ci_low": -425868.5288561462,
+          "npv_p95_ci_high": -345363.6917303461,
+          "prob_npv_negative": 1.0,
+          "prob_npv_negative_se": 0.0,
+          "prob_liquidity_shortfall": 1.0,
+          "prob_dscr_below_one": 1.0,
+          "top_sensitivities": "meat_price, litter_size, feed_prices"
+        }
+      }
+    ]
+  }
+}

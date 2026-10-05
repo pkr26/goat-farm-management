@@ -1,0 +1,5 @@
+
+> frontend@0.1.0 verify:dependencies /Users/pradeepreddy/Desktop/goat-farm-management-main/frontend
+> node scripts/verify-dependency-mitigations.mjs
+
+Patched braces: 19 depth-guard checks and 4 ordinary-pattern checks passed.

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import shutil
+import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -117,6 +118,41 @@ def test_two_concurrent_mutants_have_clean_baselines_and_exclusive_snapshots(
         assert all((backend / path).read_bytes() == content for path, content in originals.items())
         assert all(record["selection_mode"] == "complete" for record in results)
         assert all(record["pytest_receipt"]["reports"] for record in results)
+        # Feed actual producer records and its report into the final CI gate.
+        # Schema-only fixtures cannot establish producer/consumer compatibility.
+        plan_path, report_path, results_path = (
+            tmp_path / name for name in ("plan.json", "report.json", "results.jsonl")
+        )
+        plan_path.write_text(json.dumps({"mutants": [row["id"] for row in results]}))
+        report_path.write_text(
+            json.dumps(
+                mutate_report.summarize(
+                    {row["id"]: row for row in mutants}, results, campaign_id=runner.campaign_id
+                )
+            )
+        )
+        results_path.write_text("".join(json.dumps(row) + "\n" for row in results))
+        gate = subprocess.run(
+            [
+                sys.executable,
+                str(MUTATION.parents[1] / ".github/scripts/check_mutation_report.py"),
+                "--plan",
+                str(plan_path),
+                "--report",
+                str(report_path),
+                "--results",
+                str(results_path),
+                "--format",
+                "backend",
+                "--minimum",
+                "80",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert gate.returncode == 0, gate.stdout + gate.stderr
+        assert json.loads(gate.stdout)["raw_killed"] == 2
     finally:
         runner.close()
 

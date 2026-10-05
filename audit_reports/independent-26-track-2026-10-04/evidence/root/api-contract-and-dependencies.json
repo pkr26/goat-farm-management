@@ -1,0 +1,2256 @@
+{
+  "contract_equal": true,
+  "routes": [
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/healthz",
+      "dependencies": [
+        "healthz"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/readyz",
+      "dependencies": [
+        "readyz"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/metrics",
+      "dependencies": [
+        "operational_metrics"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/register",
+      "dependencies": [
+        "_require_json_content_type",
+        "get_db",
+        "register"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/login",
+      "dependencies": [
+        "_require_json_content_type",
+        "get_db",
+        "login"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/auth/worker-roster",
+      "dependencies": [
+        "get_db",
+        "worker_roster"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/worker-login",
+      "dependencies": [
+        "_require_json_content_type",
+        "get_db",
+        "worker_login"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/refresh",
+      "dependencies": [
+        "get_db",
+        "refresh"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/logout-session",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "get_db",
+        "logout_session"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/logout",
+      "dependencies": [
+        "get_db",
+        "logout"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/change-password",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "change_password",
+        "current_user",
+        "get_db"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/auth/me",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "get_db",
+        "me"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/auth/account/export",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "export_account",
+        "get_db"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "DELETE"
+      ],
+      "path": "/api/auth/account",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "delete_account",
+        "get_db"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/auth/permissions",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "get_db",
+        "permissions"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/auth/farms",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "get_db",
+        "list_farms"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/farms/{farm_id}/transfer-ownership",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "get_db",
+        "transfer_farm_ownership"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/farms",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "create_farm",
+        "current_user",
+        "get_db",
+        "required_idempotency_key"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/totp/enroll",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "get_db",
+        "totp_enroll"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/totp/confirm",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "get_db",
+        "totp_confirm"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/totp/disable",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "get_db",
+        "totp_disable"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/totp/recovery/regenerate",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "get_db",
+        "totp_recovery_regenerate"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/auth/totp/challenge",
+      "dependencies": [
+        "_require_json_content_type",
+        "get_db",
+        "totp_challenge"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/animals",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_animals"
+      ],
+      "permissions": [
+        "animals.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/animals",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "create_animal",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "animals.create"
+      ]
+    },
+    {
+      "methods": [
+        "PATCH"
+      ],
+      "path": "/api/animals/{animal_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "update_animal"
+      ],
+      "permissions": [
+        "animals.create"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/animals/{animal_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "animal_profile",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "animals.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/animals/{animal_id}/move",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "move_bucket"
+      ],
+      "permissions": [
+        "animals.move"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/animals/{animal_id}/weight",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "record_weight",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "animals.weight"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/animals/{animal_id}/status",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "change_status",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "animals.status"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/buckets",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "buckets_board",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "buckets.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/breeding",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "breeding_list",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "breeding.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/breeding/candidates",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "breeding_candidates",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "breeding.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/breeding/{record_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_breeding_record",
+        "get_db"
+      ],
+      "permissions": [
+        "breeding.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/breeding",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "create_breeding",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "breeding.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/breeding/{record_id}/ultrasound",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "submit_ultrasound"
+      ],
+      "permissions": [
+        "breeding.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/breeding/{record_id}/abort",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "abort_pregnancy",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "breeding.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/kidding",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "kidding_list"
+      ],
+      "permissions": [
+        "kidding.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/kidding/pregnancies/{breeding_record_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "kidding_pregnancy"
+      ],
+      "permissions": [
+        "kidding.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/kidding",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "create_kidding",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "kidding.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/health/rounds/{task_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "health_round_progress"
+      ],
+      "permissions": [
+        "health.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/health/rounds/{task_id}/start",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "start_health_round"
+      ],
+      "permissions": [
+        "health.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/health/rounds/{task_id}/targets",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "add_health_round_targets",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "health.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/health/rounds/{task_id}/exclusions",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "exclude_health_round_targets",
+        "get_db"
+      ],
+      "permissions": [
+        "health.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/health/schedule-templates",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "schedule_templates"
+      ],
+      "permissions": [
+        "health.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/health/animals",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "health_animal_options"
+      ],
+      "permissions": [
+        "health.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/health/purchase-batches",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "health_purchase_batch_options"
+      ],
+      "permissions": [
+        "health.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/health/restrictions/{animal_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "movement_restriction_history"
+      ],
+      "permissions": [
+        "health.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/health/restrictions/{animal_id}/clear",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "clear_movement_restriction",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "health.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/health/events",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_events"
+      ],
+      "permissions": [
+        "health.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/health/events/preview",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "preview_bulk_event_targets"
+      ],
+      "permissions": [
+        "health.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/health/events",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "record_event",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "health.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/health/schedule/{animal_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "vaccination_schedule"
+      ],
+      "permissions": [
+        "health.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/tasks",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_tasks"
+      ],
+      "permissions": [
+        "tasks.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/tasks/{task_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "get_task"
+      ],
+      "permissions": [
+        "tasks.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/tasks",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "create_task",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "tasks.create"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/tasks/{task_id}/complete",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "complete",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "tasks.complete"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/tasks/{task_id}/skip",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key",
+        "skip"
+      ],
+      "permissions": [
+        "tasks.complete"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/tasks/{task_id}/verify",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key",
+        "verify"
+      ],
+      "permissions": [
+        "tasks.verify"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/tasks/{task_id}/reject",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "reject",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "tasks.verify"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/feeding/plan",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "feeding_today",
+        "get_db"
+      ],
+      "permissions": [
+        "feeding.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/feeding/settings",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "save_setting"
+      ],
+      "permissions": [
+        "feeding.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/feeding/dispense",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "dispense",
+        "get_db",
+        "required_idempotency_key"
+      ],
+      "permissions": [
+        "feeding.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/feeding/records",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "feeding_history",
+        "get_db"
+      ],
+      "permissions": [
+        "feeding.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/feeding/recipes",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_recipes"
+      ],
+      "permissions": [
+        "feeding.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/feeding/finished-stock",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_finished_stock"
+      ],
+      "permissions": [
+        "feeding.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/feeding/mix",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "mix_batch",
+        "required_idempotency_key"
+      ],
+      "permissions": [
+        "feeding.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/feeding/inventory",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_inventory"
+      ],
+      "permissions": [
+        "feeding.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/feeding/inventory/{item_id}/add",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "add_stock",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "required_idempotency_key"
+      ],
+      "permissions": [
+        "feeding.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/finance",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_transactions"
+      ],
+      "permissions": [
+        "finance.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/finance/new",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "add_transaction",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "required_idempotency_key"
+      ],
+      "permissions": [
+        "finance.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/finance/transactions/{transaction_id}/correct",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "correct_transaction",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "finance.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/finance/insurance",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_insurance_policies"
+      ],
+      "permissions": [
+        "finance.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/finance/insurance",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "add_insurance_policy",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "finance.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/finance/insurance/{policy_id}/renew",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "renew_policy",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "finance.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/finance/insurance/{policy_id}/claim",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "claim_policy",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "finance.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/finance/insurance/{policy_id}/history",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "insurance_policy_history"
+      ],
+      "permissions": [
+        "finance.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/finance/animals/{animal_id}/lifetime-pnl",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "animal_lifetime_pnl",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "finance.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/purchases",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_batches"
+      ],
+      "permissions": [
+        "purchases.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/purchases/new",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "create_batch",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "required_idempotency_key"
+      ],
+      "permissions": [
+        "purchases.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/purchases/{batch_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "batch_detail",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "purchases.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/dashboard",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dashboard",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "dashboard.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/dashboard/reports",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "reports"
+      ],
+      "permissions": [
+        "reports.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/team",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "team_page"
+      ],
+      "permissions": [
+        "team.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/team/workers",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "_prepare_worker_create",
+        "create_worker",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "team.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/team/workers/{membership_id}/role",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "change_role",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "team.manage"
+      ]
+    },
+    {
+      "methods": [
+        "PUT"
+      ],
+      "path": "/api/team/workers/{membership_id}/status",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "set_worker_status"
+      ],
+      "permissions": [
+        "team.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/team/workers/{membership_id}/reset-password",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "_prepare_password_reset",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "reset_password",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "team.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/team/workers/{membership_id}/reset-pin",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "_prepare_pin_reset",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "reset_pin",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "team.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/team/workers/{membership_id}/notifications",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "get_notification_prefs"
+      ],
+      "permissions": [
+        "team.manage"
+      ]
+    },
+    {
+      "methods": [
+        "PUT"
+      ],
+      "path": "/api/team/workers/{membership_id}/notifications",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "set_notification_prefs"
+      ],
+      "permissions": [
+        "team.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/team/roles",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "create_role",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "team.manage"
+      ]
+    },
+    {
+      "methods": [
+        "PUT"
+      ],
+      "path": "/api/team/roles/{role_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "update_role"
+      ],
+      "permissions": [
+        "team.manage"
+      ]
+    },
+    {
+      "methods": [
+        "DELETE"
+      ],
+      "path": "/api/team/roles/{role_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "delete_role",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "team.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/simulation/defaults/breeds",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "get_db",
+        "list_breeds"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/simulation/defaults",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "breed_defaults",
+        "current_user",
+        "get_db"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/simulation/herd-snapshot",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "herd_snapshot"
+      ],
+      "permissions": [
+        "animals.view",
+        "simulation.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/simulation/calibration",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "farm_calibration",
+        "get_db"
+      ],
+      "permissions": [
+        "animals.view",
+        "breeding.view",
+        "feeding.view",
+        "finance.view",
+        "kidding.view",
+        "simulation.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/simulation/run",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "run_adhoc"
+      ],
+      "permissions": [
+        "simulation.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/simulation/scenarios",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "create_scenario",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "simulation.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/simulation/scenarios",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_scenarios"
+      ],
+      "permissions": [
+        "simulation.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/simulation/scenarios/compare",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "compare_scenarios",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "simulation.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/simulation/scenarios/{scenario_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "get_scenario"
+      ],
+      "permissions": [
+        "simulation.view"
+      ]
+    },
+    {
+      "methods": [
+        "PATCH"
+      ],
+      "path": "/api/simulation/scenarios/{scenario_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "update_scenario"
+      ],
+      "permissions": [
+        "simulation.manage"
+      ]
+    },
+    {
+      "methods": [
+        "DELETE"
+      ],
+      "path": "/api/simulation/scenarios/{scenario_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "delete_scenario",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "simulation.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/simulation/scenarios/{scenario_id}/run",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "run_scenario"
+      ],
+      "permissions": [
+        "simulation.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/planner/plan",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "plan_sales"
+      ],
+      "permissions": [
+        "simulation.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/planner/plans",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "create_plan",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "simulation.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/planner/plans",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_plans"
+      ],
+      "permissions": [
+        "simulation.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/planner/plans/{plan_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "get_plan"
+      ],
+      "permissions": [
+        "simulation.view"
+      ]
+    },
+    {
+      "methods": [
+        "PATCH"
+      ],
+      "path": "/api/planner/plans/{plan_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "update_plan"
+      ],
+      "permissions": [
+        "simulation.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/planner/plans/{plan_id}/dpr",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "plan_dpr"
+      ],
+      "permissions": [
+        "simulation.view"
+      ]
+    },
+    {
+      "methods": [
+        "DELETE"
+      ],
+      "path": "/api/planner/plans/{plan_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "delete_plan",
+        "dependency",
+        "get_db"
+      ],
+      "permissions": [
+        "simulation.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/ops-sim/run",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "run_daily_ops_simulation"
+      ],
+      "permissions": [
+        "simulation.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/screening/images",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_images"
+      ],
+      "permissions": [
+        "health.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/screening/images/{image_id}",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "get_image"
+      ],
+      "permissions": [
+        "health.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/screening/findings/{finding_id}/review",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "review_finding"
+      ],
+      "permissions": [
+        "health.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/screening/findings/{finding_id}/reviews",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "finding_review_history",
+        "get_db"
+      ],
+      "permissions": [
+        "health.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/screening/stats",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "provider_stats"
+      ],
+      "permissions": [
+        "health.view"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/screening/export",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "export_dataset",
+        "get_db"
+      ],
+      "permissions": [
+        "health.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/screening/batches",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "create_batch",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "health.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/screening/batches",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "list_batches"
+      ],
+      "permissions": [
+        "health.view"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/screening/batches/{batch_id}/submit",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "submit_batch"
+      ],
+      "permissions": [
+        "health.manage"
+      ]
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/api/screening/uploads",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_farm",
+        "current_membership",
+        "current_perms",
+        "current_user",
+        "dependency",
+        "get_db",
+        "request_upload",
+        "single_idempotency_key"
+      ],
+      "permissions": [
+        "health.manage"
+      ]
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/owner/overview",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "get_db",
+        "owner_overview"
+      ],
+      "permissions": []
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/api/owner/benchmarks",
+      "dependencies": [
+        "<fastapi.security.http.HTTPBearer object at 0x10cbbd940>",
+        "current_user",
+        "get_db",
+        "owner_benchmarks"
+      ],
+      "permissions": []
+    }
+  ]
+}

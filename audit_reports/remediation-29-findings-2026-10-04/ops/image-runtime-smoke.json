@@ -1,0 +1,239 @@
+[
+  {
+    "arch": "arm64",
+    "image": "goatfarm-fix29-backend:104",
+    "identity": "sha256:5cdea4e63f4bab0cc65b618d24359e1a3eb2d2464317e4e8c5542f34f9a07055 arm64",
+    "smoke": {
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--platform",
+        "linux/arm64",
+        "goatfarm-fix29-backend:104",
+        "python",
+        "-c",
+        "import asyncio,httpx,ssl,sqlite3; from app.main import create_app; from app.worker.metrics_server import worker_metrics_server\nasync def check():\n async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app()),base_url=\"http://localhost\") as c:\n  r=await c.get(\"/healthz\"); print(r.status_code,r.text,ssl.OPENSSL_VERSION,sqlite3.sqlite_version); assert r.status_code==200\nasyncio.run(check())"
+      ],
+      "exit": 0,
+      "stdout": "200 {\"status\":\"ok\"} OpenSSL 3.5.7 9 Jun 2026 3.46.1\n",
+      "stderr": "2026-10-05 04:06:19,568 INFO goatfarm [6fc0caf0ade84554b656f83b76c759c9] request method=GET path=/healthz status=200 duration_ms=0.48\n2026-10-05 04:06:19,568 INFO httpx [-] HTTP Request: GET http://localhost/healthz \"HTTP/1.1 200 OK\"\n"
+    }
+  },
+  {
+    "arch": "arm64",
+    "image": "goatfarm-fix29-frontend:104",
+    "identity": "sha256:530eca01785101192e79f8f745f48a2a6b90cd1258e8372eb45b75137d84fa20 arm64",
+    "launch": {
+      "command": [
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        "goatfarm-fix29-frontend-smoke-arm64",
+        "--network",
+        "none",
+        "--platform",
+        "linux/arm64",
+        "goatfarm-fix29-frontend:104"
+      ],
+      "exit": 0,
+      "stdout": "80bda263bab0c6b6f041e7bbb16bb8f3f373de2c164095c6e49974d63db2476f\n",
+      "stderr": ""
+    },
+    "smoke": {
+      "command": [
+        "docker",
+        "exec",
+        "goatfarm-fix29-frontend-smoke-arm64",
+        "node",
+        "-e",
+        "fetch(\"http://127.0.0.1:3000/healthz\").then(async r=>{console.log(r.status,await r.text());process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"
+      ],
+      "exit": 0,
+      "stdout": "200 ok\n",
+      "stderr": ""
+    },
+    "logs": {
+      "command": [
+        "docker",
+        "logs",
+        "goatfarm-fix29-frontend-smoke-arm64"
+      ],
+      "exit": 0,
+      "stdout": "\u25b2 Next.js 16.3.8\n- Local:         http://localhost:3000\n- Network:       http://0.0.0.0:3000\n\u2713 Ready in 0ms\n\u2713 Running next.config took 0.6ms\n",
+      "stderr": ""
+    },
+    "cleanup": {
+      "command": [
+        "docker",
+        "rm",
+        "-f",
+        "-v",
+        "goatfarm-fix29-frontend-smoke-arm64"
+      ],
+      "exit": 0,
+      "stdout": "goatfarm-fix29-frontend-smoke-arm64\n",
+      "stderr": ""
+    }
+  },
+  {
+    "arch": "arm64",
+    "image": "goatfarm-fix29-postgres:104",
+    "identity": "sha256:03f4548ce8c2a212635a7f0ee6f562506e39505fe99694ce6afa02b0d8a66ef2 arm64",
+    "launch": {
+      "command": [
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        "goatfarm-fix29-postgres-smoke-arm64",
+        "--network",
+        "none",
+        "--platform",
+        "linux/arm64",
+        "-e",
+        "POSTGRES_PASSWORD=synthetic-smoke-only-104",
+        "--tmpfs",
+        "/var/lib/postgresql/data:rw,size=512m",
+        "goatfarm-fix29-postgres:104"
+      ],
+      "exit": 0,
+      "stdout": "4a24808997b1b64dce0c52badeb2884ec1305f6367b5987d7ff22790e71897d6\n",
+      "stderr": ""
+    },
+    "smoke": {
+      "command": [
+        "docker",
+        "exec",
+        "goatfarm-fix29-postgres-smoke-arm64",
+        "psql",
+        "-U",
+        "postgres",
+        "-d",
+        "postgres",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-c",
+        "SELECT version(); CREATE TABLE smoke_probe (n integer); INSERT INTO smoke_probe VALUES (29); SELECT sum(n) FROM smoke_probe;"
+      ],
+      "exit": 0,
+      "stdout": "                                                          version                                                           \n----------------------------------------------------------------------------------------------------------------------------\n PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit\n(1 row)\n\nCREATE TABLE\nINSERT 0 1\n sum \n-----\n  29\n(1 row)\n\n",
+      "stderr": ""
+    },
+    "logs": {
+      "command": [
+        "docker",
+        "logs",
+        "goatfarm-fix29-postgres-smoke-arm64"
+      ],
+      "exit": 0,
+      "stdout": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default max_connections ... 100\nselecting default shared_buffers ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-05 04:06:21.866 UTC [55] LOG:  starting PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit\n2026-10-05 04:06:21.868 UTC [55] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-05 04:06:21.869 UTC [58] LOG:  database system was shut down at 2026-10-05 04:06:21 UTC\n2026-10-05 04:06:21.870 UTC [55] LOG:  database system is ready to accept connections\n done\nserver started\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\n2026-10-05 04:06:21.974 UTC [55] LOG:  received fast shutdown request\nwaiting for server to shut down....2026-10-05 04:06:21.975 UTC [55] LOG:  aborting any active transactions\n2026-10-05 04:06:21.975 UTC [55] LOG:  background worker \"logical replication launcher\" (PID 61) exited with exit code 1\n2026-10-05 04:06:21.975 UTC [56] LOG:  shutting down\n2026-10-05 04:06:21.976 UTC [56] LOG:  checkpoint starting: shutdown immediate\n2026-10-05 04:06:21.976 UTC [56] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=2, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=0 kB; lsn=0/14F2AD0, redo lsn=0/14F2AD0\n2026-10-05 04:06:21.977 UTC [55] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.\n\n",
+      "stderr": "initdb: warning: enabling \"trust\" authentication for local connections\ninitdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.\n2026-10-05 04:06:22.083 UTC [1] LOG:  starting PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit\n2026-10-05 04:06:22.083 UTC [1] LOG:  listening on IPv4 address \"0.0.0.0\", port 5432\n2026-10-05 04:06:22.083 UTC [1] LOG:  listening on IPv6 address \"::\", port 5432\n2026-10-05 04:06:22.084 UTC [1] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-05 04:06:22.085 UTC [69] LOG:  database system was shut down at 2026-10-05 04:06:21 UTC\n2026-10-05 04:06:22.086 UTC [1] LOG:  database system is ready to accept connections\n"
+    },
+    "cleanup": {
+      "command": [
+        "docker",
+        "rm",
+        "-f",
+        "-v",
+        "goatfarm-fix29-postgres-smoke-arm64"
+      ],
+      "exit": 0,
+      "stdout": "goatfarm-fix29-postgres-smoke-arm64\n",
+      "stderr": ""
+    }
+  },
+  {
+    "arch": "amd64",
+    "image": "goatfarm-fix29-backend:104-amd64",
+    "identity": "sha256:9a4d0d96d10ed41be5b10552ccdcfcfec619e0dd3e8a869798d09e6e6560b49a amd64",
+    "smoke": {
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--platform",
+        "linux/amd64",
+        "goatfarm-fix29-backend:104-amd64",
+        "python",
+        "-c",
+        "import asyncio,httpx,ssl,sqlite3; from app.main import create_app; from app.worker.metrics_server import worker_metrics_server\nasync def check():\n async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app()),base_url=\"http://localhost\") as c:\n  r=await c.get(\"/healthz\"); print(r.status_code,r.text,ssl.OPENSSL_VERSION,sqlite3.sqlite_version); assert r.status_code==200\nasyncio.run(check())"
+      ],
+      "exit": 0,
+      "stdout": "200 {\"status\":\"ok\"} OpenSSL 3.5.7 9 Jun 2026 3.46.1\n",
+      "stderr": "2026-10-05 04:06:40,974 INFO goatfarm [6a08f35e1508416bac5b3fcc20058498] request method=GET path=/healthz status=200 duration_ms=6.96\n2026-10-05 04:06:40,978 INFO httpx [-] HTTP Request: GET http://localhost/healthz \"HTTP/1.1 200 OK\"\n"
+    }
+  },
+  {
+    "arch": "amd64",
+    "image": "goatfarm-fix29-postgres:104-amd64",
+    "identity": "sha256:fbeea8538438475788a0ca733c5c90ed5c3bfe390ad3e8efc0d89d2632da3422 amd64",
+    "launch": {
+      "command": [
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        "goatfarm-fix29-postgres-smoke-amd64",
+        "--network",
+        "none",
+        "--platform",
+        "linux/amd64",
+        "-e",
+        "POSTGRES_PASSWORD=synthetic-smoke-only-104",
+        "--tmpfs",
+        "/var/lib/postgresql/data:rw,size=512m",
+        "goatfarm-fix29-postgres:104-amd64"
+      ],
+      "exit": 0,
+      "stdout": "ec90e221dce38a06fbe98245c8cab2d75a4f3a0545359d7d7c7b6683fe50a6af\n",
+      "stderr": ""
+    },
+    "smoke": {
+      "command": [
+        "docker",
+        "exec",
+        "goatfarm-fix29-postgres-smoke-amd64",
+        "psql",
+        "-U",
+        "postgres",
+        "-d",
+        "postgres",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-c",
+        "SELECT version(); CREATE TABLE smoke_probe (n integer); INSERT INTO smoke_probe VALUES (29); SELECT sum(n) FROM smoke_probe;"
+      ],
+      "exit": 0,
+      "stdout": "                                                       version                                                        \n----------------------------------------------------------------------------------------------------------------------\n PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit\n(1 row)\n\nCREATE TABLE\nINSERT 0 1\n sum \n-----\n  29\n(1 row)\n\n",
+      "stderr": ""
+    },
+    "logs": {
+      "command": [
+        "docker",
+        "logs",
+        "goatfarm-fix29-postgres-smoke-amd64"
+      ],
+      "exit": 0,
+      "stdout": "The files belonging to this database system will be owned by user \"postgres\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"en_US.utf8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are disabled.\n\nfixing permissions on existing directory /var/lib/postgresql/data ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default max_connections ... 100\nselecting default shared_buffers ... 128MB\nselecting default time zone ... Etc/UTC\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n\n\nSuccess. You can now start the database server using:\n\n    pg_ctl -D /var/lib/postgresql/data -l logfile start\n\nwaiting for server to start....2026-10-05 04:06:45.114 UTC [150] LOG:  starting PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit\n2026-10-05 04:06:45.116 UTC [150] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-05 04:06:45.123 UTC [158] LOG:  database system was shut down at 2026-10-05 04:06:44 UTC\n2026-10-05 04:06:45.137 UTC [150] LOG:  database system is ready to accept connections\n done\nserver started\n\n/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*\n\n2026-10-05 04:06:45.440 UTC [150] LOG:  received fast shutdown request\n2026-10-05 04:06:45.440 UTC [150] LOG:  aborting any active transactions\nwaiting for server to shut down....2026-10-05 04:06:45.447 UTC [150] LOG:  background worker \"logical replication launcher\" (PID 164) exited with exit code 1\n2026-10-05 04:06:45.450 UTC [154] LOG:  shutting down\n2026-10-05 04:06:45.451 UTC [154] LOG:  checkpoint starting: shutdown immediate\n2026-10-05 04:06:45.455 UTC [154] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.002 s, sync=0.001 s, total=0.004 s; sync files=2, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=0 kB; lsn=0/14F2AE8, redo lsn=0/14F2AE8\n2026-10-05 04:06:45.464 UTC [150] LOG:  database system is shut down\n done\nserver stopped\n\nPostgreSQL init process complete; ready for start up.\n\n",
+      "stderr": "initdb: warning: enabling \"trust\" authentication for local connections\ninitdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.\n2026-10-05 04:06:45.636 UTC [1] LOG:  starting PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit\n2026-10-05 04:06:45.638 UTC [1] LOG:  listening on IPv4 address \"0.0.0.0\", port 5432\n2026-10-05 04:06:45.639 UTC [1] LOG:  listening on IPv6 address \"::\", port 5432\n2026-10-05 04:06:45.640 UTC [1] LOG:  listening on Unix socket \"/var/run/postgresql/.s.PGSQL.5432\"\n2026-10-05 04:06:45.648 UTC [192] LOG:  database system was shut down at 2026-10-05 04:06:45 UTC\n2026-10-05 04:06:45.664 UTC [1] LOG:  database system is ready to accept connections\n"
+    },
+    "cleanup": {
+      "command": [
+        "docker",
+        "rm",
+        "-f",
+        "-v",
+        "goatfarm-fix29-postgres-smoke-amd64"
+      ],
+      "exit": 0,
+      "stdout": "goatfarm-fix29-postgres-smoke-amd64\n",
+      "stderr": ""
+    }
+  }
+]

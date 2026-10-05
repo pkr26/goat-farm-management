@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/pradeepreddy/Desktop/goat-farm-management-main/audit_reports/remediation-29-findings-2026-10-04/ops/probe_backup_restore_real.py", line 58, in <module>
+    assert refused.returncode!=0 and 'empty' in refused.stderr.lower()
+AssertionError

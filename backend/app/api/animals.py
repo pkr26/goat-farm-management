@@ -73,6 +73,7 @@ from ..services import (
     require_animal_event_chronology,
     require_bucket_transition,
     require_farm_not_future,
+    require_purchase_before_recorded_facts,
     require_status_after_recorded_facts,
     schedule_quarantine_tasks,
     skip_pending_tasks_for_animal,
@@ -1217,6 +1218,19 @@ async def _change_status_mutation(
                             "leave the herd now)"
                         ),
                     )
+                try:
+                    if (
+                        animal.purchase_date is not None
+                        and payload.estimated_dob > animal.purchase_date
+                    ):
+                        raise ValueError(
+                            "Estimated birth date cannot follow the recorded purchase date"
+                        )
+                    await require_purchase_before_recorded_facts(
+                        db, animal, payload.estimated_dob, field_name="Estimated birth date"
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail=str(exc)) from None
                 animal.estimated_dob = payload.estimated_dob
             elif payload.estimated_dob is not None:
                 raise HTTPException(

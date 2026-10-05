@@ -1,0 +1,130 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  212.2MB
+Step 1/19 : FROM python:3.13-slim@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285
+ ---> 9d2e5553305c
+Step 2/19 : ENV PYTHONDONTWRITEBYTECODE=1     PYTHONUNBUFFERED=1     UV_COMPILE_BYTECODE=1     UV_LINK_MODE=copy     PATH="/app/.venv/bin:$PATH"     GOATFARM_JWT_PRIVATE_KEY_PATH=/app/keys/jwt_private.pem     GOATFARM_JWT_PUBLIC_KEY_PATH=/app/keys/jwt_public.pem
+ ---> Using cache
+ ---> 5bfae49eaf6d
+Step 3/19 : WORKDIR /app
+ ---> Using cache
+ ---> 5acd93a19a7d
+Step 4/19 : COPY backend/pyproject.toml backend/uv.lock ./
+ ---> afc412e52719
+Step 5/19 : COPY backend/pins/uv.txt ./pins/uv.txt
+ ---> a868b16d9426
+Step 6/19 : RUN pip install --no-cache-dir --require-hashes -r pins/uv.txt     && uv sync --locked --no-dev --no-install-project --no-cache     && groupadd --system --gid 10001 goatfarm     && useradd --system --uid 10001 --gid goatfarm goatfarm     && install -d -o goatfarm -g goatfarm -m 0700 /app/keys
+ ---> Running in e0594fd1fcb7
+Collecting uv==0.12.1 (from -r pins/uv.txt (line 11))
+  Downloading uv-0.12.1-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl (21.3 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 21.3/21.3 MB 3.9 MB/s  0:00:05
+Installing collected packages: uv
+Successfully installed uv-0.12.1
+[91mWARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+[0m[91mUsing CPython 3.13.15 interpreter at: /usr/local/bin/python3
+[0m[91mCreating virtual environment at: .venv
+[0m[91mResolved 62 packages in 0.98ms
+[0m[91mDownloading uvloop (4.1MiB)
+Downloading sqlalchemy (3.1MiB)
+[0m[91mDownloading pillow (6.0MiB)
+[0m[91mDownloading pydantic-core (1.9MiB)
+[0m[91mDownloading botocore (13.5MiB)
+[0m[91mDownloading cryptography (4.5MiB)
+[0m[91mDownloading asyncpg (3.3MiB)
+[0m[91m Downloaded pydantic-core
+[0m[91m Downloaded sqlalchemy
+[0m[91m Downloaded asyncpg
+[0m[91m Downloaded uvloop
+[0m[91m Downloaded cryptography
+[0m[91m Downloaded pillow
+[0m[91m Downloaded botocore
+[0m[91mPrepared 44 packages in 6.00s
+[0m[91mInstalled 44 packages in 175ms
+[0m[91mBytecode compiled 1365 files in 416ms
+ + alembic==1.19.0
+ + annotated-doc==0.0.5
+ + annotated-types==0.8.0
+ + anyio==4.14.2
+ + argon2-cffi==25.1.0
+ [0m[91m+ argon2-cffi-bindings==25.1.0
+ + asyncpg==0.31.0
+ +[0m[91m boto3==1.[0m[91m40[0m[91m.11
+ + botocore==1.40.76
+ + certifi==2026.7.22
+ + cffi==2.1.[0m[91m1
+ + click==8.4.2
+ + [0m[91mcryptography==50[0m[91m.[0m[91m0.[0m[91m0[0m[91m
+ + fastapi==0.141.1
+ [0m[91m+ greenlet==[0m[91m3.5.[0m[91m4
+ [0m[91m+ h11[0m[91m==0.16.0
+[0m[91m + httpcore==1.0.9
+ + httptools[0m[91m==0.8.[0m[91m0
+[0m[91m + [0m[91mhttpx==0.28[0m[91m.1
+ + idna==3.18
+ + jmespath==1.1.0
+ + mako==1.4.1
+ [0m[91m+ markupsafe==3.0.3
+ + pillow==12.3.0
+ + prometheus-client==0.26.0
+ + pycparser==3.0
+ + pydantic==2.13.4
+ + pydantic-core==2.46.4
+ + pydantic-settings==2.14.2
+ + pyjwt==2.15.1
+ + python-dateutil==2.9.0.post0
+ + python-dotenv==[0m[91m1.2.2
+ + pyyaml==6.0.3
+ +[0m[91m s3transfer==0[0m[91m.13.1
+[0m[91m +[0m[91m six==[0m[91m1.17.[0m[91m0
+ [0m[91m+ sqlalchemy[0m[91m==2.0[0m[91m.51
+ [0m[91m+ [0m[91mstarlette==1.[0m[91m4.1
+ + typing-extensions[0m[91m==[0m[91m4.16.0[0m[91m
+ + typing-inspection==0.4.2
+ + urllib3==2[0m[91m.8.0
+ + uvicorn==0.52.1
+ +[0m[91m uvloop[0m[91m==0.[0m[91m22[0m[91m.1
+[0m[91m [0m[91m+ watchfiles[0m[91m==1[0m[91m.2[0m[91m.0
+[0m[91m + websockets[0m[91m==17[0m[91m.0[0m[91m.1
+[0m[91museradd warning: goatfarm's uid 10001 is greater than SYS_UID_MAX 999
+[0m ---> Removed intermediate container e0594fd1fcb7
+ ---> b14cda545d29
+Step 7/19 : COPY backend/app ./app
+ ---> eb33c9e9427f
+Step 8/19 : COPY backend/alembic ./alembic
+ ---> 8cfe7053957f
+Step 9/19 : COPY backend/alembic.ini ./
+ ---> b19e5ce20c24
+Step 10/19 : COPY backend/scripts/healthcheck.py ./healthcheck.py
+ ---> b93e944f7b77
+Step 11/19 : COPY backend/scripts/screening_worker_healthcheck.py ./screening_worker_healthcheck.py
+ ---> f862ceeb6cb4
+Step 12/19 : COPY backend/scripts/compose_env_guard.py ./scripts/compose_env_guard.py
+ ---> 74d762dcc08e
+Step 13/19 : COPY backend/scripts/rekey_totp_secrets.py ./scripts/rekey_totp_secrets.py
+ ---> fc5861d6fa6e
+Step 14/19 : COPY backend/scripts/totp_breakglass.py ./scripts/totp_breakglass.py
+ ---> 19a91ec6aac5
+Step 15/19 : RUN rm -rf /usr/local/lib/python3.13/site-packages/pip         /usr/local/lib/python3.13/site-packages/pip-*.dist-info     && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.13         /usr/local/bin/uv /usr/local/bin/uvx
+ ---> Running in d346ca41519d
+ ---> Removed intermediate container d346ca41519d
+ ---> 1eff49dd4226
+Step 16/19 : USER goatfarm
+ ---> Running in 93a7fa300e34
+ ---> Removed intermediate container 93a7fa300e34
+ ---> 9acd60744ac1
+Step 17/19 : EXPOSE 8000
+ ---> Running in 44b676944613
+ ---> Removed intermediate container 44b676944613
+ ---> 26bde5fdc679
+Step 18/19 : HEALTHCHECK --interval=30s --timeout=5s --start-period=15s     CMD python healthcheck.py
+ ---> Running in 09bc581915a9
+ ---> Removed intermediate container 09bc581915a9
+ ---> 29d29acfe1c7
+Step 19/19 : CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-graceful-shutdown", "30", "--no-proxy-headers", "--no-server-header"]
+ ---> Running in 903053b7a35d
+ ---> Removed intermediate container 903053b7a35d
+ ---> 65f29bfe3a9a
+Successfully built 65f29bfe3a9a
+Successfully tagged goatfarm-a26-backend:7245368

@@ -9,7 +9,7 @@
  * Recoverable closing assets included in the final project cash flow.
  *
  * ``breeding_stock`` is the residual BOOK value of breeding does/bucks
- * capitalized during the run (purchases less straight-line depreciation).
+ * capitalized during the run (surviving purchases less straight-line depreciation).
  * ``livestock`` then carries the closing herd's market value ABOVE that
  * book value (young stock at market value plus the disposal gain/loss on
  * the capitalized breeding animals), so the two lines together recover

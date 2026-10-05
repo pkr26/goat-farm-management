@@ -1,0 +1,9 @@
+2026-10-04 15:26:27,373 INFO goatfarm [d2b165051b60489d91dcdedf5649dfd2] request method=POST path=/api/auth/register status=201 duration_ms=273.01
+2026-10-04 15:26:27,374 INFO httpx [-] HTTP Request: POST http://test/api/auth/register "HTTP/1.1 201 Created"
+2026-10-04 15:26:27,416 INFO goatfarm [5047a05138fd4cfaa8630f0e888af0d0] request method=POST path=/api/auth/farms status=201 duration_ms=41.38
+2026-10-04 15:26:27,416 INFO httpx [-] HTTP Request: POST http://test/api/auth/farms "HTTP/1.1 201 Created"
+2026-10-04 15:26:27,656 INFO goatfarm [da007c86a77a49c5b97492b2af2137f0] request method=GET path=/api/simulation/calibration status=200 duration_ms=227.73
+2026-10-04 15:26:27,657 INFO httpx [-] HTTP Request: GET http://test/api/simulation/calibration "HTTP/1.1 200 OK"
+INCOME_INFLATES_COST_CONFIDENCE {"expense_observations": 1, "income_observations": 30, "returned_sample_size": 31, "returned_confidence": "high"}
+.
+1 passed in 5.37s

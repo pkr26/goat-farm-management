@@ -392,15 +392,14 @@ describe("SimulationPage cash-flow tables", () => {
     await runAdHoc({ runResult: CASH_RESULT });
 
     const [, lossYear, profitYear] = within(cardOf("Annual P&L")).getAllByRole("row");
-    // Net cash flow sits one column earlier now that the dairy revenue
-    // column is gone from the meat-goat P&L.
+    // Net cash flow is the last annual column, after non-cash disposal cost.
     const lossCells = cells(lossYear);
-    expect(lossCells[14]).toHaveTextContent("-₹30,000");
-    expect(lossCells[14]).toHaveClass("text-right", "tabular-nums", "text-destructive");
+    expect(lossCells.at(-1)!).toHaveTextContent("-₹30,000");
+    expect(lossCells.at(-1)!).toHaveClass("text-right", "tabular-nums", "text-destructive");
     const profitCells = cells(profitYear);
-    expect(profitCells[14]).toHaveTextContent("₹40,000");
+    expect(profitCells.at(-1)!).toHaveTextContent("₹40,000");
     // A non-negative figure carries no styling beyond the neutral money cells.
-    expect(profitCells[14].className).toBe(profitCells[1].className);
+    expect(profitCells.at(-1)!.className).toBe(profitCells[1].className);
 
     const projection = cardOf("Monthly projection");
     const [, deficitMonth, surplusMonth] = within(projection).getAllByRole("row");
@@ -420,6 +419,27 @@ describe("SimulationPage cash-flow tables", () => {
     expect(surplusCells[17]).toHaveTextContent("₹5,000");
     for (const index of [15, 16, 17])
       expect(surplusCells[index].className).toBe(surplusCells[6].className);
+  });
+
+  it("shows derecognized book value separately and defaults older saved runs to zero", async () => {
+    await runAdHoc({
+      runResult: {
+        ...RESULT,
+        annual_pl: [
+          annualRow({ year: 1, breeding_stock_disposal_cost: 12500, ebit: 12500 }),
+          annualRow({ year: 2 }),
+        ],
+      },
+    });
+    const card = within(cardOf("Annual P&L"));
+    const headers = card.getAllByRole("columnheader");
+    const disposalIndex = headers.findIndex((header) =>
+      header.textContent?.includes("Disposed breeding stock book value"),
+    );
+    expect(disposalIndex).toBeGreaterThan(-1);
+    const rows = card.getAllByRole("row").slice(1);
+    expect(cells(rows[0])[disposalIndex]).toHaveTextContent("₹12,500");
+    expect(cells(rows[1])[disposalIndex]).toHaveTextContent("₹0");
   });
 
   it("counts the projected months and separates event months from quiet ones", async () => {

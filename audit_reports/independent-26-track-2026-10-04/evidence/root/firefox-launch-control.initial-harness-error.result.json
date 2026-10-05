@@ -1,0 +1,26 @@
+{
+  "started_utc": "2026-10-04T22:38:23.335145+00:00",
+  "node": "/Users/pradeepreddy/.local/opt/node24/bin/node",
+  "probe_root_pid": 82535,
+  "outer_deadline_seconds": 20,
+  "outer_deadline_reached": false,
+  "exit_code": 1,
+  "elapsed_seconds": 0.14,
+  "cleanup_signals": [],
+  "remaining_owned_processes": [],
+  "snapshots": [
+    {
+      "elapsed_seconds": 0.038,
+      "owned_processes": [
+        {
+          "pid": 82535,
+          "ppid": 82532,
+          "etime": "00:00",
+          "cpu": "0.0",
+          "command": "(node)"
+        }
+      ]
+    }
+  ],
+  "scope": "Firefox launch plus about:blank only; no application ports, API, database, or external page navigation."
+}

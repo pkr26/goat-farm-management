@@ -1,0 +1,25 @@
+{
+  "image": "be94e1d95837",
+  "platform": "linux/amd64",
+  "timeout_seconds": 480,
+  "source_modified": false,
+  "interposer_sha256": "0e1cfdaffa241f076d317537ba6f5c33cf69a2d17727c6f1bb15f426d876790d",
+  "command": "corepack enable && exec env LD_PRELOAD=/tmp/epoll-diagnostic.so pnpm build",
+  "container_id": "beceeb2aad2216544e91840d2362d8c5ac27b0b137ddd4a22f3811fb5c1b7bd9",
+  "docker_attach_exit_code": 137,
+  "elapsed_seconds": 301.793,
+  "container_state": {
+    "Status": "exited",
+    "Running": false,
+    "Paused": false,
+    "Restarting": false,
+    "OOMKilled": false,
+    "Dead": false,
+    "Pid": 0,
+    "ExitCode": 137,
+    "Error": "",
+    "StartedAt": "2026-10-05T04:08:48.470602005Z",
+    "FinishedAt": "2026-10-05T04:13:50.0054803Z"
+  },
+  "remaining_processes": "none"
+}

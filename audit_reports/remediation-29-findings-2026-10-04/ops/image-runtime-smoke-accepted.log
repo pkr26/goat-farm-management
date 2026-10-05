@@ -1,0 +1,5 @@
+backend arm64 passed
+frontend arm64 passed
+postgres arm64 passed
+backend amd64 passed
+postgres amd64 passed

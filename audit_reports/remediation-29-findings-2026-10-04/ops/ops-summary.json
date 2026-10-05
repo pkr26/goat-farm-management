@@ -1,0 +1,175 @@
+{
+  "findings": [
+    "O26-01",
+    "O26-02",
+    "O26-03",
+    "O26-04",
+    "O26-07",
+    "O26-08",
+    "O26-09"
+  ],
+  "targeted_tests": {
+    "passed": 213,
+    "seconds": 38.36,
+    "file": "accepted-targeted-tests.log"
+  },
+  "worker_exporter_additional_branch_coverage": {
+    "statements": 44,
+    "branches": 6,
+    "coverage_percent": 100,
+    "data": ".coverage-worker-extra"
+  },
+  "gpg_controls": {
+    "passed": 5,
+    "file": "signed-recovery-controls.json"
+  },
+  "real_restore": {
+    "passed": true,
+    "rows": 29,
+    "id_sum": 435,
+    "nonempty_refusal_exit": 2,
+    "file": "real-backup-restore.json"
+  },
+  "python_dependency_audit": {
+    "packages": 59,
+    "known_vulnerabilities": 0
+  },
+  "container_scanner": "aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969",
+  "db_metadata": {
+    "Version": 2,
+    "NextUpdate": "2026-10-06T01:10:31.191618696Z",
+    "UpdatedAt": "2026-10-05T01:10:31.191619217Z",
+    "DownloadedAt": "2026-10-05T03:24:38.395142028Z"
+  },
+  "db_sha256": "106e5889fbb30c23b20593c71a76b9237afacbc8068f8e0d1103fa094f25a288",
+  "accepted_image_scans": [
+    {
+      "category": "remediated runtime",
+      "image": "goatfarm-fix29-postgres:104",
+      "architecture": "arm64",
+      "image_id": "sha256:03f4548ce8c2a212635a7f0ee6f562506e39505fe99694ce6afa02b0d8a66ef2",
+      "gate_exit": 0,
+      "unsuppressed_fixable_high_critical_records": 0,
+      "sbom": "postgres-service.spdx.json",
+      "sbom_exit": 0,
+      "exception_policy": "existing gosu Go only"
+    },
+    {
+      "category": "remediated runtime",
+      "image": "goatfarm-fix29-backend:104",
+      "architecture": "arm64",
+      "image_id": "sha256:5cdea4e63f4bab0cc65b618d24359e1a3eb2d2464317e4e8c5542f34f9a07055",
+      "gate_exit": 0,
+      "unsuppressed_fixable_high_critical_records": 0,
+      "sbom": "backend-current-build.spdx.json",
+      "sbom_exit": 0,
+      "exception_policy": "none"
+    },
+    {
+      "category": "remediated runtime",
+      "image": "goatfarm-fix29-postgres:104-amd64",
+      "architecture": "amd64",
+      "image_id": "sha256:fbeea8538438475788a0ca733c5c90ed5c3bfe390ad3e8efc0d89d2632da3422",
+      "gate_exit": 0,
+      "unsuppressed_fixable_high_critical_records": 0,
+      "sbom": "postgres-service-amd64.spdx.json",
+      "sbom_exit": 0,
+      "exception_policy": "existing gosu Go only"
+    },
+    {
+      "category": "remediated runtime",
+      "image": "goatfarm-fix29-backend:104-amd64",
+      "architecture": "amd64",
+      "image_id": "sha256:9a4d0d96d10ed41be5b10552ccdcfcfec619e0dd3e8a869798d09e6e6560b49a",
+      "gate_exit": 0,
+      "unsuppressed_fixable_high_critical_records": 0,
+      "sbom": "backend-current-build-amd64.spdx.json",
+      "sbom_exit": 0,
+      "exception_policy": "none"
+    },
+    {
+      "category": "unchanged edge supplement",
+      "image": "goatfarm-fix29-edge:104",
+      "architecture": "arm64",
+      "image_id": "sha256:379f67122ce5abf087fbefe282fb124a6e179bd868d1ab549cf04ae9c9c189d9",
+      "gate_exit": 0,
+      "unsuppressed_fixable_high_critical_records": 0,
+      "sbom": "edge-supplement-arm64.spdx.json",
+      "sbom_exit": 0,
+      "exception_policy": "none"
+    },
+    {
+      "category": "unchanged edge supplement",
+      "image": "goatfarm-fix29-edge:104-amd64",
+      "architecture": "amd64",
+      "image_id": "sha256:105cfef723f251b37005061f69d2d295fac54a39b66dce7d960a18e7fb301bfb",
+      "gate_exit": 0,
+      "unsuppressed_fixable_high_critical_records": 0,
+      "sbom": "edge-supplement-amd64.spdx.json",
+      "sbom_exit": 0,
+      "exception_policy": "none"
+    },
+    {
+      "category": "remediated runtime",
+      "image": "goatfarm-fix29-frontend:104-final",
+      "architecture": "arm64",
+      "image_id": "sha256:5a1e68466ba2a49ba5b48b402414b50807fbea19fcc2fd43b49c06a33b9168ce",
+      "gate_exit": 0,
+      "unsuppressed_fixable_high_critical_records": 0,
+      "sbom": "frontend-final-arm64.spdx.json",
+      "sbom_exit": 0,
+      "exception_policy": "none"
+    },
+    {
+      "category": "remediated runtime",
+      "image": "goatfarm-fix29-frontend:104-final-amd64",
+      "architecture": "amd64",
+      "image_id": "sha256:efcce7b2773bb8cfa0350ae4ae42e8fe4004230d3677c6683bfdcd2f36cc4d79",
+      "gate_exit": 0,
+      "unsuppressed_fixable_high_critical_records": 0,
+      "sbom": "frontend-final-amd64.spdx.json",
+      "sbom_exit": 0,
+      "exception_policy": "none"
+    }
+  ],
+  "remaining_validation": [],
+  "limits": [
+    "No production deployment or provider/registry mutation",
+    "Production external PostgreSQL and ephemeral CI service images are distinct from the accepted derived local PostgreSQL runtime",
+    "No live off-site/object-store recovery or production TLS drill",
+    "PostgreSQL retains only its pre-existing 22 scoped upstream gosu Go exceptions; raw unfiltered advisories remain visible"
+  ],
+  "worker_metrics_final_module": {
+    "passed": 16,
+    "seconds": 8.77,
+    "additional_secret_delivery_controls": 7,
+    "coverage_data": ".coverage-worker-secrets",
+    "log": "worker-secret-settings-coverage.log"
+  },
+  "final_matrix": {
+    "remediated_runtimes": 6,
+    "unchanged_edge_supplement": 2,
+    "architectures": [
+      "arm64",
+      "amd64"
+    ],
+    "amd64_execution": "QEMU on local ARM64 host; production release runner not invoked"
+  },
+  "final_frontend": {
+    "builds": "frontend-final-builds.json",
+    "runtime": "frontend-final-runtime.json",
+    "scans": "frontend-final-scan-manifest.json",
+    "diagnosis": "../frontend/amd64-build-diagnosis.md",
+    "native_versions": {
+      "sharp": "0.35.4",
+      "vips": "8.18.6",
+      "heif": "1.23.2"
+    }
+  },
+  "cleanup": {
+    "aborted_core_containers": "aborted-amd64-container-cleanup.json",
+    "initial_context_failure_container": "old-build-context-container-cleanup.json",
+    "pg_capacity_health": "docker-capacity-recovery.json",
+    "final": "cleanup-final.json"
+  }
+}

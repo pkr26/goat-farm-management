@@ -1,7 +1,6 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRequire } from "node:module";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +10,7 @@ import {
   assertImageDecodeSafetyForBuild,
   checkInstalledImageDecodeSafety,
   compareDottedVersions,
+  defaultSharpProbe,
   evaluateImageDecodeSafety,
   reportImageDecodeSafety,
 } from "@/lib/image-deps-guard";
@@ -131,12 +131,7 @@ describe("checkInstalledImageDecodeSafety", () => {
   });
 
   it("runs the default sharp probe when none is injected", () => {
-    // Under vitest's ESM runtime `require` does not exist, so the default
-    // probe reports "unloadable" — and the pinned next still passes on the
-    // HEIF-disabled leg, which is exactly the build context resilience the
-    // guard needs (the real native probe runs in next's CJS config loader).
-    const verdict = checkInstalledImageDecodeSafety({ nextVersion: "16.3.3" });
-    expect(verdict).toEqual({ ok: true, basis: "next-disables-heif" });
+    expect(checkInstalledImageDecodeSafety()).toEqual({ ok: true, basis: "libheif-safe" });
   });
 
   it("the shipped dependency pair satisfies the guard's safe set", () => {
@@ -145,14 +140,14 @@ describe("checkInstalledImageDecodeSafety", () => {
     // load-bearing — this sanity check keeps the test suite honest about
     // which leg the shipped tree stands on.
     const nextVersion = packageJson.dependencies.next;
-    const require = createRequire(import.meta.url);
-    const sharp = require("sharp") as { versions: { heif?: string } };
     // Probe the native dependency actually shipped, rather than injecting the
     // minimum safe version and assuming Next still disables the decoder.
-    const verdict = evaluateImageDecodeSafety(nextVersion, sharp.versions);
+    const sharpProbe = defaultSharpProbe();
+    expect(sharpProbe).not.toBe("unloadable");
+    const verdict = evaluateImageDecodeSafety(nextVersion, sharpProbe);
     expect(verdict.ok, JSON.stringify(verdict)).toBe(true);
     if (!NEXT_VERSIONS_WITH_HEIF_DECODE_DISABLED.has(nextVersion)) {
-      expect(checkInstalledImageDecodeSafety({ sharpProbe: sharp.versions })).toEqual(verdict);
+      expect(checkInstalledImageDecodeSafety({ sharpProbe })).toEqual(verdict);
     }
   });
 });

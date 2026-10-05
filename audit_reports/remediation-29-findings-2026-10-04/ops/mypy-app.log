@@ -1,0 +1,13 @@
+../.github/scripts/check_mutation_report.py:237: error: Unsupported operand types for * ("None" and "int")  [operator]
+../.github/scripts/check_mutation_report.py:237: note: Left operand is of type "Any | None"
+../.github/scripts/check_mutation_report.py:347: error: Unsupported operand types for <= ("int" and "None")  [operator]
+../.github/scripts/check_mutation_report.py:347: note: Right operand is of type "Any | None"
+../.github/scripts/check_mutation_report.py:347: error: Unsupported operand types for >= ("int" and "None")  [operator]
+../.github/scripts/check_mutation_report.py:347: note: Left operand is of type "Any | None"
+../.github/scripts/check_mutation_report.py:350: error: Argument 1 to "isclose" has incompatible type "Any | None"; expected "SupportsFloat | SupportsIndex"  [arg-type]
+../.github/scripts/check_mutation_report.py:369: error: Unsupported operand types for <= ("int" and "None")  [operator]
+../.github/scripts/check_mutation_report.py:369: note: Right operand is of type "Any | None"
+../.github/scripts/check_mutation_report.py:369: error: Unsupported operand types for >= ("int" and "None")  [operator]
+../.github/scripts/check_mutation_report.py:369: note: Left operand is of type "Any | None"
+app/worker/metrics_server.py:58: error: Returning Any from function declared to return "Iterable[bytes]"  [no-any-return]
+Found 7 errors in 2 files (checked 156 source files)

@@ -591,6 +591,68 @@ describe("DiseaseCheckDialog upload contracts", () => {
     expect(screen.getByRole("button", { name: /finish & process/i })).toBeEnabled();
   });
 
+  it("requires the selected second photo to settle before finish, and supports explicit discard", async () => {
+    const capture = { uploads: [] as Array<Record<string, unknown>>, s3: 0 };
+    stubHappyPath(capture);
+    let completeUpload!: () => void;
+    const uploadGate = new Promise<void>((resolve) => { completeUpload = resolve; });
+    let secondSignal: AbortSignal | undefined;
+    let posts = 0;
+    const submit = vi.fn();
+    server.use(
+      http.post("https://fake-s3.test/*", async ({ request }) => {
+        posts += 1;
+        if (posts === 2) { secondSignal = request.signal; await uploadGate; }
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post("/api/screening/batches/9/submit", () => { submit(); return HttpResponse.json({}); }),
+    );
+    const user = userEvent.setup();
+    renderDialog();
+    await pickBucketAndChoose(user, browserGradeFile(new Uint8Array([1]), "first.jpg", "image/jpeg"));
+    await user.click(screen.getByRole("button", { name: /upload photo/i }));
+    await screen.findByText("1 uploaded");
+    const finish = screen.getByRole("button", { name: /finish & process/i });
+    expect(finish).toBeEnabled();
+    const choose = () => fireEvent.change(document.querySelector('input[type="file"]')!, {
+      target: { files: [browserGradeFile(new Uint8Array([2]), "second.jpg", "image/jpeg")] },
+    });
+    choose();
+    expect(finish).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Discard selected photo" }));
+    expect(finish).toBeEnabled();
+    choose();
+    await user.click(screen.getByRole("button", { name: /upload photo/i }));
+    await waitFor(() => expect(secondSignal).toBeDefined());
+    expect(finish).toBeDisabled();
+    fireEvent.click(finish);
+    expect(submit).not.toHaveBeenCalled();
+    expect(secondSignal!.aborted).toBe(false);
+    completeUpload();
+    await screen.findByText("2 uploaded");
+    expect(finish).toBeEnabled();
+    await user.click(finish);
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+  });
+
+  it.each(["create", "upload", "submit"])("explains permissions revoked during the %s step", async (step) => {
+    const capture = { uploads: [] as Array<Record<string, unknown>>, s3: 0 };
+    stubHappyPath(capture);
+    const path = step === "create" ? "/api/screening/batches"
+      : step === "upload" ? "/api/screening/uploads" : "/api/screening/batches/9/submit";
+    server.use(http.post(path, () => HttpResponse.json({ detail: "Forbidden" }, { status: 403 })));
+    const user = userEvent.setup();
+    renderDialog();
+    await pickBucketAndChoose(user, browserGradeFile(new Uint8Array([1]), "photo.jpg", "image/jpeg"));
+    await user.click(screen.getByRole("button", { name: /upload photo/i }));
+    if (step === "submit") {
+      await screen.findByText("1 uploaded");
+      await user.click(screen.getByRole("button", { name: /finish & process/i }));
+    }
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Your role does not allow this action."));
+    expect(toastMock.error).not.toHaveBeenCalledWith("Could not start the walkthrough — try again.");
+  });
+
   it("refuses to finish with zero photos and never calls submit then", async () => {
     const capture = { uploads: [] as Array<Record<string, unknown>>, s3: 0 };
     stubHappyPath(capture);

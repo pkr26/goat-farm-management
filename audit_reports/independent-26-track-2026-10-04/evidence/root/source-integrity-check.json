@@ -1,0 +1,11 @@
+{
+  "revision": "7245368fa91333fb39387df789fa4ef9a58dbea3",
+  "expected_revision": "7245368fa91333fb39387df789fa4ef9a58dbea3",
+  "verified_hash_count": 1453,
+  "changed_current_tracked_files": [],
+  "tracked_diff_status": "",
+  "remaining_owned_audit_databases": [],
+  "ports3000_8000_free": true,
+  "browser_cleanup_receipt": "evidence/root/browser-cleanup.json",
+  "container_cleanup_receipt": "evidence/ops/container-probe-cleanup.json"
+}

@@ -173,8 +173,11 @@ def parse_specialist_response(text: str, kind: SpecialistKind) -> SpecialistResp
     for item in items[:MAX_SPECIALIST_CONDITIONS]:
         try:
             condition = SpecialistCondition.model_validate(item)
-        except ValueError:
-            continue  # a malformed condition is dropped, not fatal
+        except ValueError as exc:
+            # A malformed positive is not evidence of a negative assessment.
+            # Reject partial answers too: the cascade preserves this specialist's
+            # gate observations through its existing provider-error fallback.
+            raise SpecialistParseError("invalid condition in specialist answer") from exc
         if condition.disease not in vocabulary:
             note = f"(model said: {condition.disease}) " + (condition.note or "")
             conditions.append(condition.model_copy(update={"disease": "OTHER", "note": note[:500]}))

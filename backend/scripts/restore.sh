@@ -213,6 +213,7 @@ if (( RECOVERY_INVENTORY_PRESENT == 1 )); then
     "${PYTHON_BIN}" "${SCRIPT_DIR}/recovery_inventory.py" verify \
         --inventory "${BACKUP_PATH}.recovery.json" \
         --archive "${BACKUP_PATH}" \
+        --signer "${EXPECTED_SIGNER}" \
         --max-age-hours "${RECOVERY_INVENTORY_MAX_AGE_HOURS}"
 fi
 

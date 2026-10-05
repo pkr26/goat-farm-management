@@ -1,0 +1,2 @@
+tests/test_remediation_26_domain.py:238: error: Incompatible types in assignment (expression has type "Decimal", variable has type "SQLCoreOperations[float] | float")  [assignment]
+Found 1 error in 1 file (checked 12 source files)

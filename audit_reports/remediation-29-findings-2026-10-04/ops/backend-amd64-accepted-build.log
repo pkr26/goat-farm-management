@@ -1,0 +1,150 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  213.9MB
+Step 1/21 : FROM python:3.13-slim@sha256:b92e6b9bb1ea9d826e9956fd8d30bf18bc384c130231d74fdf0ba3460c290b0b
+ ---> b92e6b9bb1ea
+Step 2/21 : ENV PYTHONDONTWRITEBYTECODE=1     PYTHONUNBUFFERED=1     UV_COMPILE_BYTECODE=1     UV_LINK_MODE=copy     PATH="/app/.venv/bin:$PATH"     GOATFARM_JWT_PRIVATE_KEY_PATH=/app/keys/jwt_private.pem     GOATFARM_JWT_PUBLIC_KEY_PATH=/app/keys/jwt_public.pem
+ ---> Using cache
+ ---> e632754ddc44
+Step 3/21 : WORKDIR /app
+ ---> Using cache
+ ---> 88ba7cd55244
+Step 4/21 : COPY docker/debian-security-packages.json docker/fetch_debian_security_packages.py /tmp/security-fixes/
+ ---> ee5e30fe9e6b
+Step 5/21 : RUN python /tmp/security-fixes/fetch_debian_security_packages.py         /tmp/security-fixes/debian-security-packages.json /tmp/security-debs --package libpcre2-8-0     && dpkg -i /tmp/security-debs/*.deb     && rm -rf /tmp/security-fixes /tmp/security-debs
+ ---> [Warning] The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no specific platform was requested
+ ---> Running in bf61ccb6a866
+(Reading database ... 5660 files and directories currently installed.)
+Preparing to unpack .../libpcre2-8-0_10.46-1~deb13u3_amd64.deb ...
+Unpacking libpcre2-8-0:amd64 (10.46-1~deb13u3) over (10.46-1~deb13u2) ...
+Setting up libpcre2-8-0:amd64 (10.46-1~deb13u3) ...
+Processing triggers for libc-bin (2.41-12+deb13u4) ...
+ ---> Removed intermediate container bf61ccb6a866
+ ---> 67efa4c0f505
+Step 6/21 : COPY backend/pyproject.toml backend/uv.lock ./
+ ---> d9ea8642e736
+Step 7/21 : COPY backend/pins/uv.txt ./pins/uv.txt
+ ---> 68968243fcef
+Step 8/21 : RUN pip install --no-cache-dir --require-hashes -r pins/uv.txt     && uv sync --locked --no-dev --no-install-project --no-cache     && groupadd --system --gid 10001 goatfarm     && useradd --system --uid 10001 --gid goatfarm goatfarm     && install -d -o goatfarm -g goatfarm -m 0700 /app/keys
+ ---> [Warning] The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no specific platform was requested
+ ---> Running in b56fb894d5e7
+Collecting uv==0.12.1 (from -r pins/uv.txt (line 11))
+  Downloading uv-0.12.1-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (22.4 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 22.4/22.4 MB 35.0 MB/s  0:00:00
+Installing collected packages: uv
+Successfully installed uv-0.12.1
+[91mWARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+[0m[91m<jemalloc>: MADV_DONTNEED does not work (memset will be used instead)
+<jemalloc>: (This is the expected behaviour if you are running under QEMU)
+[0m[91mUsing CPython [0m[91m3.13[0m[91m.16 interpreter at: [0m[91m/usr/local/bin/python3
+[0m[91mCreating virtual environment at: .venv
+[0m[91mResolved 62 packages in 24ms
+[0m[91mDownloading asyncpg (3.4MiB)
+[0m[91mDownloading uvloop (4.2MiB)
+[0m[91mDownloading pillow (6.6MiB)
+[0m[91mDownloading pydantic-core (2.0MiB)
+[0m[91mDownloading cryptography (4.5MiB)
+[0m[91mDownloading botocore (13.5MiB)
+[0m[91mDownloading sqlalchemy (3.1MiB)
+[0m[91m Downloaded pydantic-core
+[0m[91m Downloaded asyncpg
+[0m[91m Downloaded uvloop
+[0m[91m Downloaded pillow
+[0m[91m Downloaded cryptography
+[0m[91m Downloaded sqlalchemy
+[0m[91m Downloaded botocore
+[0m[91mPrepared 44 packages in 4.13s
+[0m[91mInstalled 44 packages in 327ms
+[0m[91mBytecode compiled 1365 files in 4.97s
+[0m[91m + alembic[0m[91m==1.19.0[0m[91m
+ + annotated-doc[0m[91m==0.0.5
+ +[0m[91m annotated-types==0.8.0
+ + anyio==4.14.2
+ + argon2-cffi==25.1.0[0m[91m
+ [0m[91m+ argon2-cffi-bindings[0m[91m==25.1.0
+ + asyncpg[0m[91m==0.[0m[91m31.0
+ +[0m[91m boto3==1[0m[91m.40.11
+ + botocore[0m[91m==1.40.76[0m[91m
+ + certifi==2026.7.22[0m[91m
+ + cffi==2.1.1[0m[91m
+ + click==8.4.[0m[91m2
+ + [0m[91mcryptography==50.0.0
+ + fastapi==[0m[91m0.141.1[0m[91m
+ + greenlet==3.5.4
+ + h11==0.16.0
+ [0m[91m+ httpcore[0m[91m==1.0.9
+ + httptools==0.8.0
+ + httpx==0.[0m[91m28.1
+ + idna==3.18[0m[91m
+ +[0m[91m jmespath==1.1.0
+ [0m[91m+ mako==1.4.1
+ [0m[91m+ markupsafe==3.0[0m[91m.3
+ + pillow[0m[91m==12.3.0
+ +[0m[91m prometheus-client==0.26.0[0m[91m
+ + pycparser==3.0[0m[91m
+ + [0m[91mpydantic==2.13[0m[91m.4
+ + pydantic-core[0m[91m==2.46.4
+ [0m[91m+ pydantic-settings==2.14.2
+[0m[91m + pyjwt==2.15.1
+ [0m[91m+ python-dateutil[0m[91m==2.9.0.post[0m[91m0
+ + python-dotenv[0m[91m==1.2.2
+[0m[91m + pyyaml==6.0.3
+ + s3transfer==0.13.1[0m[91m
+ + six==1.17.0[0m[91m
+ + sqlalchemy==2.0.51[0m[91m
+[0m[91m + starlette==1.4.1[0m[91m
+ + typing-extensions==4.16.0
+ [0m[91m+ [0m[91mtyping-inspection[0m[91m==0.4.2
+[0m[91m + [0m[91murllib3==2.8[0m[91m.[0m[91m0
+ + uvicorn==0.52[0m[91m.1
+ + uvloop==0.22.1
+ [0m[91m+ watchfiles==1.2.[0m[91m0[0m[91m
+ +[0m[91m [0m[91mwebsockets==[0m[91m17.[0m[91m0.[0m[91m1[0m[91m
+[0m[91museradd warning: goatfarm's uid 10001 is greater than SYS_UID_MAX 999
+[0m ---> Removed intermediate container b56fb894d5e7
+ ---> 8c2ed25897b7
+Step 9/21 : COPY backend/app ./app
+ ---> 961696a3cdc8
+Step 10/21 : COPY backend/alembic ./alembic
+ ---> fdc3892331db
+Step 11/21 : COPY backend/alembic.ini ./
+ ---> 45da03e8016a
+Step 12/21 : COPY backend/scripts/healthcheck.py ./healthcheck.py
+ ---> 8913198008e4
+Step 13/21 : COPY backend/scripts/screening_worker_healthcheck.py ./screening_worker_healthcheck.py
+ ---> e574ba0dff82
+Step 14/21 : COPY backend/scripts/compose_env_guard.py ./scripts/compose_env_guard.py
+ ---> 7df5928ad3e8
+Step 15/21 : COPY backend/scripts/rekey_totp_secrets.py ./scripts/rekey_totp_secrets.py
+ ---> eee5184fc0fc
+Step 16/21 : COPY backend/scripts/totp_breakglass.py ./scripts/totp_breakglass.py
+ ---> abfeeb9bc53c
+Step 17/21 : RUN rm -rf /usr/local/lib/python3.13/site-packages/pip         /usr/local/lib/python3.13/site-packages/pip-*.dist-info     && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.13         /usr/local/bin/uv /usr/local/bin/uvx
+ ---> [Warning] The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no specific platform was requested
+ ---> Running in 6ac09e65a5dd
+ ---> Removed intermediate container 6ac09e65a5dd
+ ---> 08c8463c1fca
+Step 18/21 : USER goatfarm
+ ---> [Warning] The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no specific platform was requested
+ ---> Running in a4fce3c8cc3d
+ ---> Removed intermediate container a4fce3c8cc3d
+ ---> 5e69123c83f7
+Step 19/21 : EXPOSE 8000
+ ---> [Warning] The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no specific platform was requested
+ ---> Running in 9885e8242b47
+ ---> Removed intermediate container 9885e8242b47
+ ---> 686412d49b2f
+Step 20/21 : HEALTHCHECK --interval=30s --timeout=5s --start-period=15s     CMD python healthcheck.py
+ ---> [Warning] The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no specific platform was requested
+ ---> Running in 3777aeb17772
+ ---> Removed intermediate container 3777aeb17772
+ ---> d733b4e3708d
+Step 21/21 : CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-graceful-shutdown", "30", "--no-proxy-headers", "--no-server-header"]
+ ---> [Warning] The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no specific platform was requested
+ ---> Running in 3fcf0ef196eb
+ ---> Removed intermediate container 3fcf0ef196eb
+ ---> 9a4d0d96d10e
+Successfully built 9a4d0d96d10e
+Successfully tagged goatfarm-fix29-backend:104-amd64

@@ -1,0 +1,23 @@
+{
+  "table_exactly_matches_gate_records": true,
+  "package_advisory_rows": 28,
+  "image_counts": {
+    "backend-current-build": {
+      "records": 20,
+      "unique_advisories": 16,
+      "severity_counts": {
+        "HIGH": 17,
+        "CRITICAL": 3
+      }
+    },
+    "postgres-service": {
+      "records": 8,
+      "unique_advisories": 4,
+      "severity_counts": {
+        "HIGH": 8
+      }
+    }
+  },
+  "unchanged_postgres_ignore_sha256": "c7c7944767f707d15acd035dafaf2ca2ac9d389fe2f479becda043702df1508d",
+  "boundary": "Independent table/policy-artifact consistency check only; not a second scanner or exploitability assessment."
+}

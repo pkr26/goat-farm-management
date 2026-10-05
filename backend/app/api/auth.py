@@ -1628,6 +1628,14 @@ async def logout_session(request: Request, db: DbSession, user: CurrentUser) -> 
     await _require_authenticated_generation(db, request, locked, expected_version)
     revoked = await revoke_session_family(db, family_id, user_id=actor_id)
     if revoked:
+        security_event(
+            "auth.logout.session_revoked",
+            "exact-session logout revoked the refresh family",
+            session=db,
+            user_id=actor_id,
+            family_id=family_id,
+            revoked_sessions=revoked,
+        )
         await db.commit()
     else:
         # The bearer can outlive an already-cancelled refresh family. Keep
@@ -1735,6 +1743,7 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
         else None
     )
     cookie_confirmed = False
+    confirmed_family_id: str | None = None
     mutated = False
     if claims is not None and logged_out_user is not None:
         session = (
@@ -1765,6 +1774,8 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
             )
             candidate_user_id = session.user_id
             cookie_confirmed = revoked > 0
+            if cookie_confirmed:
+                confirmed_family_id = session.family_id
             mutated = mutated or cookie_confirmed
         elif session is None and claims.family_id is not None and claims.expires_at > now:
             # Rotation compaction deliberately removes old consumed rows. A
@@ -1796,6 +1807,8 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
                     user_id=claims.user_id,
                 )
                 cookie_confirmed = revoked > 0
+                if cookie_confirmed:
+                    confirmed_family_id = claims.family_id
                 mutated = mutated or cookie_confirmed
     bearer_family_live = False
     if logged_out_user is not None and access_claims is not None:
@@ -1847,7 +1860,23 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
                 await revoke_user_sessions(db, logged_out_user.id)
             logged_out_user.token_version += 1
             mutated = True
-    if mutated:
+    if mutated and logged_out_user is not None:
+        # Emit once, atomically with the real revocation/version change.
+        # Replayed, invalid and no-op logout requests never grow this ledger.
+        security_event(
+            "auth.logout.completed",
+            "logout revoked authenticated session state",
+            session=db,
+            user_id=logged_out_user.id,
+            session_origin=scope.origin,
+            family_id=confirmed_family_id
+            or (access_claims.family_id if access_claims is not None else None),
+            revocation_scope="refresh_family"
+            if scope.origin == "PIN"
+            else "refresh_family_and_access_generation"
+            if cookie_confirmed
+            else "all_refresh_sessions_and_access_generation",
+        )
         await db.commit()
     else:
         await db.rollback()

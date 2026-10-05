@@ -1,0 +1,37 @@
+........................................................................ [ 91%]
+.....F.                                                                  [100%]
+=================================== FAILURES ===================================
+___ test_security_and_release_workflows_cover_digest_pinned_production_edge ____
+
+    def test_security_and_release_workflows_cover_digest_pinned_production_edge() -> None:
+        """The built-and-scanned edge must be the signed production artifact."""
+        workflow = SECURITY_WORKFLOW.read_text()
+        release = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
+        production = yaml.safe_load((REPO_ROOT / "docker-compose.production.yml").read_text())
+        dev_compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
+    
+        production_edge = production["services"]["edge"]
+        production_edge_image = production_edge["image"]
+        assert production_edge_image == (
+            "${GOATFARM_EDGE_IMAGE_REPOSITORY:?set the edge registry repository}"
+            "@${GOATFARM_EDGE_IMAGE_DIGEST:?set its sha256 digest}"
+        )
+        assert "build" not in production_edge
+        assert dev_compose["services"]["edge"]["build"]["dockerfile"] == "docker/edge/Dockerfile"
+    
+        assert "file: docker/edge/Dockerfile" in workflow
+        assert "image-ref: goatfarm-edge:security" in workflow
+        assert release.count("file: docker/edge/Dockerfile") == 4
+        assert 'cosign sign --yes "${EDGE_IMAGE}@${EDGE_DIGEST}"' in release
+        assert "edge_digest=${edge_digest}" in release
+    
+        # The scoped ignore list remains only for the exact third-party database;
+        # first-party edge findings cannot be waived by this file.
+        trivyignore = (REPO_ROOT / ".trivyignore.compose-images").read_text()
+>       assert dev_compose["services"]["db"]["image"] in trivyignore
+E       AssertionError: assert 'postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54' in '# Trivy ignore file — SCOPED to the compose-pulled third-party PostgreSQL image.\n# It is passed via the `trivyignore...9836\nCVE-2026-42499\nCVE-2026-42504\nCVE-2026-56853\nCVE-2026-56858\nCVE-2026-56859\nCVE-2026-56860\nCVE-2026-56862\n'
+
+backend/tests/test_security_workflow.py:232: AssertionError
+=========================== short test summary info ============================
+FAILED backend/tests/test_security_workflow.py::test_security_and_release_workflows_cover_digest_pinned_production_edge
+1 failed, 78 passed in 2.49s

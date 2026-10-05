@@ -1741,6 +1741,10 @@ class ScreeningWorkerSettings(BaseSettings):
     screening_anthropic_api_key_file: Path | None = None
     screening_openai_api_key_file: Path | None = None
 
+    metrics_enabled: bool = True
+    metrics_bearer_token: SecretStr | None = None
+    metrics_bearer_token_file: Path | None = None
+
     screening_enabled: bool = False
     s3_endpoint_url: str | None = None
     s3_region: str = "us-east-1"
@@ -1790,6 +1794,7 @@ class ScreeningWorkerSettings(BaseSettings):
     screening_worker_max_consecutive_cycle_failures: int = Field(default=3, ge=1, le=100)
 
     @field_validator(
+        "metrics_bearer_token_file",
         "database_url_file",
         "s3_access_key_id_file",
         "s3_secret_access_key_file",
@@ -1839,6 +1844,7 @@ class ScreeningWorkerSettings(BaseSettings):
         _reject_dual_secret_delivery(
             self,
             (
+                ("metrics_bearer_token", "metrics_bearer_token_file"),
                 ("database_url", "database_url_file"),
                 ("s3_access_key_id", "s3_access_key_id_file"),
                 ("s3_secret_access_key", "s3_secret_access_key_file"),
@@ -1849,6 +1855,19 @@ class ScreeningWorkerSettings(BaseSettings):
                 ("screening_openai_api_key", "screening_openai_api_key_file"),
             ),
         )
+        if (
+            value := _secret_file_value(
+                self.metrics_bearer_token_file, setting_name="GOATFARM_METRICS_BEARER_TOKEN_FILE"
+            )
+        ) is not None:
+            self.metrics_bearer_token = SecretStr(value)
+        if not _has_nonblank_secret(self.metrics_bearer_token):
+            self.metrics_bearer_token = None
+        if (
+            self.metrics_bearer_token is not None
+            and len(self.metrics_bearer_token.get_secret_value()) < 32
+        ):
+            raise ValueError("GOATFARM_METRICS_BEARER_TOKEN must contain at least 32 characters")
         # File-delivered secrets are substituted before the URL contract check reads the value; a
         # configured but unreadable file fails closed here in every environment. The normalizer's
         # error names whichever route delivered the value.

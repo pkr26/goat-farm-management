@@ -2717,6 +2717,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   <TableHead className="text-right">{t("simulation.table.opex")}</TableHead>
                   <TableHead className="text-right">{t("simulation.table.ebitda")}</TableHead>
                   <TableHead className="text-right">{t("simulation.table.depreciation")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.disposalCost")}</TableHead>
                   <TableHead className="text-right">{t("simulation.table.ebit")}</TableHead>
                   <TableHead className="text-right">{t("simulation.table.interest")}</TableHead>
                   <TableHead className="text-right">{t("simulation.table.tax")}</TableHead>
@@ -2739,6 +2740,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                       row.total_opex,
                       row.ebitda,
                       row.depreciation,
+                      row.breeding_stock_disposal_cost ?? 0,
                       row.ebit,
                       row.interest,
                       row.tax,

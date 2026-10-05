@@ -1,0 +1,156 @@
+{
+  "checks": [
+    {
+      "check": "Backend complete suite and branch coverage",
+      "outcome": "PASS: 5,307 passed, 4 skipped, 0 failed, 0 errors; combined line/branch coverage 92.31% against 92% floor (lines 94.18%, branches 85.45%); 2983.27 seconds; exit 0",
+      "label": "Final JUnit/coverage summary",
+      "evidence": "evidence/root/backend-validation.json"
+    },
+    {
+      "check": "Frontend complete configured coverage gate",
+      "outcome": "PASS: 326 files, 5,248 tests; statements 94.47%, branches 91.85%, functions 94.46%, lines 96.72%; all global and 10 scoped floors passed unchanged",
+      "label": "Coverage log",
+      "evidence": "evidence/frontend/coverage-gate.log"
+    },
+    {
+      "check": "Frontend ordinary baseline",
+      "outcome": "PASS: 326 files, 5,248 tests; overlaps the later coverage run and is not added to unique test totals",
+      "label": "Baseline log",
+      "evidence": "evidence/frontend/vitest-baseline.log"
+    },
+    {
+      "check": "Frontend lint, typecheck and standalone production build",
+      "outcome": "PASS for all three local commands; this does not establish a successful Docker image build",
+      "label": "Build receipt",
+      "evidence": "evidence/frontend-build.log"
+    },
+    {
+      "check": "Chromium desktop/mobile/tablet configured browser projects",
+      "outcome": "PASS: 105 tests, zero retries, 236.88 seconds",
+      "label": "Machine-readable result",
+      "evidence": "evidence/browser-chromium-results.json"
+    },
+    {
+      "check": "WebKit full browser baseline",
+      "outcome": "FAILED: 101 passed, 1 login navigation timeout before target-page/axe evaluation, zero retries; 326.86 seconds",
+      "label": "Full baseline result",
+      "evidence": "evidence/browser-webkit-results.json"
+    },
+    {
+      "check": "WebKit exact-case focused diagnostic",
+      "outcome": "PASS: 1 test in a separate invocation, zero retries, 5.72 seconds; original full baseline remains failed",
+      "label": "Timeout analysis and focused result",
+      "evidence": "evidence/webkit-timeout-review.json"
+    },
+    {
+      "check": "Firefox configured browser baseline",
+      "outcome": "INCOMPLETE: 2 browser-launch timeouts, 1 interrupted test, 97 not run; stopped after independent app-free launch failure reproduced the host/browser problem",
+      "label": "Baseline log",
+      "evidence": "evidence/browser-firefox.log"
+    },
+    {
+      "check": "Firefox application-independent control",
+      "outcome": "FAILED to launch within 15 seconds before any page: sandbox extension/graphics errors; probe-owned descendants cleaned",
+      "label": "Control receipt",
+      "evidence": "evidence/root/firefox-launch-control.md"
+    },
+    {
+      "check": "Independent domain/database probes",
+      "outcome": "11 distinct test cases passed: 9 issues reproduced plus tenant-integrity and concurrent-sale positive controls; final 10-test batch plus isolated confidence case",
+      "label": "Final batch",
+      "evidence": "evidence/domain/probes-final.log"
+    },
+    {
+      "check": "Independent financial numerical controls",
+      "outcome": "PASS: 66 known-polynomial annual/monthly IRR roots, 4 solver-domain checks and 5 loan/NPV controls; 75 controls total",
+      "label": "Numerical oracle output",
+      "evidence": "evidence/domain/numerical-controls-output.json"
+    },
+    {
+      "check": "Independent security/API probes",
+      "outcome": "3 passed, reproducing the 2 documented issues with real PostgreSQL; no authentication bypass shown",
+      "label": "Final probe log",
+      "evidence": "evidence/root/security-probes.log"
+    },
+    {
+      "check": "Independent frontend component probes",
+      "outcome": "7 files / 9 test cases passed; additional actual service-worker and production-Chromium cache/locale/accessibility reproductions retained",
+      "label": "Component probe log",
+      "evidence": "evidence/frontend/targeted-probes.log"
+    },
+    {
+      "check": "Production-shaped screening worker cycles",
+      "outcome": "2 passed reproduction tests: provider success and provider failure both reach terminal ERROR after 5 attempts; not evidence of healthy operation",
+      "label": "Real-DB pipeline receipt",
+      "evidence": "evidence/ops/worker-cycle-pytest.txt"
+    },
+    {
+      "check": "OpenAPI and dependency inventory",
+      "outcome": "PASS: fresh contract equals committed artifact; 108 documented paths, 125 documented operations, 126 runtime route records including hidden metrics",
+      "label": "Contract and route inventory",
+      "evidence": "evidence/root/api-contract-and-dependencies.json"
+    },
+    {
+      "check": "Backend lint/type/static workflow checks",
+      "outcome": "PASS: Ruff check/format; exact separate CI mypy runs (154 application/tool, 12 mutation, 153 test files); actionlint; 5 shell syntax checks",
+      "label": "Operations review and receipts",
+      "evidence": "ops.md"
+    },
+    {
+      "check": "Backend dependency audit",
+      "outcome": "PASS: 59 dependencies, no known vulnerabilities in the fresh package audit; excludes OS packages",
+      "label": "Package audit",
+      "evidence": "evidence/ops/backend-dependency-audit.json"
+    },
+    {
+      "check": "Frontend dependency and local patch audit",
+      "outcome": "PASS under repository policy: 0 unmitigated, 1 locally mitigated braces advisory; 19 depth-guard and 4 ordinary-pattern controls passed",
+      "label": "Audit and patch verification",
+      "evidence": "evidence/ops/frontend-dependency-verified.txt"
+    },
+    {
+      "check": "Actual current container builds",
+      "outcome": "Backend and edge PASS. Frontend FAILS at Corepack; semver-only temporary correction exposes a separate missing-patch install failure, with a patch-copy positive control",
+      "label": "Build-input evidence",
+      "evidence": "evidence/ops/frontend-container-input-results.json"
+    },
+    {
+      "check": "Fresh ARM64 container vulnerability policy gates",
+      "outcome": "FAIL: current backend 20 HIGH/CRITICAL package records and pinned Postgres 8 HIGH records after repository exclusions; current edge PASS. Scanner severity is not a verified application exploit",
+      "label": "Raw/policy summary",
+      "evidence": "evidence/ops/container-scan-summary.txt"
+    },
+    {
+      "check": "Operational adversarial/capacity controls",
+      "outcome": "Reproduced process-local metrics omission, release-cleanup ownership error and mutation/SARIF verifier errors; admission/cancellation controls passed",
+      "label": "Operations findings and receipts",
+      "evidence": "ops.md"
+    },
+    {
+      "check": "Signed backup fixture and unsigned sidecar tamper",
+      "outcome": "Reproduced freshness failure with a genuine GPG-signed fixture: identical valid signed payload, timestamp-only sidecar change flips stale exit 2 to fresh exit 0; no database restore drill",
+      "label": "Signed-fixture receipt",
+      "evidence": "evidence/ops/signed-backup-freshness-result.json"
+    },
+    {
+      "check": "Frontend cold-route JavaScript budgets",
+      "outcome": "PASS: login 446,517 gzip bytes / 465,920-byte budget; simulation 529,323 / 547,840; lazy Telugu catalog excluded from these initial chunks",
+      "label": "Budget receipt",
+      "evidence": "evidence/frontend/route-js-budget.log"
+    },
+    {
+      "check": "Frontend mutation-harness contract suite",
+      "outcome": "PASS: 22 tests, 0 failures, 17.31 seconds. Includes deliberate failing-smoke negative controls; this is not a full application mutation campaign",
+      "label": "Contract-suite receipt",
+      "evidence": "evidence/frontend/mutation-harness-contracts.log"
+    },
+    {
+      "check": "Complete empty-schema migration roundtrip and metadata drift",
+      "outcome": "PASS: upgrade head, check, downgrade base, upgrade head, check; all 5 commands exit 0 (11.04 seconds). Head fe5f6a7b8c9d and 52 tables after upgrades; own database dropped",
+      "label": "Roundtrip receipt",
+      "evidence": "evidence/ops/migration-roundtrip.json"
+    }
+  ],
+  "interpretation": "All defect probes deliberately assert the currently observed failure, so their passing status confirms reproduction and does not mean the product is fixed. Existing baseline/coverage runs and repeated diagnostic controls overlap; totals are not summed as unique tests. Initial harness/configuration errors are retained with explicit names and are excluded from product findings. The WebKit failure remains an unresolved intermittent login/browser timeout despite the separate focused pass. Firefox is unvalidated on this host because browser launch fails without the application. Container policy failures and build failures remain failures despite passing package-only and local standalone-build checks. The backend's four skips are the existing manual finance category cases for ANIMAL_SALE/ANIMAL_PURCHASE, which are system-generated-only categories; the exact test names/reasons are retained in the backend summary.",
+  "cleanup": "Final verification found no tracked source changes: all 1,453 snapshotted current-file SHA-256 hashes match, all tracked paths have an empty Git diff, and HEAD remains `7245368fa91333fb39387df789fa4ef9a58dbea3`. Only this new audit directory is untracked. All audit databases under the owned `goatfarm_test_a26_` prefix are absent; owned browser servers are stopped and ports 3000/8000 are free. The pre-existing ignored E2E state was restored byte-for-byte, and temporary JWT/keyring/scan directories were removed. The operations reviewer removed owned container tags/leaf images and temporary fixtures without a global prune; reusable Docker parent build-cache layers may remain. Local ignored build/coverage outputs also remain as ordinary validation artifacts. See [final integrity receipt](evidence/root/source-integrity-check.json), [browser cleanup](evidence/root/browser-cleanup.json), and [container cleanup](evidence/ops/container-probe-cleanup.json)."
+}

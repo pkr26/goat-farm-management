@@ -21,12 +21,14 @@ from pathlib import Path
 if __package__:
     from .recovery_inventory import (  # type: ignore[import-not-found]
         InventoryError,
+        authenticate_inventory,
         inventory_generated_at,
         verify_bound_inventory,
     )
 else:
     from recovery_inventory import (
         InventoryError,
+        authenticate_inventory,
         inventory_generated_at,
         verify_bound_inventory,
     )
@@ -60,6 +62,7 @@ def _complete_backups(
     directory: Path,
     *,
     inventory_max_age_hours: int,
+    signer: str | None = None,
 ) -> tuple[list[tuple[Path, datetime]], list[str]]:
     candidates = [
         *directory.glob("goatfarm-*.dump"),
@@ -84,6 +87,7 @@ def _complete_backups(
             raw_inventory = json.loads(inventory.read_text(encoding="utf-8"))
             if not isinstance(raw_inventory, dict):
                 raise InventoryError("recovery inventory root must be an object")
+            authenticate_inventory(raw_inventory, signer=signer)
             generated_at = inventory_generated_at(raw_inventory)
         except (InventoryError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             invalid.append(f"{path.name}: invalid recovery timestamp: {exc}")
@@ -103,6 +107,7 @@ def _complete_backups(
                 inventory,
                 path,
                 max_age_hours=inventory_max_age_hours,
+                signer=signer,
             )
         except (InventoryError, OSError, ValueError) as exc:
             invalid.append(f"{path.name}: {exc}")
@@ -162,6 +167,10 @@ def main() -> int:
     parser.add_argument("--max-age-hours", type=int, default=26)
     parser.add_argument("--inventory-max-age-hours", type=int, default=24 * 31)
     parser.add_argument("--textfile", type=Path)
+    parser.add_argument(
+        "--signer",
+        help="Trusted signer fingerprint; defaults to configured backup/restore signer",
+    )
     args = parser.parse_args()
     if args.max_age_hours < 1:
         parser.error("--max-age-hours must be positive")
@@ -181,6 +190,7 @@ def main() -> int:
     backups, invalid = _complete_backups(
         args.directory,
         inventory_max_age_hours=args.inventory_max_age_hours,
+        signer=args.signer,
     )
     age_seconds = None if not backups else max(0.0, time.time() - backups[0][1].timestamp())
     recovery_timestamp_seconds = None if not backups else backups[0][1].timestamp()

@@ -242,6 +242,7 @@ describe("service worker update safety (executed)", () => {
     expect(cached.has(`${ORIGIN}/_next/static/build-3.js`)).toBe(true);
     const state = await cached.get(`${ORIGIN}/__herdly_worker_asset_state_v1__`)!.clone().json();
     expect(state).toEqual({
+      build: `legacy:${ORIGIN}/_next/static/build-3.js`,
       current: [`${ORIGIN}/_next/static/build-3.js`],
       previous: [`${ORIGIN}/_next/static/build-2.js`],
     });
@@ -480,4 +481,58 @@ describe("service worker update safety (executed)", () => {
   it("still declares the RSC/query guard in source (defense in depth)", () => {
     expect(SW_SOURCE).toContain('SHELL.includes(url.pathname) && url.search === ""');
   });
+});
+
+describe("lazy assets survive same-build navigation", () => {
+  it("retains locale/fonts across repeated document reloads and rotates only real builds", async () => {
+    let build = "one";
+    let offline = false;
+    const worker = loadWorker({ fetchImpl: (async (input) => {
+      if (offline) throw new TypeError("network unavailable");
+      const path = new URL(typeof input === "string" ? input : (input as Request).url, ORIGIN).pathname;
+      return makeResponse(path.startsWith("/worker")
+        ? `<meta name="herdly-build" content="${build}"><script src="/_next/static/${build}-${path.split("/").at(-1)}.js"></script>`
+        : "asset bytes");
+    }) as typeof fetch });
+    const read = async (path: string) => {
+      let response!: Promise<Response>;
+      const retained = worker.fire("fetch", { request: { method: "GET", url: `${ORIGIN}${path}` },
+        respondWith: (value: Promise<Response>) => { response = value; } });
+      const result = await response;
+      await retained;
+      return result;
+    };
+    await worker.fire("install");
+    await Promise.all([read("/_next/static/telugu-one.js"), read("/_next/static/telugu-font-one.woff2")]);
+    // A route can expose a different HTML asset list within the same build;
+    // neither a route visit nor repeated reload is a deployment boundary.
+    for (const path of ["/worker", "/worker/login", "/worker/offline", "/worker/login", "/worker/login"]) await read(path);
+    offline = true;
+    expect(await (await read("/_next/static/telugu-one.js")).text()).toBe("asset bytes");
+    expect(await (await read("/_next/static/telugu-font-one.woff2")).text()).toBe("asset bytes");
+    expect((await read("/worker/login")).ok).toBe(true);
+    offline = false;
+    build = "two";
+    await worker.fire("install");
+    expect(worker.cacheStore.get("herdly-worker-v3")!.has(`${ORIGIN}/_next/static/telugu-one.js`)).toBe(true);
+    build = "three";
+    await worker.fire("install");
+    expect(worker.cacheStore.get("herdly-worker-v3")!.has(`${ORIGIN}/_next/static/telugu-one.js`)).toBe(false);
+    expect(worker.cacheStore.get("herdly-worker-v3")!.has(`${ORIGIN}/_next/static/two-login.js`)).toBe(true);
+  });
+});
+
+it("warms initial pre-control lazy assets and rejects non-static message URLs", async () => {
+  const worker = loadWorker();
+  await worker.fire("install");
+  await worker.fire("message", { data: { type: "CACHE_RUNTIME_ASSETS", assets: [
+    "/_next/static/te.js", "/_next/static/font.woff2", "/api/auth/me", "https://foreign.test/_next/static/foreign.js", null,
+  ] } });
+  const cached = worker.cacheStore.get("herdly-worker-v3")!;
+  expect(cached.has(`${ORIGIN}/_next/static/te.js`)).toBe(true);
+  expect(cached.has(`${ORIGIN}/_next/static/font.woff2`)).toBe(true);
+  expect(worker.state.fetchCalls).not.toContain("/api/auth/me");
+  expect(worker.state.fetchCalls).not.toContain("https://foreign.test/_next/static/foreign.js");
+  const state = await cached.get(`${ORIGIN}/__herdly_worker_asset_state_v1__`)!.clone().json();
+  expect(state.current).toEqual(expect.arrayContaining([`${ORIGIN}/_next/static/te.js`, `${ORIGIN}/_next/static/font.woff2`]));
 });

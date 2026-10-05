@@ -1,0 +1,8 @@
+{
+  "cases": 40,
+  "basis": "40 seeded valid herd/rate/horizon combinations with zero tax; compare all months physical flow, cash and terminal value against HEAD; no scheduled-event rotation changes included",
+  "max_absolute_difference": 9.313225746154785e-10,
+  "old_core_seconds": 0.12934637384023517,
+  "new_core_seconds": 0.1422415808774531,
+  "time_ratio": 1.0996951569214124
+}

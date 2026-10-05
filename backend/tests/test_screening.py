@@ -223,7 +223,7 @@ def test_specialist_parse_coerces_unknown_disease_to_other() -> None:
     assert "BLUE_TONGUE_SUSPECT" in (parsed.conditions[0].note or "")
 
 
-def test_specialist_parse_drops_malformed_conditions() -> None:
+def test_specialist_parse_rejects_partial_malformed_conditions() -> None:
     mixed = json.dumps(
         {
             "conditions": [
@@ -232,8 +232,8 @@ def test_specialist_parse_drops_malformed_conditions() -> None:
             ]
         }
     )
-    parsed = parse_specialist_response(mixed, SpecialistKind.SKIN)
-    assert [condition.disease for condition in parsed.conditions] == ["MANGE"]
+    with pytest.raises(SpecialistParseError, match="invalid condition"):
+        parse_specialist_response(mixed, SpecialistKind.SKIN)
 
 
 def test_specialist_parse_garbage_raises() -> None:
@@ -254,7 +254,6 @@ def test_specialist_parse_garbage_raises() -> None:
         json.dumps({"unrelated": True}),  # key missing entirely
         json.dumps({"conditions": None}),  # null = "nothing visible" phrasing
         json.dumps({"conditions": {}}),  # empty wrapper object
-        json.dumps({"conditions": [7, "sick", None]}),  # garbage items drop, not crash
     ],
 )
 def test_specialist_parse_tolerates_degenerate_but_valid_json(answer: str) -> None:
@@ -265,6 +264,7 @@ def test_specialist_parse_tolerates_degenerate_but_valid_json(answer: str) -> No
     "answer",
     [
         json.dumps({"conditions": 3}),  # scalar number value
+        json.dumps({"conditions": [7, "sick", None]}),  # malformed positives are not negatives
         json.dumps({"conditions": "none visible"}),  # scalar string value
         json.dumps({"conditions": {"disease": "ORF"}}),  # non-empty wrapper object
         "42",  # top-level number

@@ -675,6 +675,24 @@ describe("WorkerShell service worker", () => {
     await waitFor(() => expect(swRegistration.update).toHaveBeenCalled());
   });
 
+  it("warms only loaded same-origin static resources after the first worker is ready", async () => {
+    const postMessage = vi.fn();
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: {
+      register: swRegisterMock, ready: Promise.resolve({ active: { postMessage } }),
+    } });
+    const entries = vi.spyOn(performance, "getEntriesByType").mockReturnValue([
+      { name: `${window.location.origin}/_next/static/te.js` },
+      { name: `${window.location.origin}/api/auth/me` },
+      { name: "https://foreign.example/_next/static/not-ours.js" },
+    ] as PerformanceEntry[]);
+    try {
+      renderShell();
+      await waitFor(() => expect(postMessage).toHaveBeenCalledWith({
+        type: "CACHE_RUNTIME_ASSETS", assets: [`${window.location.origin}/_next/static/te.js`],
+      }));
+    } finally { entries.mockRestore(); }
+  });
+
   it("keeps running when the update check fails (offline tablet)", async () => {
     swRegistration.update.mockRejectedValueOnce(new Error("offline"));
     renderShell();

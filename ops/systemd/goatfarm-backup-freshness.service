@@ -6,6 +6,8 @@ After=goatfarm-backup.service
 Type=oneshot
 User=goatfarm-backup
 Group=goatfarm-backup
+# Public-key-only keyring and externally pinned signer (no private backup credentials).
+EnvironmentFile=/etc/goatfarm/backup-freshness.env
 ExecStart=/opt/goatfarm/backend/.venv/bin/python /opt/goatfarm/backend/scripts/check_backup_freshness.py /var/backups/goatfarm --max-age-hours 26 --textfile /var/lib/node_exporter/textfile_collector/goatfarm_backup.prom
 NoNewPrivileges=true
 PrivateTmp=true

@@ -13,6 +13,24 @@ const ASSET_STATE_KEY = "/__herdly_worker_asset_state_v1__";
  * board while a perfectly good shell sits in the cache. */
 const NAV_TIMEOUT_MS = 4000;
 
+// Serialize read/modify/write of asset membership: concurrent lazy chunk
+// fetches and navigations must not overwrite each other's retained entries.
+let assetStateWork = Promise.resolve();
+function updateAssetState(work) {
+  const result = assetStateWork.then(work);
+  assetStateWork = result.catch(() => {});
+  return result;
+}
+
+async function shellBuild(response, assets) {
+  const html = await response.clone().text();
+  const tag = html.match(/<meta\b[^>]*\bname=["']herdly-build["'][^>]*>/i)?.[0];
+  const build = tag?.match(/\bcontent=["']([^"']+)["']/i)?.[1];
+  // Old shells predate the marker. Their dependency fingerprint is a bounded
+  // migration fallback, not the generation identity of new builds.
+  return build ?? `legacy:${[...assets].sort().join("|")}`;
+}
+
 async function shellAssets(response) {
   const assets = new Set();
   const html = await response.clone().text();
@@ -37,17 +55,18 @@ function isStaticAsset(value) {
 async function readAssetState(cache) {
   try {
     const response = await cache.match(ASSET_STATE_KEY);
-    if (!response) return { current: [], previous: [] };
+    if (!response) return { current: [], previous: [], build: null };
     const value = await response.json();
     if (!value || !Array.isArray(value.current) || !Array.isArray(value.previous)) {
-      return { current: [], previous: [] };
+      return { current: [], previous: [], build: null };
     }
     return {
+      build: typeof value.build === "string" ? value.build : null,
       current: value.current.filter(isStaticAsset),
       previous: value.previous.filter(isStaticAsset),
     };
   } catch {
-    return { current: [], previous: [] };
+    return { current: [], previous: [], build: null };
   }
 }
 
@@ -61,15 +80,16 @@ async function cachedShellAssets(cache) {
   return assets;
 }
 
-async function publishAssetGeneration(cache, currentAssets, fallbackPrevious = new Set()) {
+async function publishAssetGeneration(cache, currentAssets, fallbackPrevious = new Set(), build = null) {
   const state = await readAssetState(cache);
-  const current = [...new Set([...currentAssets].filter(isStaticAsset))];
+  const sameBuild = state.build !== null && state.build === build;
+  const current = [...new Set([...currentAssets, ...(sameBuild ? state.current : [])].filter(isStaticAsset))];
   // On the first upgrade from the legacy unbounded cache there is no state
   // record. Retain assets referenced by its old complete shell as the one
   // previous generation so already-open clients are not stranded.
-  const previous = [...new Set((state.current.length ? state.current : [...fallbackPrevious])
+  const previous = [...new Set((sameBuild ? state.previous : state.current.length ? state.current : [...fallbackPrevious])
     .filter(isStaticAsset))];
-  await cache.put(ASSET_STATE_KEY, new Response(JSON.stringify({ current, previous }), {
+  await cache.put(ASSET_STATE_KEY, new Response(JSON.stringify({ current, previous, build }), {
     headers: { "Content-Type": "application/json" },
   }));
   const retained = new Set([...current, ...previous]);
@@ -86,6 +106,7 @@ async function recordRuntimeAsset(cache, asset) {
   await cache.put(ASSET_STATE_KEY, new Response(JSON.stringify({
     current,
     previous: state.previous,
+    build: state.build,
   }), { headers: { "Content-Type": "application/json" } }));
 }
 
@@ -97,8 +118,13 @@ async function cacheCompleteShell(request, response) {
     // A late navigation response may never execute in a client at all.
     await cache.addAll([...await shellAssets(response)]);
   }
-  await cache.put(request, response.clone());
-  await publishAssetGeneration(cache, await cachedShellAssets(cache), previousShellAssets);
+  const assets = await shellAssets(response);
+  const build = await shellBuild(response, assets);
+  await updateAssetState(async () => {
+    await cache.put(request, response.clone());
+    await publishAssetGeneration(cache, await cachedShellAssets(cache), previousShellAssets,
+      new URL(request.url, self.location.origin).pathname.startsWith("/worker") ? build : (await readAssetState(cache)).build);
+  });
 }
 
 self.addEventListener("install", (event) => {
@@ -129,8 +155,11 @@ self.addEventListener("install", (event) => {
         await cache.addAll([...assets]);
         // Keep the previously complete shared cache usable if this install
         // fails before all new-build assets are available.
-        await Promise.all(responses.map(({ path, response }) => cache.put(path, response)));
-        await publishAssetGeneration(cache, assets, previousShellAssets);
+        const build = await shellBuild(responses[0].response, assets);
+        await updateAssetState(async () => {
+          await Promise.all(responses.map(({ path, response }) => cache.put(path, response)));
+          await publishAssetGeneration(cache, assets, previousShellAssets, build);
+        });
       })
       .then(() => self.skipWaiting()),
   );
@@ -143,6 +172,25 @@ self.addEventListener("activate", (event) => {
       .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
       .then(() => self.clients.claim()),
   );
+});
+
+// Warm immutable resources fetched by the first document before clients.claim.
+// No API, cross-origin or arbitrary user-data URL is accepted here.
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "CACHE_RUNTIME_ASSETS" || !Array.isArray(event.data.assets)) return;
+  const assets = [...new Set(event.data.assets.filter((value) => typeof value === "string" && isStaticAsset(value)))].slice(0, 256);
+  event.waitUntil(Promise.all(assets.map(async (asset) => {
+    try {
+      const request = new URL(asset, self.location.origin).href;
+      const response = await caches.match(request) ?? await fetch(request);
+      if (!response.ok) return;
+      await updateAssetState(async () => {
+        const cache = await caches.open(CACHE);
+        await cache.put(request, response);
+        await recordRuntimeAsset(cache, request);
+      });
+    } catch { /* offline: preserve the previously complete cache */ }
+  })));
 });
 
 self.addEventListener("fetch", (event) => {
@@ -164,7 +212,8 @@ self.addEventListener("fetch", (event) => {
     const response = caches.match(request).then((cached) => cached ?? fetch(request).then((response) => {
       if (response.ok) {
         const copy = response.clone();
-        cacheWrite = caches.open(CACHE).then(async (cache) => {
+        cacheWrite = updateAssetState(async () => {
+          const cache = await caches.open(CACHE);
           await cache.put(request, copy);
           await recordRuntimeAsset(cache, request.url);
         });

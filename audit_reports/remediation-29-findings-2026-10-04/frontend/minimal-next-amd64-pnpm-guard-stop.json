@@ -1,0 +1,17 @@
+{
+  "timestamp_utc": "2026-10-05T04:14:43.478147+00:00",
+  "reason": "Tiny app with actual image-deps guard reproduced the exact assertion after routes. Stopping the stranded pnpm wrapper, not a successful build.",
+  "before_state": {
+    "Status": "running",
+    "Running": true,
+    "Paused": false,
+    "Restarting": false,
+    "OOMKilled": false,
+    "Dead": false,
+    "Pid": 3286475,
+    "ExitCode": 0,
+    "Error": "",
+    "StartedAt": "2026-10-05T04:13:09.27630752Z",
+    "FinishedAt": "0001-01-01T00:00:00Z"
+  }
+}
