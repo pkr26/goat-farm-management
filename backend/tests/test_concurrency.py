@@ -918,9 +918,10 @@ async def test_complete_delivery_move_vs_sell_never_deadlocks(
     async with second_client() as other:
         await warm(other, owner)
         for round_ in range(5):
+            round_date = today()
             tag = f"D-DL{round_}"
             doe, br = await bred_doe_with_record(
-                client, owner, tag=tag, breeding_date=today() - timedelta(days=136)
+                client, owner, tag=tag, breeding_date=round_date - timedelta(days=136)
             )
             await confirm_pregnancy(client, owner, br["id"])
             # EKD = today + 14, so the "Move to DELIVERY" duty (EKD − 15)
@@ -932,7 +933,7 @@ async def test_complete_delivery_move_vs_sell_never_deadlocks(
                 for t in await breeding_follow_ups(client, owner, br["id"])
                 if t["category"] == "BUCKET_MOVE"
                 and t["status"] == "PENDING"
-                and t["due_date"] == iso(today() - timedelta(days=1))
+                and t["due_date"] == iso(round_date - timedelta(days=1))
             )
             r_complete, r_sell = await asyncio.gather(
                 client.post(f"/api/tasks/{move_task['id']}/complete", headers=owner),

@@ -30,6 +30,9 @@ backend/mutation/manifest.json
 backend/mutation/results.jsonl
 backend/mutation/report.md
 backend/mutation/measurement-current.json
+backend/mutation/domain-plan.json
+backend/mutation/domain-report.json
+backend/mutation/domain-verification.json
 backend/mutation/campaigns/
 backend/mutation/ci-*.json
 backend/mutation/verify_extremes.jsonl

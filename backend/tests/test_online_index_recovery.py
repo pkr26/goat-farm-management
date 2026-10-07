@@ -11,7 +11,7 @@ import pytest
 
 from app.db import get_engine
 
-from .conftest import BACKEND_DIR, TEST_DB
+from .conftest import BACKEND_DIR, TEST_DIRECT_URL
 
 
 async def _alembic(*args: str, succeeds: bool = True) -> subprocess.CompletedProcess[str]:
@@ -66,7 +66,7 @@ async def test_online_index_upgrade_rebuilds_same_named_invalid_remnant(
     await get_engine().dispose()
     await _alembic("downgrade", parent_revision)
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         # Reference seeding gives this table many rows. The deliberately
         # impossible unique expression fails after creating its catalog
@@ -95,7 +95,7 @@ async def test_online_index_upgrade_rebuilds_same_named_invalid_remnant(
 
     await _alembic("upgrade", "head")
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         rebuilt = await connection.fetchrow(
             """
@@ -122,7 +122,7 @@ async def test_terminal_history_upgrade_rebuilds_valid_wrong_definition() -> Non
     await get_engine().dispose()
     await _alembic("downgrade", "fb2c3d4e5f6a")
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         await connection.execute(
             "CREATE INDEX CONCURRENTLY ix_tasks_farm_terminal_finished_id ON tasks (id)"
@@ -132,7 +132,7 @@ async def test_terminal_history_upgrade_rebuilds_valid_wrong_definition() -> Non
 
     await _alembic("upgrade", "head")
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         definition = await connection.fetchval(
             """
@@ -157,7 +157,7 @@ async def test_terminal_history_upgrade_preserves_valid_cross_table_collision() 
     await get_engine().dispose()
     await _alembic("downgrade", "fb2c3d4e5f6a")
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         await connection.execute(
             "CREATE INDEX CONCURRENTLY ix_tasks_farm_terminal_finished_id "
@@ -169,7 +169,7 @@ async def test_terminal_history_upgrade_preserves_valid_cross_table_collision() 
     failed = await _alembic("upgrade", "head", succeeds=False)
     assert "refusing to drop an unrelated schema object" in failed.stderr
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         indexed_table = await connection.fetchval(
             """
@@ -193,7 +193,7 @@ async def test_raw_cleanup_due_upgrade_rebuilds_valid_wrong_definition() -> None
     await get_engine().dispose()
     await _alembic("downgrade", "fd4e5f6a7b8c")
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         await connection.execute(
             "CREATE INDEX CONCURRENTLY ix_screening_images_raw_cleanup_due ON screening_images (id)"
@@ -203,7 +203,7 @@ async def test_raw_cleanup_due_upgrade_rebuilds_valid_wrong_definition() -> None
 
     await _alembic("upgrade", "head")
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         definition = await connection.fetchval(
             """
@@ -226,7 +226,7 @@ async def test_raw_cleanup_due_upgrade_preserves_valid_cross_table_collision() -
     await get_engine().dispose()
     await _alembic("downgrade", "fd4e5f6a7b8c")
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         await connection.execute(
             "CREATE INDEX CONCURRENTLY ix_screening_images_raw_cleanup_due "
@@ -238,7 +238,7 @@ async def test_raw_cleanup_due_upgrade_preserves_valid_cross_table_collision() -
     failed = await _alembic("upgrade", "head", succeeds=False)
     assert "refusing to drop an unrelated schema object" in failed.stderr
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         indexed_table = await connection.fetchval(
             """

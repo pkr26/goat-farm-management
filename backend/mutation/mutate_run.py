@@ -28,6 +28,10 @@ from pathlib import Path
 from typing import Any
 
 import asyncpg
+import bootstrap_policy
+from mutate_identity import (
+    database_admin_sha256 as database_admin_sha256,
+)
 from mutate_identity import (
     digest_json,
     input_identity,
@@ -56,7 +60,10 @@ def drop_attempt_database(database: str) -> None:
         raise ValueError("refusing to clean a database outside the attempt namespace")
 
     async def drop() -> None:
-        connection = await asyncpg.connect("postgresql://localhost:5432/postgres", timeout=5)
+        connection = await asyncpg.connect(
+            os.environ.get("MUTATION_TEST_ADMIN_URL", "postgresql://localhost:5432/postgres"),
+            timeout=5,
+        )
         try:
             # PostgreSQL can wait for an in-progress checkpoint even with every
             # database lock granted. Allow that bounded I/O wait under parallel
@@ -76,7 +83,7 @@ def load_coverage_contexts(
     """Parse exactly the captured bytes whose digest identifies this campaign."""
     import coverage
 
-    source_root = Path(provenance.get("source_root", str(BACKEND)))
+    source_root = Path(provenance.get("source_root", str(BACKEND))).resolve()
     by_file: dict[str, dict[int, set[str]]] = {}
     with tempfile.TemporaryDirectory(prefix="herdly-mutation-coverage-") as temporary:
         data_file = Path(temporary) / ".coverage"
@@ -85,7 +92,7 @@ def load_coverage_contexts(
         cov.load()
         data = cov.get_data()
         for f in data.measured_files():
-            rel = Path(f).relative_to(source_root).as_posix()
+            rel = Path(f).resolve().relative_to(source_root).as_posix()
             by_file[rel] = {
                 line: {c.rsplit("|", 1)[0] for c in ctxs if c}
                 for line, ctxs in (data.contexts_by_lineno(f) or {}).items()
@@ -171,6 +178,17 @@ def snapshot_ignore(directory: str, names: list[str]) -> set[str]:
         "secrets",
         "keys",
         "audit_reports",
+        "scratch",
+    }
+    campaign_outputs = {
+        "manifest.json",
+        "results.jsonl",
+        "verify_extremes.jsonl",
+        "report.md",
+        "measurement-current.json",
+        "domain-plan.json",
+        "domain-report.json",
+        "campaigns",
     }
     return {
         name
@@ -179,7 +197,20 @@ def snapshot_ignore(directory: str, names: list[str]) -> set[str]:
         or name.startswith(".coverage")
         or (name.startswith(".env") and not name.endswith(".example"))
         or name.endswith((".pyc", ".dump", ".dump.gpg"))
+        or (
+            Path(directory).name == "mutation"
+            and (name in campaign_outputs or name.endswith(".log") or name.startswith("ci-"))
+        )
     }
+
+
+def allowed_mutation_target(path: Path, workspace: Path) -> bool:
+    """Only application code and private migration revisions are executable targets."""
+    resolved = path.resolve()
+    return path.suffix == ".py" and any(
+        resolved.is_relative_to(root.resolve())
+        for root in (workspace / "app", workspace / "alembic/versions")
+    )
 
 
 class Runner:
@@ -194,7 +225,8 @@ class Runner:
         # Read each artifact once. Rechecking live hashes after parsing does
         # not catch an artifact replaced and restored during context loading.
         manifest_bytes = read_artifact(
-            MUTDIR / "manifest.json", instruction="run python mutation/mutate_gen.py first"
+            MUTDIR / "manifest.json",
+            instruction="run python mutation/mutate_gen.py first",
         )
         try:
             coverage_bytes = (BACKEND / ".coverage-mut").read_bytes()
@@ -217,6 +249,7 @@ class Runner:
             "coverage_sha256": sha_bytes(coverage_bytes),
             "coverage_provenance_sha256": sha_bytes(provenance_bytes),
             "config": {
+                "test_database_admin_sha256": database_admin_sha256(),
                 "workers": workers,
                 "phase_timeout": phase_timeout,
                 "full": self.full_phase,
@@ -227,8 +260,18 @@ class Runner:
             coverage_provenance.get("inputs") != self.inputs
             or coverage_provenance.get("coverage_sha256") != self.identity["coverage_sha256"]
             or coverage_provenance.get("baseline_exit_code") != 0
+            or coverage_provenance.get("test_database_admin_sha256")
+            != self.identity["config"]["test_database_admin_sha256"]
         ):
-            raise ValueError("coverage source/tests/locks are stale; run mutation/mutate_cover.py")
+            raise ValueError(
+                "coverage source/tests/locks or test database are stale; "
+                "run mutation/mutate_cover.py"
+            )
+        self.bootstrap_first = os.environ.get("MUTATE_BOOTSTRAP_FIRST") == "1"
+        if self.bootstrap_first:
+            if not self.full_phase:
+                raise ValueError("bootstrap-first requires complete native selection")
+            self.identity["config"]["bootstrap"] = bootstrap_policy.configuration(self.inputs)
         self.campaign_id = digest_json(self.identity)
         self.ctx = load_coverage_contexts(coverage_bytes, coverage_provenance)
         self.pop = file_popularity(self.ctx)
@@ -260,7 +303,9 @@ class Runner:
         self.local = threading.local()
         self.baselines: dict[str, tuple[str, str, float]] = {}
         self.baseline_receipts: dict[str, dict[str, Any] | None] = {}
+        self.baseline_phase_identities: dict[str, dict[str, Any] | None] = {}
         self.baseline_lock = threading.Lock()
+        self.baseline_in_flight: dict[str, threading.Event] = {}
 
     def close(self) -> None:
         self._snapshot_tmp.cleanup()
@@ -279,15 +324,31 @@ class Runner:
             return [f for f, _ in top], True
         return [], False
 
-    def run_pytest(self, node_ids: list[str], worker: int) -> tuple[str, str, float]:
+    def run_pytest(
+        self, node_ids: list[str], worker: int, *, confcutdir: str | None = None
+    ) -> tuple[str, str, float]:
         self.local.pytest_receipt = None
+        self.local.phase_identity = {
+            "inputs_before": input_identity(self.local.workspace),
+            "inputs_after": None,
+            "confcutdir": confcutdir,
+            "cleanup_error": None,
+        }
         env = os.environ.copy()
+        # These flags configure this controller, not nested pytest harnesses.
+        # Keep the bound parent policy while child tests start independently.
+        env.pop("MUTATE_BOOTSTRAP_FIRST", None)
+        env.pop("MUTATE_FULL_PHASE", None)
         env["GOATFARM_TEST_DB"] = f"herdly_mut_{self.run_id[:10]}_{uuid.uuid4().hex[:8]}_test"
         env.pop("COVERAGE_FILE", None)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PYTHONPATH"] = str(self.local.workspace)
+        env["PATH"] = str(VENV_PY.parent) + os.pathsep + env.get("PATH", "")
         receipt_path = self.local.workspace / f"receipt-{uuid.uuid4().hex}.json"
         env["MUTATION_RECEIPT_PATH"] = str(receipt_path)
+        selection_path = receipt_path.with_suffix(".selection.json")
+        selection_path.write_text(json.dumps(node_ids))
+        env["MUTATION_SELECTION_PATH"] = str(selection_path)
         command = [
             str(VENV_PY),
             "-m",
@@ -301,6 +362,7 @@ class Runner:
             "-p",
             "mutation.pytest_receipt",
             "--color=no",
+            *([f"--confcutdir={confcutdir}"] if confcutdir is not None else []),
             *node_ids,
         ]
         t0 = time.monotonic()
@@ -323,7 +385,10 @@ class Runner:
             except (OSError, ValueError):
                 receipt = None
             self.local.pytest_receipt = receipt
-            status = classify_pytest(proc.returncode, receipt)
+            try:
+                status = classify_pytest(proc.returncode, receipt)
+            except (KeyError, TypeError, AttributeError):
+                status = "infra"
         except subprocess.TimeoutExpired:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(proc.pid, signal.SIGKILL)
@@ -336,10 +401,12 @@ class Runner:
             # A measurement with failed resource cleanup needs operator review,
             # even if the assertion receipt itself was otherwise conclusive.
             status = "infra"
+            self.local.phase_identity["cleanup_error"] = type(exc).__name__
             out = (out or "") + (
                 f"\nAttempt database cleanup failed for {env['GOATFARM_TEST_DB']}: "
                 f"{type(exc).__name__}"
             )
+        self.local.phase_identity["inputs_after"] = input_identity(self.local.workspace)
         return status, out or "", time.monotonic() - t0
 
     def apply_mutant(self, m: dict[str, Any]) -> str:
@@ -377,6 +444,233 @@ class Runner:
             out[-220:],
         )
 
+    def clean_baseline(
+        self,
+        key: str,
+        selection: list[str],
+        worker: int,
+        *,
+        confcutdir: str | None = None,
+    ) -> tuple[str, str, float]:
+        """Coalesce identical selections while independent baselines run concurrently."""
+        while True:
+            with self.baseline_lock:
+                cached = self.baselines.get(key)
+                if cached is not None:
+                    return cached
+                pending = self.baseline_in_flight.get(key)
+                if pending is None:
+                    pending = threading.Event()
+                    self.baseline_in_flight[key] = pending
+                    owner = True
+                else:
+                    owner = False
+            if not owner:
+                pending.wait()
+                continue
+            try:
+                result = (
+                    self.run_pytest(selection, worker)
+                    if confcutdir is None
+                    else self.run_pytest(selection, worker, confcutdir=confcutdir)
+                )
+                if result[0] == "pass":
+                    with self.baseline_lock:
+                        self.baselines[key] = result
+                        self.baseline_receipts[key] = copy.deepcopy(
+                            getattr(self.local, "pytest_receipt", None)
+                        )
+                        if getattr(self, "bootstrap_first", False):
+                            self.baseline_phase_identities[key] = copy.deepcopy(
+                                getattr(self.local, "phase_identity", None)
+                            )
+                return result
+            finally:
+                with self.baseline_lock:
+                    self.baseline_in_flight.pop(key, None)
+                    pending.set()
+
+    def execute_bootstrap_first(
+        self,
+        rec: dict[str, Any],
+        m: dict[str, Any],
+        selection: list[str],
+        worker: int,
+        path: Path,
+        original: bytes,
+        mutated: str,
+    ) -> dict[str, Any]:
+        """A real isolated call may stop the mutant phase; native clean controls always run."""
+        from verify_domain_receipts import Context, EvidenceError
+
+        config = self.identity["config"]["bootstrap"]
+        rec.update(
+            status_policy=bootstrap_policy.POLICY,
+            selection=selection,
+            selection_sha256=digest_json(selection),
+            selection_mode="complete",
+            bootstrap={"configuration": copy.deepcopy(config)},
+            native_mutant_attempted=False,
+            pytest_receipt=None,
+        )
+
+        def capsule(
+            result: tuple[str, str, float],
+            nodes: list[str],
+            boundary: str | None,
+            receipt: dict[str, Any] | None,
+            phase_identity: dict[str, Any] | None,
+        ) -> dict[str, Any]:
+            return {
+                "status": result[0],
+                "duration": result[2],
+                "selection": nodes,
+                "selection_sha256": digest_json(nodes),
+                "confcutdir": boundary,
+                "pytest_receipt": receipt,
+                "exit_code": receipt.get("exit_code") if isinstance(receipt, dict) else None,
+                **(
+                    phase_identity
+                    or {
+                        "inputs_before": None,
+                        "inputs_after": None,
+                        "cleanup_error": None,
+                    }
+                ),
+            }
+
+        def clean(label: str, nodes: list[str], boundary: str | None) -> tuple[dict[str, Any], str]:
+            key = digest_json([self.campaign_id, label, boundary, nodes])
+            path.write_bytes(original)
+            result = self.clean_baseline(key, nodes, worker, confcutdir=boundary)
+            return capsule(
+                result,
+                nodes,
+                boundary,
+                self.baseline_receipts.get(key),
+                self.baseline_phase_identities.get(key),
+            ), result[1]
+
+        boot_clean, output = clean(
+            "bootstrap", bootstrap_policy.SELECTION, bootstrap_policy.CONFCUTDIR
+        )
+        rec["bootstrap"]["clean"] = boot_clean
+        if boot_clean["status"] != "pass":
+            return {
+                **rec,
+                "status": "INCONCLUSIVE_TIMEOUT"
+                if boot_clean["status"] == "timeout"
+                else "INFRA_ERROR",
+                "error": "clean bootstrap control did not pass",
+                "fail": self.first_failure(output),
+            }
+        native_clean, output = clean("native", selection, None)
+        rec["baseline"] = native_clean
+        if native_clean["status"] != "pass":
+            return {
+                **rec,
+                "status": "INCONCLUSIVE_TIMEOUT"
+                if native_clean["status"] == "timeout"
+                else "INFRA_ERROR",
+                "error": "complete clean native control did not pass",
+                "fail": self.first_failure(output),
+            }
+        # Passing labels alone are insufficient: reject malformed or stale clean
+        # controls before changing source bytes or running any mutant process.
+        try:
+            clean_boot_nodes, _ = bootstrap_policy.verify_phase(
+                boot_clean,
+                bootstrap_policy.SELECTION,
+                bootstrap_policy.CONFCUTDIR,
+                self.inputs,
+                True,
+            )
+            if clean_boot_nodes != set(bootstrap_policy.SELECTION):
+                raise EvidenceError("bootstrap control must contain exactly one call")
+            bootstrap_policy.verify_phase(native_clean, selection, None, self.inputs, True)
+        except (EvidenceError, ValueError, TypeError, KeyError) as exc:
+            return {**rec, "status": "INFRA_ERROR", "error": f"invalid clean controls: {exc}"}
+        path.write_text(mutated)
+        rec["edited_source_sha256"] = sha_file(path)
+        result = self.run_pytest(
+            bootstrap_policy.SELECTION, worker, confcutdir=bootstrap_policy.CONFCUTDIR
+        )
+        boot_mutant = capsule(
+            result,
+            bootstrap_policy.SELECTION,
+            bootstrap_policy.CONFCUTDIR,
+            getattr(self.local, "pytest_receipt", None),
+            getattr(self.local, "phase_identity", None),
+        )
+        rec["bootstrap"]["mutant"] = boot_mutant
+        if result[0] == "kill":
+            rec.update(
+                status="KILLED",
+                decisive_phase="bootstrap",
+                native_mutant={
+                    "status": "not-attempted",
+                    "reason": "bootstrap-assertion-kill",
+                },
+            )
+        elif result[0] != "pass":
+            return {
+                **rec,
+                "status": "INCONCLUSIVE_TIMEOUT" if result[0] == "timeout" else "INFRA_ERROR",
+                "error": "bootstrap mutant phase did not pass or assertion-fail",
+                "fail": self.first_failure(result[1]),
+            }
+        else:
+            result = self.run_pytest(selection, worker)
+            native_mutant = capsule(
+                result,
+                selection,
+                None,
+                getattr(self.local, "pytest_receipt", None),
+                getattr(self.local, "phase_identity", None),
+            )
+            rec.update(
+                native_mutant=native_mutant,
+                native_mutant_attempted=True,
+                decisive_phase="native",
+                pytest_receipt=native_mutant["pytest_receipt"],
+                status={
+                    "pass": "SURVIVED",
+                    "kill": "KILLED",
+                    "infra": "INFRA_ERROR",
+                    "timeout": "INCONCLUSIVE_TIMEOUT",
+                }[result[0]],
+            )
+        rec["dur"] = round(
+            boot_mutant["duration"] + (rec.get("native_mutant", {}).get("duration") or 0),
+            2,
+        )
+        if rec["status"] in {"KILLED", "SURVIVED"}:
+            context = Context(
+                self.campaign_id,
+                self.manifest,
+                self.inputs,
+                {
+                    key: self.identity[key]
+                    for key in (
+                        "manifest_sha256",
+                        "coverage_sha256",
+                        "coverage_provenance_sha256",
+                    )
+                },
+                self.identity["config"]["test_database_admin_sha256"],
+                lambda mutant: self.select_tests(mutant)[0],
+                source_bytes=lambda relative: (
+                    original
+                    if relative == m["file"]
+                    else (self.snapshot / BACKEND.name / relative).read_bytes()
+                ),
+            )
+            try:
+                bootstrap_policy.verify(rec, context)
+            except (EvidenceError, ValueError, TypeError, KeyError) as exc:
+                rec.update(status="INFRA_ERROR", error=f"invalid phase evidence: {exc}")
+        return rec
+
     def execute(self, m: dict[str, Any], worker: int) -> dict[str, Any]:
         m = copy.deepcopy(m)
         rec = {key: m[key] for key in ("id", "file", "line", "kind", "detail", "tier")}
@@ -399,11 +693,11 @@ class Runner:
             shutil.copytree(self.snapshot, workspace)
             self.local.workspace = workspace / BACKEND.name
             path = self.local.workspace / m["file"]
-            if not path.resolve().is_relative_to((self.local.workspace / "app").resolve()):
+            if not allowed_mutation_target(path, self.local.workspace):
                 return {
                     **rec,
                     "status": "INVALID",
-                    "error": "mutation target must stay inside app/",
+                    "error": "mutation target must stay inside app/ or private alembic/versions/",
                 }
             original = path.read_bytes()
             try:
@@ -414,6 +708,13 @@ class Runner:
             rec.update(n_tests=len(selection), module_level=module_level)
             if not selection:
                 return {**rec, "status": "NOT_COVERED", "selection_mode": "uncovered"}
+            if getattr(self, "bootstrap_first", False):
+                try:
+                    return self.execute_bootstrap_first(
+                        rec, m, selection, worker, path, original, mutated
+                    )
+                finally:
+                    path.write_bytes(original)
             phases = [len(selection)] if self.full_phase else [15, SAMPLE_CAP]
             total_duration = 0.0
             for phase, cap in enumerate(phases, 1):
@@ -429,15 +730,7 @@ class Runner:
                 # The baseline always runs against clean snapshot bytes, with
                 # exactly the mutant's selection and process/resource limits.
                 path.write_bytes(original)
-                with self.baseline_lock:
-                    baseline = self.baselines.get(baseline_key)
-                    if baseline is None:
-                        baseline = self.run_pytest(subset, worker)
-                        if baseline[0] == "pass":
-                            self.baselines[baseline_key] = baseline
-                            self.baseline_receipts[baseline_key] = getattr(
-                                self.local, "pytest_receipt", None
-                            )
+                baseline = self.clean_baseline(baseline_key, subset, worker)
                 rec["baseline"] = {
                     "status": baseline[0],
                     "duration": baseline[2],
@@ -476,7 +769,10 @@ class Runner:
             return {**rec, "status": "SURVIVED"}
 
     def worker_loop(
-        self, worker: int, queue: collections.deque[dict[str, Any]], queue_lock: threading.Lock
+        self,
+        worker: int,
+        queue: collections.deque[dict[str, Any]],
+        queue_lock: threading.Lock,
     ) -> None:
         while not self.stop.is_set():
             if self.deadline and time.monotonic() > self.deadline:
@@ -499,7 +795,8 @@ class Runner:
             with self.print_lock:
                 self.counter[record["status"]] += 1
                 print(
-                    f"[w{worker}] {record['status']} {mutant['file']}:{mutant['line']}", flush=True
+                    f"[w{worker}] {record['status']} {mutant['file']}:{mutant['line']}",
+                    flush=True,
                 )
                 with self.results_path.open("a") as handle:
                     handle.write(json.dumps(record) + "\n")

@@ -651,7 +651,7 @@ def _run_core(
     def _is_festival_month(simulation_month: int) -> bool:
         """Whether the Bakrid uplift is active in this simulation month
         (mirrors meat_price_for_month's festival determination)."""
-        if festival_months:
+        if sales.festival_sale_months is not None:
             return simulation_month in festival_months
         return sales.eid_month > 0 and _calendar_month_of(simulation_month) == sales.eid_month
 
@@ -1208,14 +1208,18 @@ def _run_core(
         settling = _scale(settling, s_adult)
         preg = _scale(preg, s_adult)
         lact = _scale(lact, s_adult)
-        _dispose_fraction("doe", 1.0 - s_adult)
-        _dispose_fraction("buck", 1.0 - s_adult)
         bucks *= s_adult
         bucks_purchased_this_month *= s_adult
         doe_ages = _scale(doe_ages, s_adult)
-        deaths += pre - (
-            sum(svc) + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact) + bucks
+        remaining_does_after_mortality = (
+            sum(svc) + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact)
         )
+        # Accepted expected-head floats can round to zero while their larger
+        # acquisition basis survives. Extinction removes the remaining basis
+        # before depreciation; otherwise the usual proportional loss applies.
+        _dispose_fraction("doe", 1.0 if remaining_does_after_mortality == 0.0 else 1.0 - s_adult)
+        _dispose_fraction("buck", 1.0 if bucks == 0.0 else 1.0 - s_adult)
+        deaths += pre - (remaining_does_after_mortality + bucks)
 
         # --- 6. culling and buck management ---------------------------------
         # Max-age cull: does aging past max_doe_age_months leave the herd.

@@ -10,11 +10,10 @@ import sys
 
 import asyncpg
 
-from .conftest import BACKEND_DIR, TEST_DB
+from .conftest import ADMIN_URL, BACKEND_DIR, TEST_DB, database_direct_url
 
 PARENT_REVISION = "d3b5f7c9e024"
 CULL_SALE_REVISION = "e6f8a0b2c4d7"
-ADMIN_URL = "postgresql://localhost:5432/postgres"
 
 
 def _throwaway_name() -> str:
@@ -38,7 +37,7 @@ async def _alembic(
     succeeds: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    target_url = f"postgresql+asyncpg://localhost:5432/{database}"
+    target_url = database_direct_url(database).replace("postgresql://", "postgresql+asyncpg://", 1)
     env["GOATFARM_DATABASE_URL"] = target_url
     env["GOATFARM_MIGRATION_DATABASE_URL"] = target_url
     # _throwaway_name() is created and exclusively controlled by this test.
@@ -64,7 +63,7 @@ async def test_monetized_cull_constraint_and_downgrade_guard() -> None:
     database = _throwaway_name()
     await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
     await _admin(f'CREATE DATABASE "{database}"')
-    database_url = f"postgresql://localhost:5432/{database}"
+    database_url = database_direct_url(database)
     try:
         await _alembic(database, "upgrade", PARENT_REVISION)
         connection = await asyncpg.connect(database_url)

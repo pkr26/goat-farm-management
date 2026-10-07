@@ -47,7 +47,7 @@ from app.services.screening.s3 import (
 )
 from app.utils import utcnow
 
-from .conftest import BACKEND_DIR, TEST_DB, owner_with_farm
+from .conftest import BACKEND_DIR, TEST_DIRECT_URL, owner_with_farm
 from .test_screening import CountingProvider, FakeStorage, _cycle_settings, _jpeg_bytes
 
 
@@ -955,7 +955,7 @@ async def test_fd_downgrade_refuses_to_discard_outstanding_raw_cleanup(
 
 async def test_fd_upgrade_backfills_form_capable_and_legacy_images_safely() -> None:
     created_at = dt.datetime(2020, 1, 2, 3, 4, 5)
-    database_url = f"postgresql://localhost:5432/{TEST_DB}"
+    database_url = TEST_DIRECT_URL
     await get_engine().dispose()
     try:
         downgraded = await _alembic_current_database("downgrade", "fc3d4e5f6a7b")

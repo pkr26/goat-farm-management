@@ -396,7 +396,7 @@ async def complete_task(
         # categories, so the resolved (never-None) date is the one they use;
         # move_animal/reference gates now require it outright.
         resolved_movement_date = movement_date
-    if task.category == TaskCategory.BUCKET_MOVE.value and task.purchase_batch_id:
+    if task.category == TaskCategory.BUCKET_MOVE.value and task.purchase_batch_id is not None:
         if locked_animals is None:
             raise ValueError("Task completion animals were not pre-locked")
         release_animals = await _guard_quarantine_release(db, task, affected_animals)
@@ -546,7 +546,7 @@ async def complete_task(
     task.completed_at = utcnow()
     _clear_task_rejection(task)
 
-    if task.category == TaskCategory.BUCKET_MOVE.value and task.purchase_batch_id:
+    if task.category == TaskCategory.BUCKET_MOVE.value and task.purchase_batch_id is not None:
         for animal in release_animals or []:
             move_animal(
                 db,
@@ -560,9 +560,9 @@ async def complete_task(
 
     elif (
         task.category == TaskCategory.BUCKET_MOVE.value
-        and task.animal_id
+        and task.animal_id is not None
         and task.auto_generated
-        and task.breeding_record_id
+        and task.breeding_record_id is not None
     ):
         linked_animal = postpartum_doe or movement_animal
         if postpartum_doe is not None:
@@ -619,7 +619,7 @@ async def complete_task(
                 reference_date=resolved_movement_date,
             )
 
-    elif task.category == TaskCategory.WEANING.value and task.animal_id:
+    elif task.category == TaskCategory.WEANING.value and task.animal_id is not None:
         doe = weaning_doe
         if doe and doe.farm_id == task.farm_id:  # farm guard
             for kid in weaning_kids or []:

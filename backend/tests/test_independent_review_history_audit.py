@@ -17,7 +17,7 @@ from app.db import get_sessionmaker
 from app.models import Farm, ScreeningFinding, ScreeningFindingReview
 from app.utils import utcnow
 
-from .conftest import BACKEND_DIR
+from .conftest import BACKEND_DIR, database_direct_url
 from .test_ops_migration_integrity import _admin, _alembic, _throwaway_name
 from .test_screening_clinical_integrity import _finding
 
@@ -97,7 +97,7 @@ async def test_populated_forward_upgrade_archives_only_known_legacy_decisions() 
     await _admin(f'CREATE DATABASE "{database}"')
     try:
         await _alembic(database, "upgrade", "f8e2f6a0c5d3")
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{database}")
+        connection = await asyncpg.connect(database_direct_url(database))
         try:
             owner_id = await connection.fetchval(
                 "INSERT INTO users (email, password_hash) "
@@ -137,7 +137,7 @@ async def test_populated_forward_upgrade_archives_only_known_legacy_decisions() 
         # Stop at the revision under test. Later irreversible revisions must
         # not change where this downgrade is expected to fail.
         await _alembic(database, "upgrade", "f9a3b7c1d5e2")
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{database}")
+        connection = await asyncpg.connect(database_direct_url(database))
         try:
             assert await connection.fetch("SELECT * FROM screening_findings ORDER BY id") == (
                 originals
@@ -161,7 +161,7 @@ async def test_populated_forward_upgrade_archives_only_known_legacy_decisions() 
             await connection.close()
         refused = await _alembic(database, "downgrade", "f8e2f6a0c5d3", succeeds=False)
         assert "Legacy screening review snapshots would be lost" in refused.stderr
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{database}")
+        connection = await asyncpg.connect(database_direct_url(database))
         try:
             assert await connection.fetchval("SELECT version_num FROM alembic_version") == (
                 "f9a3b7c1d5e2"
@@ -185,8 +185,8 @@ async def test_forward_snapshot_lock_serializes_a_concurrent_review(tmp_path: Pa
     observer: asyncpg.Connection | None = None
     try:
         await _alembic(database, "upgrade", "f8e2f6a0c5d3")
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{database}")
-        observer = await asyncpg.connect(f"postgresql://localhost:5432/{database}")
+        connection = await asyncpg.connect(database_direct_url(database))
+        observer = await asyncpg.connect(database_direct_url(database))
         owner_id = await connection.fetchval(
             "INSERT INTO users (email, password_hash) "
             "VALUES ('review-lock@example.test', 'unused') RETURNING id"
@@ -240,7 +240,9 @@ op.execute = pause_after_finding_lock
 command.upgrade(Config('alembic.ini'), 'f9a3b7c1d5e2')
 """
         env = os.environ.copy()
-        target_url = f"postgresql+asyncpg://localhost:5432/{database}"
+        target_url = database_direct_url(database).replace(
+            "postgresql://", "postgresql+asyncpg://", 1
+        )
         env["GOATFARM_DATABASE_URL"] = target_url
         env["GOATFARM_MIGRATION_DATABASE_URL"] = target_url
         # The test deliberately pauses the quiescence-gated revision in a

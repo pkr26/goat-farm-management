@@ -282,6 +282,8 @@ def _triangular_from_uniform(low: float, high: float, uniform: float) -> float:
         return low
     mode = 1.0
     split = (mode - low) / (high - low)
+    if uniform == split:
+        return mode
     if uniform < split:
         return low + math.sqrt(uniform * (high - low) * (mode - low))
     return high - math.sqrt((1.0 - uniform) * (high - low) * (high - mode))

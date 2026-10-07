@@ -157,6 +157,9 @@ def excluded_node_ids(tree: ast.AST) -> set[int]:
             bad.add(id(n))
 
     for node in ast.walk(tree):
+        if isinstance(node, ast.TypeAlias):
+            mark(node)
+            continue
         if isinstance(node, ast.AnnAssign):
             mark(node.annotation)
             continue
@@ -178,6 +181,18 @@ def enclosing_statement(node: ast.AST, parents: dict[int, ast.AST]) -> ast.stmt 
     cur: ast.AST = node
     while True:
         if isinstance(cur, ast.stmt) and isinstance(parents.get(id(cur)), STMT_PARENTS):
+            # AST represents elif as an If in its parent's orelse. Unparsing
+            # just that node emits `if`, so replace the complete chain.
+            while isinstance(cur, ast.If):
+                parent = parents.get(id(cur))
+                if (
+                    isinstance(parent, ast.If)
+                    and parent.orelse == [cur]
+                    and parent.col_offset == cur.col_offset
+                ):
+                    cur = parent
+                else:
+                    break
             return cur
         nxt = parents.get(id(cur))
         if nxt is None:
@@ -297,9 +312,16 @@ def apply_site(node: ast.AST, site: Site, parents: dict[int, ast.AST]) -> bool:
     return False
 
 
+def statement_start(stmt: ast.stmt) -> int:
+    """Unparsed definitions include decorators, so their source span must too."""
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return min([stmt.lineno] + [decorator.lineno for decorator in stmt.decorator_list])
+    return stmt.lineno
+
+
 def splice(source: str, stmt: ast.stmt, new_text: str) -> str:
     lines = source.splitlines(keepends=True)
-    s, e = stmt.lineno - 1, stmt.end_lineno  # exclusive
+    s, e = statement_start(stmt) - 1, stmt.end_lineno  # exclusive
     replacement = textwrap.indent(new_text, " " * stmt.col_offset) + "\n"
     return "".join(lines[:s]) + replacement + "".join(lines[e:])
 
@@ -362,7 +384,10 @@ def generate() -> None:
                 ast.unparse(node) if not isinstance(node, ast.Constant) else repr(node.value)
             )
             mid = hashlib.sha1(
-                f"{rel}:{stmt.lineno}:{site.kind}:{site.detail}:{node_text}".encode()
+                (
+                    f"{rel}:{stmt.lineno}:{pos_node.lineno}:{pos_node.col_offset}:"
+                    f"{site.op_pos}:{site.kind}:{site.detail}:{node_text}"
+                ).encode()
             ).hexdigest()[:12]
             manifest.append(
                 {
@@ -374,12 +399,14 @@ def generate() -> None:
                     "end_line": pos_node.end_lineno,
                     "kind": site.kind,
                     "detail": site.detail,
-                    "stmt_line": stmt.lineno,
+                    "stmt_line": statement_start(stmt),
                     "stmt_end_line": stmt.end_lineno,
                     "stmt_col": stmt.col_offset,
                     "source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                     "orig_span": "".join(
-                        source.splitlines(keepends=True)[stmt.lineno - 1 : stmt.end_lineno]
+                        source.splitlines(keepends=True)[
+                            statement_start(stmt) - 1 : stmt.end_lineno
+                        ]
                     ),
                     "orig_stmt": ast.unparse(stmt),
                     "mut_stmt": new_stmt_src,

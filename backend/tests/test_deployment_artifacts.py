@@ -44,7 +44,7 @@ from scripts import (
     screening_worker_healthcheck,
 )
 
-from .conftest import _admin_sql
+from .conftest import _admin_sql, database_direct_url
 from .type_helpers import json_object, json_objects, json_string
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -4396,7 +4396,9 @@ def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: 
     _admin_sql(f'CREATE DATABASE "{database}"')
     try:
         env = os.environ.copy()
-        target_url = f"postgresql+asyncpg://localhost:5432/{database}"
+        target_url = database_direct_url(database).replace(
+            "postgresql://", "postgresql+asyncpg://", 1
+        )
         env["GOATFARM_DATABASE_URL"] = target_url
         env["GOATFARM_MIGRATION_DATABASE_URL"] = target_url
         env["GOATFARM_DB_STATEMENT_TIMEOUT_MS"] = "1"

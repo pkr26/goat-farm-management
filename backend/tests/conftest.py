@@ -11,6 +11,7 @@ import subprocess
 import sys
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 import asyncpg
@@ -28,8 +29,18 @@ if not (TEST_DB.endswith("_test") or "_test_" in TEST_DB):
         f"Refusing to run the test suite against database {TEST_DB!r}: "
         "GOATFARM_TEST_DB must name a throwaway database ending in '_test'."
     )
-ADMIN_URL = "postgresql://localhost:5432/postgres"
-TEST_URL = f"postgresql+asyncpg://localhost:5432/{TEST_DB}"
+ADMIN_URL = os.environ.get("MUTATION_TEST_ADMIN_URL", "postgresql://localhost:5432/postgres")
+_admin_endpoint = urlsplit(ADMIN_URL)
+
+
+def database_direct_url(database: str) -> str:
+    return urlunsplit(
+        (_admin_endpoint.scheme, _admin_endpoint.netloc, f"/{database}", _admin_endpoint.query, "")
+    )
+
+
+TEST_DIRECT_URL = database_direct_url(TEST_DB)
+TEST_URL = TEST_DIRECT_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 os.environ["GOATFARM_DATABASE_URL"] = TEST_URL  # before any app import
 # Alembic deliberately refuses the application's implicit/default target. The
@@ -155,7 +166,8 @@ async def _rotate_provisioned_password(response: httpx.Response) -> None:
 
     async def _fresh_login(password: str) -> httpx.Response:
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=create_app()), base_url="http://test"
+            transport=httpx.ASGITransport(app=create_app(), raise_app_exceptions=False),
+            base_url="http://test",
         ) as probe:
             return await probe.post("/api/auth/login", json={"email": email, "password": password})
 
@@ -179,7 +191,8 @@ async def _rotate_provisioned_password(response: httpx.Response) -> None:
         return
     rotated = f"{submitted}!r1"
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app()), base_url="http://test"
+        transport=httpx.ASGITransport(app=create_app(), raise_app_exceptions=False),
+        base_url="http://test",
     ) as rotator:
         changed = await rotator.post(
             "/api/auth/change-password",
@@ -259,7 +272,8 @@ async def _auto_idempotency_key(request: httpx.Request) -> None:
 
 @pytest.fixture()
 async def client() -> AsyncGenerator[httpx.AsyncClient]:
-    transport = httpx.ASGITransport(app=create_app())
+    # Exercise the HTTP response contract, including the app's opaque 500 boundary.
+    transport = httpx.ASGITransport(app=create_app(), raise_app_exceptions=False)
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://test",

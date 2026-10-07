@@ -53,7 +53,11 @@ from .test_screening import (
 )
 
 
-@pytest.mark.parametrize("prompt", [GATE_SYSTEM_PROMPT, DETECT_SYSTEM_PROMPT, "specialist schema"])
+@pytest.mark.parametrize(
+    "prompt",
+    [GATE_SYSTEM_PROMPT, DETECT_SYSTEM_PROMPT, "specialist schema"],
+    ids=["gate", "detection", "specialist"],
+)
 async def test_actual_openai_request_carries_the_stage_contract(prompt: str) -> None:
     requests: list[dict[str, Any]] = []
 

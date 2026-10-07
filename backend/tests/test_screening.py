@@ -445,16 +445,25 @@ def test_normalize_downscales_and_hashes() -> None:
     # A 6000x4000 (24 MP) "HD" photo must come back at most 1568 on the
     # long edge, with a hash that is stable across runs.
     big = _jpeg_bytes(6000, 4000)
-    normalized = normalize_image(big, max_edge=1568)
+    try:
+        normalized = normalize_image(big, max_edge=1568)
+    except ImageNormalizationError as exc:
+        pytest.fail(f"The known-valid JPEG fixture must normalize successfully: {exc}")
     assert max(normalized.width, normalized.height) == 1568
     assert normalized.byte_size < len(big)
-    again = normalize_image(big, max_edge=1568)
+    try:
+        again = normalize_image(big, max_edge=1568)
+    except ImageNormalizationError as exc:
+        pytest.fail(f"The known-valid JPEG fixture must normalize successfully: {exc}")
     assert again.sha256 == normalized.sha256
 
 
 def test_normalize_small_image_kept_without_upscaling() -> None:
     small = _jpeg_bytes(640, 480)
-    normalized = normalize_image(small, max_edge=1568)
+    try:
+        normalized = normalize_image(small, max_edge=1568)
+    except ImageNormalizationError as exc:
+        pytest.fail(f"The known-valid JPEG fixture must normalize successfully: {exc}")
     assert (normalized.width, normalized.height) == (640, 480)
 
 
@@ -467,7 +476,10 @@ def test_normalize_strips_exif_metadata() -> None:
     buffer = io.BytesIO()
     source.save(buffer, format="JPEG", exif=exif)
     assert b"Exif" in buffer.getvalue()
-    normalized = normalize_image(buffer.getvalue(), max_edge=1568)
+    try:
+        normalized = normalize_image(buffer.getvalue(), max_edge=1568)
+    except ImageNormalizationError as exc:
+        pytest.fail(f"The known-valid JPEG fixture must normalize successfully: {exc}")
     assert b"Exif" not in normalized.data
 
 
@@ -1255,7 +1267,10 @@ def test_detection_parse_rejects_non_list_shapes_with_controlled_error(answer: s
 
 def test_crop_image_cuts_the_box_with_margin() -> None:
     source = _jpeg_bytes(1000, 500)
-    cropped = crop_image(source, (500, 250, 300, 250))
+    try:
+        cropped = crop_image(source, (500, 250, 300, 250))
+    except CropError as exc:
+        pytest.fail(f"A usable known-valid detection crop must succeed: {exc}")
     # x: 0.5*1000 - 50 = 450 .. 0.8*1000 + 50 = 850 → 400 wide
     # y: 0.25*500 - 25 = 100 .. 0.5*500 + 25 = 275 → 175 tall
     assert (cropped.width, cropped.height) == (400, 175)
@@ -1264,7 +1279,10 @@ def test_crop_image_cuts_the_box_with_margin() -> None:
 
 def test_crop_image_clamps_at_frame_edges() -> None:
     source = _jpeg_bytes(1000, 500)
-    cropped = crop_image(source, (0, 0, 100, 100))
+    try:
+        cropped = crop_image(source, (0, 0, 100, 100))
+    except CropError as exc:
+        pytest.fail(f"A usable known-valid detection crop must succeed: {exc}")
     assert cropped.width <= 100 + 100  # 10% + margin, but never past 0..1000
     assert cropped.height <= 50 + 50
     assert cropped.width > 0 and cropped.height > 0
@@ -4280,7 +4298,10 @@ async def test_reupload_takes_over_the_claim_from_a_stalled_error_owner(
     stale_key = f"raw/{farm_id}/{capture_day}/BREEDING/stuck.jpg"
     fresh_key = f"raw/{farm_id}/{capture_day}/BREEDING/retry.jpg"
     storage = FakeStorage(objects={fresh_key: blob})
-    normalized = normalize_image(blob, 1_568, "image/jpeg")
+    try:
+        normalized = normalize_image(blob, 1_568, "image/jpeg")
+    except ImageNormalizationError as exc:
+        pytest.fail(f"The known-valid JPEG fixture must normalize successfully: {exc}")
     digest = normalized.sha256
 
     recent = utcnow() - dt.timedelta(minutes=2)
@@ -4348,7 +4369,10 @@ async def test_reupload_while_owner_is_processing_reports_truthful_duplicate(
     busy_key = f"raw/{farm_id}/{capture_day}/BREEDING/busy.jpg"
     again_key = f"raw/{farm_id}/{capture_day}/BREEDING/again.jpg"
     storage = FakeStorage(objects={again_key: blob})
-    digest = normalize_image(blob, 1_568, "image/jpeg").sha256
+    try:
+        digest = normalize_image(blob, 1_568, "image/jpeg").sha256
+    except ImageNormalizationError as exc:
+        pytest.fail(f"The known-valid JPEG fixture must normalize successfully: {exc}")
 
     async with get_sessionmaker()() as db:
         busy = ScreeningImage(

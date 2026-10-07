@@ -1345,12 +1345,12 @@ BUCKETS = [
         ("weight_kg", None),
         ("weight_kg", 0.001),
         ("date_of_birth", None),
-        ("date_of_birth", TODAY.isoformat()),
+        pytest.param("date_of_birth", TODAY.isoformat(), id="date_of_birth-today"),
         ("date_of_birth", "2000-02-29"),  # leap day
         ("estimated_dob", None),
-        ("estimated_dob", TODAY.isoformat()),
+        pytest.param("estimated_dob", TODAY.isoformat(), id="estimated_dob-today"),
         ("purchase_date", None),
-        ("purchase_date", TODAY.isoformat()),
+        pytest.param("purchase_date", TODAY.isoformat(), id="purchase_date-today"),
         ("seller_name", None),
         ("seller_name", "S" * 120),
         ("notes", None),
@@ -1446,7 +1446,7 @@ def test_animal_create_rejects_unknown_extra_fields() -> None:
         ("bcs", 1),
         ("bcs", 5),
         ("date", None),
-        ("date", TODAY.isoformat()),
+        pytest.param("date", TODAY.isoformat(), id="date-today"),
         ("notes", None),
     ],
 )
@@ -1498,7 +1498,7 @@ def test_move_in_rejects_unknown_buckets(bucket: str) -> None:
         ("sale_price", None),
         ("sale_price", 0.0),
         ("date", None),
-        ("date", TODAY.isoformat()),
+        pytest.param("date", TODAY.isoformat(), id="date-today"),
         ("buyer_name", "B" * 120),
     ],
 )
@@ -1676,7 +1676,9 @@ VALID_KIDDING = {
         ("ease", "NORMAL"),
         ("notes", None),
         ("notes", "n" * 4_000),
-        ("date", TOMORROW),  # future dates are the router's guard, not the schema's
+        pytest.param(
+            "date", TOMORROW, id="date-tomorrow"
+        ),  # future dates are the router's guard, not the schema's
         ("kids", [{"sex": "M"}] * 4),  # the species litter cap (goat profile)
     ],
 )
@@ -1815,7 +1817,7 @@ def test_dispense_accepts_every_shift(shift: str) -> None:
         ("qty_kg", 1000.0),
         ("recipe_code", "CREEP"),
         ("date", None),
-        ("date", TODAY.isoformat()),
+        pytest.param("date", TODAY.isoformat(), id="date-today"),
     ],
 )
 def test_dispense_valid(field: str, value: object) -> None:
@@ -2117,7 +2119,7 @@ def test_task_create_rejects_system_workflow_categories(category: str) -> None:
         ("title", "T"),
         ("title", "T" * 200),
         ("title", "షెడ్ శుభ్రం 🧹"),
-        ("due_date", TOMORROW),  # duties may be due in the future
+        pytest.param("due_date", TOMORROW, id="due_date-tomorrow"),  # future duties
         ("recur_days", None),
         ("recur_days", 1),
         ("recur_days", 3650),  # services.MAX_RECUR_DAYS

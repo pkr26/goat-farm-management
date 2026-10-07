@@ -14,7 +14,7 @@ from app.db import get_engine
 from app.models import Farm
 from app.utils import today
 
-from .conftest import BACKEND_DIR, TEST_DB, owner_with_farm
+from .conftest import BACKEND_DIR, TEST_DIRECT_URL, database_direct_url, owner_with_farm
 from .test_health_extended import make_animal
 
 # The legacy-era fixtures below live ~20 revisions beneath head. Downgrading
@@ -71,7 +71,7 @@ async def test_migration_unlinks_unsafe_inference_but_retains_word_match(
     await get_engine().dispose()
     try:
         await _alembic("downgrade", PARENT_REVISION)
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             downgraded_trigger = await connection.fetchval(
                 """
@@ -116,7 +116,7 @@ async def test_migration_unlinks_unsafe_inference_but_retains_word_match(
             await connection.close()
 
         await _alembic("upgrade", "head")
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             rows = {
                 row["id"]: row["schedule_template_id"]
@@ -186,7 +186,7 @@ async def test_health_compliance_migration_fails_safely_until_legacy_evidence_is
     await get_engine().dispose()
     try:
         await _alembic("downgrade", HEALTH_COMPLIANCE_PARENT_REVISION)
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             event_id = await connection.fetchval(
                 """
@@ -206,7 +206,7 @@ async def test_health_compliance_migration_fails_safely_until_legacy_evidence_is
 
         with pytest.raises(AssertionError, match="Sample health_event ids"):
             await _alembic("upgrade", "head")
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             row = await connection.fetchrow(
                 """
@@ -245,7 +245,7 @@ async def test_health_compliance_migration_fails_safely_until_legacy_evidence_is
         assert constraint_exists is False
 
         await _alembic("upgrade", "head")
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             reconciled = await connection.fetchrow(
                 """
@@ -305,7 +305,7 @@ async def test_reproductive_migration_preserves_recorded_death_dates_and_skips_l
     database = _throwaway_name("b9_death_alignment")
     await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
     await _admin(f'CREATE DATABASE "{database}"')
-    database_url = f"postgresql://localhost:5432/{database}"
+    database_url = database_direct_url(database)
     kidding_date = date(2024, 12, 1)
     adult_death_date = date(2025, 8, 1)
     try:
@@ -457,7 +457,7 @@ async def test_exact_money_migration_preflights_the_amount_business_cap() -> Non
     database = _throwaway_name("c8_amount_cap")
     await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
     await _admin(f'CREATE DATABASE "{database}"')
-    database_url = f"postgresql://localhost:5432/{database}"
+    database_url = database_direct_url(database)
     try:
         await _alembic_on(database, "upgrade", EXACT_MONEY_PARENT_REVISION)
         connection = await asyncpg.connect(database_url)
@@ -535,7 +535,7 @@ async def test_farms_timezone_server_default_and_not_valid_checks_are_installed(
     constraints, not silently skip the validate step.
     """
     assert Farm.__table__.columns["timezone"].server_default is not None
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         rows = await connection.fetch(
             """

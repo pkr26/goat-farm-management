@@ -17,7 +17,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from app.db import get_engine, get_sessionmaker
 from app.models import PlannerPlan, Role, SimulationScenario
 
-from .conftest import BACKEND_DIR, TEST_DB, owner_with_farm
+from .conftest import BACKEND_DIR, TEST_DIRECT_URL, owner_with_farm
 
 # (table, column, jsonb shape, wrong-shape valid JSON for CHECK probes).
 JSON_COLUMNS: tuple[tuple[str, str, str, str], ...] = (
@@ -266,7 +266,7 @@ async def test_migration_refuses_corrupt_legacy_json_then_reupgrades_cleanly(
     await _alembic("downgrade", JSONB_PARENT)
     assert (await _column_types())[("roles", "permissions")] == "text"
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         await connection.execute(
             "UPDATE roles SET permissions = '{not json' WHERE id = $1", role_id
@@ -282,7 +282,7 @@ async def test_migration_refuses_corrupt_legacy_json_then_reupgrades_cleanly(
     # The failed revision is transactional: no column may have been converted.
     assert (await _column_types())[("roles", "permissions")] == "text"
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         await connection.execute("UPDATE roles SET permissions = '[]' WHERE id = $1", role_id)
     finally:

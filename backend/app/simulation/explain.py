@@ -622,7 +622,7 @@ def _active_festival_months(assumptions: SimulationAssumptions) -> list[int]:
     """Months where the Bakrid uplift applies (explicit lunar months, or the
     legacy recurring Gregorian month)."""
     sales = assumptions.sales
-    if sales.festival_sale_months:
+    if sales.festival_sale_months is not None:
         return list(sales.festival_sale_months)
     if sales.eid_month > 0:
         start = int(assumptions.meta.start_year_month.split("-")[1])

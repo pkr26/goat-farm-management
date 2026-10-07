@@ -1,0 +1,1468 @@
+[
+  {
+    "domain": 1,
+    "file": "app/models/animals.py",
+    "original": "return self.date_of_birth or self.estimated_dob",
+    "replacement": "return self.estimated_dob or self.date_of_birth",
+    "detail": "Prefer an estimated birth date over the recorded birth fact",
+    "tests": [
+      "tests/test_animals_extended.py",
+      "tests/test_unit_extended.py"
+    ]
+  },
+  {
+    "domain": 1,
+    "file": "app/models/animals.py",
+    "original": "return max(records, key=lambda record: (record.date, record.id or 0)).weight_kg",
+    "replacement": "return max(records, key=lambda record: (record.date, -(record.id or 0))).weight_kg",
+    "detail": "Choose the earlier same-day weighing rather than the latest entered fact",
+    "tests": [
+      "tests/test_animals_extended.py",
+      "tests/test_breeding_extended.py"
+    ]
+  },
+  {
+    "domain": 1,
+    "file": "app/models/species.py",
+    "original": "max_adult_weight_kg=150.0,",
+    "replacement": "max_adult_weight_kg=151.0,",
+    "detail": "Raise the credible goat adult-scale cap by one kilogram",
+    "tests": [
+      "tests/test_animals_extended.py",
+      "tests/test_input_bounds.py",
+      "tests/test_redteam_domain_fixes.py"
+    ]
+  },
+  {
+    "domain": 2,
+    "file": "app/models/lifecycle.py",
+    "original": "(Bucket.BREEDING.value, Bucket.PREGNANCY_EARLY.value): frozenset({\"ultrasound\"}),",
+    "replacement": "(Bucket.BREEDING.value, Bucket.PREGNANCY_EARLY.value): frozenset({\"ultrasound\", \"manual\"}),",
+    "detail": "Allow a manual move to fabricate confirmed-pregnancy classification",
+    "tests": [
+      "tests/test_e2e_lifecycle_audit.py",
+      "tests/test_lifecycle_gaps.py",
+      "tests/test_mutation38_livestock_context.py::test_pregnancy_classification_requires_ultrasound_context",
+      "tests/test_mutation38_livestock_context.py::test_manual_move_cannot_fabricate_pregnancy_classification"
+    ]
+  },
+  {
+    "domain": 2,
+    "file": "app/models/lifecycle.py",
+    "original": "(Bucket.BREEDING.value, Bucket.RECOVERY.value): frozenset({\"kidding\"}),",
+    "replacement": "(Bucket.BREEDING.value, Bucket.RECOVERY.value): frozenset(),",
+    "detail": "Remove the supported kidding exit after an owner placed a pregnant doe in BREEDING",
+    "tests": [
+      "tests/test_kidding_gaps.py::test_kidding_after_history_override_into_breeding",
+      "tests/test_breeding_extended.py"
+    ]
+  },
+  {
+    "domain": 2,
+    "file": "app/models/species.py",
+    "original": "min_rest_flush_days=10,",
+    "replacement": "min_rest_flush_days=9,",
+    "detail": "Shorten the required RESTING dry-off and flush window",
+    "tests": [
+      "tests/test_animals_status_husbandry.py",
+      "tests/test_breeding_extended.py"
+    ]
+  },
+  {
+    "domain": 3,
+    "file": "app/models/helpers.py",
+    "original": "        45,\n        TaskCategory.BUCKET_MOVE,",
+    "replacement": "        44,\n        TaskCategory.BUCKET_MOVE,",
+    "detail": "Move the entire managed quarantine release protocol one day early",
+    "tests": [
+      "tests/test_health_extended.py::test_quarantine_tasks_match_spec_schedule",
+      "tests/test_lifecycle_gaps.py"
+    ]
+  },
+  {
+    "domain": 3,
+    "file": "app/services/purchases.py",
+    "original": "allocate_money(exact_total_price, count)",
+    "replacement": "allocate_money(exact_total_price + money(0.01), count)",
+    "detail": "Create an extra paise across purchased animals without increasing the booked batch expense",
+    "tests": [
+      "tests/test_finance_gaps.py",
+      "tests/test_health_extended.py"
+    ]
+  },
+  {
+    "domain": 3,
+    "file": "app/services/purchases.py",
+    "original": "await schedule_quarantine_tasks(db, farm, batch)",
+    "replacement": "pass",
+    "detail": "Create batch animals without their quarantine work",
+    "tests": [
+      "tests/test_health_extended.py",
+      "tests/test_e2e_lifecycle_audit.py"
+    ]
+  },
+  {
+    "domain": 4,
+    "file": "app/models/species.py",
+    "original": "min_breeding_weight_kg=22.0,",
+    "replacement": "min_breeding_weight_kg=21.0,",
+    "detail": "Admit an underweight doe consistently through every shared eligibility consumer",
+    "tests": [
+      "tests/test_breeding_extended.py::test_candidate_weight_boundary_22kg",
+      "tests/test_animals_status_husbandry.py"
+    ]
+  },
+  {
+    "domain": 4,
+    "file": "app/models/constants.py",
+    "original": "BUCK_DOE_RATIO = 20",
+    "replacement": "BUCK_DOE_RATIO = 21",
+    "detail": "Permit a twenty-first simultaneously open natural service for one sire",
+    "tests": [
+      "tests/test_breeding_extended.py",
+      "tests/test_concurrency.py"
+    ]
+  },
+  {
+    "domain": 4,
+    "file": "app/services/breeding.py",
+    "original": "        or full_siblings\n",
+    "replacement": "",
+    "detail": "Remove the full-sibling prohibition while preserving every other kinship fence",
+    "tests": [
+      "tests/test_breeding_extended.py",
+      "tests/test_redteam_domain_fixes.py"
+    ]
+  },
+  {
+    "domain": 5,
+    "file": "app/models/species.py",
+    "original": "pregnancy_check_after_service_days=32,",
+    "replacement": "pregnancy_check_after_service_days=31,",
+    "detail": "Advance the pregnancy-check task and positive-observation eligibility together",
+    "tests": [
+      "tests/test_breeding_extended.py",
+      "tests/test_logic.py"
+    ]
+  },
+  {
+    "domain": 5,
+    "file": "app/models/species.py",
+    "original": "gestation_days=150,",
+    "replacement": "gestation_days=151,",
+    "detail": "Shift expected kidding and its complete follow-up programme by one day",
+    "tests": [
+      "tests/test_breeding_extended.py",
+      "tests/test_logic.py",
+      "tests/test_e2e_lifecycle_audit.py"
+    ]
+  },
+  {
+    "domain": 5,
+    "file": "app/services/breeding.py",
+    "original": "        doe.cull_candidate = False  # she conceived \u2014 previous failures forgiven",
+    "replacement": "        pass  # conception fails to clear the previous failed-service cull flag",
+    "detail": "Keep the cull-candidate flag after a confirmed conception",
+    "tests": [
+      "tests/test_breeding_extended.py::test_conception_clears_cull_candidate_flag"
+    ]
+  },
+  {
+    "domain": 6,
+    "file": "app/services/kidding.py",
+    "original": "        parity=prior_kiddings + 1,",
+    "replacement": "        parity=1,",
+    "detail": "Persist every kidding as the dam first litter instead of deriving lifetime parity",
+    "tests": [
+      "tests/test_kidding_husbandry.py::test_parity_increments_across_two_kiddings"
+    ]
+  },
+  {
+    "domain": 6,
+    "file": "app/services/kidding.py",
+    "original": "                sire_id=br.buck_id,",
+    "replacement": "                sire_id=None,",
+    "detail": "Discard the herd sire when creating newborn Animal lineage",
+    "tests": [
+      "tests/test_breeding_extended.py",
+      "tests/test_e2e_lifecycle_audit.py"
+    ]
+  },
+  {
+    "domain": 6,
+    "file": "app/models/species.py",
+    "original": "birth_weight_kg_range=(0.5, 8.0),",
+    "replacement": "birth_weight_kg_range=(0.5, 9.0),",
+    "detail": "Allow an implausibly heavy newborn through all species-bound writers",
+    "tests": [
+      "tests/test_breeding_extended.py",
+      "tests/test_animals_extended.py",
+      "tests/test_input_bounds.py",
+      "tests/test_mutation38_livestock_birth_boundary.py::test_historical_birth_weight_accepts_eight_rejects_eight_point_zero_one",
+      "tests/test_mutation38_livestock_birth_boundary.py::test_kidding_birth_weight_accepts_eight_rejects_eight_point_zero_one"
+    ]
+  },
+  {
+    "domain": 7,
+    "file": "app/models/species.py",
+    "original": "weaning_days=60,",
+    "replacement": "weaning_days=59,",
+    "detail": "Shorten linked weaning duties, creep endpoint and litter provenance to day fifty-nine",
+    "tests": [
+      "tests/test_lifecycle_gaps.py::test_weaning_boundary_days_59_60_61",
+      "tests/test_breeding_extended.py",
+      "tests/test_feeding_extended.py"
+    ]
+  },
+  {
+    "domain": 7,
+    "file": "app/services/kidding.py",
+    "original": "    if weaned_out is not None:\n        return False\n",
+    "replacement": "    if False:\n        return False\n",
+    "detail": "Reclassify a previously weaned animal death as neonatal mortality when it has returned to RECOVERY",
+    "tests": [
+      "tests/test_animals_bugs.py::test_farm_born_dam_dying_in_recovery_keeps_her_own_birth_entry",
+      "tests/test_breeding_bugs.py"
+    ]
+  },
+  {
+    "domain": 7,
+    "file": "app/services/tasks.py",
+    "original": "    return survivor is not None",
+    "replacement": "    return survivor is not None or any(kid.status == \"ALIVE\" for kid in kids)",
+    "detail": "Let a sold or culled kid immutable ALIVE birth fact keep the dam in RECOVERY after the final current survivor dies",
+    "tests": [
+      "tests/test_breeding_extended.py::test_sold_sibling_does_not_strand_the_dam_in_recovery",
+      "tests/test_breeding_bugs.py"
+    ]
+  },
+  {
+    "domain": 8,
+    "file": "app/api/animals.py",
+    "original": "await lapse_policies_for_animal(db, farm, animal)",
+    "replacement": "pass",
+    "detail": "Leave active per-animal insurance cover behind after herd exit",
+    "tests": [
+      "tests/test_finance_insurance.py::test_animal_exit_lapses_active_cover_and_blocks_renewal"
+    ]
+  },
+  {
+    "domain": 8,
+    "file": "app/api/animals.py",
+    "original": "await skip_pending_tasks_for_animal(db, farm.id, animal.id)",
+    "replacement": "pass",
+    "detail": "Omit immediate pending-duty cleanup on retirement",
+    "tests": [
+      "tests/test_animals_extended.py",
+      "tests/test_inactive_animal_task_cleanup.py"
+    ]
+  },
+  {
+    "domain": 8,
+    "file": "app/api/animals.py",
+    "original": "sale_price = money(sale_weight_kg * Decimal(str(payload.sale_price_per_kg)))",
+    "replacement": "sale_price = money(sale_weight_kg + Decimal(str(payload.sale_price_per_kg)))",
+    "detail": "Book live-weight sales using weight plus rate rather than their paise-exact product",
+    "tests": [
+      "tests/test_animals_status_husbandry.py::test_sold_derives_paise_exact_price_from_weight_and_rate"
+    ]
+  },
+  {
+    "domain": 9,
+    "file": "app/services/health.py",
+    "original": "closing = phrase.rfind(\"]\")",
+    "replacement": "closing = phrase.find(\"]\")",
+    "detail": "Let a supplier label containing a bracket contaminate quarantine programme inference",
+    "tests": [
+      "tests/test_health_safety.py",
+      "tests/test_health_extended.py"
+    ]
+  },
+  {
+    "domain": 9,
+    "file": "app/services/health.py",
+    "original": "days = Decimal(str(booster_weeks * 7)).quantize(Decimal(\"1\"), rounding=ROUND_HALF_UP)",
+    "replacement": "days = Decimal(str(booster_weeks * 7)).quantize(Decimal(\"1\"), rounding=\"ROUND_DOWN\")",
+    "detail": "Floor a fractional-week booster interval instead of rounding half-up to the intended date",
+    "tests": [
+      "tests/test_domain_audit_fixes.py",
+      "tests/test_health_extended.py"
+    ]
+  },
+  {
+    "domain": 9,
+    "file": "app/services/health.py",
+    "original": "            .order_by(HealthEvent.date, HealthEvent.id)\n            .limit(1)",
+    "replacement": "            .order_by(HealthEvent.date.desc(), HealthEvent.id.desc())\n            .limit(1)",
+    "detail": "Use the latest dose rather than the first administered dose as the permanent primary booster anchor",
+    "tests": [
+      "tests/test_health_extended.py",
+      "tests/test_health_safety.py"
+    ]
+  },
+  {
+    "domain": 10,
+    "file": "app/services/health_rounds.py",
+    "original": "        components = [\n            name for name in round_.required_components if target_matches_template(target, name)\n        ]",
+    "replacement": "        components = list(round_.required_components)",
+    "detail": "Let a health entry naming just ET cover both required ET and HS round components",
+    "tests": [
+      "tests/test_health_safety.py",
+      "tests/test_health_extended.py"
+    ]
+  },
+  {
+    "domain": 10,
+    "file": "app/services/health_rounds.py",
+    "original": "    remaining = (total - excluded) * len(round_.required_components) - int(units)",
+    "replacement": "    remaining = (total - excluded) - int(units)",
+    "detail": "Close multi-component herd rounds after one evidence unit per animal",
+    "tests": [
+      "tests/test_health_safety.py",
+      "tests/test_independent_domain_audit.py"
+    ]
+  },
+  {
+    "domain": 10,
+    "file": "app/services/health_rounds.py",
+    "original": "Animal.farm_id == task.farm_id, Animal.status == AnimalStatus.ACTIVE.value",
+    "replacement": "Animal.farm_id == task.farm_id",
+    "detail": "Include terminal herd stock in a newly declared treatment round",
+    "tests": [
+      "tests/test_health_safety.py",
+      "tests/test_independent_domain_audit.py"
+    ]
+  },
+  {
+    "domain": 11,
+    "file": "app/services/health.py",
+    "original": "animal.restriction_version = (animal.restriction_version or 0) + 1",
+    "replacement": "animal.restriction_version = animal.restriction_version or 0",
+    "detail": "Reuse the previous restriction episode identity for a newly placed disease hold",
+    "tests": [
+      "tests/test_health_safety.py::test_restriction_versions_history_and_explicit_supersession",
+      "tests/test_health_safety.py::test_clear_racing_a_new_hold_cannot_clear_the_new_episode"
+    ]
+  },
+  {
+    "domain": 11,
+    "file": "app/services/health.py",
+    "original": "    animal.restriction_clearance_reference = None",
+    "replacement": "    pass  # keep stale clearance reference on new hold",
+    "detail": "Carry an earlier clearance into a newly placed active restriction episode",
+    "tests": [
+      "tests/test_redteam_domain_fixes.py::test_new_restriction_episode_carries_no_stale_clearance"
+    ]
+  },
+  {
+    "domain": 11,
+    "file": "app/api/animals.py",
+    "original": "select(func.max(HealthEvent.withdrawal_until)).where(",
+    "replacement": "select(func.min(HealthEvent.withdrawal_until)).where(",
+    "detail": "Report the earliest remaining withdrawal expiry rather than the actual latest blocking horizon",
+    "tests": [
+      "tests/test_health_gaps.py::test_overlapping_treatments_block_until_the_latest_expiry"
+    ]
+  },
+  {
+    "domain": 12,
+    "file": "app/models/feed_rules.py",
+    "original": "CREEP_KG_PER_HEAD = 0.3",
+    "replacement": "CREEP_KG_PER_HEAD = 0.4",
+    "detail": "Increase the final creep ration band while both Python and SQL consumers agree on the wrong value",
+    "tests": [
+      "tests/test_feeding_extended.py::test_creep_daily_kg_ramp",
+      "tests/test_feeding_extended.py::test_plan_creep_lines_split_by_age_band"
+    ]
+  },
+  {
+    "domain": 12,
+    "file": "app/models/feed_rules.py",
+    "original": "return \"FLUSH_70_30\" if bucket_days >= 10 else \"MAINTENANCE_75_25\"",
+    "replacement": "return \"FLUSH_70_30\" if bucket_days >= 11 else \"MAINTENANCE_75_25\"",
+    "detail": "Delay the pure recipe RESTING flush switch by a day",
+    "tests": [
+      "tests/test_feeding_extended.py",
+      "tests/test_logic.py"
+    ]
+  },
+  {
+    "domain": 12,
+    "file": "app/models/feed_rules.py",
+    "original": "    Bucket.PREGNANCY_LATE.value: 3.5,",
+    "replacement": "    Bucket.PREGNANCY_LATE.value: 3.0,",
+    "detail": "Remove the late-pregnancy increase in as-fed body-weight percentage",
+    "tests": [
+      "tests/test_feeding_extended.py"
+    ]
+  },
+  {
+    "domain": 13,
+    "file": "app/services/feeding.py",
+    "original": "    allocated_grams = _allocate_recipe_grams(list(weights_by_ingredient.values()), total_grams)",
+    "replacement": "    allocated_grams = _allocate_recipe_grams(list(weights_by_ingredient.values()), total_grams + 1)",
+    "detail": "Consume one extra gram of raw ingredients per finished batch",
+    "tests": [
+      "tests/test_feeding_gaps.py",
+      "tests/test_feeding_extended.py"
+    ]
+  },
+  {
+    "domain": 13,
+    "file": "app/services/feeding.py",
+    "original": "FeedFinishedStock.qty_on_hand + finished_insert.excluded.qty_on_hand",
+    "replacement": "finished_insert.excluded.qty_on_hand",
+    "detail": "Overwrite rather than accumulate already mixed finished feed",
+    "tests": [
+      "tests/test_feeding_extended.py::test_mix_sequential_batches_accumulate",
+      "tests/test_concurrency_gaps.py"
+    ]
+  },
+  {
+    "domain": 13,
+    "file": "app/services/feeding.py",
+    "original": "        inventory.qty_on_hand = float(\n            (available - requested).quantize(KG_QUANTUM, rounding=ROUND_HALF_UP)\n        )",
+    "replacement": "        inventory.qty_on_hand = float(available)",
+    "detail": "Log direct quarantine roughage dispensing without consuming the raw stover inventory",
+    "tests": [
+      "tests/test_feeding_extended.py",
+      "tests/test_feed_quantity_numeric.py"
+    ]
+  },
+  {
+    "domain": 14,
+    "file": "app/api/finance.py",
+    "original": "            correction_of_id=txn.id,",
+    "replacement": "            correction_of_id=None,",
+    "detail": "Create a replacement without its audited parent transaction link",
+    "tests": [
+      "tests/test_finance_extended.py",
+      "tests/test_finance_gaps.py::test_ledger_correction_voids_and_replaces"
+    ]
+  },
+  {
+    "domain": 14,
+    "file": "app/api/finance.py",
+    "original": "            source_type=txn.source_type,\n            source_id=txn.source_id,",
+    "replacement": "            source_type=None,\n            source_id=None,",
+    "detail": "Lose immutable producing-event provenance during a ledger correction",
+    "tests": [
+      "tests/test_finance_extended.py",
+      "tests/test_finance_insurance.py"
+    ]
+  },
+  {
+    "domain": 14,
+    "file": "app/api/finance.py",
+    "original": "    inventory.last_purchase_price_per_kg = latest_unit_price",
+    "replacement": "    inventory.last_purchase_price_per_kg = corrected_unit_price",
+    "detail": "Always let an older corrected feed purchase override the current last-purchase price",
+    "tests": [
+      "tests/test_finance_extended.py",
+      "tests/test_independent_review_history_audit.py"
+    ]
+  },
+  {
+    "domain": 15,
+    "file": "app/services/finance.py",
+    "original": "db.add(\n        InsurancePremium(\n            farm_id=farm_id,\n            policy_id=policy.id,\n            premium=money(premium),\n            covered_from=covered_from,\n            covered_until=covered_until,\n            recorded_on=recorded_on,\n            recorded_by_id=recorded_by_id,\n        )\n    )",
+    "replacement": "pass",
+    "detail": "Register or renew cover without recording its immutable premium payment fact",
+    "tests": [
+      "tests/test_finance_insurance.py::test_renewal_books_premium_history_and_pnl_sums_payments"
+    ]
+  },
+  {
+    "domain": 15,
+    "file": "app/services/finance.py",
+    "original": "await _add_task(\n        db,\n        farm_id,\n        f\"Insurance renewal due: policy {policy.policy_number}\",\n        due,\n        TaskCategory.INSURANCE,\n        animal_id=policy.animal_id,\n        title_key=\"insurance_renewal\",\n        title_args={\n            \"policy_id\": policy.id,\n            \"policy_number\": policy.policy_number,\n            \"renewal_date\": policy.renewal_date.isoformat(),\n            \"due_date\": due.isoformat(),\n        },\n    )",
+    "replacement": "pass",
+    "detail": "Register valid long-horizon insurance cover without the accountant renewal duty",
+    "tests": [
+      "tests/test_finance_insurance.py::test_create_spawns_accountant_renewal_duty"
+    ]
+  },
+  {
+    "domain": 15,
+    "file": "app/services/finance.py",
+    "original": "MAX_RENEWAL_SPAN_DAYS = 5 * 366",
+    "replacement": "MAX_RENEWAL_SPAN_DAYS = 10 * 366",
+    "detail": "Allow a single paid coverage span up to ten years instead of successive five-year renewals",
+    "tests": [
+      "tests/test_finance_insurance.py::test_renewal_span_is_capped_at_five_years",
+      "tests/test_finance_insurance.py::test_registration_span_is_capped_at_five_years"
+    ]
+  },
+  {
+    "domain": 16,
+    "file": "app/services/finance.py",
+    "original": "    purchase_cost = ledger_purchase if ledger_purchase else animal.purchase_price or Decimal(\"0.00\")",
+    "replacement": "    purchase_cost = ledger_purchase + (animal.purchase_price or Decimal(\"0.00\"))",
+    "detail": "Double-count the ledger and denormalized acquisition value in lifetime P&L",
+    "tests": [
+      "tests/test_finance_insurance.py::test_lifetime_pnl_math_includes_only_provenance_scoped_money"
+    ]
+  },
+  {
+    "domain": 16,
+    "file": "app/services/finance.py",
+    "original": "                    Animal.sale_price.is_not(None),\n",
+    "replacement": "",
+    "detail": "Include unpriced weighed sales in the realized-rate denominator for mortality valuation",
+    "tests": [
+      "tests/test_finance_insurance.py::test_mortality_memo_realized_rate_excludes_unpriced_weighed_sales"
+    ]
+  },
+  {
+    "domain": 16,
+    "file": "app/services/finance.py",
+    "original": "premium_month_col = func.to_char(InsurancePremium.recorded_on, \"YYYY-MM\")",
+    "replacement": "premium_month_col = func.to_char(InsurancePremium.covered_from, \"YYYY-MM\")",
+    "detail": "Assign early premium payments to their coverage-start month rather than their accounting payment month",
+    "tests": [
+      "tests/test_finance_insurance.py::test_renewal_books_premium_history_and_pnl_sums_payments",
+      "tests/test_finance_extended.py"
+    ]
+  },
+  {
+    "domain": 17,
+    "file": "app/api/tasks.py",
+    "original": "if task.completed_by_id == user.id and farm.owner_id != user.id:",
+    "replacement": "if task.completed_by_id == user.id:",
+    "detail": "Remove the farm-owner exception to the two-person duty-verification rule.",
+    "tests": [
+      "tests/test_tasks_extended.py::test_owner_can_verify_own_completion"
+    ]
+  },
+  {
+    "domain": 17,
+    "file": "app/services/tasks.py",
+    "original": "task.skipped_by_id = user.id",
+    "replacement": "task.skipped_by_id = None",
+    "detail": "Lose the identity of the worker who manually skipped a duty.",
+    "tests": [
+      "tests/test_tasks_extended.py::test_skip_stamps_skipped_by"
+    ]
+  },
+  {
+    "domain": 17,
+    "file": "app/services/tasks.py",
+    "original": "task.rejected_by_id = user.id",
+    "replacement": "task.rejected_by_id = None",
+    "detail": "Lose verifier attribution for the rejected duty attempt.",
+    "tests": [
+      "tests/test_tasks_extended.py::test_reject_records_who_rejected_and_when"
+    ]
+  },
+  {
+    "domain": 18,
+    "file": "app/services/tasks.py",
+    "original": "recurrence_anchor = max(task.due_date, business_today)",
+    "replacement": "recurrence_anchor = task.due_date",
+    "detail": "Anchor late duty catch-up to its old due date and produce already-overdue successors.",
+    "tests": [
+      "tests/test_tasks_extended.py",
+      "tests/test_tasks_bugs.py",
+      "tests/test_tasks_extended.py::test_recurrence_chain_continues"
+    ]
+  },
+  {
+    "domain": 18,
+    "file": "app/services/tasks.py",
+    "original": "if live_successor is not None:\n        return live_successor",
+    "replacement": "if False and live_successor is not None:\n        return live_successor",
+    "detail": "Ignore the existing live recurring successor, permitting a second future occurrence across midnight.",
+    "tests": [
+      "tests/test_tasks_bugs.py::test_serialized_recurring_actions_across_midnight_reuse_live_successor"
+    ]
+  },
+  {
+    "domain": 18,
+    "file": "app/services/tasks.py",
+    "original": "created_by_id=task.created_by_id,",
+    "replacement": "created_by_id=None,",
+    "detail": "Drop original creator provenance from recurring duty successors.",
+    "tests": [
+      "tests/test_tasks_extended.py::test_recurring_successor_keeps_provenance_and_title_key"
+    ]
+  },
+  {
+    "domain": 19,
+    "file": "app/services/cadence.py",
+    "original": "if latest_due is not None and add_months(latest_due, 12) > reference:",
+    "replacement": "if latest_due is not None and latest_due + timedelta(days=365) > reference:",
+    "detail": "Replace the annual PPR calendar-month interval with a drifting 365-day interval.",
+    "tests": [
+      "tests/test_cadence.py::test_annual_ppr_has_independent_dedupe_and_round_snapshot",
+      "tests/test_mutation38_workflow_boundaries.py::test_annual_ppr_waits_for_the_calendar_anniversary_across_a_leap_day"
+    ]
+  },
+  {
+    "domain": 19,
+    "file": "app/services/cadence.py",
+    "original": "        earliest_stock if earliest_stock is not None else creation_day,",
+    "replacement": "        creation_day,",
+    "detail": "Backfill herd rounds before the first provable animal introduction.",
+    "tests": [
+      "tests/test_cadence.py::test_backfill_never_precedes_the_first_animal"
+    ]
+  },
+  {
+    "domain": 19,
+    "file": "app/services/cadence.py",
+    "original": "        Task.category == TaskCategory.WATER.value,\n        Task.due_date == reference,\n        Task.title_key == _DAILY_WATER_CHECK_TITLE_KEY,",
+    "replacement": "        Task.category == TaskCategory.WATER.value,\n        Task.status == TaskStatus.PENDING.value,\n        Task.due_date == reference,\n        Task.title_key == _DAILY_WATER_CHECK_TITLE_KEY,",
+    "detail": "Dedupe daily water checks only while pending and remint already-completed same-day checks.",
+    "tests": [
+      "tests/test_cadence.py::test_daily_water_check_fires_once_per_business_day"
+    ]
+  },
+  {
+    "domain": 20,
+    "file": "app/services/notifications/service.py",
+    "original": "        Task.due_date <= reference,",
+    "replacement": "        Task.due_date < reference,",
+    "detail": "Exclude duties due today from the morning recipient digest.",
+    "tests": [
+      "tests/test_notifications.py::test_digest_sends_each_recipient_their_own_scope",
+      "tests/test_mutation38_workflow_boundaries.py::test_digest_lists_five_titles_and_reports_only_actual_remaining_duties"
+    ]
+  },
+  {
+    "domain": 20,
+    "file": "app/services/notifications/service.py",
+    "original": "minutes_of_day >= digest_minute_of_day,",
+    "replacement": "minutes_of_day == digest_minute_of_day,",
+    "detail": "Require an exact digest clock minute and lose same-day catch-up deliveries.",
+    "tests": [
+      "tests/test_notifications.py::test_digest_catch_up_window_sends_late_but_exactly_once"
+    ]
+  },
+  {
+    "domain": 20,
+    "file": "app/services/notifications/service.py",
+    "original": "Task.due_date <= reference - timedelta(days=3),",
+    "replacement": "Task.due_date <= reference - timedelta(days=2),",
+    "detail": "Alert on duties only two days overdue instead of the three-day policy.",
+    "tests": [
+      "tests/test_notifications_mutation_gaps.py::test_overdue_critical_threshold_is_three_days"
+    ]
+  },
+  {
+    "domain": 21,
+    "file": "app/api/screening.py",
+    "original": "if open_batches >= MAX_OPEN_SCREENING_BATCHES_PER_FARM:",
+    "replacement": "if open_batches > MAX_OPEN_SCREENING_BATCHES_PER_FARM:",
+    "detail": "Admit a sixth concurrent open disease-check walkthrough.",
+    "tests": [
+      "tests/test_screening.py::test_direct_upload_intake_limits_reclaim_stale_batches_and_preflight_size"
+    ]
+  },
+  {
+    "domain": 21,
+    "file": "app/api/screening.py",
+    "original": "if images_in_batch >= MAX_SCREENING_IMAGES_PER_BATCH:",
+    "replacement": "if images_in_batch > MAX_SCREENING_IMAGES_PER_BATCH:",
+    "detail": "Admit a 101st photograph to one screening batch.",
+    "tests": [
+      "tests/test_screening.py::test_direct_upload_intake_limits_reclaim_stale_batches_and_preflight_size"
+    ]
+  },
+  {
+    "domain": 21,
+    "file": "app/api/screening.py",
+    "original": "        if batch.created_at < utcnow() - MAX_OPEN_SCREENING_BATCH_AGE:",
+    "replacement": "        if False and batch.created_at < utcnow() - MAX_OPEN_SCREENING_BATCH_AGE:",
+    "detail": "Revive expired walkthroughs and evade the open-batch quota.",
+    "tests": [
+      "tests/test_screening.py::test_direct_upload_intake_limits_reclaim_stale_batches_and_preflight_size"
+    ]
+  },
+  {
+    "domain": 22,
+    "file": "app/services/screening/images.py",
+    "original": "oriented = ImageOps.exif_transpose(source)",
+    "replacement": "oriented = source.copy()",
+    "detail": "Strip EXIF without applying its recorded rotation, changing the clinical evidence orientation.",
+    "tests": [
+      "tests/test_screening.py::test_normalize_strips_exif_metadata",
+      "tests/test_mutation38_workflows.py"
+    ]
+  },
+  {
+    "domain": 22,
+    "file": "app/services/screening/images.py",
+    "original": "_ALLOWED_SOURCE_FORMATS = {\"JPEG\", \"PNG\"}",
+    "replacement": "_ALLOWED_SOURCE_FORMATS = {\"JPEG\"}",
+    "detail": "Reject supported PNG uploads during evidence normalization.",
+    "tests": [
+      "tests/test_screening.py",
+      "tests/test_mutation38_workflows.py",
+      "tests/test_mutation38_workflows.py::test_png_normalization_preserves_supported_pixels_and_hashes_output_bytes",
+      "tests/test_mutation38_workflow_boundaries.py::test_one_pixel_normalized_source_axis_remains_valid"
+    ]
+  },
+  {
+    "domain": 22,
+    "file": "app/services/screening/images.py",
+    "original": "sha256=hashlib.sha256(encoded).hexdigest(),\n        byte_size=len(encoded),",
+    "replacement": "sha256=hashlib.sha256(data).hexdigest(),\n        byte_size=len(encoded),",
+    "detail": "Identify sanitized evidence with the mutable raw source digest rather than the encoded derivative digest.",
+    "tests": [
+      "tests/test_screening.py::test_normalize_downscales_and_hashes",
+      "tests/test_mutation38_workflows.py"
+    ]
+  },
+  {
+    "domain": 23,
+    "file": "app/services/screening/pipeline.py",
+    "original": "    if ScreeningImageStatus.FLAGGED.value in statuses:\n        return ScreeningImageStatus.FLAGGED.value\n    if ScreeningImageStatus.ERROR.value in statuses:\n        return ScreeningImageStatus.ERROR.value",
+    "replacement": "    if ScreeningImageStatus.ERROR.value in statuses:\n        return ScreeningImageStatus.ERROR.value\n    if ScreeningImageStatus.FLAGGED.value in statuses:\n        return ScreeningImageStatus.FLAGGED.value",
+    "detail": "Let one failed crop hide another goat's urgent clinical flag at the parent image.",
+    "tests": [
+      "tests/test_screening.py::test_flagged_parent_retries_its_errored_crop",
+      "tests/test_mutation38_crop_priority.py::test_parent_preserves_urgent_flags_and_reports_incomplete_healthy_coverage",
+      "tests/test_mutation38_crop_priority.py::test_retry_keeps_a_clinical_flag_visible_when_another_crop_still_fails"
+    ]
+  },
+  {
+    "domain": 23,
+    "file": "app/services/screening/pipeline.py",
+    "original": "    coverage_status = await _prior_coverage_safety_status(db, image)",
+    "replacement": "    coverage_status = ScreeningImageStatus.HEALTHY.value",
+    "detail": "Assume full-frame clinical coverage is healthy without performing its safety gate.",
+    "tests": [
+      "tests/test_screening.py::test_partial_detector_miss_cannot_finish_photo_healthy"
+    ]
+  },
+  {
+    "domain": 23,
+    "file": "app/services/screening/images.py",
+    "original": "CROP_MARGIN_FRACTION = 0.05",
+    "replacement": "CROP_MARGIN_FRACTION = 0.0",
+    "detail": "Remove detection crop margin and risk truncating ears, limbs and lesion context.",
+    "tests": [
+      "tests/test_screening.py::test_crop_image_cuts_the_box_with_margin"
+    ]
+  },
+  {
+    "domain": 24,
+    "file": "app/services/screening/rotation.py",
+    "original": "        excluded = {served_by, *failed_providers}",
+    "replacement": "        return self.secondary_for(on)\n        excluded = {served_by, *failed_providers}",
+    "detail": "Use the date's blind second provider as cross-checker even when it served the fallback gate.",
+    "tests": [
+      "tests/test_screening.py::test_rotation_cascade_runs_cross_check_and_specialists",
+      "tests/test_mutation38_workflows.py"
+    ]
+  },
+  {
+    "domain": 24,
+    "file": "app/services/screening/pipeline.py",
+    "original": "    if gate_result.response.quality_problem:\n        return ScreeningImageStatus.UNASSESSABLE.value",
+    "replacement": "    if gate_result.response.quality_problem:\n        return ScreeningImageStatus.HEALTHY.value",
+    "detail": "Report an unusable clinical photograph as healthy instead of unassessable.",
+    "tests": [
+      "tests/test_screening_clinical_integrity.py::test_unusable_gate_never_reports_healthy"
+    ]
+  },
+  {
+    "domain": 24,
+    "file": "app/services/screening/pipeline.py",
+    "original": "            # has of reaching the vet queue.\n            gate_observations_lost.extend(observations_by_kind.get(kind, []))",
+    "replacement": "            # has of reaching the vet queue.\n            pass",
+    "detail": "Erase the gate observation for a failed specialist region even when another region succeeds.",
+    "tests": [
+      "tests/test_screening.py::test_partial_specialist_failure_keeps_its_regions_gate_observation",
+      "tests/test_screening.py"
+    ]
+  },
+  {
+    "domain": 25,
+    "file": "app/services/screening/budget.py",
+    "original": "if cap > 0 and budget.reserved_calls >= cap:",
+    "replacement": "if cap > 0 and budget.reserved_calls > cap:",
+    "detail": "Permit a paid provider attempt beyond the farm-local daily cap.",
+    "tests": [
+      "tests/test_screening_clinical_integrity.py::test_multi_crop_cascade_never_exceeds_actual_call_cap",
+      "tests/test_screening_clinical_integrity.py::test_concurrent_attempt_admission_and_rollback_cannot_reset_cap"
+    ]
+  },
+  {
+    "domain": 25,
+    "file": "app/services/screening/providers.py",
+    "original": "    if admission is not None:\n        await admission()",
+    "replacement": "    if False and admission is not None:\n        await admission()",
+    "detail": "Retry a paid screening HTTP request without another durable daily admission charge.",
+    "tests": [
+      "tests/test_screening_clinical_integrity.py::test_transport_retry_requires_another_durable_charge"
+    ]
+  },
+  {
+    "domain": 25,
+    "file": "app/services/screening/budget.py",
+    "original": "local_date = instant.replace(tzinfo=dt.UTC).astimezone(zone).date()",
+    "replacement": "local_date = instant.replace(tzinfo=dt.UTC).date()",
+    "detail": "Reset screening spend at UTC midnight rather than the farm's business-day boundary.",
+    "tests": [
+      "tests/test_screening.py::test_daily_call_budget_window_is_the_farm_local_day",
+      "tests/test_mutation38_budget_midnight.py::test_utc_midnight_does_not_reset_the_local_day_paid_call_cap"
+    ]
+  },
+  {
+    "domain": 26,
+    "file": "app/api/screening.py",
+    "original": "        finding.review_revision != payload.expected_revision\n        or finding.status != payload.expected_status",
+    "replacement": "        finding.status != payload.expected_status",
+    "detail": "Accept stale same-status and ABA veterinary edits by ignoring the revision token.",
+    "tests": [
+      "tests/test_screening_clinical_integrity.py::test_same_status_and_aba_reviews_preserve_every_accepted_author_decision"
+    ]
+  },
+  {
+    "domain": 26,
+    "file": "app/api/screening.py",
+    "original": "revision = finding.review_revision + 1",
+    "replacement": "revision = finding.review_revision + 2",
+    "detail": "Skip an adjudication revision and corrupt the immutable review decision sequence.",
+    "tests": [
+      "tests/test_screening_clinical_integrity.py::test_same_status_and_aba_reviews_preserve_every_accepted_author_decision"
+    ]
+  },
+  {
+    "domain": 26,
+    "file": "app/api/screening.py",
+    "original": "payload.status == \"REJECTED\" if is_healthy_control else payload.status == \"CONFIRMED\"",
+    "replacement": "payload.status == \"CONFIRMED\" if is_healthy_control else payload.status == \"CONFIRMED\"",
+    "detail": "Alert on a healthy control confirmed normal instead of its rejected healthy verdict.",
+    "tests": [
+      "tests/test_screening.py::test_sampled_healthy_control_is_reviewable_scored_and_exported"
+    ]
+  },
+  {
+    "domain": 27,
+    "file": "app/api/screening.py",
+    "original": "    z = 1.959963984540054",
+    "replacement": "    z = 1.0",
+    "detail": "Replace the documented 95-percent Wilson confidence interval with a different confidence level.",
+    "tests": [
+      "tests/test_screening.py::test_sampled_healthy_control_is_reviewable_scored_and_exported",
+      "tests/test_mutation38_workflows.py"
+    ]
+  },
+  {
+    "domain": 27,
+    "file": "app/api/screening.py",
+    "original": "        positive_reviewed = int(slot[\"findings_confirmed\"] or 0) + int(\n            slot[\"findings_rejected\"] or 0\n        )",
+    "replacement": "        positive_reviewed = int(slot[\"findings_confirmed\"] or 0) + int(\n            slot[\"findings_rejected\"] or 0\n        ) + int(slot[\"findings_pending\"] or 0)",
+    "detail": "Include unreviewed positives in measured veterinary precision denominator.",
+    "tests": [
+      "tests/test_screening.py::test_stats_endpoint_scores_providers",
+      "tests/test_mutation38_workflows.py"
+    ]
+  },
+  {
+    "domain": 27,
+    "file": "app/services/screening/pipeline.py",
+    "original": "f\"healthy-control-v1:{image.farm_id}:{identity}\".encode(\"ascii\")",
+    "replacement": "f\"healthy-control-v1:{identity}\".encode(\"ascii\")",
+    "detail": "Remove farm identity from deterministic healthy-control clinical quality sampling.",
+    "tests": [
+      "tests/test_screening.py::test_sampled_healthy_control_is_reviewable_scored_and_exported",
+      "tests/test_mutation38_workflows.py"
+    ]
+  },
+  {
+    "domain": 27,
+    "file": "app/api/screening.py",
+    "original": "image_s3_key=image.normalized_key or image.s3_key,",
+    "replacement": "image_s3_key=image.s3_key,",
+    "detail": "Export the replayable browser-upload raw key instead of the reviewed immutable normalized evidence.",
+    "tests": [
+      "tests/test_screening.py::test_export_endpoint_returns_training_corpus"
+    ]
+  },
+  {
+    "domain": 28,
+    "file": "app/simulation/engine.py",
+    "original": "return 1.0 - math.pow(1.0 - annual_fraction, 1.0 / 12.0)",
+    "replacement": "return annual_fraction / 12.0",
+    "detail": "Replace compound annual mortality with naive divided rate.",
+    "tests": [
+      "tests/test_simulation_engine.py::test_monthly_mortality_rate_conversion"
+    ]
+  },
+  {
+    "domain": 28,
+    "file": "app/simulation/engine.py",
+    "original": "return 1.0 - math.pow(1.0 - phase_fraction, 1.0 / phase_months)",
+    "replacement": "return phase_fraction / phase_months",
+    "detail": "Spread whole-phase mortality linearly rather than preserving survival.",
+    "tests": [
+      "tests/test_simulation_engine.py::test_phase_mortality_rate_conversion",
+      "tests/test_simulation_engine.py::test_documented_pre_weaning_rate_removes_ten_percent_of_the_crop"
+    ]
+  },
+  {
+    "domain": 28,
+    "file": "app/simulation/engine.py",
+    "original": "max_litter = float(GOAT_PROFILE.max_litter_size)",
+    "replacement": "max_litter = 5.0",
+    "detail": "Override shared quadruplet cap with five kids under shock/parity.",
+    "tests": [
+      "tests/test_simulation_engine.py::test_biological_shocks_are_multiplied_then_clamped_to_public_caps"
+    ]
+  },
+  {
+    "domain": 29,
+    "file": "app/simulation/engine.py",
+    "original": "cultivation_cost = cultivated_green_kg * home_green_price",
+    "replacement": "cultivation_cost = homegrown_green_kg * home_green_price",
+    "detail": "Charge only crop eaten, making surplus acreage and spoilage free.",
+    "tests": [
+      "tests/test_simulation_financials.py::test_full_grazing_means_zero_purchased_feed_but_the_grown_crop_is_still_costed",
+      "tests/test_simulation_integrity.py::test_empty_herd_books_no_cultivation_cost_but_full_grazing_still_does"
+    ]
+  },
+  {
+    "domain": 29,
+    "file": "app/simulation/engine.py",
+    "original": "fodder_waste_kg_dm = storage_loss_kg_dm + max(",
+    "replacement": "fodder_waste_kg_dm = 0.0 + max(",
+    "detail": "Omit spoilage from material-balance waste.",
+    "tests": [
+      "tests/test_simulation_advanced.py::test_fodder_storage_balance_includes_loss_and_capacity_waste"
+    ]
+  },
+  {
+    "domain": 29,
+    "file": "app/simulation/engine.py",
+    "original": "+ lact_total * feed.water_litres_lactating_doe_per_day",
+    "replacement": "+ lact_total * feed.water_litres_doe_per_day",
+    "detail": "Use maintenance water demand for lactating does.",
+    "tests": [
+      "tests/test_simulation_goat_domain.py::test_water_demand_sums_the_per_class_daily_rates",
+      "tests/test_mutation38_simulation_edges.py::test_forecast_lactating_does_receive_their_distinct_water_allowance"
+    ]
+  },
+  {
+    "domain": 30,
+    "file": "app/simulation/market.py",
+    "original": "if sales.festival_sale_months is not None",
+    "replacement": "if sales.festival_sale_months",
+    "detail": "An explicit empty festival list falls back to legacy Gregorian pricing.",
+    "tests": [
+      "tests/test_simulation_planner.py::test_genuinely_festival_free_horizon_and_explicit_empty_list",
+      "tests/test_simulation_engine.py::test_eid_uplift_applies_in_festival_month_only"
+    ]
+  },
+  {
+    "domain": 30,
+    "file": "app/simulation/assumptions.py",
+    "original": "self.breed_price_premium_pct = 0.0",
+    "replacement": "self.breed_price_premium_pct = self.breed_price_premium_pct",
+    "detail": "Keep the applied premium set so saved-scenario round trips compound it.",
+    "tests": [
+      "tests/test_simulation_engine.py::test_breed_price_premium_scales_meat_revenue_only",
+      "tests/test_simulation_engine.py::test_breed_price_premium_bounds_and_ceiling_fold"
+    ]
+  },
+  {
+    "domain": 30,
+    "file": "app/simulation/market.py",
+    "original": "return math.pow(1.0 + annual_rate, (simulation_month - 1) / 12.0)",
+    "replacement": "return 1.0 + annual_rate * ((simulation_month - 1) / 12.0)",
+    "detail": "Use linear instead of compounded nominal market escalation.",
+    "tests": [
+      "tests/test_simulation_advanced.py::test_meat_price_and_other_revenue_compound_at_the_year_boundary",
+      "tests/test_mutation38_simulation_edges.py::test_market_growth_compounds_for_partial_and_multiple_years"
+    ]
+  },
+  {
+    "domain": 31,
+    "file": "app/simulation/finance.py",
+    "original": "return _exact_decimal_power_roots(normalised, lo, hi)",
+    "replacement": "return _crossing_decimal_power_roots(normalised, lo, hi)",
+    "detail": "Discard even-multiplicity zero-NPV roots when certifying IRR uniqueness.",
+    "tests": [
+      "tests/test_independent_domain_audit.py::test_tangent_zero_is_not_discarded_when_certifying_irr_uniqueness",
+      "tests/test_independent_domain_audit.py::test_a_single_tangent_irr_is_a_zero_instead_of_no_root"
+    ]
+  },
+  {
+    "domain": 31,
+    "file": "app/simulation/subsidy.py",
+    "original": "NLM_SUBSIDY_FRACTION = 0.5",
+    "replacement": "NLM_SUBSIDY_FRACTION = 1.0",
+    "detail": "Estimate full eligible capital costs rather than encoded half-cost policy.",
+    "tests": [
+      "tests/test_decision_audit_regressions.py::test_nlm_estimates_follow_published_subsidy_caps_without_booking_cash",
+      "tests/test_decision_audit_regressions.py::test_approved_nlm_installments_have_dated_cashflows_and_do_not_reduce_opening_funds",
+      "tests/test_mutation38_simulation.py::test_nlm_estimate_is_half_eligible_cost_then_limited_by_unit_cap"
+    ]
+  },
+  {
+    "domain": 31,
+    "file": "app/simulation/engine.py",
+    "original": "liquidity_cash = net_cash - (\n            terminal_breakdown.working_capital if rec.month == horizon else 0.0\n        )",
+    "replacement": "liquidity_cash = net_cash",
+    "detail": "Recover opening working capital twice in operational liquidity.",
+    "tests": [
+      "tests/test_simulation_advanced.py::test_terminal_working_capital_is_not_counted_twice_in_liquidity"
+    ]
+  },
+  {
+    "domain": 32,
+    "file": "app/simulation/montecarlo.py",
+    "original": "_WITHIN_RUN_VARIANCE_SHARE = 0.5",
+    "replacement": "_WITHIN_RUN_VARIANCE_SHARE = 0.0",
+    "detail": "Disable annual price years while the within-run variation flag remains on.",
+    "tests": [
+      "tests/test_simulation_audit_remediation.py::test_apply_annual_price_variation_shares_the_configured_variance",
+      "tests/test_simulation_audit_remediation.py::test_within_run_variation_flag_controls_the_process"
+    ]
+  },
+  {
+    "domain": 32,
+    "file": "app/simulation/montecarlo.py",
+    "original": "\"fodder_yield\": (0.00, -0.80, 0.00),",
+    "replacement": "\"fodder_yield\": (0.00, 0.80, 0.00),",
+    "detail": "Make adverse climate improve fodder production and raise feed prices.",
+    "tests": [
+      "tests/test_simulation_advanced.py::test_copula_has_expected_market_and_climate_correlation_signs"
+    ]
+  },
+  {
+    "domain": 32,
+    "file": "app/simulation/montecarlo.py",
+    "original": "\"conception_rate\": (0.00, -0.10, -0.60),",
+    "replacement": "\"conception_rate\": (0.00, 0.10, 0.60),",
+    "detail": "Make adverse climate/disease improve conception; suspected weak oracle.",
+    "tests": [
+      "tests/test_simulation_advanced.py::test_copula_has_expected_market_and_climate_correlation_signs",
+      "tests/test_simulation_advanced.py::test_correlated_draw_uses_unit_normal_factor_model",
+      "tests/test_mutation38_simulation.py::test_adverse_latent_factors_lower_conception"
+    ]
+  },
+  {
+    "domain": 33,
+    "file": "app/simulation/optimization.py",
+    "original": "recommended = next((candidate for candidate in evaluated if candidate.feasible), None)",
+    "replacement": "recommended = evaluated[0] if evaluated else None",
+    "detail": "Recommend a candidate even when all violate constraints.",
+    "tests": [
+      "tests/test_simulation_advanced.py::test_optimizer_respects_candidate_cap_and_never_recommends_infeasible_plan"
+    ]
+  },
+  {
+    "domain": 33,
+    "file": "app/simulation/optimization.py",
+    "original": "variant.herd.max_breeding_does = 0",
+    "replacement": "variant.herd.max_breeding_does = variant.herd.does",
+    "detail": "Turn unlimited breeding growth into a capped optimizer decision.",
+    "tests": [
+      "tests/test_simulation_advanced.py::test_optimizer_scales_heads_caps_and_required_bucks_without_sentinel_drift"
+    ]
+  },
+  {
+    "domain": 33,
+    "file": "app/simulation/optimization.py",
+    "original": "_sample_evenly(list(axis), count)",
+    "replacement": "list(axis)[:count]",
+    "detail": "Thin optimizer axes by prefixes, dropping far-end policies.",
+    "tests": [
+      "tests/test_simulation_advanced.py::test_optimizer_sampling_helpers_pin_boundaries_and_axis_coverage"
+    ]
+  },
+  {
+    "domain": 34,
+    "file": "app/simulation/planner.py",
+    "original": "kept_purchases = [event for event in variant.events if event.kind == \"purchase\"]",
+    "replacement": "kept_purchases = list(variant.events)",
+    "detail": "Retain old sales when installing planner targets and double sell stock.",
+    "tests": [
+      "tests/test_simulation_planner.py::test_planner_owns_sale_events_no_double_selling"
+    ]
+  },
+  {
+    "domain": 34,
+    "file": "app/simulation/backward_planner.py",
+    "original": "return rate, f\"one timely service; up to {cap} services includes later births\"",
+    "replacement": "return 1.0 - (1.0 - rate) ** cap, f\"one timely service; up to {cap} services includes later births\"",
+    "detail": "Credit later retries in a single dated service-month requirement.",
+    "tests": [
+      "tests/test_backward_planner.py::test_requirement_chain_math_is_consistent_with_biology"
+    ]
+  },
+  {
+    "domain": 34,
+    "file": "app/simulation/planner.py",
+    "original": "fill = queues[(target.month, target.animal_class)].popleft()",
+    "replacement": "fill = queues[(target.month, target.animal_class)].pop()",
+    "detail": "Reverse pairing of duplicate month/class target fills.",
+    "tests": [
+      "tests/test_planner_api.py::test_backward_plan_accepts_duplicate_targets_same_month_and_class",
+      "tests/test_simulation_planner.py",
+      "tests/test_mutation38_simulation.py::test_duplicate_sale_targets_keep_their_own_ordered_fills"
+    ]
+  },
+  {
+    "domain": 35,
+    "file": "app/simulation/daily_ops.py",
+    "original": "_WEANER_WINDOW_DAYS = _GROWER_AGE_DAYS - GOAT_PROFILE.weaning_days",
+    "replacement": "_WEANER_WINDOW_DAYS = round(3 * DAYS_PER_MONTH)",
+    "detail": "Use three months for loss conversion instead of actual weaning-to-grower exposure.",
+    "tests": [
+      "tests/test_simulation_integrity.py::test_weaner_hazard_converts_over_the_actual_class_window"
+    ]
+  },
+  {
+    "domain": 35,
+    "file": "app/simulation/daily_ops.py",
+    "original": "kid.dependent_kid = False\n                self._move(",
+    "replacement": "kid.dependent_kid = kid.dependent_kid\n                self._move(",
+    "detail": "Orphan-wean physically without ending pre-weaning dependency/hazard.",
+    "tests": [
+      "tests/test_daily_ops.py::test_orphan_weaning_on_dam_cull_clears_the_pre_weaning_hazard",
+      "tests/test_daily_ops.py::test_orphan_weaned_kids_never_carry_the_kid_hazard"
+    ]
+  },
+  {
+    "domain": 35,
+    "file": "app/simulation/daily_ops.py",
+    "original": "self._feed_round(day, FeedingShift.AFTERNOON, TIME_AFTERNOON_FEED)",
+    "replacement": "self._feed_round(day, FeedingShift.MORNING, TIME_AFTERNOON_FEED)",
+    "detail": "Repeat forty-percent morning preparation during afternoon delivery.",
+    "tests": [
+      "tests/test_daily_ops.py::test_day1_schedule_order_is_the_operational_routine",
+      "tests/test_daily_ops.py::test_feeding_math_matches_seeded_rates_and_shift_split",
+      "tests/test_daily_ops.py::test_feeding_follows_each_shift_occupancy"
+    ]
+  },
+  {
+    "domain": 36,
+    "file": "app/services/simulation_calibration.py",
+    "original": "fitted = _isotonic_fit(sorted(observed.items()))",
+    "replacement": "fitted = sorted(observed.items())",
+    "detail": "Omit isotonic fitting and ratchet later measured anchors upward.",
+    "tests": [
+      "tests/test_calibration_curve_math.py::test_curve_isotonic_smoothing_averages_violations"
+    ]
+  },
+  {
+    "domain": 36,
+    "file": "app/services/simulation_calibration.py",
+    "original": "assumptions.reproduction.parity_multipliers.conception_rate = [1.0]",
+    "replacement": "assumptions.reproduction.parity_multipliers.conception_rate = conception_parity_previous",
+    "detail": "Reapply literature parity penalties to the observed herd-average conception rate.",
+    "tests": [
+      "tests/test_simulation_api.py::test_conception_calibration_flattens_only_conception_parity"
+    ]
+  },
+  {
+    "domain": 36,
+    "file": "app/services/simulation_calibration.py",
+    "original": "Transaction.voided_at.is_(None),",
+    "replacement": "Transaction.id.is_not(None),",
+    "detail": "Include voided expenses in full-window cost and feed-price calibration.",
+    "tests": [
+      "tests/test_remediation_26_domain.py::test_full_ledger_aggregate_excludes_income_voids_outside_window_and_other_farms"
+    ]
+  },
+  {
+    "domain": 37,
+    "file": "app/api/planner.py",
+    "original": "normalized.meta.start_year_month = anchor",
+    "replacement": "normalized.meta.start_year_month = assumptions.meta.start_year_month",
+    "detail": "Preserve embedded assumptions anchor instead of authoritative saved-plan column.",
+    "tests": [
+      "tests/test_planner_api.py::test_planner_assumptions_only_patch_keeps_column_anchor_authoritative",
+      "tests/test_planner_api.py::test_planner_plan_crud"
+    ]
+  },
+  {
+    "domain": 37,
+    "file": "app/api/simulation.py",
+    "original": "result.executed_scenario_revision = executed_revision",
+    "replacement": "result.executed_scenario_revision = 1",
+    "detail": "Label later executed snapshots with initial scenario revision.",
+    "tests": [
+      "tests/test_decision_audit_postgres.py::test_stored_run_returns_actual_snapshot_revision_and_fingerprint"
+    ]
+  },
+  {
+    "domain": 37,
+    "file": "app/simulation/engine.py",
+    "original": "sort_keys=True, separators=(\",\", \":\")",
+    "replacement": "sort_keys=True, separators=(\", \", \": \")",
+    "detail": "Hash noncanonical spaced JSON instead of the executed-assumption fingerprint basis.",
+    "tests": [
+      "tests/test_simulation_engine.py::test_assumptions_fingerprint_is_sha256_of_canonical_compact_json",
+      "tests/test_decision_audit_postgres.py::test_stored_run_returns_actual_snapshot_revision_and_fingerprint"
+    ]
+  },
+  {
+    "domain": 38,
+    "file": "app/api/owner.py",
+    "original": "Transaction.date >= month_start,\n                Transaction.voided_at.is_(None),",
+    "replacement": "Transaction.date >= month_start,\n                Transaction.id.is_not(None),",
+    "detail": "Count voided ledger records in owner attention headlines.",
+    "tests": [
+      "tests/test_decision_audit_postgres.py::test_owner_uses_active_ledger_and_chronological_endpoints"
+    ]
+  },
+  {
+    "domain": 38,
+    "file": "app/api/owner.py",
+    "original": "order_by=(WeightRecord.date.desc(), WeightRecord.id.desc()),",
+    "replacement": "order_by=(WeightRecord.weight_kg.desc(), WeightRecord.id.desc()),",
+    "detail": "Use maximum rather than chronologically latest growth endpoint.",
+    "tests": [
+      "tests/test_decision_audit_postgres.py::test_owner_uses_active_ledger_and_chronological_endpoints"
+    ]
+  },
+  {
+    "domain": 38,
+    "file": "app/services/dashboard.py",
+    "original": "WeightRecord.date <= reference_date,",
+    "replacement": "True,",
+    "detail": "Use future observed weights for present breeding/sale readiness by removing the as-of-date predicate.",
+    "tests": [
+      "tests/test_dashboard_redteam.py",
+      "tests/test_dashboard_permissions.py",
+      "tests/test_mutation38_simulation.py::test_dashboard_readiness_uses_weights_observed_by_today"
+    ]
+  },
+  {
+    "domain": 1,
+    "file": "alembic/versions/ff6a7b8c9d01_animal_purchase_birth_chronology.py",
+    "original": "\"OR purchase_date >= COALESCE(date_of_birth, estimated_dob)\",",
+    "replacement": "\"OR purchase_date >= COALESCE(date_of_birth, estimated_dob) - 1\",",
+    "detail": "Applied CHECK permits acquisition one day before recorded/estimated effective birth. Raw SQL moves either DOB one day after purchase and must fail.",
+    "tests": [
+      "tests/test_remediation_26_domain.py::test_database_rejects_purchase_before_effective_birth"
+    ]
+  },
+  {
+    "domain": 2,
+    "file": "alembic/versions/c1d2e3f4a5b6_domain_check_constraints.py",
+    "original": "\"(current_bucket <> 'MALE_KIDS' OR sex = 'M') AND \"",
+    "replacement": "\"(current_bucket <> 'MALE_KIDS' OR sex IN ('M', 'F')) AND \"",
+    "detail": "Applied bucket-sex CHECK admits female animals to MALE_KIDS. Existing raw UPDATE of the female birth animal must be rejected.",
+    "tests": [
+      "tests/test_domain_check_constraints.py::test_direct_sql_rejects_invalid_domain_values_and_states"
+    ]
+  },
+  {
+    "domain": 5,
+    "file": "alembic/versions/bd201c1cdc1b_goat_only_simplification.py",
+    "original": "\"ultrasound_result_date IS NULL OR ultrasound_result_date <= breeding_date + 200\",",
+    "replacement": "\"ultrasound_result_date IS NULL OR ultrasound_result_date <= breeding_date + 201\",",
+    "detail": "Final goat-only scan-recording ceiling moves from 200 to 201 gestation days. Existing direct UPDATE at day 201 must fail.",
+    "tests": [
+      "tests/test_domain_check_constraints.py::test_direct_sql_rejects_invalid_domain_values_and_states"
+    ]
+  },
+  {
+    "domain": 5,
+    "file": "alembic/versions/e3f4a5b6c7d9_domain_audit_correctness.py",
+    "original": "IF TG_OP = 'UPDATE' AND OLD.outcome = 'ABORTED' AND (",
+    "replacement": "IF FALSE AND TG_OP = 'UPDATE' AND OLD.outcome = 'ABORTED' AND (",
+    "detail": "Applied reproductive trigger permits rewriting immutable abortion metadata while retaining all CHECKs and reproductive-link enforcement.",
+    "tests": [
+      "tests/test_breeding_extended.py::test_aborted_metadata_is_immutable_at_database_boundary"
+    ]
+  },
+  {
+    "domain": 6,
+    "file": "alembic/versions/d3b5f7c9e024_tag_namespace_farm_lock.py",
+    "original": "      AND status = 'STILLBORN'",
+    "replacement": "      AND status = 'STILLBORN' AND FALSE",
+    "detail": "Final animal-insert tag trigger ignores stillborn reservations; both within-table uniqueness and the reverse stillborn trigger remain installed.",
+    "tests": [
+      "tests/test_domain_audit_fixes.py::test_stillborn_explicit_tags_share_the_farm_tag_namespace"
+    ]
+  },
+  {
+    "domain": 7,
+    "file": "alembic/versions/e7f9a1b3c5d8_kidding_trigger_lock_order.py",
+    "original": "IF NEW.date IS DISTINCT FROM OLD.date\n                 AND EXISTS (",
+    "replacement": "IF FALSE AND NEW.date IS DISTINCT FROM OLD.date\n                 AND EXISTS (",
+    "detail": "Applied dedicated kidding-date trigger permits moving delivery after an already-recorded neonatal death. Insert/link guards remain active.",
+    "tests": [
+      "tests/test_breeding_extended.py::test_kidding_date_cannot_be_moved_after_recorded_kid_mortality"
+    ]
+  },
+  {
+    "domain": 8,
+    "file": "alembic/versions/c1d2e3f4a5b6_domain_check_constraints.py",
+    "original": "\"(status = 'ACTIVE' AND status_date IS NULL) OR \"",
+    "replacement": "\"(status = 'ACTIVE') OR \"",
+    "detail": "Applied status-date CHECK allows ACTIVE animals to carry a terminal status date. Existing raw UPDATE must be rejected.",
+    "tests": [
+      "tests/test_domain_check_constraints.py::test_direct_sql_rejects_invalid_domain_values_and_states"
+    ]
+  },
+  {
+    "domain": 9,
+    "file": "alembic/versions/d3f4a5b6c7d8_health_restriction_audit.py",
+    "original": "\"next_due_date IS NULL OR \"\n        \"(schedule_template_name IS NOT NULL \"",
+    "replacement": "\"TRUE OR \"\n        \"(schedule_template_name IS NOT NULL \"",
+    "detail": "Applied next-dose provenance CHECK no longer requires clinical schedule identity and authority for a recorded next_due_date; ordinary clinical chronology remains intact.",
+    "tests": [
+      "tests/test_health_safety.py::test_next_due_provenance_is_enforced_for_direct_database_writes"
+    ]
+  },
+  {
+    "domain": 10,
+    "file": "alembic/versions/f6c0e4f8b3d1_clinical_evidence_and_budget.py",
+    "original": "\"        RAISE EXCEPTION 'Health-round evidence is append-only' USING \"\n        \"ERRCODE='23514'; END $$\"",
+    "replacement": "\"        IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF; END $$\"",
+    "detail": "Applied round-fact trigger allows historical coverage UPDATE/DELETE. The existing raw UPDATE substituting undeclared PPR for recorded ET/HS must fail; the INSERT-only contract guard remains intact.",
+    "tests": [
+      "tests/test_screening_clinical_integrity.py::test_round_requires_both_components_for_declared_cohort_and_explicit_changes",
+      "tests/test_mutation38_livestock_sql.py::test_one_round_coverage_row_cannot_be_changed_or_deleted",
+      "tests/test_mutation38_livestock_sql.py::test_declared_round_cohort_and_programme_cannot_be_rewritten_by_raw_sql"
+    ]
+  },
+  {
+    "domain": 11,
+    "file": "alembic/versions/b1c2d3e4f5a6_integrity_concurrency_hardening.py",
+    "original": "f\"withdrawal_until IS NULL OR withdrawal_until <= date + {MAX_WITHDRAWAL_DAYS}\",",
+    "replacement": "f\"withdrawal_until IS NULL OR withdrawal_until <= date + {MAX_WITHDRAWAL_DAYS + 1}\",",
+    "detail": "Applied medicine-withdrawal ceiling permits 731 rather than 730 days. Existing raw UPDATE to event date plus 731 must fail.",
+    "tests": [
+      "tests/test_domain_check_constraints.py::test_direct_sql_rejects_invalid_domain_values_and_states"
+    ]
+  },
+  {
+    "domain": 13,
+    "file": "alembic/versions/c1d2e3f4a5b6_domain_check_constraints.py",
+    "original": "\"qty_kg > 0 AND qty_kg <= 1000000 AND qty_kg::text NOT IN ('NaN', 'Infinity', '-Infinity')\",",
+    "replacement": "\"qty_kg >= 0 AND qty_kg <= 1000000 AND qty_kg::text NOT IN ('NaN', 'Infinity', '-Infinity')\",",
+    "detail": "Applied dispensing-record CHECK accepts zero feed dispensed while keeping finiteness and upper bounds. Existing direct UPDATE to zero must fail.",
+    "tests": [
+      "tests/test_domain_check_constraints.py::test_direct_sql_rejects_invalid_domain_values_and_states"
+    ]
+  },
+  {
+    "domain": 14,
+    "file": "alembic/versions/c1d2e3f4a5b6_domain_check_constraints.py",
+    "original": "\"correction_of_id IS NULL OR correction_of_id <> id\",",
+    "replacement": "\"correction_of_id IS NULL OR correction_of_id = id OR correction_of_id <> id\",",
+    "detail": "Applied ledger CHECK admits an existing transaction as its own correction ancestor. The self FK remains valid and the direct SQL test must reject the cycle.",
+    "tests": [
+      "tests/test_domain_check_constraints.py::test_direct_sql_rejects_invalid_domain_values_and_states"
+    ]
+  },
+  {
+    "domain": 17,
+    "file": "alembic/versions/c1d2e3f4a5b6_domain_check_constraints.py",
+    "original": "        \"status NOT IN ('DONE', 'VERIFIED') OR completed_at IS NOT NULL\",",
+    "replacement": "        \"status NOT IN ('VERIFIED') OR completed_at IS NOT NULL\",",
+    "detail": "SQL CHECK admits DONE duties without their completion instant.",
+    "tests": [
+      "tests/test_domain_check_constraints.py::test_direct_sql_rejects_invalid_domain_values_and_states"
+    ]
+  },
+  {
+    "domain": 17,
+    "file": "alembic/versions/c1d2e3f4a5b6_domain_check_constraints.py",
+    "original": "        \"(status = 'VERIFIED' AND verified_at IS NOT NULL) OR \"",
+    "replacement": "        \"(status = 'VERIFIED') OR \"",
+    "detail": "SQL CHECK admits VERIFIED duties without a verification instant.",
+    "tests": [
+      "tests/test_domain_check_constraints.py::test_direct_sql_rejects_invalid_domain_values_and_states"
+    ]
+  },
+  {
+    "domain": 17,
+    "file": "alembic/versions/c1d2e3f4a5b6_domain_check_constraints.py",
+    "original": "        \"(status = 'SKIPPED' AND skipped_at IS NOT NULL) OR \"",
+    "replacement": "        \"(status = 'SKIPPED') OR \"",
+    "detail": "SQL CHECK admits SKIPPED duties without a skip instant.",
+    "tests": [
+      "tests/test_domain_check_constraints.py::test_direct_sql_rejects_invalid_domain_values_and_states"
+    ]
+  },
+  {
+    "domain": 18,
+    "file": "alembic/versions/c1d2e3f4a5b6_domain_check_constraints.py",
+    "original": "        \"(recur_days IS NULL AND recurring_series_id IS NULL) OR \"",
+    "replacement": "        \"(recur_days IS NULL) OR \"",
+    "detail": "SQL CHECK admits a retained recurrence series identity after recurrence interval is removed.",
+    "tests": [
+      "tests/test_domain_check_constraints.py::test_direct_sql_rejects_invalid_domain_values_and_states"
+    ]
+  },
+  {
+    "domain": 26,
+    "file": "alembic/versions/f6c0e4f8b3d1_clinical_evidence_and_budget.py",
+    "original": "    \"NULL AND reviewed_by_id IS NOT NULL)\"",
+    "replacement": "    \"NULL)\"",
+    "detail": "SQL CHECK admits a CONFIRMED/REJECTED finding with reviewed_at but no reviewer identity.",
+    "tests": [
+      "tests/test_screening_clinical_integrity.py::test_sql_rejects_partial_reviewer_and_false_crop_ancestry"
+    ]
+  },
+  {
+    "domain": 23,
+    "file": "alembic/versions/f6c0e4f8b3d1_clinical_evidence_and_budget.py",
+    "original": "        \"        IF NOT FOUND OR NEW.crop_id IS DISTINCT FROM parent_crop THEN\\n\"",
+    "replacement": "        \"        IF NOT FOUND THEN\\n\"",
+    "detail": "SQL finding-ancestry trigger allows a finding to reference a different crop than its actual run.",
+    "tests": [
+      "tests/test_screening_clinical_integrity.py::test_sql_rejects_partial_reviewer_and_false_crop_ancestry"
+    ]
+  },
+  {
+    "domain": 23,
+    "file": "alembic/versions/f6c0e4f8b3d1_clinical_evidence_and_budget.py",
+    "original": "        \"        IF (NEW.farm_id,NEW.image_id,NEW.crop_id) IS DISTINCT FROM \"",
+    "replacement": "        \"        IF FALSE AND (NEW.farm_id,NEW.image_id,NEW.crop_id) IS DISTINCT FROM \"",
+    "detail": "SQL immutable-run trigger allows rewriting a model invocation's image/crop provenance.",
+    "tests": [
+      "tests/test_screening_clinical_integrity.py::test_sql_rejects_partial_reviewer_and_false_crop_ancestry"
+    ]
+  },
+  {
+    "domain": 26,
+    "file": "alembic/versions/f6c0e4f8b3d1_clinical_evidence_and_budget.py",
+    "original": "        \"        RAISE EXCEPTION 'Screening review history is append-only' USING \"",
+    "replacement": "        \"        IF TG_OP='UPDATE' THEN RETURN NEW; END IF;\\n\"\n        \"        RAISE EXCEPTION 'Screening review history is append-only' USING \"",
+    "detail": "SQL append-only history trigger allows a direct UPDATE to overwrite an accepted veterinary decision.",
+    "tests": [
+      "tests/test_screening_clinical_integrity.py::test_same_status_and_aba_reviews_preserve_every_accepted_author_decision"
+    ]
+  },
+  {
+    "domain": 37,
+    "file": "alembic/versions/c4f6a8b0d2e5_json_columns_to_jsonb.py",
+    "original": "f\"jsonb_typeof({column}) = '{shape}'\",",
+    "replacement": "(\"true\" if (table, column) == (\"planner_plans\", \"targets\") else f\"jsonb_typeof({column}) = '{shape}'\"),",
+    "detail": "Disable only saved-plan target-list JSONB array shape guard, admitting scalar/object target payloads through direct SQL.",
+    "tests": [
+      "tests/test_jsonb_columns.py::test_wrong_shape_json_is_refused_by_check_constraints"
+    ]
+  },
+  {
+    "domain": 37,
+    "file": "alembic/versions/c4f6a8b0d2e5_json_columns_to_jsonb.py",
+    "original": "f\"jsonb_typeof({column}) = '{shape}'\",",
+    "replacement": "(\"true\" if (table, column) == (\"planner_plans\", \"assumptions\") else f\"jsonb_typeof({column}) = '{shape}'\"),",
+    "detail": "Disable only saved-plan assumption JSONB object shape guard, admitting array/scalar snapshots through direct SQL.",
+    "tests": [
+      "tests/test_jsonb_columns.py::test_wrong_shape_json_is_refused_by_check_constraints"
+    ]
+  },
+  {
+    "domain": 37,
+    "file": "alembic/versions/c4f6a8b0d2e5_json_columns_to_jsonb.py",
+    "original": "f\"jsonb_typeof({column}) = '{shape}'\",",
+    "replacement": "(\"true\" if (table, column) == (\"simulation_scenarios\", \"assumptions\") else f\"jsonb_typeof({column}) = '{shape}'\"),",
+    "detail": "Disable only saved-scenario assumption JSONB object shape guard, admitting array/scalar snapshots through direct SQL.",
+    "tests": [
+      "tests/test_jsonb_columns.py::test_wrong_shape_json_is_refused_by_check_constraints"
+    ]
+  }
+]

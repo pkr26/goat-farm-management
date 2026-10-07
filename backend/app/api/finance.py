@@ -947,11 +947,7 @@ async def renew_policy(
             raise HTTPException(status_code=422, detail=str(exc)) from None
         # expire_on_commit=False keeps the row valid; the animal link is
         # loaded explicitly (async sessions forbid implicit lazy loads).
-        linked = (
-            await db.get(Animal, policy.animal_id)
-            if policy.animal_id is not None and policy.animal_id > 0
-            else None
-        )
+        linked = await db.get(Animal, policy.animal_id) if policy.animal_id is not None else None
         out = InsurancePolicyOut.model_validate(policy)
         out.animal_tag = (
             linked.tag_number if linked is not None and linked.farm_id == farm.id else None
@@ -1009,11 +1005,7 @@ async def claim_policy(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     await db.commit()
-    linked = (
-        await db.get(Animal, policy.animal_id)
-        if policy.animal_id is not None and policy.animal_id > 0
-        else None
-    )
+    linked = await db.get(Animal, policy.animal_id) if policy.animal_id is not None else None
     out = InsurancePolicyOut.model_validate(policy)
     out.animal_tag = linked.tag_number if linked is not None and linked.farm_id == farm.id else None
     return out

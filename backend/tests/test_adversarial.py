@@ -349,7 +349,9 @@ async def test_create_animal_rejects_bad_enums_and_empty_tag(client: httpx.Async
     ]:
         resp = await client.post("/api/animals", json=base | override, headers=owner)
         assert resp.status_code == expected, override
-    assert (await client.get("/api/animals", headers=owner)).json()["total"] == 0
+    register = await client.get("/api/animals", headers=owner)
+    assert register.status_code == 200, register.text
+    assert register.json()["total"] == 0
 
 
 async def test_breeding_garbage_date_and_cycle(client: httpx.AsyncClient) -> None:
@@ -1123,9 +1125,11 @@ async def test_form_linked_and_early_auto_task_completion_blocked(
 ) -> None:
     owner = await owner_with_farm(client)
     _, _, br_id = await breed_doe(client, owner)
-    us_task = find_tasks(
+    us_tasks = find_tasks(
         await task_tabs(client, owner), category="ULTRASOUND", breeding_record_id=br_id
-    )[0]
+    )
+    assert len(us_tasks) == 1, "A recorded service must create its pregnancy-check duty"
+    us_task = us_tasks[0]
     resp = await client.post(f"/api/tasks/{us_task['id']}/complete", headers=owner)
     assert resp.status_code == 409
     assert resp.json()["detail"] == "Use the linked form to complete this duty"
@@ -1138,9 +1142,11 @@ async def test_form_linked_and_early_auto_task_completion_blocked(
     )
     assert resp.status_code == 201, resp.text
     batch_id = resp.json()["id"]
-    auto = find_tasks(
+    auto_tasks = find_tasks(
         await task_tabs(client, owner), category="BUCKET_MOVE", purchase_batch_id=batch_id
-    )[0]
+    )
+    assert len(auto_tasks) == 1, "A new batch must create its quarantine-release duty"
+    auto = auto_tasks[0]
     assert auto["due_date"] == iso(today() + timedelta(days=44))
     resp = await client.post(f"/api/tasks/{auto['id']}/complete", headers=owner)
     assert resp.status_code == 409

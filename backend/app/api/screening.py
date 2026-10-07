@@ -1357,7 +1357,7 @@ async def request_upload(
         captured_date = today(farm.timezone)
         key = (
             f"{settings.screening_s3_prefix}/{farm.id}/{captured_date.isoformat()}/"
-            f"{payload.bucket}/{batch.id}-{uuid.uuid4().hex[:12]}{extension}"
+            f"{payload.bucket}/{batch.id}-{uuid.uuid4().hex}{extension}"
         )
         upload_token = secrets.token_urlsafe(32)
         # Capture issuance immediately before local SigV4 generation.  The

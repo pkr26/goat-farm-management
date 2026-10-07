@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 import asyncpg
 import pytest
 
-from .conftest import BACKEND_DIR, TEST_DB
+from .conftest import ADMIN_URL, BACKEND_DIR, TEST_DB, database_direct_url
 
 A4_PARENT = "a4d9e6f2b701"
 C8_MONEY = "c8f1d3a5e709"
@@ -49,7 +49,6 @@ HEAD = _chain_head()
 SCREENING_CONTENT_CLAIMS_PARENT = "b7e8f9a0c1d2"
 SCREENING_CONTENT_CLAIMS = "f7a9c1e3b5d7"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
-ADMIN_URL = "postgresql://localhost:5432/postgres"
 
 
 def _throwaway_name(suffix: str) -> str:
@@ -73,7 +72,7 @@ async def _alembic(
     succeeds: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    target_url = f"postgresql+asyncpg://localhost:5432/{database}"
+    target_url = database_direct_url(database).replace("postgresql://", "postgresql+asyncpg://", 1)
     env["GOATFARM_DATABASE_URL"] = target_url
     env["GOATFARM_MIGRATION_DATABASE_URL"] = target_url
     # Callers create, exclusively control, and finally drop databases whose
@@ -102,7 +101,7 @@ async def test_screening_content_claim_migration_backfills_canonical_rows() -> N
     database = _throwaway_name("screening_content_claims")
     await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
     await _admin(f'CREATE DATABASE "{database}"')
-    database_url = f"postgresql://localhost:5432/{database}"
+    database_url = database_direct_url(database)
     digest = "a" * 64
     other_digest = "b" * 64
     try:
@@ -226,7 +225,7 @@ async def test_exact_money_migration_refuses_lossy_rows_and_backfills_utc() -> N
     await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
     await _admin(f'CREATE DATABASE "{database}"')
     await _admin(f"ALTER DATABASE \"{database}\" SET timezone TO 'America/Phoenix'")
-    database_url = f"postgresql://localhost:5432/{database}"
+    database_url = database_direct_url(database)
     try:
         await _alembic(database, "upgrade", A4_PARENT)
         connection = await asyncpg.connect(database_url)
@@ -335,7 +334,7 @@ async def test_refresh_compaction_uses_issuance_ids_when_wall_time_moves_backwar
     database = _throwaway_name("refresh_compaction_order")
     await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
     await _admin(f'CREATE DATABASE "{database}"')
-    database_url = f"postgresql://localhost:5432/{database}"
+    database_url = database_direct_url(database)
     try:
         await _alembic(database, "upgrade", REFRESH_BOUNDS_PARENT)
         connection = await asyncpg.connect(database_url)
@@ -462,7 +461,7 @@ async def test_corrective_migration_clears_fabricated_actor_and_serializes_dates
     database = _throwaway_name("reproductive_correction")
     await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
     await _admin(f'CREATE DATABASE "{database}"')
-    database_url = f"postgresql://localhost:5432/{database}"
+    database_url = database_direct_url(database)
     try:
         await _alembic(database, "upgrade", B9_PARENT)
         connection = await asyncpg.connect(database_url)
@@ -684,7 +683,7 @@ async def test_preset_role_code_migration_repairs_duplicates_and_preserves_refer
     database = _throwaway_name("preset_role_codes")
     await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
     await _admin(f'CREATE DATABASE "{database}"')
-    database_url = f"postgresql://localhost:5432/{database}"
+    database_url = database_direct_url(database)
     try:
         await _alembic(database, "upgrade", PRESET_ROLE_PARENT)
         connection = await asyncpg.connect(database_url)
@@ -896,7 +895,7 @@ async def test_kidding_trigger_migration_splits_insert_and_update_lock_paths() -
     database = _throwaway_name("kidding_lock_order")
     await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
     await _admin(f'CREATE DATABASE "{database}"')
-    database_url = f"postgresql://localhost:5432/{database}"
+    database_url = database_direct_url(database)
     try:
         await _alembic(database, "upgrade", KIDDING_LOCK_ORDER_PARENT)
         connection = await asyncpg.connect(database_url)
@@ -1019,7 +1018,7 @@ async def test_kidding_parity_backfill_numbers_legacy_rows_per_doe() -> None:
     database = _throwaway_name("parity_backfill")
     await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
     await _admin(f'CREATE DATABASE "{database}"')
-    database_url = f"postgresql://localhost:5432/{database}"
+    database_url = database_direct_url(database)
     try:
         await _alembic(database, "upgrade", PARITY_BACKFILL_PARENT)
         connection = await asyncpg.connect(database_url)

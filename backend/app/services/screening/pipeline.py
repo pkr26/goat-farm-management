@@ -650,6 +650,7 @@ async def _claim_retry_rows(
         )
         .limit(limit)
         .with_for_update(skip_locked=True, of=ScreeningImage)
+        .execution_options(populate_existing=True)
     )
     rows = list(result.scalars())
     error_retries = sum(1 for row in rows if row.status == ScreeningImageStatus.ERROR.value)
@@ -738,18 +739,42 @@ async def run_screening_cycle(
     # the claim commit: a mid-cycle rollback expires every claimed instance,
     # and any later read off the ORM object — logging included — raises
     # MissingGreenlet under AsyncSession and kills the whole cycle.  The
-    # attempt count is stable for the same reason: the claim consumes and
-    # commits the budget before the cycle starts, so nothing mutates it
-    # mid-loop.
+    # attempt count identifies this cycle's committed claim. A peer can
+    # reclaim a later row during a slow cycle, so the loop rechecks its lease
+    # before starting further work.
     claimed_snapshot = [(image, image.id, image.screening_attempts) for image in claimed]
-    identities_expired = False
     for image, image_id, attempts in claimed_snapshot:
         budget_deferred = False
+        # A peer can reclaim a later photo while this cycle processes
+        # earlier work. Reobserve this cycle's committed lease before
+        # reading derivative fields or starting further work.
         try:
-            if identities_expired:
-                # A previous iteration's rollback expired this row too;
-                # reload its columns before anything reads them.
-                await db.refresh(image)
+            owned_image = await db.scalar(
+                select(ScreeningImage)
+                .where(
+                    ScreeningImage.id == image_id,
+                    ScreeningImage.farm_id == image_farm_ids[image_id],
+                    ScreeningImage.status == ScreeningImageStatus.PROCESSING.value,
+                    ScreeningImage.screening_attempts == attempts,
+                    ScreeningImage.retention_tombstoned_at.is_(None),
+                )
+                .execution_options(populate_existing=True)
+            )
+        except Exception as exc:
+            # The read did not establish ownership. Leave the image alone:
+            # a peer may have completed or reclaimed it while we waited.
+            await db.rollback()
+            logger.error(
+                "screening image lease preflight failed image_id=%s "
+                "code=DATABASE_LEASE_PREFLIGHT_FAILED exception_type=%s",
+                image_id,
+                type(exc).__name__,
+            )
+            continue
+        if owned_image is None:
+            continue
+        image = owned_image
+        try:
             # Farm FK integrity guarantees this lookup.  The defensive India
             # fallback prevents a corrupt legacy row from crashing the whole
             # worker cycle while preserving existing date-helper behavior.
@@ -795,10 +820,9 @@ async def run_screening_cycle(
             image.screening_attempts = max(0, attempts - 1)
             summary.budget_deferred += 1
         except Exception as exc:
-            # Log from the snapshot id: if the failure was the loop-top
-            # refresh itself (dead connection), the instance is still
-            # expired and reading image.id here would raise inside the
-            # handler that exists to keep the cycle alive.
+            # Log from the snapshot id: a failed database operation may
+            # have expired this instance, so reading image.id here could
+            # raise inside the handler that keeps the cycle alive.
             logger.error(
                 "screening image failed image_id=%s code=UNEXPECTED_PIPELINE_FAILURE "
                 "exception_type=%s",
@@ -815,7 +839,6 @@ async def run_screening_cycle(
             # row PROCESSING until the stale reclaim, burning the budget
             # each time).
             await db.rollback()
-            identities_expired = True
             image.status = ScreeningImageStatus.ERROR.value
             # Persist only the tenant-safe category. Logs likewise keep a
             # stable code and exception class, never provider response text,
@@ -844,7 +867,6 @@ async def run_screening_cycle(
             # after the rollback and use the snapshot id. The row stays
             # PROCESSING and the stale-claim reclaim retries it later.
             await db.rollback()
-            identities_expired = True
             logger.error(
                 "screening image commit failed image_id=%s code=DATABASE_COMMIT_FAILED "
                 "exception_type=%s",
@@ -1430,6 +1452,7 @@ async def _resolve_content_claim_conflict(
             # tombstone. If it won, this waiter sees the updated tuple; if we
             # win, retention's SKIP LOCKED planner leaves the owner alone.
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     owner_status = owner.status if owner is not None else None
@@ -1530,7 +1553,7 @@ async def _reserve_normalized_content(
             )
         ).scalar_one_or_none()
         if stale_claim is not None:
-            stale_owner = await db.get(ScreeningImage, stale_claim.image_id)
+            stale_owner = await db.get(ScreeningImage, stale_claim.image_id, populate_existing=True)
             if stale_owner is not None and stale_owner.retention_tombstoned_at is not None:
                 image_claim = (
                     await db.execute(

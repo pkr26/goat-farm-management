@@ -1,0 +1,1040 @@
+[
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1,
+    "end": 203,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 204,
+    "end": 225,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 226,
+    "end": 279,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 280,
+    "end": 355,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 356,
+    "end": 375,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 376,
+    "end": 408,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 409,
+    "end": 424,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 425,
+    "end": 440,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 441,
+    "end": 550,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 551,
+    "end": 580,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 581,
+    "end": 635,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 636,
+    "end": 665,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 666,
+    "end": 666,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 667,
+    "end": 668,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 669,
+    "end": 731,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 732,
+    "end": 749,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 750,
+    "end": 991,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 992,
+    "end": 1005,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1006,
+    "end": 1039,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1040,
+    "end": 1056,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1057,
+    "end": 1288,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1289,
+    "end": 1300,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1301,
+    "end": 1324,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1325,
+    "end": 1484,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1485,
+    "end": 1500,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1501,
+    "end": 1510,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1511,
+    "end": 1518,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1519,
+    "end": 1573,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1574,
+    "end": 1577,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1578,
+    "end": 1600,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1601,
+    "end": 1607,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1608,
+    "end": 1608,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1609,
+    "end": 1610,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1611,
+    "end": 1616,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1617,
+    "end": 1620,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1621,
+    "end": 1621,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1622,
+    "end": 1625,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1626,
+    "end": 1626,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1627,
+    "end": 1631,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 1632,
+    "end": 2077,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2078,
+    "end": 2111,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2112,
+    "end": 2123,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2124,
+    "end": 2139,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2140,
+    "end": 2226,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2227,
+    "end": 2247,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2248,
+    "end": 2248,
+    "domain": 37
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2249,
+    "end": 2249,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2250,
+    "end": 2285,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2286,
+    "end": 2288,
+    "domain": 37
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2289,
+    "end": 2309,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2310,
+    "end": 2341,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2342,
+    "end": 2367,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2368,
+    "end": 2372,
+    "domain": 37
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2373,
+    "end": 2380,
+    "domain": 32
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2381,
+    "end": 2384,
+    "domain": 33
+  },
+  {
+    "file": "app/simulation/engine.py",
+    "start": 2385,
+    "end": 2391,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 1,
+    "end": 80,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 81,
+    "end": 93,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 94,
+    "end": 118,
+    "domain": 37
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 119,
+    "end": 450,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 451,
+    "end": 604,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 605,
+    "end": 716,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 717,
+    "end": 880,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 881,
+    "end": 952,
+    "domain": 32
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 953,
+    "end": 985,
+    "domain": 33
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 986,
+    "end": 1026,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 1027,
+    "end": 1077,
+    "domain": 34
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 1078,
+    "end": 1096,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 1097,
+    "end": 1113,
+    "domain": 37
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 1114,
+    "end": 1158,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 1159,
+    "end": 1220,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 1221,
+    "end": 1238,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/assumptions.py",
+    "start": 1239,
+    "end": 1275,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 1,
+    "end": 63,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 64,
+    "end": 73,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 74,
+    "end": 620,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 621,
+    "end": 637,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 638,
+    "end": 684,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 685,
+    "end": 716,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 717,
+    "end": 795,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 796,
+    "end": 831,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 832,
+    "end": 867,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 868,
+    "end": 939,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 940,
+    "end": 960,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 961,
+    "end": 970,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 971,
+    "end": 973,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 974,
+    "end": 1061,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 1062,
+    "end": 1182,
+    "domain": 32
+  },
+  {
+    "file": "app/simulation/explain.py",
+    "start": 1183,
+    "end": 1228,
+    "domain": 33
+  },
+  {
+    "file": "app/simulation/market.py",
+    "start": 1,
+    "end": 55,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/market.py",
+    "start": 56,
+    "end": 141,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/market.py",
+    "start": 142,
+    "end": 199,
+    "domain": 30
+  },
+  {
+    "file": "app/simulation/planner.py",
+    "start": 1,
+    "end": 713,
+    "domain": 34
+  },
+  {
+    "file": "app/simulation/planner.py",
+    "start": 714,
+    "end": 836,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/planner.py",
+    "start": 837,
+    "end": 875,
+    "domain": 34
+  },
+  {
+    "file": "app/simulation/results.py",
+    "start": 1,
+    "end": 103,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/results.py",
+    "start": 104,
+    "end": 186,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/results.py",
+    "start": 187,
+    "end": 203,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/results.py",
+    "start": 204,
+    "end": 253,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/results.py",
+    "start": 254,
+    "end": 317,
+    "domain": 32
+  },
+  {
+    "file": "app/simulation/results.py",
+    "start": 318,
+    "end": 354,
+    "domain": 33
+  },
+  {
+    "file": "app/simulation/results.py",
+    "start": 355,
+    "end": 377,
+    "domain": 37
+  },
+  {
+    "file": "app/simulation/defaults.py",
+    "start": 1,
+    "end": 285,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/vocabulary.py",
+    "start": 1,
+    "end": 57,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/snapshot.py",
+    "start": 1,
+    "end": 43,
+    "domain": 28
+  },
+  {
+    "file": "app/simulation/feed.py",
+    "start": 1,
+    "end": 91,
+    "domain": 29
+  },
+  {
+    "file": "app/simulation/finance.py",
+    "start": 1,
+    "end": 616,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/subsidy.py",
+    "start": 1,
+    "end": 25,
+    "domain": 31
+  },
+  {
+    "file": "app/simulation/montecarlo.py",
+    "start": 1,
+    "end": 732,
+    "domain": 32
+  },
+  {
+    "file": "app/simulation/shocks.py",
+    "start": 1,
+    "end": 37,
+    "domain": 32
+  },
+  {
+    "file": "app/simulation/optimization.py",
+    "start": 1,
+    "end": 318,
+    "domain": 33
+  },
+  {
+    "file": "app/simulation/backward_planner.py",
+    "start": 1,
+    "end": 623,
+    "domain": 34
+  },
+  {
+    "file": "app/simulation/daily_ops.py",
+    "start": 1,
+    "end": 2069,
+    "domain": 35
+  },
+  {
+    "file": "app/services/simulation_calibration.py",
+    "start": 1,
+    "end": 1233,
+    "domain": 36
+  },
+  {
+    "file": "app/services/dashboard.py",
+    "start": 1,
+    "end": 349,
+    "domain": 38
+  },
+  {
+    "file": "app/api/dashboard.py",
+    "start": 1,
+    "end": 770,
+    "domain": 38
+  },
+  {
+    "file": "app/api/owner.py",
+    "start": 1,
+    "end": 414,
+    "domain": 38
+  },
+  {
+    "file": "app/schemas/dashboard.py",
+    "start": 1,
+    "end": 161,
+    "domain": 38
+  },
+  {
+    "file": "app/schemas/owner.py",
+    "start": 1,
+    "end": 54,
+    "domain": 38
+  },
+  {
+    "file": "app/schemas/ops_simulation.py",
+    "start": 1,
+    "end": 54,
+    "domain": 35
+  },
+  {
+    "file": "app/api/ops_simulation.py",
+    "start": 1,
+    "end": 151,
+    "domain": 35
+  },
+  {
+    "file": "app/api/simulation.py",
+    "start": 100,
+    "end": 189,
+    "domain": 37
+  },
+  {
+    "file": "app/api/simulation.py",
+    "start": 303,
+    "end": 394,
+    "domain": 28
+  },
+  {
+    "file": "app/api/simulation.py",
+    "start": 395,
+    "end": 442,
+    "domain": 36
+  },
+  {
+    "file": "app/api/simulation.py",
+    "start": 476,
+    "end": 737,
+    "domain": 37
+  },
+  {
+    "file": "app/api/planner.py",
+    "start": 77,
+    "end": 210,
+    "domain": 37
+  },
+  {
+    "file": "app/api/planner.py",
+    "start": 211,
+    "end": 304,
+    "domain": 34
+  },
+  {
+    "file": "app/api/planner.py",
+    "start": 305,
+    "end": 468,
+    "domain": 37
+  },
+  {
+    "file": "app/api/planner.py",
+    "start": 469,
+    "end": 525,
+    "domain": 31
+  },
+  {
+    "file": "app/api/planner.py",
+    "start": 526,
+    "end": 542,
+    "domain": 37
+  },
+  {
+    "file": "app/schemas/planner.py",
+    "start": 1,
+    "end": 61,
+    "domain": 34
+  },
+  {
+    "file": "app/schemas/planner.py",
+    "start": 62,
+    "end": 115,
+    "domain": 37
+  },
+  {
+    "file": "app/schemas/simulation.py",
+    "start": 1,
+    "end": 80,
+    "domain": 37
+  },
+  {
+    "file": "app/schemas/simulation.py",
+    "start": 81,
+    "end": 87,
+    "domain": 28
+  },
+  {
+    "file": "app/schemas/simulation.py",
+    "start": 88,
+    "end": 112,
+    "domain": 36
+  },
+  {
+    "file": "app/schemas/simulation.py",
+    "start": 113,
+    "end": 131,
+    "domain": 28
+  },
+  {
+    "file": "app/schemas/simulation.py",
+    "start": 132,
+    "end": 134,
+    "domain": 37
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 118,
+    "end": 189,
+    "domain": 3
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 190,
+    "end": 223,
+    "domain": 7
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 224,
+    "end": 279,
+    "domain": 2
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 280,
+    "end": 295,
+    "domain": 7
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 296,
+    "end": 307,
+    "domain": 2
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 308,
+    "end": 345,
+    "domain": 7
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 399,
+    "end": 402,
+    "domain": 3
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 414,
+    "end": 437,
+    "domain": 5
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 464,
+    "end": 541,
+    "domain": 7
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 549,
+    "end": 560,
+    "domain": 3
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 568,
+    "end": 586,
+    "domain": 7
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 588,
+    "end": 619,
+    "domain": 5
+  },
+  {
+    "file": "app/services/tasks.py",
+    "start": 622,
+    "end": 658,
+    "domain": 7
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 341,
+    "end": 343,
+    "domain": 1
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 345,
+    "end": 348,
+    "domain": 1
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 350,
+    "end": 358,
+    "domain": 1
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 360,
+    "end": 364,
+    "domain": 1
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 366,
+    "end": 369,
+    "domain": 1
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 371,
+    "end": 387,
+    "domain": 1
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 389,
+    "end": 393,
+    "domain": 2
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 395,
+    "end": 397,
+    "domain": 2
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 399,
+    "end": 412,
+    "domain": 2
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 414,
+    "end": 419,
+    "domain": 5
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 421,
+    "end": 425,
+    "domain": 4
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 427,
+    "end": 442,
+    "domain": 4
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 444,
+    "end": 452,
+    "domain": 4
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 454,
+    "end": 471,
+    "domain": 4
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 473,
+    "end": 476,
+    "domain": 4
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 478,
+    "end": 492,
+    "domain": 4
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 494,
+    "end": 498,
+    "domain": 4
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 500,
+    "end": 502,
+    "domain": 1
+  },
+  {
+    "file": "app/models/animals.py",
+    "start": 691,
+    "end": 713,
+    "domain": 2
+  },
+  {
+    "file": "app/models/tasks.py",
+    "start": 202,
+    "end": 208,
+    "domain": 17
+  },
+  {
+    "file": "app/models/tasks.py",
+    "start": 210,
+    "end": 219,
+    "domain": 17
+  },
+  {
+    "file": "app/models/tasks.py",
+    "start": 221,
+    "end": 227,
+    "domain": 17
+  },
+  {
+    "file": "app/models/screening.py",
+    "start": 707,
+    "end": 710,
+    "domain": 27
+  }
+]

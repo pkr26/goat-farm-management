@@ -15,7 +15,7 @@ from sqlalchemy import text
 from app.db import get_engine, get_sessionmaker
 from app.utils import today
 
-from .conftest import BACKEND_DIR, TEST_DB, create_farm, owner_with_farm, register
+from .conftest import BACKEND_DIR, TEST_DB, TEST_DIRECT_URL, create_farm, owner_with_farm, register
 
 F2_REVISION = "f2c3d4e5f6a7"
 F3_REVISION = "f3d4e5f6a7b8"
@@ -63,7 +63,7 @@ async def _truncate_synthetic_security_events() -> None:
     their synthetic evidence immediately before that downgrade.
     """
     assert _is_throwaway_db(TEST_DB), TEST_DB
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         if await connection.fetchval("SELECT to_regclass('security_events') IS NOT NULL"):
             await connection.execute("TRUNCATE TABLE security_events")
@@ -79,7 +79,7 @@ async def _restore_head() -> None:
 async def _delete_null_scopes_and_restore_head() -> None:
     """Remove deliberate pre-F3 dirt before restoring the shared schema."""
     try:
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
         finally:
@@ -197,7 +197,7 @@ async def test_f3_catalog_downgrade_guard_roundtrip_and_autogenerate(
         assert "Cannot downgrade actor-scoped idempotency" in output
         assert "Sample record ids" in output
 
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
         finally:
@@ -256,7 +256,7 @@ async def test_f4_purges_only_sensitive_rows_and_is_irreversible_roundtrip(
     try:
         await _truncate_synthetic_security_events()
         await _alembic("downgrade", F3_REVISION)
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             for operation, key_digest, request_hash in (
                 ("team.workers.create", "1" * 64, "2" * 64),
@@ -279,7 +279,7 @@ async def test_f4_purges_only_sensitive_rows_and_is_irreversible_roundtrip(
             await connection.close()
 
         await _alembic("upgrade", "head")
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             # The actor's farm-creation claim (now required-keyed) is setup
             # residue, not part of the fingerprint-style fixture below.
@@ -307,7 +307,7 @@ async def test_f4_purges_only_sensitive_rows_and_is_irreversible_roundtrip(
         # the ordinary record remains across the full F4 round trip.
         await _alembic("downgrade", F3_REVISION)
         await _alembic("upgrade", "head")
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             fetched_counts = await connection.fetch(
                 """
@@ -344,13 +344,13 @@ async def test_f3_refuses_invalid_and_duplicate_null_scopes_then_recovers(
         await _truncate_synthetic_security_events()
         # Farm creation (setup above) persisted NULL-farm idempotency claims
         # that f3's downgrade guard refuses to carry across the downgrade.
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
         finally:
             await connection.close()
         await _alembic("downgrade", F2_REVISION)
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             await connection.execute(
                 "ALTER TABLE idempotency_records ALTER COLUMN farm_id DROP NOT NULL"
@@ -379,7 +379,7 @@ async def test_f3_refuses_invalid_and_duplicate_null_scopes_then_recovers(
         assert "farm scope and operation disagree" in output
         assert str(first_id) in output
 
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             await connection.execute(
                 "UPDATE idempotency_records SET operation = 'auth.farms.create' WHERE id = $1",
@@ -408,7 +408,7 @@ async def test_f3_refuses_invalid_and_duplicate_null_scopes_then_recovers(
         assert str(first_id) in output
         assert str(duplicate_id) in output
 
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             await connection.execute(
                 "DELETE FROM idempotency_records WHERE id = $1",
@@ -420,7 +420,7 @@ async def test_f3_refuses_invalid_and_duplicate_null_scopes_then_recovers(
         await _alembic("upgrade", "head")
         _assert_f3_catalog(await _catalog_state())
 
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             try:
                 await connection.execute(
@@ -476,7 +476,7 @@ async def _restore_task_repair_fixture_and_head(
 ) -> None:
     """Make the deliberate legacy rows valid, then always restore head."""
     try:
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             await connection.execute(
                 "UPDATE roles SET deleted_at = NULL WHERE id = $1",
@@ -572,13 +572,13 @@ async def test_f3_task_repair_rejects_cross_farm_and_tombstoned_roles_then_recov
         await _truncate_synthetic_security_events()
         # Farm creation (setup above) persisted NULL-farm idempotency claims
         # that f3's downgrade guard refuses to carry across the downgrade.
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
         finally:
             await connection.close()
         await _alembic("downgrade", F2_REVISION)
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             await connection.execute(
                 "ALTER TABLE tasks DROP CONSTRAINT ck_tasks_user_assignment_has_role"
@@ -627,7 +627,7 @@ async def test_f3_task_repair_rejects_cross_farm_and_tombstoned_roles_then_recov
         assert "2 PENDING personal task(s)" in output
         assert all(str(task_id) in output for task_id in task_ids)
 
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             # The failed revision is atomic: it must not retain the role filled
             # for either dirty row or mark the legacy check validated.
@@ -688,7 +688,7 @@ async def test_f3_task_repair_rejects_cross_farm_and_tombstoned_roles_then_recov
 
         await _alembic("upgrade", "head")
         _assert_f3_catalog(await _catalog_state())
-        connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+        connection = await asyncpg.connect(TEST_DIRECT_URL)
         try:
             repaired = await connection.fetch(
                 "SELECT id, assigned_role_id FROM tasks WHERE id = ANY($1::int[]) ORDER BY id",

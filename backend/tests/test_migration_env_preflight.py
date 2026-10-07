@@ -11,7 +11,7 @@ import sys
 import asyncpg
 import pytest
 
-from .conftest import BACKEND_DIR, TEST_DB, _admin_sql
+from .conftest import BACKEND_DIR, TEST_DB, _admin_sql, database_direct_url
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -35,11 +35,11 @@ def test_migration_quiescence_preflight_is_target_and_command_aware() -> None:
     database = f"{TEST_DB}_migration_preflight"
     assert re.fullmatch(r"[A-Za-z0-9_]+", database)
     assert "_test" in database
-    target_url = f"postgresql+asyncpg://localhost:5432/{database}"
+    target_url = database_direct_url(database).replace("postgresql://", "postgresql+asyncpg://", 1)
 
     def database_sql(statement: str) -> None:
         async def execute() -> None:
-            connection = await asyncpg.connect(f"postgresql://localhost:5432/{database}")
+            connection = await asyncpg.connect(database_direct_url(database))
             try:
                 await connection.execute(statement)
             finally:

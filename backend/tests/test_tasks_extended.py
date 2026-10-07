@@ -2035,7 +2035,10 @@ async def test_recurrence_chain_continues(client: httpx.AsyncClient) -> None:
     duty = await make_duty(client, owner, "Chain", due=today() - timedelta(days=3), recur_days=3)
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
     tabs = await get_tabs(client, owner)
-    second = next(t for t in tabs["upcoming"] if t["title"] == "Chain")
+    successors = [t for t in tabs["upcoming"] if t["title"] == "Chain"]
+    assert len(successors) == 1, "Completion must create exactly one future occurrence"
+    second = successors[0]
+    assert second["due_date"] == iso(today() + timedelta(days=3))
 
     # A recurrence cannot be fast-forwarded before its farm-local due date.
     early = await complete_duty(client, owner, second["id"])

@@ -12,6 +12,7 @@ from typing import cast
 import asyncpg
 import pytest
 
+from .conftest import database_direct_url
 from .test_ops_migration_integrity import _admin, _alembic, _throwaway_name
 
 PARENT_REVISION = "c1d3e5f7a9b4"
@@ -92,7 +93,7 @@ async def test_screening_images_updated_at_trigger_round_trip() -> None:
     database = _throwaway_name("audit04_trigger")
     await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
     await _admin(f'CREATE DATABASE "{database}"')
-    database_url = f"postgresql://localhost:5432/{database}"
+    database_url = database_direct_url(database)
     try:
         await _alembic(database, "upgrade", PARENT_REVISION)
         image_id = await _insert_screening_image(database_url)
@@ -238,7 +239,7 @@ async def test_notification_recipients_opt_in_server_defaults_round_trip() -> No
     database = _throwaway_name("audit04_recipients")
     await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
     await _admin(f'CREATE DATABASE "{database}"')
-    database_url = f"postgresql://localhost:5432/{database}"
+    database_url = database_direct_url(database)
     try:
         await _alembic(database, "upgrade", PARENT_REVISION)
         farm_id, membership_id = await _insert_recipient_farm_and_membership(database_url)

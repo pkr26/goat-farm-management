@@ -1189,15 +1189,20 @@ async def test_key_bounds_server_errors_and_expiry_cleanup(
     assert duplicate.status_code == 422
     assert "exactly once" in duplicate.json()["detail"]
 
-    # An unhandled server exception also rolls the claim back. ASGITransport
-    # propagates it in tests; production's exception boundary emits HTTP 500.
+    # An unhandled server exception also rolls the claim back. This dedicated
+    # transport preserves the deliberate exception-propagation assertion.
     def crash_money(value: object) -> Decimal:
         raise RuntimeError("injected mutation failure")
 
     monkeypatch.setattr("app.api.finance.money", crash_money)
     keyed = owner | {"Idempotency-Key": "retry-after-server-error"}
-    with pytest.raises(RuntimeError, match="injected mutation failure"):
-        await client.post("/api/finance/new", json=payload, headers=keyed)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(), raise_app_exceptions=True),
+        base_url="http://test",
+        cookies=client.cookies,
+    ) as propagating:
+        with pytest.raises(RuntimeError, match="injected mutation failure"):
+            await propagating.post("/api/finance/new", json=payload, headers=keyed)
     assert await idempotency_count() == 0
     monkeypatch.setattr("app.api.finance.money", actual_money)
 

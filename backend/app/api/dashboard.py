@@ -444,6 +444,7 @@ async def dashboard(
         held_rows = (
             await db.execute(
                 held.add_columns(_exact_total(held).label("preview_total"))
+                .execution_options(populate_existing=True)
                 .order_by(Animal.tag_number, Animal.id)
                 .limit(DASHBOARD_PREVIEW_LIMIT)
             )

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -84,6 +85,7 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, lis
                 "inputs": input_identity(backend),
                 "coverage_sha256": sha_file(backend / ".coverage-mut"),
                 "baseline_exit_code": 0,
+                "test_database_admin_sha256": mutate_run.database_admin_sha256(),
             }
         )
     )
@@ -369,7 +371,8 @@ def test_killed_pytest_attempt_reaps_its_real_disposable_database(
         "def test_hang():\n"
         "    name = os.environ['GOATFARM_TEST_DB']\n"
         "    async def create():\n"
-        "        c = await asyncpg.connect('postgresql://localhost:5432/postgres')\n"
+        "        c = await asyncpg.connect(os.environ.get('MUTATION_TEST_ADMIN_URL', "
+        "'postgresql://localhost:5432/postgres'))\n"
         "        await c.execute(f'CREATE DATABASE \"{name}\"')\n"
         "        await c.close()\n"
         "    asyncio.run(create())\n"
@@ -386,7 +389,9 @@ def test_killed_pytest_attempt_reaps_its_real_disposable_database(
     database = marker.read_text()
 
     async def remains() -> bool:
-        connection = await asyncpg.connect("postgresql://localhost:5432/postgres")
+        connection = await asyncpg.connect(
+            os.environ.get("MUTATION_TEST_ADMIN_URL", "postgresql://localhost:5432/postgres")
+        )
         try:
             return bool(
                 await connection.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", database)
@@ -406,10 +411,16 @@ def test_attempt_database_cleanup_rejects_unowned_names() -> None:
         mutate_run.drop_attempt_database("goatfarm")
 
 
+@pytest.mark.parametrize("admin_endpoint", [None, "postgresql://localhost:5437/postgres"])
 def test_attempt_database_cleanup_bounds_connect_drop_and_close(
     monkeypatch: pytest.MonkeyPatch,
+    admin_endpoint: str | None,
 ) -> None:
     calls: list[tuple[str, int]] = []
+    if admin_endpoint is None:
+        monkeypatch.delenv("MUTATION_TEST_ADMIN_URL", raising=False)
+    else:
+        monkeypatch.setenv("MUTATION_TEST_ADMIN_URL", admin_endpoint)
 
     class Connection:
         async def execute(self, sql: str, **kwargs: int) -> None:
@@ -422,7 +433,7 @@ def test_attempt_database_cleanup_bounds_connect_drop_and_close(
             calls.append(("close", kwargs["timeout"]))
 
     async def connect(dsn: str, **kwargs: int) -> Connection:
-        assert dsn == "postgresql://localhost:5432/postgres"
+        assert dsn == (admin_endpoint or "postgresql://localhost:5432/postgres")
         calls.append(("connect", kwargs["timeout"]))
         return Connection()
 
@@ -731,3 +742,90 @@ def test_isolated_coverage_paths_rebase_to_current_source(
     assert loaded.load_coverage_contexts(
         (backend / ".coverage-mut").read_bytes(), json.loads(provenance.read_text())
     ) == {"app/alpha.py": {2: {"tests/test_alpha.py::test_value"}}}
+
+
+@pytest.mark.parametrize("admin_endpoint", [None, "postgresql://localhost:5437/postgres"])
+def test_coverage_records_the_endpoint_used_by_its_passing_subprocess(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    admin_endpoint: str | None,
+) -> None:
+    from types import SimpleNamespace
+
+    if admin_endpoint is None:
+        monkeypatch.delenv("MUTATION_TEST_ADMIN_URL", raising=False)
+    else:
+        monkeypatch.setenv("MUTATION_TEST_ADMIN_URL", admin_endpoint)
+    backend, _ = _project(tmp_path, monkeypatch)
+    monkeypatch.setattr(mutate_cover, "BACKEND", backend)
+    expected = mutate_run.database_admin_sha256()
+
+    def passing_baseline(*args: Any, **kwargs: Any) -> SimpleNamespace:
+        assert mutate_run.database_admin_sha256(kwargs["env"]) == expected
+        (kwargs["cwd"] / ".coverage-mut").write_bytes(b"passing coverage")
+        # The collector must bind the captured child environment, even if
+        # the current parent environment changes before publication.
+        monkeypatch.setenv("MUTATION_TEST_ADMIN_URL", "postgresql://localhost:6543/postgres")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(mutate_cover.subprocess, "run", passing_baseline)
+    monkeypatch.setattr(sys, "argv", ["mutate_cover.py"])
+    mutate_cover.main()
+    provenance = json.loads((backend / ".coverage-mut.provenance.json").read_text())
+    assert provenance["test_database_admin_sha256"] == expected
+    assert "postgresql://" not in json.dumps(provenance)
+    with pytest.raises(ValueError, match=r"test database.*stale"):
+        mutate_run.Runner(1, None)
+    if admin_endpoint is None:
+        monkeypatch.delenv("MUTATION_TEST_ADMIN_URL", raising=False)
+    else:
+        monkeypatch.setenv("MUTATION_TEST_ADMIN_URL", admin_endpoint)
+    runner = mutate_run.Runner(1, None)
+    try:
+        assert runner.identity["config"]["test_database_admin_sha256"] == expected
+    finally:
+        runner.close()
+
+
+def test_runner_rejects_coverage_without_database_endpoint_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend, _ = _project(tmp_path, monkeypatch)
+    path = backend / ".coverage-mut.provenance.json"
+    provenance = json.loads(path.read_text())
+    del provenance["test_database_admin_sha256"]
+    path.write_text(json.dumps(provenance))
+    with pytest.raises(ValueError, match=r"test database.*stale"):
+        mutate_run.Runner(1, None)
+
+
+@pytest.mark.parametrize("configuration", ["domain_specs.json", "domain_ownership.json"])
+def test_identity_binds_domain_configuration_bytes(tmp_path: Path, configuration: str) -> None:
+    backend = tmp_path / "backend"
+    mutation = backend / "mutation"
+    mutation.mkdir(parents=True)
+    config = mutation / configuration
+    config.write_text("[]\n")
+    before = input_identity(backend)
+    assert before["harness"].get(configuration) == sha_file(config)
+    config.write_text('[{"domain": 28}]\n')
+    after = input_identity(backend)
+    assert after["harness"].get(configuration) == sha_file(config)
+    assert digest_json(before) != digest_json(after)
+    assert {key: value for key, value in before.items() if key != "harness"} == {
+        key: value for key, value in after.items() if key != "harness"
+    }
+
+
+def test_identity_excludes_generated_mutation_output_bytes(tmp_path: Path) -> None:
+    backend = tmp_path / "backend"
+    mutation = backend / "mutation"
+    mutation.mkdir(parents=True)
+    (mutation / "domain_specs.json").write_text("[]\n")
+    (mutation / "domain_ownership.json").write_text("[]\n")
+    before = input_identity(backend)
+    (mutation / "manifest.json").write_text('[{"id": "generated"}]\n')
+    (mutation / "results.jsonl").write_text('{"status": "SURVIVED"}\n')
+    (mutation / "domain-report.json").write_text('{"complete": false}\n')
+    assert input_identity(backend) == before

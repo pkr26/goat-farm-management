@@ -20,7 +20,7 @@ from app.models import (
     FeedRecipeLine,
 )
 
-from .conftest import BACKEND_DIR, TEST_DB, owner_with_farm
+from .conftest import BACKEND_DIR, TEST_DIRECT_URL, owner_with_farm
 
 EXPECTED_NUMERIC_COLUMNS = {
     ("feed_inventory", "qty_on_hand"),
@@ -243,7 +243,7 @@ async def test_migration_refuses_dirty_legacy_precision_then_reupgrades_cleanly(
     types_at_parent = await _column_types()
     assert all(data_type == "double precision" for data_type, _, _ in types_at_parent.values())
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         item_id = await connection.fetchval(
             "SELECT id FROM feed_inventory WHERE farm_id = $1 ORDER BY id LIMIT 1",
@@ -261,7 +261,7 @@ async def test_migration_refuses_dirty_legacy_precision_then_reupgrades_cleanly(
     assert "feed_inventory.qty_on_hand contains sub-gram values" in output
     assert f"row ids [{item_id}]" in output
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         # The failed migration is transactional: no earlier column conversion
         # may leak through while the operator repairs the offending legacy row.
@@ -298,7 +298,7 @@ async def test_migration_refuses_dirty_legacy_precision_then_reupgrades_cleanly(
     await get_engine().dispose()
     await _purge_idempotency_for_migration()
     await _alembic("downgrade", "f1b2c3d4e5f6")
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         await connection.execute(
             "UPDATE feed_inventory SET qty_on_hand = 1000000000000 WHERE id = $1",
@@ -312,7 +312,7 @@ async def test_migration_refuses_dirty_legacy_precision_then_reupgrades_cleanly(
     assert "feed_inventory.qty_on_hand contains overflow values" in output
     assert f"row ids [{item_id}]" in output
 
-    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    connection = await asyncpg.connect(TEST_DIRECT_URL)
     try:
         await connection.execute(
             "UPDATE feed_inventory SET qty_on_hand = 10.123 WHERE id = $1",

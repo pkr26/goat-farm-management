@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_sessionmaker
+from app.main import create_app
 from app.models import RefreshSession, SecurityEvent
 from app.security import decode_access_claims
 
@@ -121,8 +122,13 @@ async def test_logout_event_and_revocation_roll_back_together(
 
     event.listen(Session, "before_commit", reject_logout_commit)
     try:
-        with pytest.raises(RuntimeError, match="simulated storage failure"):
-            await client.post(path, headers=headers)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=create_app(), raise_app_exceptions=True),
+            base_url="http://test",
+            cookies=client.cookies,
+        ) as propagating:
+            with pytest.raises(RuntimeError, match="simulated storage failure"):
+                await propagating.post(path, headers=headers)
     finally:
         event.remove(Session, "before_commit", reject_logout_commit)
     assert await _logout_events() == []

@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,14 @@ def read_artifact(path: Path, *, instruction: str) -> bytes:
 
 def sha_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def database_admin_sha256(environment: Mapping[str, str] | None = None) -> str:
+    """Fingerprint the effective disposable database endpoint without exposing it."""
+    selected = os.environ if environment is None else environment
+    return sha_bytes(
+        selected.get("MUTATION_TEST_ADMIN_URL", "postgresql://localhost:5432/postgres").encode()
+    )
 
 
 def sha_file(path: Path) -> str | None:
@@ -84,7 +94,11 @@ def input_identity(backend: Path) -> dict[str, Any]:
             },
         },
         "harness": {
-            path.name: sha_file(path) for path in sorted((backend / "mutation").glob("*.py"))
+            **{path.name: sha_file(path) for path in sorted((backend / "mutation").glob("*.py"))},
+            **{
+                name: sha_file(backend / "mutation" / name)
+                for name in ("domain_specs.json", "domain_ownership.json")
+            },
         },
         "locks": {name: sha_file(backend / name) for name in ("uv.lock", "pyproject.toml")},
     }

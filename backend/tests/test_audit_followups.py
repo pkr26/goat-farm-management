@@ -24,7 +24,8 @@ import pytest
 from app.db import get_sessionmaker
 from app.models import Animal
 
-from .conftest import login_and_rotate, owner_with_farm
+from .conftest import ADMIN_URL, database_direct_url, login_and_rotate, owner_with_farm
+from .test_ops_migration_integrity import _throwaway_name
 
 
 # ---------------------------------------------------------------------------
@@ -94,21 +95,12 @@ async def _migration_scenario() -> None:
     and PPR 36→12 only reach deployed farms via migration b5d7f9a1c3e5. This
     reproduces a pre-migration database and runs the real alembic revisions
     against it."""
-    from app.core.config import get_settings
-
-    admin_url = get_settings().database_url
-    # Point at the maintenance DB (postgres) to create/drop the scratch
-    # database; the settings URL names the app/test database itself.
-    base = admin_url.rsplit("/", 1)[0]
-    scratch = "goatfarm_migration_test"
-
-    def _dsn(url: str) -> str:
-        return url.replace("postgresql+asyncpg://", "postgresql://")
+    scratch = _throwaway_name("species_reference")
 
     async def admin_exec(sql: str) -> None:
         import asyncpg
 
-        conn = await asyncpg.connect(_dsn(f"{base}/postgres"))
+        conn = await asyncpg.connect(ADMIN_URL)
         try:
             await conn.execute(sql)
         finally:
@@ -117,7 +109,9 @@ async def _migration_scenario() -> None:
     await admin_exec(f'DROP DATABASE IF EXISTS "{scratch}"')
     await admin_exec(f'CREATE DATABASE "{scratch}"')
     try:
-        target_url = f"{base}/{scratch}"
+        target_url = database_direct_url(scratch).replace(
+            "postgresql://", "postgresql+asyncpg://", 1
+        )
         env = {
             **os.environ,
             "GOATFARM_DATABASE_URL": target_url,
@@ -143,7 +137,7 @@ async def _migration_scenario() -> None:
             # Legacy rows exactly as a pre-remediation farm held them.
             import asyncpg
 
-            dsn = f"{base}/{scratch}".replace("postgresql+asyncpg://", "postgresql://")
+            dsn = database_direct_url(scratch)
             conn = await asyncpg.connect(dsn)
             try:
                 await conn.execute(
@@ -172,7 +166,7 @@ async def _migration_scenario() -> None:
             finally:
                 await conn.close()
 
-        dsn = f"{base}/{scratch}".replace("postgresql+asyncpg://", "postgresql://")
+        dsn = database_direct_url(scratch)
         conn = await asyncpg.connect(dsn)
         try:
             ppr = await conn.fetchrow(
@@ -216,19 +210,12 @@ async def _orf_upgrade_scenario() -> None:
     d7e8f9a0b1c2 put on health_events.schedule_template_id. The scenario
     proves both hazards are real on this database before asserting the fixed
     order survives them."""
-    from app.core.config import get_settings
-
-    admin_url = get_settings().database_url
-    base = admin_url.rsplit("/", 1)[0]
-    scratch = "goatfarm_test_orf_upgrade"
-
-    def _dsn(url: str) -> str:
-        return url.replace("postgresql+asyncpg://", "postgresql://")
+    scratch = _throwaway_name("orf_reference")
 
     async def admin_exec(sql: str) -> None:
         import asyncpg
 
-        conn = await asyncpg.connect(_dsn(f"{base}/postgres"))
+        conn = await asyncpg.connect(ADMIN_URL)
         try:
             await conn.execute(sql)
         finally:
@@ -237,7 +224,9 @@ async def _orf_upgrade_scenario() -> None:
     await admin_exec(f'DROP DATABASE IF EXISTS "{scratch}" WITH (FORCE)')
     await admin_exec(f'CREATE DATABASE "{scratch}"')
     try:
-        target_url = f"{base}/{scratch}"
+        target_url = database_direct_url(scratch).replace(
+            "postgresql://", "postgresql+asyncpg://", 1
+        )
         env = {
             **os.environ,
             "GOATFARM_DATABASE_URL": target_url,
@@ -264,7 +253,7 @@ async def _orf_upgrade_scenario() -> None:
 
         import asyncpg
 
-        conn = await asyncpg.connect(_dsn(f"{base}/{scratch}"))
+        conn = await asyncpg.connect(database_direct_url(scratch))
         try:
             owner_id = await conn.fetchval(
                 """
@@ -338,7 +327,7 @@ async def _orf_upgrade_scenario() -> None:
 
         await alembic_upgrade("head")
 
-        conn = await asyncpg.connect(_dsn(f"{base}/{scratch}"))
+        conn = await asyncpg.connect(database_direct_url(scratch))
         try:
             survivor = await conn.fetchrow(
                 """
