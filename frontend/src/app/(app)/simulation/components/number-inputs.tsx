@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 
 import { Input } from "@/components/ui/input";
-import { useLanguage, useT } from "@/lib/i18n";
+import { useLanguage, useT, type TFn } from "@/lib/i18n";
 
 import { humanize } from "./format-helpers";
 
@@ -30,6 +30,65 @@ export type NumberArrayRule = {
   nondecreasing?: boolean;
   itemLabel: string;
 };
+
+/** Shared validation for typed drafts and externally restored values. */
+export function validateNumberInput(
+  raw: string,
+  { nullable = false, integer, min, max, exclusiveMin }: NumericRule & { nullable?: boolean },
+  t: TFn,
+): { value?: number | null; error?: string } {
+  if (raw === "") {
+    return nullable ? { value: null } : { error: t("simulation.input.required") };
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return { error: t("simulation.input.validNumber") };
+  if (integer && !Number.isInteger(parsed)) return { error: t("simulation.input.wholeNumber") };
+  if (exclusiveMin !== undefined && parsed <= exclusiveMin)
+    return { error: t("simulation.input.greaterThan", { value: exclusiveMin }) };
+  if (min !== undefined && parsed < min)
+    return { error: t("simulation.input.atLeast", { value: min }) };
+  if (max !== undefined && parsed > max)
+    return { error: t("simulation.input.atMost", { value: max }) };
+  return { value: parsed };
+}
+
+export function validateNumberArrayInput(raw: string, rule: NumberArrayRule, t: TFn): { parsed: number[]; message: string | null } {
+  if (raw.trim() === "" && rule.allowEmpty) return { parsed: [], message: null };
+  const tokens = raw.split(",").map((token) => token.trim());
+  let message: string | null = null;
+  const parsed = tokens.map(Number);
+  if (tokens.some((token) => token === "") || parsed.some((n) => !Number.isFinite(n)))
+    message = t("simulation.input.commaSeparatedNumbers");
+  else if (rule.exactLength !== undefined && parsed.length !== rule.exactLength)
+    message = t("simulation.input.exactlyItems", {
+      count: rule.exactLength,
+      label: rule.itemLabel,
+    });
+  else if (rule.maxLength !== undefined && parsed.length > rule.maxLength)
+    message = t("simulation.input.atMostItems", {
+      count: rule.maxLength,
+      label: rule.itemLabel,
+    });
+  else if (rule.integer && parsed.some((n) => !Number.isInteger(n)))
+    message = t("simulation.input.eachItemWhole", { label: rule.itemLabel });
+  else if (
+    rule.exclusiveMin !== undefined &&
+    parsed.some((n) => n <= rule.exclusiveMin!)
+  )
+    message = t("simulation.input.eachGreaterThan", { value: rule.exclusiveMin });
+  else if (rule.min !== undefined && parsed.some((n) => n < rule.min!))
+    message = t("simulation.input.eachAtLeast", { value: rule.min });
+  else if (rule.max !== undefined && parsed.some((n) => n > rule.max!))
+    message = t("simulation.input.eachAtMost", { value: rule.max });
+  else if (rule.unique && new Set(parsed).size !== parsed.length)
+    message = t("simulation.input.noDuplicates", { label: humanize(rule.itemLabel) });
+  else if (
+    rule.nondecreasing &&
+    parsed.some((n, index) => index > 0 && n < parsed[index - 1])
+  )
+    message = t("simulation.input.nondecreasing", { label: humanize(rule.itemLabel) });
+  return { parsed, message };
+}
 
 type NumberInputProps = Omit<
   ComponentProps<typeof Input>,
@@ -76,7 +135,9 @@ export function NumberInput(props: NumberInputProps) {
     ...inputProps
   } = props;
   const [draft, setDraft] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() =>
+    validate(value === null ? "" : String(value)).error ?? null,
+  );
   const errorId = id ? `${id}-error` : undefined;
   const commit = useRef(onCommit);
   useEffect(() => {
@@ -91,20 +152,8 @@ export function NumberInput(props: NumberInputProps) {
   } | null>(null);
   const committedBoundsRecovery = useRef<typeof recoveredBoundsValue>(null);
 
-  function validate(raw: string): { value?: number | null; error?: string } {
-    if (raw === "") {
-      return nullable ? { value: null } : { error: t("simulation.input.required") };
-    }
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return { error: t("simulation.input.validNumber") };
-    if (integer && !Number.isInteger(parsed)) return { error: t("simulation.input.wholeNumber") };
-    if (exclusiveMin !== undefined && parsed <= exclusiveMin)
-      return { error: t("simulation.input.greaterThan", { value: exclusiveMin }) };
-    if (min !== undefined && parsed < min)
-      return { error: t("simulation.input.atLeast", { value: min }) };
-    if (max !== undefined && parsed > max)
-      return { error: t("simulation.input.atMost", { value: max }) };
-    return { value: parsed };
+  function validate(raw: string) {
+    return validateNumberInput(raw, { nullable, integer, min, max, exclusiveMin }, t);
   }
 
   function update(raw: string) {
@@ -112,8 +161,8 @@ export function NumberInput(props: NumberInputProps) {
     const next = validate(raw);
     const message = next.error ?? null;
     setError(message);
-    onValidityChange?.(!message);
-    if (!message) {
+    onValidityChange?.(message === null);
+    if (message === null) {
       if (next.value === null) (onCommit as (v: number | null) => void)(null);
       else (onCommit as (v: number) => void)(next.value as number);
     }
@@ -129,12 +178,15 @@ export function NumberInput(props: NumberInputProps) {
   // locale switch while an invalid draft is open must not strand stale English
   // error copy until the operator edits the field again.
   const boundsKey = `${min}|${max}|${exclusiveMin}|${integer}|${nullable}|${language}`;
+  const externalRaw = value === null ? "" : String(value);
   const [seenBounds, setSeenBounds] = useState(boundsKey);
-  if (boundsKey !== seenBounds) {
+  const [seenExternalRaw, setSeenExternalRaw] = useState(externalRaw);
+  if (boundsKey !== seenBounds || (draft === null && externalRaw !== seenExternalRaw)) {
     setSeenBounds(boundsKey);
-    const next = validate(draft ?? (value === null ? "" : String(value)));
+    setSeenExternalRaw(externalRaw);
+    const next = validate(draft ?? externalRaw);
     setRecoveredBoundsValue(
-      draft !== null && error && !next.error
+      draft !== null && error !== null && next.error === undefined
         ? { value: next.value as number | null }
         : null,
     );
@@ -159,7 +211,7 @@ export function NumberInput(props: NumberInputProps) {
     notifyValidity.current = onValidityChange;
   });
   useEffect(() => {
-    notifyValidity.current?.(!error);
+    notifyValidity.current?.(error === null);
   }, [error]);
 
   return (
@@ -171,18 +223,18 @@ export function NumberInput(props: NumberInputProps) {
         step={integer ? 1 : "any"}
         min={exclusiveMin === undefined ? min : undefined}
         max={max}
-        aria-invalid={Boolean(error) || undefined}
-        aria-describedby={[describedBy, error ? errorId : null]
+        aria-invalid={error !== null || undefined}
+        aria-describedby={[describedBy, error !== null ? errorId : null]
           .filter(Boolean)
           .join(" ") || undefined}
         {...inputProps}
         value={draft ?? (value === null ? "" : String(value))}
         onChange={(e) => update(e.target.value)}
         onBlur={() => {
-          if (!error) setDraft(null);
+          if (error === null) setDraft(null);
         }}
       />
-      {error && (
+      {error !== null && (
         <p id={errorId} role="alert" className="text-sm text-destructive">
           {error}
         </p>
@@ -207,7 +259,7 @@ export function NumberArrayInput({
   const t = useT();
   const { language } = useLanguage();
   const [draft, setDraft] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => validate(value.join(", ")).message);
   const errorId = `${id}-error`;
   const commit = useRef(onCommit);
   useEffect(() => {
@@ -216,42 +268,8 @@ export function NumberArrayInput({
   const [recoveredBoundsValue, setRecoveredBoundsValue] = useState<number[] | null>(null);
   const committedBoundsRecovery = useRef<typeof recoveredBoundsValue>(null);
 
-  function validate(raw: string): { parsed: number[]; message: string | null } {
-    if (raw.trim() === "" && rule.allowEmpty) return { parsed: [], message: null };
-    const tokens = raw.split(",").map((token) => token.trim());
-    let message: string | null = null;
-    const parsed = tokens.map(Number);
-    if (tokens.some((token) => token === "") || parsed.some((n) => !Number.isFinite(n)))
-      message = t("simulation.input.commaSeparatedNumbers");
-    else if (rule.exactLength !== undefined && parsed.length !== rule.exactLength)
-      message = t("simulation.input.exactlyItems", {
-        count: rule.exactLength,
-        label: rule.itemLabel,
-      });
-    else if (rule.maxLength !== undefined && parsed.length > rule.maxLength)
-      message = t("simulation.input.atMostItems", {
-        count: rule.maxLength,
-        label: rule.itemLabel,
-      });
-    else if (rule.integer && parsed.some((n) => !Number.isInteger(n)))
-      message = t("simulation.input.eachItemWhole", { label: rule.itemLabel });
-    else if (
-      rule.exclusiveMin !== undefined &&
-      parsed.some((n) => n <= rule.exclusiveMin!)
-    )
-      message = t("simulation.input.eachGreaterThan", { value: rule.exclusiveMin });
-    else if (rule.min !== undefined && parsed.some((n) => n < rule.min!))
-      message = t("simulation.input.eachAtLeast", { value: rule.min });
-    else if (rule.max !== undefined && parsed.some((n) => n > rule.max!))
-      message = t("simulation.input.eachAtMost", { value: rule.max });
-    else if (rule.unique && new Set(parsed).size !== parsed.length)
-      message = t("simulation.input.noDuplicates", { label: humanize(rule.itemLabel) });
-    else if (
-      rule.nondecreasing &&
-      parsed.some((n, index) => index > 0 && n < parsed[index - 1])
-    )
-      message = t("simulation.input.nondecreasing", { label: humanize(rule.itemLabel) });
-    return { parsed, message };
+  function validate(raw: string) {
+    return validateNumberArrayInput(raw, rule, t);
   }
 
   function update(raw: string) {
@@ -262,8 +280,8 @@ export function NumberArrayInput({
     // changes. Conflict recovery uses the parent callback as an edit fence, so
     // a second keystroke in an already-invalid draft must still supersede the
     // pending refresh before it can remount this input and erase that draft.
-    onValidityChange(!message);
-    if (!message) onCommit(parsed);
+    onValidityChange(message === null);
+    if (message === null) onCommit(parsed);
   }
 
   // Some bounds are derived from live state rather than constants — notably
@@ -284,12 +302,15 @@ export function NumberArrayInput({
     rule.allowEmpty,
     language,
   ].join("|");
+  const externalRaw = value.join(", ");
   const [seenBounds, setSeenBounds] = useState(boundsKey);
-  if (boundsKey !== seenBounds) {
+  const [seenExternalRaw, setSeenExternalRaw] = useState(externalRaw);
+  if (boundsKey !== seenBounds || (draft === null && externalRaw !== seenExternalRaw)) {
     setSeenBounds(boundsKey);
-    const next = validate(draft ?? value.join(", "));
+    setSeenExternalRaw(externalRaw);
+    const next = validate(draft ?? externalRaw);
     setRecoveredBoundsValue(
-      draft !== null && error && !next.message ? next.parsed : null,
+      draft !== null && error !== null && next.message === null ? next.parsed : null,
     );
     setError(next.message);
   }
@@ -310,7 +331,7 @@ export function NumberArrayInput({
     notifyValidity.current = onValidityChange;
   });
   useEffect(() => {
-    notifyValidity.current(!error);
+    notifyValidity.current(error === null);
   }, [error]);
 
   return (
@@ -318,15 +339,15 @@ export function NumberArrayInput({
       <Input
         id={id}
         type="text"
-        aria-invalid={Boolean(error) || undefined}
-        aria-describedby={error ? errorId : undefined}
+        aria-invalid={error !== null || undefined}
+        aria-describedby={error !== null ? errorId : undefined}
         value={draft ?? value.join(", ")}
         onChange={(event) => update(event.target.value)}
         onBlur={() => {
-          if (!error) setDraft(null);
+          if (error === null) setDraft(null);
         }}
       />
-      {error && (
+      {error !== null && (
         <p id={errorId} role="alert" className="text-sm text-destructive">
           {error}
         </p>

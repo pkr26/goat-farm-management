@@ -531,11 +531,8 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
               return (
                 <div
                   key={item.id}
-                  className={
-                    low
-                      ? "space-y-1.5 rounded-xl border border-warning-tint-border bg-warning-tint/50 p-3 shadow-xs"
-                      : "space-y-1.5 rounded-xl border bg-card p-3 shadow-xs"
-                  }
+                  data-low={low}
+                  className="space-y-1.5 rounded-xl border bg-card p-3 shadow-xs data-[low=true]:border-warning-tint-border data-[low=true]:bg-warning-tint/50"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium">{item.ingredient}</span>
@@ -583,7 +580,8 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
                 return (
                   <TableRow
                     key={item.id}
-                    className={low ? "bg-warning-tint/50" : undefined}
+                    data-low={low}
+                    className="data-[low=true]:bg-warning-tint/50"
                   >
                     <TableCell>{item.category}</TableCell>
                     <TableCell className="font-medium">{item.ingredient}</TableCell>

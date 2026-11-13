@@ -54,7 +54,7 @@ function localizedArg(
   name: string,
   value: unknown,
   language: Language,
-): string | number {
+): string {
   if (name === "month") {
     const month =
       typeof value === "string" && /^\d+$/.test(value)
@@ -69,7 +69,7 @@ function localizedArg(
   if ((name === "date" || name.endsWith("_date")) && typeof value === "string" && ISO_DATE.test(value)) {
     return formatDate(value, language);
   }
-  return typeof value === "number" && Number.isFinite(value) ? value : String(value);
+  return String(value);
 }
 
 export function resolveTaskTitle(task: TaskTitleSource, language: Language): string {
@@ -77,13 +77,19 @@ export function resolveTaskTitle(task: TaskTitleSource, language: Language): str
   // Unknown keys (a backend ahead of this catalog) render the payload's own
   // title — the fallback chain is te → en → never the raw key.
   if (!key || !(key in en)) return task.title;
-  if (task.title_key === "kidding_watch" && Number(task.title_args?.days_before) === 0) {
-    key = `${TASKGEN_PREFIX}kidding_watch_due`;
+  try {
+    if (task.title_key === "kidding_watch" && Number(task.title_args?.days_before) === 0) {
+      key = `${TASKGEN_PREFIX}kidding_watch_due`;
+    }
+    const args: Record<string, string | number> = {};
+    for (const [name, value] of Object.entries(task.title_args ?? {})) {
+      if (value === null || value === undefined) continue;
+      args[name] = localizedArg(name, value, language);
+    }
+    return translate(language, key as MessageKey, args);
+  } catch {
+    // Unknown JSON arguments can shadow toString with a non-callable value.
+    // Keep the payload's usable duty label when they cannot become text.
+    return task.title;
   }
-  const args: Record<string, string | number> = {};
-  for (const [name, value] of Object.entries(task.title_args ?? {})) {
-    if (value === null || value === undefined) continue;
-    args[name] = localizedArg(name, value, language);
-  }
-  return translate(language, key as MessageKey, args);
 }

@@ -469,19 +469,33 @@ export async function runIdempotencyProtectedRequest<T>({
   assertRequestScope?: () => void;
 }): Promise<T> {
   assertRequestScope?.();
-  if (!isIdempotencyProtectedMutation(url, init.method)) return execute(init);
+  const method = init.method;
+  if (!isIdempotencyProtectedMutation(url, method)) return execute(init);
 
   const headers = new Headers(init.headers);
   const callerProvidedKey = headers.has("Idempotency-Key");
   const callerKey = callerProvidedKey ? headers.get("Idempotency-Key") : null;
-  const signal = init.signal ?? null;
-  const signature = logicalSignature(url, init, farmScope, sessionScope, callerKey);
+  // Hash the same protected request that the transport will receive. Public
+  // RequestInit members may be inherited, nonenumerable or changing getters.
+  const body = init.body;
+  const requestSignal = init.signal;
+  const signal = requestSignal ?? null;
+  const otherMembers = Object.getOwnPropertyDescriptors(init);
+  delete otherMembers.method;
+  delete otherMembers.headers;
+  delete otherMembers.body;
+  delete otherMembers.signal;
+  const protectedInit: RequestInit = Object.defineProperties(
+    { method, headers, body, signal: requestSignal },
+    otherMembers,
+  );
+  const signature = logicalSignature(url, protectedInit, farmScope, sessionScope, callerKey);
   const persistedDigest =
     // An opaque/non-JWT token has no stable actor identity. In that case we
     // fail safely back to memory-only behavior instead of persisting a key
     // that a later login could claim.
     !callerProvidedKey && actorScope && allowsPersistedRecovery(url)
-      ? await sha256(persistentSignature(url, init, farmScope, actorScope))
+      ? await sha256(persistentSignature(url, protectedInit, farmScope, actorScope))
       : null;
   // sha256() is the only yield before the registry and sessionStorage writes.
   // Ownership may have changed while Web Crypto was working.
@@ -535,7 +549,7 @@ export async function runIdempotencyProtectedRequest<T>({
   // ambiguous send can recover the exact same key.
   persistKey(entry.persistedDigest, entry.key, now);
   headers.set("Idempotency-Key", entry.key);
-  const preparedInit: RequestInit = { ...init, headers };
+  const preparedInit: RequestInit = { ...protectedInit, headers };
   const currentEntry = entry;
   const promise = executeWithOneNetworkRetry(execute, preparedInit);
   currentEntry.promise = promise;

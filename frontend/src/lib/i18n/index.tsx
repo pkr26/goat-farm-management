@@ -11,6 +11,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -186,7 +187,9 @@ export function LanguageProvider({
     return () => { switchVersion.current += 1; };
   }, [initialLanguage, requestLanguage]);
 
-  useEffect(() => {
+  // Subscribe in the failure commit so an online event cannot arrive between
+  // the visible recovery message and registration of its retry listener.
+  useLayoutEffect(() => {
     if (!failedLanguage) return;
     const retry = () => requestLanguage(failedLanguage, true);
     window.addEventListener("online", retry);

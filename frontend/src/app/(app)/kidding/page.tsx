@@ -342,7 +342,8 @@ function RecordKiddingDialog({
       breeding.breeding_date,
       vocabulary.facts.gestationWindowDays.max,
     );
-    return maxGestationDate < farmToday() ? maxGestationDate : farmToday();
+    const today = farmToday();
+    return maxGestationDate < today ? maxGestationDate : today;
   })();
   const resolver = useMemo(
     () => zodResolver(buildKiddingSchemaFor(t, vocabulary, earliestKiddingDate, latestKiddingDate)),
@@ -445,7 +446,7 @@ function RecordKiddingDialog({
           <DialogDescription>
             {t("kidding.dialog.description", {
               female: femaleNounCap,
-              doeTag: breeding.doe_tag ?? `#${breeding.doe_id}`,
+              doeTag: breeding.doe_tag || `#${breeding.doe_id}`,
               date: formatDate(breeding.expected_kidding_date),
             })}
             {breeding.kid_count_detected
@@ -914,10 +915,10 @@ function KidsCell({
           {i > 0 && ", "}
           {kid.animal_id && canViewAnimals ? (
             <Link href={`/animals/${kid.animal_id}`} className="text-primary underline">
-              {kid.tag ?? t("kidding.noun.young")}
+              {kid.tag || t("kidding.noun.young")}
             </Link>
           ) : (
-            (kid.tag ?? t("kidding.noun.young"))
+            (kid.tag || t("kidding.noun.young"))
           )}{" "}
           (
           {[
@@ -1127,10 +1128,10 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
   function doeCell(doeId: number, doeTag: string | null | undefined) {
     return canViewAnimals ? (
       <Link href={`/animals/${doeId}`} className="text-primary underline">
-        {doeTag ?? `${femaleNounCap} #${doeId}`}
+        {doeTag || `${femaleNounCap} #${doeId}`}
       </Link>
     ) : (
-      (doeTag ?? `${femaleNounCap} #${doeId}`)
+      (doeTag || `${femaleNounCap} #${doeId}`)
     );
   }
 
@@ -1245,10 +1246,10 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
                         href={`/animals/${r.doe_id}`}
                         className="text-primary underline"
                       >
-                        {r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`}
+                        {r.doe_tag || `${femaleNounCap} #${r.doe_id}`}
                       </Link>
                     ) : (
-                      r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`
+                      r.doe_tag || `${femaleNounCap} #${r.doe_id}`
                     )}
                   </TableCell>
                   <TableCell>
@@ -1350,10 +1351,10 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
                         href={`/animals/${r.doe_id}`}
                         className="text-primary underline"
                       >
-                        {r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`}
+                        {r.doe_tag || `${femaleNounCap} #${r.doe_id}`}
                       </Link>
                     ) : (
-                      r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`
+                      r.doe_tag || `${femaleNounCap} #${r.doe_id}`
                     )}
                   </TableCell>
                   <TableCell>{formatDate(r.breeding_date)}</TableCell>
@@ -1446,10 +1447,10 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
                         href={`/animals/${k.doe_id}`}
                         className="text-primary underline"
                       >
-                        {k.doe_tag ?? `${femaleNounCap} #${k.doe_id}`}
+                        {k.doe_tag || `${femaleNounCap} #${k.doe_id}`}
                       </Link>
                     ) : (
-                      k.doe_tag ?? `${femaleNounCap} #${k.doe_id}`
+                      k.doe_tag || `${femaleNounCap} #${k.doe_id}`
                     )}
                   </TableCell>
                   <TableCell>

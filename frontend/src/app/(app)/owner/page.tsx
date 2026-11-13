@@ -188,7 +188,8 @@ export default function OwnerPage() {
               <Button
                 key={days}
                 size="sm"
-                variant={windowDays === days ? "default" : "outline"}
+                variant="outline"
+                className="aria-pressed:border-transparent aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary/80 dark:aria-pressed:border-transparent dark:aria-pressed:bg-primary dark:aria-pressed:hover:bg-primary/80"
                 aria-pressed={windowDays === days}
                 onClick={() => setWindowDays(days)}
               >

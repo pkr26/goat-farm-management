@@ -952,11 +952,7 @@ describe("FeedingPage kg/head override dialog", () => {
     expect(settingsBody).toBeNull();
   });
 
-  // REGRESSION — daily_kg_per_head had no client-side maximum although the
-  // backend's QuantityKgFloat rejects anything above 1,000,000 kg, so a
-  // fat-fingered override passed validation and only failed with an opaque
-  // server 422.
-  it("rejects a kg/head value above the backend's 1,000,000 kg cap", async () => {
+  it("rejects a kg/head value above the backend's 50 kg ration cap", async () => {
     const user = userEvent.setup();
     await renderLoaded();
 
@@ -968,7 +964,7 @@ describe("FeedingPage kg/head override dialog", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
     expect(
-      await within(dialog).findByText("Quantity cannot exceed 1,000,000 kg"),
+      await within(dialog).findByText("Must be at most 50."),
     ).toBeInTheDocument();
     expect(settingsBody).toBeNull();
   });

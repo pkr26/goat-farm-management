@@ -598,7 +598,8 @@ function vocabularyParams(t: TFn) {
 }
 
 export function simulationSectionHelp(section: string, v: FarmVocabulary, t?: TFn): string | null {
-  const factory = SIMULATION_SECTION_HELP[section];
+  const factory = Object.hasOwn(SIMULATION_SECTION_HELP, section)
+    ? SIMULATION_SECTION_HELP[section] : undefined;
   if (!factory) return null;
   return t ? t(`simulation.help.section.${section}` as MessageKey, vocabularyParams(t)) : factory(v);
 }
@@ -614,23 +615,28 @@ export function simulationFieldHelp(
   t?: TFn,
 ): { label: string; help: FieldHelp } | null {
   const [section, key, subKey] = path.split(".");
+  // Unknown/future variable names must not invoke inherited Object methods.
+  const riskLabelFactory = key !== undefined && Object.hasOwn(RISK_VARIABLE_LABELS, key)
+    ? RISK_VARIABLE_LABELS[key] : undefined;
+  const riskSubfieldHelp = subKey !== undefined && Object.hasOwn(RISK_SUBFIELD_HELP, subKey)
+    ? RISK_SUBFIELD_HELP[subKey] : undefined;
+  const factory = Object.hasOwn(FIELD_HELP, path) ? FIELD_HELP[path] : undefined;
   if (t) {
     const params = vocabularyParams(t);
-    const factory = FIELD_HELP[path];
     if (factory) return { label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
       help: { body: t(`simulation.help.field.${path}` as MessageKey, params) } };
     if (section === "risk" && key !== undefined) {
-      const labelFactory = RISK_VARIABLE_LABELS[key];
+      const labelFactory = riskLabelFactory;
       const variable = labelFactory ? t(`simulation.help.risk.label.${key}` as MessageKey, params) : key.replace(/_/g, " ");
-      if (subKey !== undefined) return RISK_SUBFIELD_HELP[subKey]
+      if (subKey !== undefined) return riskSubfieldHelp
         ? { label: `${variable} — ${subKey}`, help: { body: t(`simulation.help.risk.${subKey}` as MessageKey) } } : null;
       return { label: variable, help: { body: t("simulation.help.risk.variable", { variable }) } };
     }
     return null;
   }
   if (subKey !== undefined && section === "risk") {
-    const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) ?? key.replace(/_/g, " ");
-    const body = RISK_SUBFIELD_HELP[subKey];
+    const variableLabel = riskLabelFactory?.(v) ?? key.replace(/_/g, " ");
+    const body = riskSubfieldHelp;
     if (!body) return null;
     return {
       label: `${variableLabel} — ${subKey}`,
@@ -638,7 +644,7 @@ export function simulationFieldHelp(
     };
   }
   if (section === "risk" && key !== undefined) {
-    const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) ?? key.replace(/_/g, " ");
+    const variableLabel = riskLabelFactory?.(v) ?? key.replace(/_/g, " ");
     return {
       label: variableLabel,
       help: {
@@ -646,7 +652,6 @@ export function simulationFieldHelp(
       },
     };
   }
-  const factory = FIELD_HELP[path];
   if (!factory) return null;
   return {
     label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),

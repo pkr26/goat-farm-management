@@ -35,6 +35,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { MAX_RECUR_DAYS } from "@/lib/backend-caps";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { addDays, farmToday, formatDate } from "@/lib/format";
 import { useT } from "@/lib/i18n";
@@ -102,7 +103,13 @@ export function RowActions({
    * one-tap destructive-ish action requires a confirmation
    * that states the next occurrence date (max(due, today) + N days, the
    * backend's own anchor, computed locally). */
-  const needsRecurringConfirm = task.recur_days !== null;
+  const recurrenceDays = task.recur_days;
+  const needsRecurringConfirm = recurrenceDays !== null;
+  // Public query-cache consumers can supply an invalid in-memory interval.
+  // addDays deliberately degrades such input to its anchor, which cannot
+  // support a promise that completing this duty creates a successor there.
+  const recurrenceIsValid = recurrenceDays !== null && Number.isInteger(recurrenceDays) &&
+    recurrenceDays >= 1 && recurrenceDays <= MAX_RECUR_DAYS;
 
   function invalidate() {
     invalidateFarmData(queryClient);
@@ -374,9 +381,9 @@ export function RowActions({
               <DialogHeader>
                 <DialogTitle>{t("tasks.recurConfirm.title")}</DialogTitle>
               </DialogHeader>
-              <p className="text-sm text-muted-foreground">
-                {t("tasks.recurConfirm.body", {
-                  days: task.recur_days ?? 0,
+              <p className="text-sm text-muted-foreground" role={recurrenceIsValid ? undefined : "alert"}>
+                {recurrenceIsValid ? t("tasks.recurConfirm.body", {
+                  days: recurrenceDays,
                   /* Mirror the backend's anchor (services/tasks.py:
                      recurrence_anchor = max(due_date, today)): an overdue
                      duty's successor spawns from the farm's today, not from
@@ -384,10 +391,10 @@ export function RowActions({
                   date: formatDate(
                     addDays(
                       task.due_date > farmToday() ? task.due_date : farmToday(),
-                      task.recur_days ?? 0,
+                      recurrenceDays,
                     ),
                   ),
-                })}
+                }) : t("tasks.recurConfirm.invalid")}
               </p>
               {actionError?.action === "complete" && (
                 <p role="alert" className="text-sm text-destructive">
@@ -405,7 +412,7 @@ export function RowActions({
                 </Button>
                 <Button
                   type="button"
-                  disabled={actionFlight.pending}
+                  disabled={actionFlight.pending || !recurrenceIsValid}
                   onClick={() => void completeTask()}
                 >
                   {t("tasks.recurConfirm.confirm")}

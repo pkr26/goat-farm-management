@@ -389,6 +389,41 @@ describe("SimulationPage editor sections", () => {
   // The editor opens on the two sections every plan starts from — the horizon
   // and the herd it stocks. Everything downstream of them stays folded, so the
   // first screen is a decision, not a wall of eighty numbers.
+  it("accepts the supported one-month nursing interval and sends it to the simulation", async () => {
+    const sent: RunOptions[] = [];
+    const user = await renderLoaded({
+      defaults: { ...DEFAULTS, reproduction: { lactation_months: 2, months_open_before_breeding: 0 } },
+      onRun: (options) => sent.push(options),
+    });
+    await user.click(within(sectionDetails("Reproduction")).getByText("Reproduction"));
+    const interval = screen.getByRole("spinbutton", { name: "Lactation Months" });
+    await user.clear(interval);
+    await user.type(interval, "0");
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+    expect(sent).toEqual([]);
+    await user.clear(interval);
+    await user.type(interval, "1");
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ assumptions: { reproduction: { lactation_months: 1 } } });
+    for (const input of [interval, screen.getByRole("spinbutton", { name: "Months Open Before Breeding" })]) {
+      await user.clear(input);
+      await user.type(input, "13");
+      await user.tab();
+      expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+      await user.clear(input);
+      await user.type(input, "12");
+      await user.tab();
+      expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+    }
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toMatchObject({ assumptions: { reproduction: { lactation_months: 12, months_open_before_breeding: 12 } } });
+  });
+
   it("opens the horizon and herd sections and folds the rest", async () => {
     await renderLoaded();
 
@@ -676,8 +711,8 @@ describe("SimulationPage optimization candidates", () => {
     const recommended = cells(candidateRows()[1]);
     expect(recommended[0]).toHaveTextContent("Recommended");
     expect(recommended[11]).toHaveTextContent("₹0");
-    expect(recommended[11]).not.toHaveClass("text-destructive");
-    // Styled exactly like the neutral money columns beside it.
-    expect(recommended[11].className).toBe(recommended[6].className);
+    expect(recommended[11]).toHaveAttribute("data-tone", "neutral");
+    // Zero cash remains in the neutral semantic warning state.
+    expect(recommended[12]).toHaveAttribute("data-tone", "neutral");
   });
 });

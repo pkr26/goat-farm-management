@@ -29,7 +29,7 @@ import {
   setCurrentFarmId,
   setOnAuthFailure,
 } from "@/lib/api-client";
-import { clearPersistedIdempotencyRequestState } from "@/lib/idempotent-request";
+import { clearPersistedIdempotencyRequestState, randomIdempotencyKey } from "@/lib/idempotent-request";
 import { clearWorkerOutboxBackoff } from "@/lib/worker-outbox";
 import { endOfflineShift } from "@/lib/worker-offline-shift";
 import { safeStorage } from "@/lib/safe-storage";
@@ -126,9 +126,38 @@ function clearStoredFarmId(): void {
  * site storage is blocked; the storage event remains the broad fallback. */
 function publishCrossTabLogout(): void {
   authEventSequence += 1;
-  const event = `${AUTH_LOGOUT_EVENT_PREFIX}${Date.now()}:${authEventSequence}`;
+  let event = `${AUTH_LOGOUT_EVENT_PREFIX}${Date.now()}:${authEventSequence}`;
   try {
-    safeStorage("local")?.setItem(AUTH_EVENT_STORAGE_KEY, event);
+    // A reloaded sender may be unable to read the previous marker even when
+    // writes work. A fresh nonce prevents equal bytes suppressing its event.
+    // The shared generator also supports plain HTTP via getRandomValues.
+    event += `:${randomIdempotencyKey()}`;
+  } catch {
+    try {
+      // Without entropy or readable metadata, a removal makes the following
+      // nonempty write observable even if a reloaded realm repeats its bytes.
+      safeStorage("local")?.removeItem(AUTH_EVENT_STORAGE_KEY);
+    } catch {
+      try {
+        // Some storage wrappers permit writes while removal is blocked. The
+        // receiver ignores an empty marker; the next nonempty write still
+        // changes native storage even when a reloaded realm repeats its bytes.
+        safeStorage("local")?.setItem(AUTH_EVENT_STORAGE_KEY, "");
+      } catch {
+        /* A blocked reset must not prevent the write or broadcast below. */
+      }
+    }
+  }
+  try {
+    const storage = safeStorage("local");
+    try {
+      // A reloaded realm resets the sequence. If the clock has not advanced,
+      // writing the previous bytes would suppress the browser storage event.
+      if (storage?.getItem(AUTH_EVENT_STORAGE_KEY) === event) event += ":repeat";
+    } catch {
+      /* A blocked read must not prevent the existing write attempt. */
+    }
+    storage?.setItem(AUTH_EVENT_STORAGE_KEY, event);
   } catch {
     /* BroadcastChannel below may still be available. */
   }
@@ -222,6 +251,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // refreshFarms had a chance to set farmId — misfiring the /farm-select
   // redirect. Guard the initial refresh to at most one in-flight call.
   const initialRefreshStarted = useRef(false);
+  // Explicit session operations outrank the one-shot bootstrap, including
+  // an exit before its first passive effect. Lifecycle replay alone does not.
+  const bootstrapSuperseded = useRef(false);
+  const explicitSessionPending = useRef(false);
   const mounted = useRef(true);
   // Latest-wins fence for explicit membership refreshes. Two reads can
   // observe different server snapshots and arrive in reverse order.
@@ -254,6 +287,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mounted.current = false;
       farmRefreshGeneration.current += 1;
       sessionEstablishmentGeneration.current += 1;
+      // Lifecycle rehearsal cancels the explicit establishment too. It must
+      // not leave a render gate owned by an operation that cannot commit.
+      if (explicitSessionPending.current) {
+        explicitSessionPending.current = false;
+        setLoading(false);
+      }
     };
   }, []);
 
@@ -283,15 +322,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * the next user cannot view or send them. Only a server acknowledgement
    * settles an action. A logout never deletes unresolved field work. */
   const clearSession = useCallback(
-    () => {
+    (alreadyClearedEpoch?: number) => {
+      bootstrapSuperseded.current = true;
+      explicitSessionPending.current = false;
       farmRefreshGeneration.current += 1;
       sessionEstablishmentGeneration.current += 1;
       queryClient.clear();
       clearPersistedIdempotencyRequestState();
-      setAccessToken(null);
+      // API auth-failure producers already ended this exact credential epoch.
+      // A public exit still invalidates a refresh when its token is already null.
+      if (alreadyClearedEpoch === undefined || alreadyClearedEpoch !== authSessionEpochValue()) {
+        setAccessToken(null);
+      }
       setCurrentFarmId(null);
       setActiveFarmTimezone(null);
       commitUser(null);
+      // An explicit exit owns the render gate even before bootstrap starts.
+      setLoading(false);
       farmsRef.current = [];
       setFarms([]);
       farmIdRef.current = null;
@@ -509,15 +556,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (accessToken: string, u: SessionUser, options?: { sessionOnly?: boolean }) => {
+      bootstrapSuperseded.current = true;
+      explicitSessionPending.current = true;
       forcedLogout.current = false;
-      await establishSession(accessToken, u, true, options?.sessionOnly);
-      // `loading` was otherwise written only by the one-shot bootstrap IIFE's
-      // finally. If that bootstrap is still parked on an unanswered
-      // /api/auth/farms, a completed sign-in would render the app shell's
-      // "Loading…" gate forever. A committed session outranks a pending
-      // bootstrap, so release the gate here too; the bootstrap's own later
-      // write is then a no-op.
-      setLoading(false);
+      const establishment = establishSession(accessToken, u, true, options?.sessionOnly);
+      const generation = sessionEstablishmentGeneration.current;
+      await establishment;
+      // Only the current establishment can release its pending render gate.
+      // A superseded bootstrap or sign-in must not expose a signed-out shell
+      // while the newer session is still discovering its farms.
+      if (mounted.current && generation === sessionEstablishmentGeneration.current) {
+        explicitSessionPending.current = false;
+        setLoading(false);
+      }
     },
     [establishSession],
   );
@@ -527,6 +578,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // the once-only bootstrap below is what guarantees that.
   useEffect(() => {
     const handleAuthFailure = () => {
+      const alreadyClearedEpoch = authSessionEpochValue();
       // Fired when a refresh attempt is rejected (expired/revoked/reused refresh
       // token). One cleanup per logout transition, identical to signOut's, then to the
       // surface-appropriate login — never a retry loop. window.location over a pathname
@@ -537,7 +589,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (forcedLogout.current) return;
       forcedLogout.current = true;
       publishCrossTabLogout();
-      clearSession();
+      clearSession(alreadyClearedEpoch);
       router.replace(forcedLogoutDestination(window.location.pathname));
     };
     return setOnAuthFailure(handleAuthFailure);
@@ -673,7 +725,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // retry budget) may land in the signed-out redirect.
         let body: Awaited<ReturnType<typeof refreshSession>> = null;
         for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {
+          if (bootstrapSuperseded.current) break;
           const outcome = await refreshSessionDetailed();
+          if (bootstrapSuperseded.current) break;
           if (outcome.kind === "session") {
             body = outcome.body;
             break;
@@ -686,7 +740,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             await new Promise((resolve) => window.setTimeout(resolve, 750));
           }
         }
-        if (body && mounted.current) {
+        if (body && mounted.current && !bootstrapSuperseded.current) {
           // A farms failure here must not revoke the refresh family this call
           // just rotated: the user is not watching an error message, so a
           // plain reload has to be able to recover the valid session.
@@ -696,8 +750,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Refresh threw (client-side transport error): stay signed out.
         // loading settles in finally and the redirect effect sends /login.
       } finally {
-        // setState after unmount is a React no-op; no mounted re-check needed.
-        if (!releaseOfflineGate) setLoading(false);
+        // Explicit sign-in or teardown owns its own gate once it supersedes
+        // bootstrap, including operations started before this passive effect.
+        if (!releaseOfflineGate && !explicitSessionPending.current) setLoading(false);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

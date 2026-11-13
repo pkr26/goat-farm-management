@@ -6,7 +6,7 @@
  * mirroring, saved-scenario result binding, and scenario-page re-homing.
  */
 
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
@@ -548,14 +548,23 @@ describe("SimulationPage growth curve mirroring", () => {
 
     // A single-entry curve would fail the 13-entry contract at the API; the
     // birth weight mirror only rewrites age zero of a curve that exists.
-    expect(screen.getByLabelText(/Weight By Age Months/)).toHaveValue("");
+    const curveInput = screen.getByLabelText(/Weight By Age Months/);
+    expect(curveInput).toHaveValue("");
+    const runButton = () => screen.getByText("Run simulation", { selector: "button" });
+    expect(curveInput).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Enter only comma-separated numbers.")).toBeVisible();
+    expect(runButton()).toBeDisabled();
+    await user.click(runButton());
+    expect(captured.body).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    const correctedCurve = [3.1, 4.5, 6.5, 8.5, 10.5, 12.5, 14.5, 16.5, 18.5, 20.5, 22.5, 24.5, 26.5];
+    fireEvent.change(curveInput, { target: { value: correctedCurve.join(", ") } });
+    fireEvent.blur(curveInput);
+    await waitFor(() => expect(runButton()).toBeEnabled());
+    expect(curveInput).not.toHaveAttribute("aria-invalid", "true");
+    await user.click(runButton());
     expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
-    expect(captured.body?.assumptions.growth).toMatchObject({
-      birth_weight_kg: 3.1,
-      weight_by_age_months: [],
-    });
+    expect(captured.body).toEqual({"assumptions": {"meta": {"horizon_months": 60, "start_year_month": "2026-01"}, "herd": {"does": 50, "bucks": 2, "foundation_flock_state": "open"}, "finance": {"interest_rate_annual": 0.12}, "growth": {"birth_weight_kg": 3.1, "adult_weight_doe_kg": 32, "sale_age_months": 12, "weight_by_age_months": [3.1, 4.5, 6.5, 8.5, 10.5, 12.5, 14.5, 16.5, 18.5, 20.5, 22.5, 24.5, 26.5]}, "events": []}, "monte_carlo": false, "sensitivity": false, "optimization": false});
   });
 
   it("confines a field edit to the section that owns it", async () => {

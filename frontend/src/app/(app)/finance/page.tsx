@@ -112,12 +112,19 @@ function txTypeLabel(value: string, language: Language): string {
 
 /** URL params → filter state. Anything malformed (or absent) means "off", so
  * a shared link can never wedge the ledger into a filter the API rejects. */
+function isLedgerMonth(value: string): boolean {
+  // The API needs both the first day and the following month's first day.
+  // Year zero and the final month of year 9999 cannot supply that interval.
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(value) &&
+    !value.startsWith("0000-") && value !== "9999-12";
+}
+
 function monthFromParams(params: URLSearchParams): string {
   const raw = params.get("month");
   // The same strict grammar the typing handler enforces: URL adoption must not accept
   // month shapes the input itself can never produce, or a crafted link persists an
   // invalid filter (RT-P11-1).
-  return raw !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(raw) ? raw : "";
+  return raw !== null && isLedgerMonth(raw) ? raw : "";
 }
 
 function typeFromParams(params: URLSearchParams): typeof ALL | TransactionInType {
@@ -287,7 +294,12 @@ function CorrectionDialog({
   } = useForm<CorrectionInput, unknown, CorrectionValues>({
     resolver: zodResolver(localizedCorrectionSchema),
     defaultValues: {
-      date: transaction.date,
+      // Keep the native blank date control and RHF's submitted value in sync
+      // when a public cache update contains a malformed calendar date.
+      date:
+        z.iso.date().safeParse(transaction.date).success && transaction.date >= "0001-01-01"
+          ? transaction.date
+          : "",
       type: transaction.type as TransactionInType,
       category: transaction.category as TransactionInCategory,
       amount: transaction.amount,
@@ -496,7 +508,7 @@ function CorrectionDialog({
                         ? {
                             value: String(transaction.related_animal_id),
                             label:
-                              transaction.animal_tag ??
+                              transaction.animal_tag ||
                               t("finance.animalNumber", {
                                 number: transaction.related_animal_id,
                               }),
@@ -513,7 +525,7 @@ function CorrectionDialog({
                     className="block rounded-md border bg-muted/40 px-3 py-2 text-sm"
                   >
                     {transaction.related_animal_id !== null
-                      ? (transaction.animal_tag ??
+                      ? (transaction.animal_tag ||
                         t("finance.animalNumber", { number: transaction.related_animal_id }))
                       : t("finance.correction.noAnimalLinked")}
                   </output>
@@ -863,7 +875,9 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                 <button
                   type="button"
                   className="inline-flex h-11 items-center font-medium text-primary underline"
+                  disabled={!isLedgerMonth(row.month)}
                   onClick={() => {
+                    if (!isLedgerMonth(row.month)) return;
                     setMonth(row.month);
                     setOffset(0);
                     replaceLedgerUrl(row.month, typeFilter, categoryFilter);
@@ -912,7 +926,9 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                     <button
                       type="button"
                       className="text-primary underline"
+                      disabled={!isLedgerMonth(row.month)}
                       onClick={() => {
+                        if (!isLedgerMonth(row.month)) return;
                         setMonth(row.month);
                         setOffset(0);
                         replaceLedgerUrl(row.month, typeFilter, categoryFilter);
@@ -964,7 +980,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
               // field, which resets the filter) so garbage never reaches the
               // API or the shareable URL — same guard as the planner.
               const value = e.target.value;
-              if (value !== "" && !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return;
+              if (value !== "" && !isLedgerMonth(value)) return;
               setMonth(value);
               setOffset(0);
               replaceLedgerUrl(value, typeFilter, categoryFilter);

@@ -263,9 +263,19 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
   const overdue = payload?.overdue ?? [];
   const today = payload?.today ?? [];
   // Duties past the fetched page must surface as a count, never vanish silently.
-  const hiddenDuties =
-    Math.max(0, (payload?.overdue_total ?? 0) - overdue.length) +
-    Math.max(0, (payload?.today_total ?? 0) - today.length);
+  const overdueTotal = payload?.overdue_total;
+  const todayTotal = payload?.today_total;
+  const overdueTotalKnown = typeof overdueTotal === "number" &&
+    Number.isSafeInteger(overdueTotal) && overdueTotal >= 0;
+  const todayTotalKnown = typeof todayTotal === "number" &&
+    Number.isSafeInteger(todayTotal) && todayTotal >= 0;
+  const overdueHidden = overdueTotalKnown ? Math.max(0, overdueTotal - overdue.length) : 0;
+  const todayHidden = todayTotalKnown ? Math.max(0, todayTotal - today.length) : 0;
+  const hiddenSum = overdueHidden + todayHidden;
+  const hiddenSumKnown = Number.isSafeInteger(hiddenSum);
+  const totalsUncertain = !overdueTotalKnown || !todayTotalKnown || !hiddenSumKnown;
+  // Keep a safely representable lower bound when the complete count is uncertain.
+  const hiddenDuties = hiddenSumKnown ? hiddenSum : Math.max(overdueHidden, todayHidden);
   const lastChecked = query.dataUpdatedAt > 0
     ? formatFarmDateTime(new Date(query.dataUpdatedAt).toISOString())
     : "—";
@@ -353,15 +363,19 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
               </ul>
             </section>
           )}
-          {hiddenDuties > 0 && (
-            <p className="text-sm text-muted-foreground">
-              {t(
-                hiddenDuties === 1 ? "worker.moreDuties_one" : "worker.moreDuties_many",
-                { count: hiddenDuties },
-              )}
-            </p>
-          )}
         </>
+      )}
+      {payload && (hiddenDuties > 0 || totalsUncertain) && (
+        <p className="text-sm text-muted-foreground">
+          {hiddenDuties > 0
+            ? t(
+                totalsUncertain
+                  ? hiddenDuties === 1 ? "worker.moreDutiesAtLeast_one" : "worker.moreDutiesAtLeast_many"
+                  : hiddenDuties === 1 ? "worker.moreDuties_one" : "worker.moreDuties_many",
+                { count: hiddenDuties },
+              )
+            : t("worker.remainingDutyCountUnknown")}
+        </p>
       )}
     </div>
   );

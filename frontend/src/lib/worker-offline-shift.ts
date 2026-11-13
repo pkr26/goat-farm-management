@@ -60,7 +60,8 @@ export async function readOfflineShift(): Promise<OfflineShift | null> {
     Date.now() < snapshot.verifiedAt - 5 * 60 * 1000 ||
     snapshot.expiresAt - snapshot.verifiedAt > SHIFT_LIFETIME_MS || !Array.isArray(snapshot.tasks) ||
     typeof snapshot.workerName !== "string" || typeof snapshot.farmName !== "string" ||
-    snapshot.tasks.some((task) => !Number.isSafeInteger(task.id) || task.id <= 0 ||
+    snapshot.tasks.some((task) => task === null || typeof task !== "object" ||
+      !Number.isSafeInteger(task.id) || task.id <= 0 ||
       typeof task.title !== "string" || typeof task.dueDate !== "string" ||
       typeof task.canComplete !== "boolean" || typeof task.canSkip !== "boolean")) return null;
   return snapshot;

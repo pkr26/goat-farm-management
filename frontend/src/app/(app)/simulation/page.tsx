@@ -117,6 +117,8 @@ import { formatHead, formatPercent, formatRatio, humanize } from "./components/f
 import {
   NumberArrayInput,
   NumberInput,
+  validateNumberArrayInput,
+  validateNumberInput,
   type NumberArrayRule,
   type NumericRule,
 } from "./components/number-inputs";
@@ -174,6 +176,9 @@ const INTEGER_FIELDS = new Set([
   "herd.female_kids",
   "herd.male_kids",
   "herd.max_breeding_does",
+  "herd.foundation_doe_age_min_months",
+  "herd.foundation_doe_age_max_months",
+  "herd.purchased_doe_settling_months",
   "reproduction.gestation_months",
   "reproduction.lactation_months",
   "reproduction.weaning_days",
@@ -192,6 +197,7 @@ const INTEGER_FIELDS = new Set([
   "costs.planned_capacity_head",
   "costs.shed_useful_life_years",
   "costs.equipment_useful_life_years",
+  "costs.breeding_stock_useful_life_months",
   "finance.loan_term_months",
   "finance.moratorium_months",
   "finance.working_capital_months",
@@ -203,6 +209,8 @@ const INTEGER_FIELDS = new Set([
   "optimization.max_candidates",
   "optimization.doe_scale_steps",
   "optimization.sale_age_radius_months",
+  "optimization.festival_hold_radius_months",
+  "optimization.service_cull_radius_months",
 ]);
 
 const FIELD_BOUNDS: Record<
@@ -210,6 +218,9 @@ const FIELD_BOUNDS: Record<
   Pick<NumericRule, "min" | "max" | "exclusiveMin">
 > = {
   "meta.horizon_months": { min: 12, max: 240 },
+  "herd.foundation_doe_age_min_months": { min: 0, max: 180 },
+  "herd.foundation_doe_age_max_months": { min: 0, max: 180 },
+  "herd.purchased_doe_settling_months": { min: 0, max: 6 },
   // Wide enough for slow-maturing herds; goats sit at ~5 months.
   "reproduction.gestation_months": { min: 1, max: 12 },
   // Meat mode: the weaning-plus-rebreed interval, not a saleable-milk length.
@@ -236,6 +247,7 @@ const FIELD_BOUNDS: Record<
   "growth.young_male_weight_premium": { min: 0, max: 0.5 },
   "growth.sale_age_months": { min: 6, max: 24 },
   "sales.eid_month": { min: 0, max: 12 },
+  "sales.breed_price_premium_pct": { min: 0, max: 0.5 },
   "sales.festival_hold_months": { min: 0, max: 12 },
   "sales.eid_price_uplift": { min: 0, max: 2 },
   "sales.annual_livestock_price_growth_rate": { exclusiveMin: -1, max: 1 },
@@ -248,7 +260,7 @@ const FIELD_BOUNDS: Record<
   // client-side floor and 422 on a negative "rebate".
   "sales.transport_cost_per_head": { min: 0, max: 1e9 },
   "feed.cultivated_fodder_acres": { min: 0, max: 1_000_000 },
-  "feed.fodder_yield_t_dm_per_acre_year": { exclusiveMin: 0, max: 1000 },
+  "feed.fodder_yield_t_dm_per_acre_year": { min: 0.01, max: 1000 },
   "feed.annual_feed_price_growth_rate": { exclusiveMin: -1, max: 1 },
   "feed.initial_fodder_stock_kg_dm": { min: 0, max: 1e9 },
   // Water demand planning (litres/head/day by class).
@@ -264,6 +276,7 @@ const FIELD_BOUNDS: Record<
   // much larger than the herd-size ceiling ("effectively never scale" is a
   // legitimate policy), but still finite enough for downstream arithmetic.
   "costs.labour_per_head_threshold": { min: 1, max: 1_000_000_000_000_000 },
+  "costs.breeding_stock_useful_life_months": { min: 1, max: 240 },
   "costs.insurance_pct_stock_value_annual": { min: 0, max: 0.25 },
   "costs.operating_cost_growth_rate_annual": { exclusiveMin: -1, max: 1 },
   "costs.planned_capacity_head": { min: 0, max: 100_000 },
@@ -289,6 +302,7 @@ const FIELD_BOUNDS: Record<
   // no bounds at all and a negative seed only fails at the API.
   "risk.seed": { min: 0, max: 2_147_483_647 },
   "risk.correlation_strength": { min: 0, max: 0.95 },
+  "risk.price_process_rho": { min: 0, max: 0.95 },
   "risk.disease_outbreak_probability_annual": { min: 0, max: 1 },
   "risk.disease_outbreak_duration_months": { min: 1, max: 24 },
   "risk.disease_adult_mortality_multiplier": { min: 1, max: 20 },
@@ -313,6 +327,8 @@ const FIELD_BOUNDS: Record<
   "optimization.doe_scale_high": { exclusiveMin: 0, max: 5 },
   "optimization.doe_scale_steps": { min: 1, max: 9 },
   "optimization.sale_age_radius_months": { min: 0, max: 9 },
+  "optimization.festival_hold_radius_months": { min: 0, max: 6 },
+  "optimization.service_cull_radius_months": { min: 0, max: 6 },
   "optimization.retention_step": { min: 0, max: 1 },
   "optimization.loan_fraction_step": { min: 0, max: 1 },
 };
@@ -344,6 +360,8 @@ function fieldUnits(t: TFn): Record<string, string> {
     // rate "₹" invites farmers to type 30 for 30%; the entry must stay explicit
     // because the money/duration tests cannot simply be moved (see numericRule).
     "sales.selling_cost_fraction": t("simulation.unit.fraction"),
+    "sales.breed_price_premium_pct": t("simulation.unit.fraction"),
+    "risk.price_process_rho": t("simulation.unit.fraction"),
     "sales.milk_sale_litres_per_doe_day": t("simulation.unit.litresDoeDay"),
     "sales.milk_price_per_litre": t("simulation.unit.currencyPerLitre"),
     "feed.water_litres_kid_per_day": t("simulation.unit.litresDay"),
@@ -1022,6 +1040,9 @@ function localizedFieldLabel(key: string, t: TFn, language: "en" | "te"): string
  * them server-side). This filter remains as defense against stale cached
  * payloads so they never render (or validate) on screen. */
 const DAIRY_HIDDEN_FIELDS = new Set([
+  "reproduction.sexed_semen_services",
+  "reproduction.sexed_female_fraction",
+  "reproduction.sexed_conception_multiplier",
   "sales.lactation_milk_litres",
   "sales.milk_price_per_kg_fat",
   "sales.milk_fat_pct",
@@ -1337,42 +1358,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     });
   }
 
-  // Validate LOADED values, not just typed ones: a calibrated/imported scenario can
-  // carry out-of-bounds numbers that the per-keystroke gate never sees because nobody
-  // typed them. Re-run the rule gate whenever fresh editor content lands.
-  /* eslint-disable react-hooks/set-state-in-effect -- fresh editor content re-seeds the invalid-marker set */
-  useEffect(() => {
-    if (!assumptions) return;
-    const offenders = new Set<string>();
-    for (const [section, group] of Object.entries(assumptions)) {
-      if (typeof group !== "object" || group === null) continue;
-      for (const [key, value] of Object.entries(group as Record<string, unknown>)) {
-        if (typeof value !== "number" || !Number.isFinite(value)) continue;
-        const path = `${section}.${key}`;
-        if (DAIRY_HIDDEN_FIELDS.has(path)) continue;
-        const rule = numericRule(section, key, t);
-        const below = rule.exclusiveMin !== undefined ? value <= rule.exclusiveMin : false;
-        const under = rule.min !== undefined ? value < rule.min : false;
-        const over = rule.max !== undefined ? value > rule.max : false;
-        if (below || under || over) offenders.add(path);
-      }
-    }
-    setInvalidFields((previous) => {
-      // Keep the live dialog-draft markers (keyed "field:*"): they describe
-      // operator-typed values the loaded content cannot validate or clear.
-      const next = new Set(offenders);
-      for (const key of previous) {
-        // field:* = repeat-dialog drafts; event:* = herd-event rows the
-        // operator is typing into right now. Both describe operator-typed
-        // values, not loaded content.
-        if (key.startsWith("field:") || key.startsWith("event:")) next.add(key);
-      }
-      return next;
-    });
-    // editorVersion bumps exactly when fresh editor content lands.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editorVersion]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+
 
   /** Same bookkeeping for the repeat-plan dialog's local set (L-23): no
    * editorContentEpochRef bump — the dialog edits no editor content until
@@ -1451,6 +1437,16 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     )
       assumptionErrors.push(t("simulation.validation.startYearMonth"));
 
+    // Sparse public assumptions use the complete backend model's age defaults.
+    const minimumFoundationAge = assumptions.herd?.foundation_doe_age_min_months ?? 18;
+    const maximumFoundationAge = assumptions.herd?.foundation_doe_age_max_months ?? 42;
+    if (
+      typeof minimumFoundationAge === "number" &&
+      typeof maximumFoundationAge === "number" &&
+      minimumFoundationAge > maximumFoundationAge
+    ) {
+      assumptionErrors.push(t("simulation.validation.foundationAgeWindow"));
+    }
     const finance = assumptions.finance;
     if (
       finance &&
@@ -1562,8 +1558,58 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
   if (assumptions?.finance && !validNlmFunding(assumptions.finance,
       assumptions.herd?.does, assumptions.herd?.bucks))
     assumptionErrors.push(t("simulation.nlm.invalid"));
+  // Committed values and live drafts share one field identity. Derive the
+  // committed issues from the same rules the displayed controls use, so a
+  // correction (including coupled growth changes) cannot leave a stale marker.
+  const highlightedInvalidFields = new Set(invalidFields);
+  const retainedNlmFieldErrors: { key: string; label: string; message: string }[] = [];
+  if (assumptions) {
+    for (const [section, values] of sectionEntries(assumptions)) {
+      for (const [key, value] of Object.entries(values)) {
+        if (DAIRY_HIDDEN_FIELDS.has(`${section}.${key}`)) continue;
+        if (section === "finance" && NLM_EVIDENCE_FIELDS.has(key)) continue;
+        if (section === "sales" && ["festival_date_overrides", "festival_date_source"].includes(key)) continue;
+        const field = `field:sim-${section}-${key}`;
+        if (typeof value === "number") {
+          if (validateNumberInput(String(value), numericRule(section, key, t), t).error !== undefined)
+            highlightedInvalidFields.add(field);
+        } else if (Array.isArray(value)) {
+          if (validateNumberArrayInput(value.join(", "), numberArrayRule(section, key, horizonMonths, t), t).message !== null)
+            highlightedInvalidFields.add(field);
+        } else if (value && typeof value === "object") {
+          for (const [subKey, subValue] of Object.entries(value)) {
+            if (typeof subValue !== "number") continue;
+            const rule = section === "risk" && (subKey === "low" || subKey === "high")
+              ? { exclusiveMin: 0, max: 100, unit: t("simulation.unit.multiplier") }
+              : numericRule(section, subKey, t);
+            if (validateNumberInput(String(subValue), rule, t).error !== undefined)
+              highlightedInvalidFields.add(`${field}-${subKey}`);
+          }
+        }
+      }
+    }
+    // These specialized funding controls are excluded from generic rendering.
+    // Match their nullable scalar rules; receipts retain the funding validator.
+    if (assumptions.finance) {
+      for (const [key, label, integer] of [
+        ["nlm_unit_females", "simulation.nlm.unitFemales", true],
+        ["nlm_unit_males", "simulation.nlm.unitMales", true],
+        ["nlm_eligible_capital_cost", "simulation.nlm.eligibleCost", false],
+        ["nlm_approved_subsidy_amount", "simulation.nlm.approvedAmount", false],
+      ] as const) {
+        const value = assumptions.finance[key];
+        const { error } = validateNumberInput(value == null ? "" : String(value),
+          { nullable: true, integer, min: 0, max: integer ? 100_000 : 1_000_000_000 }, t);
+        if (error !== undefined) {
+          highlightedInvalidFields.add(`field:sim-finance-${key}`);
+          if (!assumptions.finance.nlm_subsidy)
+            retainedNlmFieldErrors.push({ key, label: t(label), message: error });
+        }
+      }
+    }
+  }
   const hasEditorErrors =
-    invalidFields.size > 0 || assumptionErrors.length > 0 || eventErrors.length > 0;
+    highlightedInvalidFields.size > 0 || assumptionErrors.length > 0 || eventErrors.length > 0;
   const currentPayload = assumptions ? { ...assumptions, events } : null;
   const currentFingerprint = currentPayload ? assumptionsFingerprint(currentPayload) : null;
   const currentOptions = runOptionsFingerprint(monteCarlo, sensitivity, optimization);
@@ -3537,6 +3583,13 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                       onValidityChange={(valid) => setFieldValidity("field:festival-dates", valid)} />}
                   </div>
                 </details>
+                {section === "finance" && retainedNlmFieldErrors.length > 0 && (
+                  <div role="alert" className="border-t px-4 py-3 text-sm text-destructive">
+                    {retainedNlmFieldErrors.map(({ key, label, message }) => (
+                      <p key={key}>{t("simulation.nlm.title")}: {label} — {message}</p>
+                    ))}
+                  </div>
+                )}
                 <div className="absolute end-4 top-3">
                   <FieldHelpButton
                     label={localizedFieldLabel(section, t, language)}
@@ -3554,13 +3607,13 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 </div>
               </div>
             ))}
-          {invalidFields.size > 0 && (
+          {highlightedInvalidFields.size > 0 && (
             <p role="alert" className="text-sm text-destructive">
               {t(
-                invalidFields.size === 1
+                highlightedInvalidFields.size === 1
                   ? "simulation.validation.fixHighlightedOne"
                   : "simulation.validation.fixHighlightedMany",
-                { count: invalidFields.size },
+                { count: highlightedInvalidFields.size },
               )}
             </p>
           )}

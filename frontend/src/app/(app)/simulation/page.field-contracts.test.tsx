@@ -208,6 +208,7 @@ describe("SimulationPage assumption field contracts", () => {
       unit: "acres",
     });
     contract("Fodder Yield T Dm Per Acre Year", {
+      min: "0.01",
       max: "1000",
       step: "any",
       unit: "t DM/acre/yr",

@@ -7,7 +7,7 @@
  * save, update or delete owes once the server has moved on.
  */
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
@@ -804,11 +804,22 @@ describe("SimulationPage stored growth curve", () => {
         "Adult doe and buck weights must be at least the highest yearling weight.",
       ),
     ).not.toBeInTheDocument();
-    expect(runButton()).toBeEnabled();
+    await user.click(screen.getByText("Growth", { selector: "summary" }));
+    const curveInput = screen.getByLabelText(/Weight By Age Months/);
+    expect(curveInput).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Enter exactly 13 weights (ages 0-12).")).toBeVisible();
+    expect(runButton()).toBeDisabled();
+    await user.click(runButton());
+    expect(captured.body).toBeNull();
 
+    const correctedCurve = [2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 14.5, 16.5, 18.5, 20.5, 22.5, 24.5, 26.5];
+    fireEvent.change(curveInput, { target: { value: correctedCurve.join(", ") } });
+    fireEvent.blur(curveInput);
+    await waitFor(() => expect(runButton()).toBeEnabled());
+    expect(curveInput).not.toHaveAttribute("aria-invalid", "true");
     await user.click(runButton());
     expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
-    expect(captured.body?.assumptions.growth?.weight_by_age_months).toEqual(curve);
+    expect(captured.body).toEqual({"assumptions": {"meta": {"horizon_months": 60, "start_year_month": "2026-01"}, "herd": {"does": 50, "bucks": 2}, "finance": {"interest_rate_annual": 0.12}, "growth": {"birth_weight_kg": 2.5, "adult_weight_doe_kg": 32, "adult_weight_buck_kg": 34, "weight_by_age_months": [2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 14.5, 16.5, 18.5, 20.5, 22.5, 24.5, 26.5]}, "events": []}, "monte_carlo": false, "sensitivity": false, "optimization": false});
   });
 });
 

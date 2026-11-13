@@ -1,0 +1,289 @@
+{
+  "schema": 1,
+  "contract": "Complete actual SimulationAssumptions scalar domains; independent backend-generated public UI table.",
+  "fields": [
+    {
+      "path": "herd.foundation_doe_age_min_months",
+      "group": "herd",
+      "key": "foundation_doe_age_min_months",
+      "label": "Foundation Doe Age Min Months",
+      "integer": true,
+      "constraints": {
+        "minimum": 0,
+        "maximum": 180
+      },
+      "lower": 0,
+      "upper": 180,
+      "invalid": [
+        -1,
+        181,
+        0.5
+      ],
+      "payload": {
+        "meta": {
+          "horizon_months": 120,
+          "start_year_month": "2026-08"
+        },
+        "herd": {
+          "does": 50,
+          "bucks": 2,
+          "foundation_doe_age_min_months": 18,
+          "foundation_doe_age_max_months": 180
+        }
+      }
+    },
+    {
+      "path": "herd.foundation_doe_age_max_months",
+      "group": "herd",
+      "key": "foundation_doe_age_max_months",
+      "label": "Foundation Doe Age Max Months",
+      "integer": true,
+      "constraints": {
+        "minimum": 0,
+        "maximum": 180
+      },
+      "lower": 0,
+      "upper": 180,
+      "invalid": [
+        -1,
+        181,
+        0.5
+      ],
+      "payload": {
+        "meta": {
+          "horizon_months": 120,
+          "start_year_month": "2026-08"
+        },
+        "herd": {
+          "does": 50,
+          "bucks": 2,
+          "foundation_doe_age_min_months": 0,
+          "foundation_doe_age_max_months": 42
+        }
+      }
+    },
+    {
+      "path": "herd.purchased_doe_settling_months",
+      "group": "herd",
+      "key": "purchased_doe_settling_months",
+      "label": "Purchased Doe Settling Months",
+      "integer": true,
+      "constraints": {
+        "minimum": 0,
+        "maximum": 6
+      },
+      "lower": 0,
+      "upper": 6,
+      "invalid": [
+        -1,
+        7,
+        0.5
+      ],
+      "payload": {
+        "meta": {
+          "horizon_months": 120,
+          "start_year_month": "2026-08"
+        },
+        "herd": {
+          "does": 50,
+          "bucks": 2,
+          "foundation_doe_age_min_months": 0,
+          "foundation_doe_age_max_months": 180,
+          "purchased_doe_settling_months": 1
+        }
+      }
+    },
+    {
+      "path": "sales.breed_price_premium_pct",
+      "group": "sales",
+      "key": "breed_price_premium_pct",
+      "label": "Breed Price Premium Pct",
+      "integer": false,
+      "constraints": {
+        "minimum": 0.0,
+        "maximum": 0.5
+      },
+      "lower": 0.0,
+      "upper": 0.5,
+      "invalid": [
+        -1.0,
+        1.5
+      ],
+      "payload": {
+        "meta": {
+          "horizon_months": 120,
+          "start_year_month": "2026-08"
+        },
+        "herd": {
+          "does": 50,
+          "bucks": 2
+        },
+        "sales": {
+          "breed_price_premium_pct": 0.0
+        }
+      },
+      "unit": "fraction"
+    },
+    {
+      "path": "feed.fodder_yield_t_dm_per_acre_year",
+      "group": "feed",
+      "key": "fodder_yield_t_dm_per_acre_year",
+      "label": "Fodder Yield T Dm Per Acre Year",
+      "integer": false,
+      "constraints": {
+        "minimum": 0.01,
+        "maximum": 1000
+      },
+      "lower": 0.01,
+      "upper": 1000,
+      "invalid": [
+        -0.99,
+        1001
+      ],
+      "payload": {
+        "meta": {
+          "horizon_months": 120,
+          "start_year_month": "2026-08"
+        },
+        "herd": {
+          "does": 50,
+          "bucks": 2
+        },
+        "feed": {
+          "initial_fodder_stock_kg_dm": 0,
+          "fodder_storage_capacity_kg_dm": 1000000000,
+          "fodder_yield_t_dm_per_acre_year": 6.0
+        }
+      },
+      "unit": "t DM/acre/yr"
+    },
+    {
+      "path": "costs.breeding_stock_useful_life_months",
+      "group": "costs",
+      "key": "breeding_stock_useful_life_months",
+      "label": "Breeding Stock Useful Life Months",
+      "integer": true,
+      "constraints": {
+        "minimum": 1,
+        "maximum": 240
+      },
+      "lower": 1,
+      "upper": 240,
+      "invalid": [
+        0,
+        241,
+        1.5
+      ],
+      "payload": {
+        "meta": {
+          "horizon_months": 120,
+          "start_year_month": "2026-08"
+        },
+        "herd": {
+          "does": 50,
+          "bucks": 2
+        },
+        "costs": {
+          "breeding_stock_useful_life_months": 60
+        }
+      }
+    },
+    {
+      "path": "risk.price_process_rho",
+      "group": "risk",
+      "key": "price_process_rho",
+      "label": "Price Process Rho",
+      "integer": false,
+      "constraints": {
+        "minimum": 0.0,
+        "maximum": 0.95
+      },
+      "lower": 0.0,
+      "upper": 0.95,
+      "invalid": [
+        -1.0,
+        1.95
+      ],
+      "payload": {
+        "meta": {
+          "horizon_months": 120,
+          "start_year_month": "2026-08"
+        },
+        "herd": {
+          "does": 50,
+          "bucks": 2
+        },
+        "risk": {
+          "price_process_rho": 0.3
+        }
+      },
+      "unit": "fraction"
+    },
+    {
+      "path": "optimization.festival_hold_radius_months",
+      "group": "optimization",
+      "key": "festival_hold_radius_months",
+      "label": "Festival Hold Radius Months",
+      "integer": true,
+      "constraints": {
+        "minimum": 0,
+        "maximum": 6
+      },
+      "lower": 0,
+      "upper": 6,
+      "invalid": [
+        -1,
+        7,
+        0.5
+      ],
+      "payload": {
+        "meta": {
+          "horizon_months": 120,
+          "start_year_month": "2026-08"
+        },
+        "herd": {
+          "does": 50,
+          "bucks": 2
+        },
+        "optimization": {
+          "doe_scale_low": 0.001,
+          "doe_scale_high": 5,
+          "festival_hold_radius_months": 1
+        }
+      }
+    },
+    {
+      "path": "optimization.service_cull_radius_months",
+      "group": "optimization",
+      "key": "service_cull_radius_months",
+      "label": "Service Cull Radius Months",
+      "integer": true,
+      "constraints": {
+        "minimum": 0,
+        "maximum": 6
+      },
+      "lower": 0,
+      "upper": 6,
+      "invalid": [
+        -1,
+        7,
+        0.5
+      ],
+      "payload": {
+        "meta": {
+          "horizon_months": 120,
+          "start_year_month": "2026-08"
+        },
+        "herd": {
+          "does": 50,
+          "bucks": 2
+        },
+        "optimization": {
+          "doe_scale_low": 0.001,
+          "doe_scale_high": 5,
+          "service_cull_radius_months": 1
+        }
+      }
+    }
+  ]
+}

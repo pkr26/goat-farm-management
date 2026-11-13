@@ -6,7 +6,7 @@
  * invalidation scope of a scenario write.
  */
 
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -797,11 +797,22 @@ describe("SimulationPage editor identity and recovery", () => {
     await user.type(birth, "3");
 
     // The mirror writes no curve points the breed defaults never supplied.
-    expect(screen.getByLabelText(/Weight By Age Months/)).toHaveValue("");
+    const curveInput = screen.getByLabelText(/Weight By Age Months/);
+    expect(curveInput).toHaveValue("");
+    expect(curveInput).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Enter only comma-separated numbers.")).toBeVisible();
+    expect(runButton()).toBeDisabled();
+    await user.click(runButton());
+    expect(captured.body).toBeNull();
+
+    const correctedCurve = [3, 4.5, 6.5, 8.5, 10.5, 12.5, 14.5, 16.5, 18.5, 20.5, 22.5, 24.5, 26.5];
+    fireEvent.change(curveInput, { target: { value: correctedCurve.join(", ") } });
+    fireEvent.blur(curveInput);
+    await waitFor(() => expect(runButton()).toBeEnabled());
+    expect(curveInput).not.toHaveAttribute("aria-invalid", "true");
     await user.click(runButton());
     expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
-    expect(captured.body?.assumptions.growth?.birth_weight_kg).toBe(3);
-    expect(captured.body?.assumptions.growth?.weight_by_age_months).toEqual([]);
+    expect(captured.body).toEqual({"assumptions": {"meta": {"horizon_months": 60, "start_year_month": "2026-01"}, "herd": {"does": 50, "bucks": 2, "foundation_flock_state": "open"}, "finance": {"interest_rate_annual": 0.12}, "growth": {"birth_weight_kg": 3, "adult_weight_doe_kg": 32, "adult_weight_buck_kg": 34, "weight_by_age_months": [3, 4.5, 6.5, 8.5, 10.5, 12.5, 14.5, 16.5, 18.5, 20.5, 22.5, 24.5, 26.5]}, "events": []}, "monte_carlo": false, "sensitivity": false, "optimization": false});
   });
 });
 

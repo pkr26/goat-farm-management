@@ -142,7 +142,8 @@ describe("customInstance — null query stripping", () => {
   });
 
   it("strips literal null params everywhere except the free-text q param", async () => {
-    await customInstance("/api/animals?bucket=null&q=null&name=Asha&tag=null");
+    await expect(customInstance("/api/animals?bucket=null&q=null&name=Asha&tag=null"))
+      .resolves.toMatchObject({ status: 200, data: { ok: true } });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const calledUrl = String(fetchMock.mock.calls[0]![0]);
@@ -151,8 +152,30 @@ describe("customInstance — null query stripping", () => {
     // The kept param must remain a genuine query pair: any mangling of the
     // question-mark split (whole-url or off-by-one parsing) re-encodes it.
     fetchMock.mockResolvedValueOnce(jsonResponse(200, []));
-    await customInstance("/api/animals?name=Asha&tag=null");
+    await expect(customInstance("/api/animals?name=Asha&tag=null"))
+      .resolves.toMatchObject({ status: 200, data: [] });
     expect(String(fetchMock.mock.calls[1]![0])).toBe("/api/animals?name=Asha");
+  });
+
+  it.each([
+    ["a literal question-mark-prefixed q", "/api/animals??q=null&q=null&bucket=null"],
+    ["a raw question-mark-prefixed key without a real q filter", "/api/animals??q=null&bucket=null"],
+    ["a percent-encoded question-mark-prefixed q", "/api/animals?%3Fq=null&q=null&bucket=null"],
+    ["an unrelated raw question-mark-prefixed key", "/api/animals??breed=male&breed=null&q=null"],
+    ["a non-null question-mark-prefixed q", "/api/animals??q=goat%20farm&q=null&bucket=null"],
+    ["several literal question marks", "/api/animals???q=null&?breed=null&q=null&name=Asha"],
+    ["the genuine free-text q key", "/api/animals?q=null&bucket=null&q=goat%20farm"],
+  ])("preserves URL-decoded query identities for %s", async (_label, input) => {
+    const original = new URL(input, "https://frontend.test");
+    const expected = [...original.searchParams.entries()]
+      .filter(([key, value]) => value !== "null" || key === "q");
+
+    await expect(customInstance(input)).resolves.toMatchObject({ status: 200, data: { ok: true } });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const sent = new URL(String(fetchMock.mock.calls[0]?.[0]), original.origin);
+    expect(sent.pathname).toBe(original.pathname);
+    expect([...sent.searchParams.entries()]).toEqual(expected);
   });
 
   it("preserves percent-encoded query characters byte-for-byte", async () => {

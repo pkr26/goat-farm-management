@@ -104,7 +104,7 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
                       a.tag_number
                     )}
                   </TableCell>
-                  <TableCell>{a.name ?? "—"}</TableCell>
+                  <TableCell>{a.name || "—"}</TableCell>
                   <TableCell>{a.sex}</TableCell>
                   <TableCell className="text-right">
                     {a.latest_weight_kg != null ? `${a.latest_weight_kg.toFixed(1)} kg` : "—"}

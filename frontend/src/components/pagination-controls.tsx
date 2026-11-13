@@ -18,6 +18,7 @@ export function PaginationControls({
   onOffsetChange,
   label,
   disabled = false,
+  maxOffset,
 }: {
   total: number;
   limit: number;
@@ -29,6 +30,8 @@ export function PaginationControls({
   /** Keep placeholder rows from dispatching another page transition while
    * the page they describe is no longer the one being requested. */
   disabled?: boolean;
+  /** Inclusive offset ceiling accepted by the endpoint. The API total stays exact. */
+  maxOffset?: number;
 }) {
   // Buttons, the landmark label, the range sentence and the fallback noun all resolve
   // through the active language catalog.
@@ -39,7 +42,9 @@ export function PaginationControls({
   // rendering "Showing NaN–NaN" (L8).
   const safeLimit =
     Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;
-  const safeOffset = sanitizeOffset(offset);
+  const safeMaxOffset =
+    maxOffset === undefined ? Infinity : sanitizeOffset(maxOffset);
+  const safeOffset = Math.min(sanitizeOffset(offset), safeMaxOffset);
   const last = Math.min(safeOffset + safeLimit, total);
   // A parent can hold an offset past the end of the list — the data shrank
   // under it (deletion/filter) or a stale offset was carried over. Clamp the
@@ -70,8 +75,8 @@ export function PaginationControls({
           type="button"
           variant="outline"
           size="sm"
-          disabled={disabled || safeOffset + safeLimit >= total}
-          onClick={() => onOffsetChange(safeOffset + safeLimit)}
+          disabled={disabled || safeOffset >= safeMaxOffset || safeOffset + safeLimit >= total}
+          onClick={() => onOffsetChange(Math.min(safeOffset + safeLimit, safeMaxOffset))}
         >
           {t("pagination.next")}
         </Button>

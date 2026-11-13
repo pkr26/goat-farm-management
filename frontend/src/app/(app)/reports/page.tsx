@@ -39,6 +39,12 @@ function animalName(a: AnimalIdentityOut): string {
   return a.tag_number + (a.name ? ` · ${a.name}` : "");
 }
 
+/** Missing sex entries mean zero animals. An invalid cached count is unknown. */
+function activeCount(value: number | null | undefined): number | string {
+  const count = value ?? 0;
+  return Number.isFinite(count) ? count : "—";
+}
+
 /** Percentages arrive as 0–100 numbers; null means "not enough data".
  * One decimal — raw floats rendered "33.33333333333333". */
 function pct(value: number | null): string {
@@ -156,7 +162,7 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
 
       <DataTableCard
         title={
-          animalsWithheld ? t("reports.summary.title") : t("reports.summary.titleCount", { count: totalActive ?? 0 })
+          animalsWithheld ? t("reports.summary.title") : t("reports.summary.titleCount", { count: activeCount(totalActive) })
         }
         description={t("reports.summary.description")}
         contentClassName="grid gap-4 lg:grid-cols-2"
@@ -199,13 +205,13 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
             <SummaryRow
               label={t("reports.summary.femalesActive")}
               value={
-                !animalsWithheld && sexCounts !== null ? (sexCounts.F ?? 0) : <Withheld permission="animals" />
+                !animalsWithheld && sexCounts !== null ? activeCount(sexCounts.F) : <Withheld permission="animals" />
               }
             />
             <SummaryRow
               label={t("reports.summary.malesActive")}
               value={
-                !animalsWithheld && sexCounts !== null ? (sexCounts.M ?? 0) : <Withheld permission="animals" />
+                !animalsWithheld && sexCounts !== null ? activeCount(sexCounts.M) : <Withheld permission="animals" />
               }
             />
             {Object.entries(payload.status_counts).map(([status, count]) => (

@@ -29,7 +29,7 @@ async function seedOperations(records: WorkerOperation[]): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(["operations", "meta"], "readwrite");
       for (const record of records) tx.objectStore("operations").put(record);
-      tx.objectStore("meta").put({ key: "sequence", value: records.length });
+      tx.objectStore("meta").put({ key: "sequence", value: Math.max(0, ...records.map((record) => record.sequence ?? 0)) });
       tx.oncomplete = () => resolve();
       tx.onabort = () => reject(tx.error);
     });
@@ -314,12 +314,18 @@ describe("durable worker actions", () => {
   it("uses a cross-tab lease to avoid concurrent replay of the same queue", async () => {
     await persistWorkerOperation("/api/tasks/1/complete", undefined, scopes);
     let complete!: () => void;
-    const send = vi.fn(() => new Promise<void>((resolve) => { complete = resolve; }));
+    const send = vi.fn<() => Promise<void>>()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { complete = resolve; }))
+      .mockResolvedValue(undefined);
     const first = drainWorkerOutbox(scopes, () => scopes, send);
-    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
-    await drainWorkerOutbox(scopes, () => scopes, send);
-    expect(send).toHaveBeenCalledTimes(1);
-    complete(); await first;
+    try {
+      await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+      await drainWorkerOutbox(scopes, () => scopes, send);
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      complete?.();
+      await first;
+    }
   });
 
   it("moves aged operations to review instead of expiring them", async () => {

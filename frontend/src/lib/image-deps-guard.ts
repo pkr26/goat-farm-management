@@ -66,12 +66,14 @@ export function evaluateImageDecodeSafety(
   if (nextVersion !== undefined && NEXT_VERSIONS_WITH_HEIF_DECODE_DISABLED.has(nextVersion)) {
     return { ok: true, basis: "next-disables-heif" };
   }
+  // Blank package metadata cannot identify the installed Next version.
+  const nextLabel = nextVersion || "unknown";
   if (sharpProbe === "unloadable") {
     return {
       ok: false,
       reason:
         "sharp could not be loaded, so the bundled libheif version cannot be verified " +
-        `(next ${nextVersion ?? "unknown"} does not disable HEIF decoding itself).`,
+        `(next ${nextLabel} does not disable HEIF decoding itself).`,
     };
   }
   if (sharpProbe.heif === undefined) {
@@ -86,7 +88,7 @@ export function evaluateImageDecodeSafety(
     ok: false,
     reason:
       `sharp bundles libheif ${sharpProbe.heif} < ${MIN_SAFE_LIBHEIF_VERSION}, but ` +
-      `next ${nextVersion ?? "unknown"} decodes HEIF/AVIF input again — upgrading ` +
+      `next ${nextLabel} decodes HEIF/AVIF input again — upgrading ` +
       "next without a sharp whose libheif is fixed reopens the decoder RCE surface. " +
       "Upgrade sharp, or verify upstream disabled HEIF decoding and pin that " +
       "exact next version in NEXT_VERSIONS_WITH_HEIF_DECODE_DISABLED.",

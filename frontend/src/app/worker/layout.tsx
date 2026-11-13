@@ -94,6 +94,9 @@ export function WorkerShell({ children }: { children: ReactNode }) {
   const receiptActionFlight = useRef(false);
   const [receiptActionBusy, setReceiptActionBusy] = useState(false);
   const [draftApprovalBusy, setDraftApprovalBusy] = useState<ReadonlySet<string>>(new Set());
+  // Native activations can share one React commit. Fence durable receipt
+  // actions synchronously while state provides the disabled feedback.
+  const draftApprovalFlight = useRef(new Set<string>());
   const liveScope = currentRequestScope();
   const ownsScope = (scope: RequestScope) => {
     const current = currentRequestScope();
@@ -297,7 +300,8 @@ export function WorkerShell({ children }: { children: ReactNode }) {
 
   async function approveOfflineDraft(record: WorkerOperation) {
     const scope = currentRequestScope();
-    if (scope === null || draftApprovalBusy.has(record.id)) return;
+    if (scope === null || draftApprovalFlight.current.has(record.id)) return;
+    draftApprovalFlight.current.add(record.id);
     setDraftApprovalBusy((previous) => new Set(previous).add(record.id));
     try {
       const confirmed = await confirmOfflineWorkerDraft(scope, record.id);
@@ -312,6 +316,7 @@ export function WorkerShell({ children }: { children: ReactNode }) {
     } catch {
       if (ownsScope(scope)) toast.error(t("worker.receipts.offlineConfirmFailed"));
     } finally {
+      draftApprovalFlight.current.delete(record.id);
       setDraftApprovalBusy((previous) => {
         const next = new Set(previous); next.delete(record.id); return next;
       });
@@ -320,7 +325,8 @@ export function WorkerShell({ children }: { children: ReactNode }) {
 
   async function discardOfflineDraft(record: WorkerOperation) {
     const scope = currentRequestScope();
-    if (scope === null || draftApprovalBusy.has(record.id)) return;
+    if (scope === null || draftApprovalFlight.current.has(record.id)) return;
+    draftApprovalFlight.current.add(record.id);
     setDraftApprovalBusy((previous) => new Set(previous).add(record.id));
     try {
       const discarded = await discardOfflineWorkerDraft(scope, record.id);
@@ -333,6 +339,7 @@ export function WorkerShell({ children }: { children: ReactNode }) {
     } catch {
       if (ownsScope(scope)) toast.error(t("worker.receipts.offlineDiscardFailed"));
     } finally {
+      draftApprovalFlight.current.delete(record.id);
       setDraftApprovalBusy((previous) => {
         const next = new Set(previous); next.delete(record.id); return next;
       });
@@ -341,7 +348,8 @@ export function WorkerShell({ children }: { children: ReactNode }) {
 
   async function retryReviewReceipt(record: WorkerOperation) {
     const scope = currentRequestScope();
-    if (scope === null || draftApprovalBusy.has(record.id)) return;
+    if (scope === null || draftApprovalFlight.current.has(record.id)) return;
+    draftApprovalFlight.current.add(record.id);
     setDraftApprovalBusy((previous) => new Set(previous).add(record.id));
     try {
       const retried = await resolveWorkerReviewReceipt(scope, record.id, "retry");
@@ -363,6 +371,7 @@ export function WorkerShell({ children }: { children: ReactNode }) {
     } catch {
       if (ownsScope(scope)) toast.error(t("worker.receipts.retryFailed"));
     } finally {
+      draftApprovalFlight.current.delete(record.id);
       setDraftApprovalBusy((previous) => {
         const next = new Set(previous); next.delete(record.id); return next;
       });
@@ -379,7 +388,8 @@ export function WorkerShell({ children }: { children: ReactNode }) {
   async function confirmReviewDismissal() {
     const confirmation = reviewDismissal;
     if (confirmation === null || !ownsScope(confirmation.scope) ||
-      draftApprovalBusy.has(confirmation.record.id)) return;
+      draftApprovalFlight.current.has(confirmation.record.id)) return;
+    draftApprovalFlight.current.add(confirmation.record.id);
     setDraftApprovalBusy((previous) => new Set(previous).add(confirmation.record.id));
     try {
       const dismissed = await resolveWorkerReviewReceipt(
@@ -398,6 +408,7 @@ export function WorkerShell({ children }: { children: ReactNode }) {
     } catch {
       if (ownsScope(confirmation.scope)) toast.error(t("worker.receipts.dismissFailed"));
     } finally {
+      draftApprovalFlight.current.delete(confirmation.record.id);
       setDraftApprovalBusy((previous) => {
         const next = new Set(previous); next.delete(confirmation.record.id); return next;
       });

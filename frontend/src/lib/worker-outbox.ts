@@ -160,32 +160,42 @@ async function migrateLegacy(): Promise<void> {
       if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence > Number.MAX_SAFE_INTEGER - legacy.length) {
         tx.abort(); return;
       }
-      for (const operation of legacy) {
-        const request = store.get(operation.id);
-        request.onsuccess = () => {
-          const existing = request.result as WorkerOperation | undefined;
-          if (existing !== undefined) {
-            // Older imported rows predate this marker. Mark them before a
-            // cleanup can remove their only durable acknowledgement.
-            if (!existing.legacyImported) store.put({ ...existing, legacyImported: true });
-            return;
-          }
-          const delivered = meta.get(deliveredLegacyKey(operation.id));
-          delivered.onsuccess = () => {
-            if (delivered.result?.value === true) return;
-            store.add({ ...operation, sequence: ++sequence });
-            meta.put({ key: "sequence", value: sequence });
+      const durableRecords = store.getAll();
+      durableRecords.onsuccess = () => {
+        const greatestDurableSequence = (durableRecords.result as WorkerOperation[]).reduce(
+          (greatest, operation) => typeof operation.sequence === "number" && Number.isSafeInteger(operation.sequence)
+            ? Math.max(greatest, operation.sequence) : greatest,
+          0,
+        );
+        for (const operation of legacy) {
+          const request = store.get(operation.id);
+          request.onsuccess = () => {
+            const existing = request.result as WorkerOperation | undefined;
+            if (existing !== undefined) {
+              // Older imported rows predate this marker. Mark them before a
+              // cleanup can remove their only durable acknowledgement.
+              if (!existing.legacyImported) store.put({ ...existing, legacyImported: true });
+              return;
+            }
+            const delivered = meta.get(deliveredLegacyKey(operation.id));
+            delivered.onsuccess = () => {
+              if (delivered.result?.value === true) return;
+              // Reject stale metadata before adding any imported ordinal.
+              if (greatestDurableSequence >= sequence + 1) { tx.abort(); return; }
+              store.add({ ...operation, sequence: ++sequence });
+              meta.put({ key: "sequence", value: sequence });
+            };
           };
-        };
-      }
-      if (snapshot.malformedRecords > 0) {
-        const quarantine: LegacyQueueQuarantine = {
-          raw: snapshot.raw,
-          malformedRecords: snapshot.malformedRecords,
-          quarantinedAt: Date.now(),
-        };
-        meta.put({ key: legacyArchiveKey(snapshot.raw), value: quarantine });
-      }
+        }
+        if (snapshot.malformedRecords > 0) {
+          const quarantine: LegacyQueueQuarantine = {
+            raw: snapshot.raw,
+            malformedRecords: snapshot.malformedRecords,
+            quarantinedAt: Date.now(),
+          };
+          meta.put({ key: legacyArchiveKey(snapshot.raw), value: quarantine });
+        }
+      };
     };
     finish(undefined);
   });
@@ -253,7 +263,12 @@ export async function persistWorkerOperation(
       const sequenceRequest = tx.objectStore("meta").get("sequence");
       sequenceRequest.onsuccess = () => {
         const sequence = Number(sequenceRequest.result?.value ?? 0) + 1;
-        if (!Number.isSafeInteger(sequence) || sequence <= 0) { tx.abort(); return; }
+        // A lost/decreased counter must never reuse an existing ordinal:
+        // readWorkerOutbox orders every durable receipt by this value.
+        if (!Number.isSafeInteger(sequence) || sequence <= 0 || records.some((item) =>
+          typeof item.sequence === "number" && Number.isSafeInteger(item.sequence) && item.sequence >= sequence)) {
+          tx.abort(); return;
+        }
         const saved = { ...operation, sequence };
         store.add(saved);
         tx.objectStore("meta").put({ key: "sequence", value: saved.sequence });
@@ -509,7 +524,13 @@ export async function drainWorkerOutbox(
         const status = (error as { status?: number } | null)?.status;
         if (status === 401 || status === 408 || status === 429) {
           const retry = (error as { retryAfterSeconds?: number }).retryAfterSeconds;
-          if (status === 429) nextAttempt = Date.now() + Math.max(30, retry ?? 30) * 1000;
+          if (status === 429) {
+            // Custom SDK transports can supply malformed hints. Match the
+            // bounded delta-seconds policy used by the HTTP error parser.
+            const seconds = typeof retry === "number" && Number.isFinite(retry) && retry >= 0
+              ? Math.min(retry, 3600) : 30;
+            nextAttempt = Date.now() + Math.max(30, seconds) * 1000;
+          }
           break;
         }
         if (typeof status === "number" && status >= 400 && status < 500) {

@@ -263,6 +263,8 @@ const te: Partial<Record<MessageKey, string>> = {
   "tasks.recurConfirm.body":
     "ఈ పని ప్రతి {days} రోజులకు ఒకసారి వస్తుంది. ఇప్పుడు పూర్తి చేస్తే తర్వాతి పని {date} నాడు షెడ్యూల్ అవుతుంది.",
   "tasks.recurConfirm.confirm": "పనిని పూర్తి చేయండి",
+  "tasks.recurConfirm.invalid":
+    "పునరావృత వివరాలు అందుబాటులో లేవు. ఈ పనిని పూర్తి చేయడానికి ముందు బోర్డును రిఫ్రెష్ చేయండి.",
 
   "tasks.toast.completed": "పని పూర్తయింది.",
   "tasks.toast.skipped": "పని వదిలివేయబడింది.",
@@ -908,6 +910,7 @@ const te: Partial<Record<MessageKey, string>> = {
   "simulation.validation.moratorium": "మారటోరియం రుణ కాలం కంటే తక్కువగా ఉండాలి.",
   "simulation.validation.fodderStock": "ప్రారంభ పశుగ్రాస నిల్వ పశుగ్రాస నిల్వ సామర్థ్యంలో సరిపోవాలి.",
   "simulation.validation.plannedCapacity": "సామర్థ్య ఆధారం ప్రణాళికగా ఉన్నప్పుడు ప్రణాళిక సామర్థ్యం 0 కంటే ఎక్కువగా ఉండాలి.",
+  "simulation.validation.foundationAgeWindow": "ప్రారంభ మంద యొక్క కనిష్ఠ వయస్సు గరిష్ఠ వయస్సును మించకూడదు.",
   "simulation.validation.festivalDuplicates": "పండుగ అమ్మకం నెలల్లో నకిలీలు ఉండకూడదు.",
   "simulation.validation.festivalMonths": "పండుగ అమ్మకం నెలలు 1 మరియు {horizon} మధ్య పూర్ణ సంఖ్యలు అయి ఉండాలి.",
   "simulation.validation.herdScale": "మంద పరిమాణపు కనిష్ఠం గరిష్ఠం కంటే తక్కువగా లేదా సమానంగా ఉండాలి ({herd}లో కొలుస్తారు).",
@@ -1404,6 +1407,9 @@ const te: Partial<Record<MessageKey, string>> = {
   "worker.receipts.export": "నా రసీదులను డౌన్‌లోడ్ చేయి",
   "worker.overdueSection": "ఆలస్యం",
   "worker.todaySection": "ఈ రోజు",
+  "worker.moreDutiesAtLeast_one": "కనీసం ఇంకా {count} విధి చూపబడలేదు — పూర్తి జాబితా కోసం మేనేజర్‌ను అడగండి.",
+  "worker.moreDutiesAtLeast_many": "కనీసం ఇంకా {count} విధులు చూపబడలేదు — పూర్తి జాబితా కోసం మేనేజర్‌ను అడగండి.",
+  "worker.remainingDutyCountUnknown": "పూర్తి విధుల సంఖ్యను నిర్ధారించలేము — పూర్తి జాబితా కోసం మేనేజర్‌ను అడగండి.",
   "worker.moreDuties_one": "ఇంకా {count} విధి చూపబడలేదు — పూర్తి జాబితా కోసం మేనేజర్‌ను అడగండి.",
   "worker.moreDuties_many": "ఇంకా {count} విధులు చూపబడలేదు — పూర్తి జాబితా కోసం మేనేజర్‌ను అడగండి.",
   "worker.empty.title": "ప్రస్తుతం విధులు లేవు",

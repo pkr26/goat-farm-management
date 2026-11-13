@@ -1,8 +1,7 @@
 /**
- * custom-instance query stripping, first-pair precision: `slice(queryStart + 1)`
- * must skip ONLY the "?" — slicing one character deeper decapitates the first query
- * key ("a=1" becomes "=1"), so a "null"-valued first param is no longer recognised
- * while the URL that goes on the wire silently changes shape.
+ * Query stripping keeps the first decoded key intact. URLSearchParams owns the
+ * query delimiter; removing a key character or a literal question mark from
+ * the key changes the request that goes on the wire.
  */
 
 import { describe, expect, it, vi } from "vitest";

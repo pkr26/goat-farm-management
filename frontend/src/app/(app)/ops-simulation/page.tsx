@@ -59,6 +59,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { validateDailyOpsHerd } from "@/lib/daily-ops-input";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { useT, type MessageKey, type TFn } from "@/lib/i18n";
@@ -102,8 +103,13 @@ const BUILDING_NAME_KEYS: Record<string, MessageKey> = {
 };
 
 function buildingName(building: string, t: TFn): string {
-  const key = BUILDING_NAME_KEYS[building];
+  const key = buildingValue(BUILDING_NAME_KEYS, building);
   return key ? t(key) : building;
+}
+
+/** Output building codes are plain API strings, including unknown names. */
+function buildingValue<Value>(values: Record<string, Value>, building: string): Value | undefined {
+  return Object.hasOwn(values, building) ? values[building] : undefined;
 }
 
 /** One stable colour per bucket, used everywhere a building appears on this
@@ -180,8 +186,8 @@ const SHORT_BUILDING_KEYS: Record<string, MessageKey> = {
 /** A colour-coded building chip: the visual atom for "where an animal is". */
 function BucketChip({ bucket, className }: { bucket: string; className?: string }) {
   const t = useT();
-  const colors = BUCKET_COLORS[bucket] ?? BUCKET_COLORS.FEED_STORE;
-  const shortKey = SHORT_BUILDING_KEYS[bucket];
+  const colors = buildingValue(BUCKET_COLORS, bucket) ?? BUCKET_COLORS.FEED_STORE;
+  const shortKey = buildingValue(SHORT_BUILDING_KEYS, bucket);
   return (
     <span
       title={buildingName(bucket, t)}
@@ -237,12 +243,6 @@ function BucketMoveLine({
 
 const MIN_HORIZON_DAYS = 7;
 const MAX_HORIZON_DAYS = 365;
-const MAX_START_HEAD = 500;
-// Per-animal bounds from AnimalStartSpec in shared/openapi.json; the backend
-// re-validates (422), but blocking the run client-side avoids a lost round trip.
-const MAX_AGE_MONTHS = 240;
-const MAX_DAYS_IN_BUCKET = 3650;
-const MAX_BRED_DAYS = 150;
 
 type HerdRow = {
   key: string;
@@ -388,67 +388,7 @@ function OpsSimulationPageContent() {
   // The ledger can be megabytes of text: it mounts only when opened.
   const [ledgerOpen, setLedgerOpen] = useState(false);
 
-  const rowErrors = useMemo(() => {
-    const errors: string[] = [];
-    const tags = rows.map((row) => row.tag.trim());
-    if (tags.some((tag) => tag === "")) errors.push(t("opsSim.validation.needTag"));
-    const duplicates = tags.filter((tag, index) => tag !== "" && tags.indexOf(tag) !== index);
-    if (duplicates.length > 0) {
-      errors.push(
-        t("opsSim.validation.duplicateTags", { tags: [...new Set(duplicates)].join(", ") }),
-      );
-    }
-    if (rows.length === 0) errors.push(t("opsSim.validation.needAnimal"));
-    if (rows.length > MAX_START_HEAD) {
-      errors.push(t("opsSim.validation.maxHead", { max: MAX_START_HEAD }));
-    }
-    for (const row of rows) {
-      const label = row.tag.trim() || t("opsSim.validation.unnamed");
-      if (row.ageMonths < 0 || row.ageMonths > MAX_AGE_MONTHS) {
-        errors.push(t("opsSim.validation.ageRange", { label, max: MAX_AGE_MONTHS }));
-      }
-      if (row.daysInBucket < 0 || row.daysInBucket > MAX_DAYS_IN_BUCKET) {
-        errors.push(t("opsSim.validation.daysRange", { label, max: MAX_DAYS_IN_BUCKET }));
-      }
-      if (row.bredDaysAgo.trim() !== "") {
-        const bred = Number(row.bredDaysAgo);
-        if (!Number.isInteger(bred) || bred < 0 || bred > MAX_BRED_DAYS) {
-          errors.push(t("opsSim.validation.bredRange", { label, max: MAX_BRED_DAYS }));
-        }
-      }
-      // Coherence mirrors of the server's DailyOpsInput._check_herd. Structural rules
-      // only — the gestation-day windows stay server-side where the species profile
-      // lives.
-      if (row.bucket === "MALE_KIDS" && row.sex !== "M") {
-        errors.push(t("opsSim.validation.maleKidsOnly", { label }));
-      }
-      if (
-        (row.bucket === "PREGNANCY_EARLY" ||
-          row.bucket === "PREGNANCY_LATE" ||
-          row.bucket === "DELIVERY") &&
-        row.sex !== "F"
-      ) {
-        errors.push(t("opsSim.validation.doeOnly", { label }));
-      }
-      if (
-        (row.bucket === "PREGNANCY_EARLY" ||
-          row.bucket === "PREGNANCY_LATE" ||
-          row.bucket === "DELIVERY") &&
-        row.bredDaysAgo.trim() === ""
-      ) {
-        errors.push(
-          t("opsSim.validation.needsBred", { label, bucket: row.bucket.toLowerCase() }),
-        );
-      }
-      if (row.bucket === "QUARANTINE" && row.daysInBucket > 44) {
-        errors.push(t("opsSim.validation.quarantineLimit", { label }));
-      }
-      if (row.bredDaysAgo.trim() !== "" && row.sex !== "F") {
-        errors.push(t("opsSim.validation.bredDoesOnly", { label }));
-      }
-    }
-    return errors;
-  }, [rows, t]);
+  const rowErrors = useMemo(() => validateDailyOpsHerd(rows, t), [rows, t]);
 
   const inputsSignature = useMemo(
     () =>
@@ -524,7 +464,7 @@ function OpsSimulationPageContent() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `ops-simulation-${result?.start_date ?? "run"}-seed-${result?.seed ?? 0}.md`;
+    anchor.download = `ops-simulation-${result?.start_date || "run"}-seed-${Number.isFinite(result?.seed) ? result?.seed : "unknown"}.md`;
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
@@ -878,7 +818,7 @@ function OpsSimulationPageContent() {
                             ) : null}
                           </TableCell>
                           <TableCell>
-                            {task.building_name ?? buildingName(task.building, t)}
+                            {task.building_name || buildingName(task.building, t)}
                           </TableCell>
                           <TableCell>{task.role}</TableCell>
                         </TableRow>
@@ -962,7 +902,7 @@ function OpsSimulationPageContent() {
                                   aria-hidden="true"
                                   className={cn(
                                     "size-2 shrink-0 rounded-full",
-                                    (BUCKET_COLORS[row.building] ?? BUCKET_COLORS.FEED_STORE).dot,
+                                    (buildingValue(BUCKET_COLORS, row.building) ?? BUCKET_COLORS.FEED_STORE).dot,
                                   )}
                                 />
                                 {buildingName(row.building, t)}
@@ -1129,7 +1069,7 @@ function OpsSimulationPageContent() {
                               className={cn(
                                 "size-2 shrink-0 rounded-full",
                                 (
-                                  BUCKET_COLORS[journey.final_bucket] ?? BUCKET_COLORS.FEED_STORE
+                                  buildingValue(BUCKET_COLORS, journey.final_bucket) ?? BUCKET_COLORS.FEED_STORE
                                 ).dot,
                               )}
                             />
@@ -1139,7 +1079,7 @@ function OpsSimulationPageContent() {
                         ) : (
                           <span>
                             {t("opsSim.exitSummary", {
-                              kind: journey.exit_kind ?? "—",
+                              kind: journey.exit_kind || "—",
                               day: journey.exit_day ?? "—",
                               reason: journey.exit_reason,
                             })}

@@ -246,7 +246,7 @@ function FarmSelectPageContent() {
                     {selectingFarmId === farm.id ? t("farmSelect.opening") : farm.name}
                   </span>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {farm.location ?? "—"} · {farm.role ?? t("farmSelect.ownerRole")}
+                    {farm.location || "—"} · {farm.role ?? t("farmSelect.ownerRole")}
                   </p>
                   {/* Full-strength muted token: the /80 tint sat under 4.5:1. */}
               <p className="mt-1 text-xs text-muted-foreground">

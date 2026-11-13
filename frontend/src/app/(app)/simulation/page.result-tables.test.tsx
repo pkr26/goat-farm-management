@@ -710,25 +710,25 @@ describe("SimulationPage optimization results", () => {
     const viable = cells(rows[1]);
 
     expect(failing[1]).toHaveTextContent("Infeasible");
-    expect(failing[1]).toHaveClass("text-destructive");
+    expect(failing[1]).toHaveAttribute("data-tone", "warning");
     expect(viable[1]).toHaveTextContent("Feasible");
-    expect(viable[1]).toHaveClass("text-success");
+    expect(viable[1]).toHaveAttribute("data-tone", "success");
 
     expect(failing[2].textContent).toBe("50 / 2 / 100");
     expect(failing[7].textContent).toBe("58.0 / 70.0");
     expect(viable[2].textContent).toBe("60 / 3 / 100");
 
     expect(failing[11]).toHaveTextContent("-₹30,000");
-    expect(failing[11]).toHaveClass("text-right", "tabular-nums", "text-destructive");
+    expect(failing[11]).toHaveAttribute("data-tone", "warning");
     expect(failing[12]).toHaveTextContent("₹30,000");
-    expect(failing[12]).toHaveClass("text-right", "tabular-nums", "text-destructive");
+    expect(failing[12]).toHaveAttribute("data-tone", "warning");
     expect(failing[13].textContent).toBe(
       "Minimum DSCR is below 1.20; Projected peak exceeds funded capacity",
     );
 
-    // A viable candidate is styled exactly like the neutral money columns.
-    expect(viable[11].className).toBe(viable[6].className);
-    expect(viable[12].className).toBe(viable[6].className);
+    // A viable candidate keeps both money warnings in the neutral state.
+    expect(viable[11]).toHaveAttribute("data-tone", "neutral");
+    expect(viable[12]).toHaveAttribute("data-tone", "neutral");
     expect(viable[13]).toHaveTextContent("None");
   });
 });

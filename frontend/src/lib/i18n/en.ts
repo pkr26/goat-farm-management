@@ -167,6 +167,8 @@ const en = {
   "tasks.recurConfirm.body":
     "This duty repeats every {days} days. Completing it now schedules the next occurrence for {date}.",
   "tasks.recurConfirm.confirm": "Complete duty",
+  "tasks.recurConfirm.invalid":
+    "Recurring details are unavailable. Refresh the board before completing this duty.",
 
   "tasks.toast.completed": "Task completed.",
   "tasks.toast.skipped": "Task skipped.",
@@ -846,6 +848,7 @@ const en = {
   "simulation.validation.moratorium": "Moratorium must be shorter than the loan term.",
   "simulation.validation.fodderStock": "Initial fodder stock must fit within fodder storage capacity.",
   "simulation.validation.plannedCapacity": "Planned capacity must be greater than 0 when the capacity basis is planned.",
+  "simulation.validation.foundationAgeWindow": "Minimum foundation age must not exceed maximum foundation age.",
   "simulation.validation.festivalDuplicates": "Festival sale months must not contain duplicates.",
   "simulation.validation.festivalMonths": "Festival sale months must be whole numbers between 1 and {horizon}.",
   "simulation.validation.herdScale": "Herd scale low must be less than or equal to herd scale high (measured in {herd}).",
@@ -1444,6 +1447,9 @@ const en = {
   "worker.receipts.export": "Download my receipts",
   "worker.overdueSection": "Overdue",
   "worker.todaySection": "Today",
+  "worker.moreDutiesAtLeast_one": "At least {count} more duty not shown — ask a manager for the full board.",
+  "worker.moreDutiesAtLeast_many": "At least {count} more duties not shown — ask a manager for the full board.",
+  "worker.remainingDutyCountUnknown": "The full duty count is unavailable — ask a manager for the full board.",
   "worker.moreDuties_one": "{count} more duty not shown — ask a manager for the full board.",
   "worker.moreDuties_many": "{count} more duties not shown — ask a manager for the full board.",
   "worker.empty.title": "No duties right now",

@@ -40,7 +40,7 @@ const FREE_TEXT_QUERY_PARAMS = new Set(["q"]);
 function stripNullQueryValues(url: string): string {
   const queryStart = url.indexOf("?");
   if (queryStart === -1) return url;
-  const params = new URLSearchParams(url.slice(queryStart + 1));
+  const params = new URLSearchParams(url.slice(queryStart));
   let changed = false;
   for (const [key, value] of [...params.entries()]) {
     if (value === "null" && !FREE_TEXT_QUERY_PARAMS.has(key)) {

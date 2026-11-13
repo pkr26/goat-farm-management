@@ -31,6 +31,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { toast } from "sonner";
 import { NlmFundingEditor, validNlmFunding } from "../simulation/components/nlm-funding-editor";
+import { validateNumberInput } from "../simulation/components/number-inputs";
 import { PaginationControls } from "@/components/pagination-controls";
 import { MAX_PAGE_OFFSET, useUrlState } from "@/lib/use-url-state";
 
@@ -459,7 +460,25 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       return null;
     })
     .filter((error): error is string => error !== null);
-  if (invalidNlmFields.size > 0 || (assumptions?.finance && !validNlmFunding(
+  // Retained funding scalars still travel in a run/save when the scheme is
+  // off. Validate their committed values with the displayed controls' rules;
+  // live drafts keep their independent editor checks until they are committed.
+  const committedNlmFieldErrors: { key: string; label: string; message: string }[] = [];
+  if (assumptions?.finance) {
+    for (const [key, label, integer] of [
+      ["nlm_unit_females", "simulation.nlm.unitFemales", true],
+      ["nlm_unit_males", "simulation.nlm.unitMales", true],
+      ["nlm_eligible_capital_cost", "simulation.nlm.eligibleCost", false],
+      ["nlm_approved_subsidy_amount", "simulation.nlm.approvedAmount", false],
+    ] as const) {
+      const value = assumptions.finance[key];
+      const { error } = validateNumberInput(value == null ? "" : String(value),
+        { nullable: true, integer, min: 0, max: integer ? 100_000 : 1_000_000_000 }, t);
+      if (error !== undefined)
+        committedNlmFieldErrors.push({ key, label: t(label), message: error });
+    }
+  }
+  if (invalidNlmFields.size > 0 || committedNlmFieldErrors.length > 0 || (assumptions?.finance && !validNlmFunding(
       { ...assumptions.finance, nlm_subsidy: nlmSubsidy }, assumptions.herd?.does, assumptions.herd?.bucks)))
     targetErrors.push(t("simulation.nlm.invalid"));
 
@@ -1123,6 +1142,13 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               <p className="text-xs text-muted-foreground">{t("planner.nlmSubsidyHelp")}</p>
             </div>
           </div>
+          {!nlmSubsidy && committedNlmFieldErrors.length > 0 && (
+            <div role="alert" className="space-y-1 text-sm text-destructive sm:col-span-2 lg:col-span-4">
+              {committedNlmFieldErrors.map(({ key, label, message }) => (
+                <p key={key}>{t("simulation.nlm.title")}: {label} — {message}</p>
+              ))}
+            </div>
+          )}
           {nlmSubsidy && assumptions?.finance && <NlmFundingEditor
             key={`${basisSource}:${submittedParams.breed}:${submittedParams.system}:${nlmBasisVersion}`}
             prefix="planner" value={{ ...assumptions.finance, nlm_subsidy: true }}

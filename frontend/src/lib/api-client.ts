@@ -15,6 +15,7 @@ import {
 let accessToken: string | null = null;
 let accessTokenActorScope: string | null = null;
 let authSessionEpoch = 0;
+let teardownClearedEmptyToken = false;
 let currentFarmId: string | null = null;
 let farmScopeEpoch = 0;
 let onAuthFailure: (() => void) | null = null;
@@ -72,7 +73,9 @@ export function setAccessToken(
 ): void {
   // External token installation/teardown marks a new authenticated session.
   // Same-session refresh writes the rotated token internally without bumping.
-  const changed = token !== accessToken;
+  // Even an already signed-out exit supersedes a pending bootstrap refresh.
+  const changed = token !== accessToken || token === null;
+  teardownClearedEmptyToken = token === null && accessToken === null;
   if (changed) authSessionEpoch += 1;
   accessToken = token;
   const parsedActor =
@@ -586,7 +589,7 @@ function assertSafeApiPath(path: string): void {
     !isAllowedPath ||
     parsed.origin !== validationOrigin ||
     parsed.pathname !== rawPathname ||
-    parsed.hash !== "" ||
+    path.includes("#") ||
     rawPathname.includes("%")
   ) {
     const error = new Error("API requests must use an approved same-origin backend path.");
@@ -792,19 +795,6 @@ async function rawFetch(
   const cookieMutation = isRefreshCookieMutation(path, init.method);
   const execute = () => {
     assertRequestScope(requiredScope);
-    if (cookieMutation && authSessionEpoch !== sessionScope) {
-      // AuthProvider intentionally starts logout with the old bearer, then
-      // clears local state before a queued fetch gets the lock. Permit exactly
-      // that one-token teardown transition. Any installed replacement token,
-      // or any additional epoch transition, means this queued request belongs
-      // to a superseded session and must never touch the shared cookie jar.
-      const intentionalLogoutTeardown =
-        isLogoutRoute(path, init.method) &&
-        requestAccessToken !== null &&
-        accessToken === null &&
-        authSessionEpoch === sessionScope + 1;
-      if (!intentionalLogoutTeardown) assertAuthSession(sessionScope);
-    }
     // Start an internally owned request timeout only after a queued cookie
     // mutation acquires its lock. Otherwise most of its budget could expire
     // while another tab is legitimately finishing the preceding response.
@@ -820,7 +810,28 @@ async function rawFetch(
     const signal = composeRequestSignal(init.signal, timeoutMs);
     const sessionLogout = (init.method ?? "GET").toUpperCase() === "POST" &&
       requestPathname.replace(/\/$/, "") === "/api/auth/logout-session";
-    return fetch(path, { ...init, headers, credentials: sessionLogout ? "omit" : "include", signal });
+    const preparedInit: RequestInit = {
+      ...init, headers, credentials: sessionLogout ? "omit" : "include", signal,
+    };
+    // RequestInit getters can change ownership while options are prepared.
+    // Fence the fully materialized request immediately before native fetch.
+    assertRequestScope(requiredScope);
+    if (authSessionEpoch !== sessionScope) {
+      // AuthProvider intentionally starts logout, then clears local state
+      // before a queued fetch gets the lock. Permit exactly that one explicit
+      // teardown transition. Any installed replacement token,
+      // or any additional epoch transition, means this queued request belongs
+      // to a superseded session and must never touch the shared cookie jar.
+      const intentionalLogoutTeardown =
+        cookieMutation && isLogoutRoute(path, preparedInit.method) &&
+        // A no-bearer request predating a newly refreshed grant does not own
+        // that grant's cookie. An already-empty explicit exit can still retry.
+        (requestAccessToken !== null || teardownClearedEmptyToken) &&
+        accessToken === null &&
+        authSessionEpoch === sessionScope + 1;
+      if (!intentionalLogoutTeardown) assertAuthSession(sessionScope);
+    }
+    return fetch(path, preparedInit);
   };
   if (!cookieMutation) return execute();
   try {

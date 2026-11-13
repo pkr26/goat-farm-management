@@ -19,18 +19,19 @@ export function validNlmFunding(finance: FinanceAssumptions, does = 0, bucks = 0
   const receipts = finance.nlm_subsidy_receipts ?? [];
   if (approved != null) {
     if (!finance.nlm_subsidy || finance.nlm_eligible_capital_cost == null) return false;
-    if (approved > finance.nlm_eligible_capital_cost * 0.5 + 0.005) return false;
+    if (approved > finance.nlm_eligible_capital_cost * 0.5) return false;
     if (approved > 0) {
       const females = f ?? does, males = m ?? bucks;
       const band = females / 100;
       if (!Number.isInteger(band) || band < 1 || band > 5 || males !== band * 5) return false;
-      if (approved > band * 1_000_000 + 0.005) return false;
+      if (approved > band * 1_000_000) return false;
     }
   }
   if (receipts.length && !(approved != null && approved > 0)) return false;
   if (receipts.length > 2) return false;
+  if (receipts.length && receipts.reduce((total, receipt) => total + receipt.amount, 0) > (approved ?? 0) + 0.005) return false;
   return receipts.every((receipt, index) =>
-    Number.isInteger(receipt.month) && receipt.month >= 1 && receipt.month <= 240 &&
+    receipt.amount > 0 && Number.isInteger(receipt.month) && receipt.month >= 1 && receipt.month <= 240 &&
     Math.abs(receipt.amount - (approved ?? 0) / 2) <= 0.005 &&
     (index === 0 || receipt.month >= receipts[index - 1].month));
 }

@@ -4,7 +4,8 @@
  * the ration's 3-dp rendering, and both retry paths.
  */
 
-import { screen, waitFor } from "@testing-library/react";
+import { Component, type ReactNode } from "react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
@@ -40,20 +41,60 @@ function boardHandler(rows: unknown[]) {
   return http.get("/api/buckets", () => HttpResponse.json(rows));
 }
 
+class BoardRenderBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    return this.state.failed
+      ? <p role="alert">Bucket register failed to render</p>
+      : this.props.children;
+  }
+}
+
 async function renderLoaded() {
-  renderWithProviders(<BucketsPage />);
+  renderWithProviders(<BoardRenderBoundary><BucketsPage /></BoardRenderBoundary>);
   await screen.findByText("Pregnancy A pen");
 }
 
 describe("BucketsPage — mutation targets", () => {
+  it("shows a newly entered bucket's zero elapsed days as zero", async () => {
+    server.use(boardHandler([boardRow({
+      animals: [{ id: 1, tag_number: "G-TODAY", name: "Nandi", sex: "F", days_in_current_bucket: 0 }],
+      animals_total: 1,
+    })]));
+    await renderLoaded();
+    const row = screen.getByText("G-TODAY").closest("tr")!;
+    expect(within(row).getAllByRole("cell")[4]).toHaveTextContent(/^0$/);
+  });
+
+  it("shows the missing-name placeholder for null and empty names in persisted bucket records", async () => {
+    server.use(boardHandler([boardRow({
+      animals: [
+        { id: 1, tag_number: "G-NULL", name: null, sex: "F" },
+        { id: 2, tag_number: "G-EMPTY", name: "", sex: "F" },
+        { id: 3, tag_number: "G-NAMED", name: "Nandi", sex: "F" },
+      ],
+      animals_total: 3,
+    })]));
+    await renderLoaded();
+    for (const [tag, name] of [["G-NULL", "—"], ["G-EMPTY", "—"], ["G-NAMED", "Nandi"]]) {
+      const row = screen.getByText(tag).closest("tr")!;
+      expect(within(row).getAllByRole("cell")[1]).toHaveTextContent(name);
+    }
+  });
+
   it("labels the bucket with its species word and keeps the 3-dp ration", async () => {
-    server.use(boardHandler([boardRow()]));
+    server.use(boardHandler([boardRow({ daily_kg_per_head: 1.234 })]));
     await renderLoaded();
 
     expect(screen.getByText("Pregnancy A pen")).toBeInTheDocument();
     expect(screen.getByText("0 head")).toBeInTheDocument();
     expect(
-      screen.getByText("Pregnancy A · 1.25 kg/head/day · Confirmed pregnant does"),
+      screen.getByText("Pregnancy A · 1.234 kg/head/day · Confirmed pregnant does"),
     ).toBeInTheDocument();
     expect(screen.queryByText("PREGNANCY_EARLY")).not.toBeInTheDocument();
   });

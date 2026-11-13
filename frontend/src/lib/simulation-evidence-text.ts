@@ -1,6 +1,10 @@
 import type { CalibrationEvidence, MetricExplanation, ReportSection } from "@/api/generated/models";
 import type { Language, MessageKey, TFn } from "@/lib/i18n";
 
+function ownValue<Value extends string>(values: Readonly<Record<string, Value>>, key: string): Value | undefined {
+  return Object.hasOwn(values, key) ? values[key] : undefined;
+}
+
 const metricKeys = [
   "project_cost", "loan_amount", "subsidy_amount", "equity", "npv", "mirr", "irr", "bcr",
   "avg_dscr", "min_dscr", "peak_capacity_head", "terminal_value", "tax_total",
@@ -92,7 +96,7 @@ const methodKeys: Readonly<Record<string, MessageKey>> = {
 function calibrationMethod(method: string, t: TFn): string {
   const suffix = "; age zero set from median recorded birth weight";
   const base = method.endsWith(suffix) ? method.slice(0, -suffix.length) : method;
-  const key = methodKeys[base];
+  const key = ownValue(methodKeys, base);
   if (key) return [t(key), method.endsWith(suffix) ? t("simulation.evidence.method.birthCurveAdjustment") : ""].filter(Boolean).join(" ");
   const labour = /^Total labour expense divided by the (\d+) month\(s\) of ledger history, then split across the ([\d.]+) attendant unit\(s\) implied by (\d+) adult female\(s\) \(the engine's labour basis, matching one worker per ~([\d.]+) does with progeny\)$/.exec(method);
   if (labour) return t("simulation.evidence.method.labour", { months: labour[1], units: labour[2], females: labour[3], threshold: labour[4] });
@@ -111,8 +115,10 @@ export function calibrationEvidenceText(item: CalibrationEvidence, t: TFn, langu
   source: string; method: string;
 } {
   if (language === "en") return { source: item.source, method: item.method };
-  const localizedSources = item.source.split("/").map((source) => sourceKeys[source]
-    ? t(sourceKeys[source]) : t("simulation.evidence.source.unknown"));
+  const localizedSources = item.source.split("/").map((source) => {
+    const key = ownValue(sourceKeys, source);
+    return key ? t(key) : t("simulation.evidence.source.unknown");
+  });
   return { source: `${localizedSources.join(" / ")} (${item.source})`, method: calibrationMethod(item.method, t) };
 }
 
@@ -149,7 +155,10 @@ export function calibrationWarningText(warning: string, t: TFn, language: Langua
       sales: "simulation.evidence.group.sales", feed: "simulation.evidence.group.feed", costs: "simulation.evidence.group.costs",
     };
     return t("simulation.evidence.warning.missingEvidence", { groups: missing[1].split(", ")
-      .map((group) => groups[group] ? t(groups[group]) : t("simulation.evidence.source.unknown")).join(" / ") });
+      .map((group) => {
+        const key = ownValue(groups, group);
+        return key ? t(key) : t("simulation.evidence.source.unknown");
+      }).join(" / ") });
   }
   return [t("simulation.evidence.warning.unknown"), quantitativeContext(warning, t)].filter(Boolean).join(" ");
 }
@@ -214,9 +223,11 @@ function narrativeProblems(value: string, t: TFn): string | null {
     "the funded working-capital reserve becomes negative and additional liquidity is needed": "problem.liquidity",
   };
   const parts = value.split(/; (?!use NPV and MIRR)/).map((part) => {
-    if (fixed[part]) return narrative(t, fixed[part]);
+    const fixedKey = ownValue(fixed, part);
+    if (fixedKey) return narrative(t, fixedKey);
     const irr = /^a unique IRR is not established \(assessment: (\w+)\); use NPV and MIRR$/.exec(part);
-    if (irr && narrativeStatuses[irr[1]]) return narrative(t, "problem.irrMissing", { status: narrative(t, narrativeStatuses[irr[1]]) });
+    const statusKey = irr ? ownValue(narrativeStatuses, irr[1]) : undefined;
+    if (statusKey) return narrative(t, "problem.irrMissing", { status: narrative(t, statusKey) });
     const capacity = /^the projected peak herd exceeds funded housing and equipment capacity by ([\d.]+) head$/.exec(part);
     return capacity ? narrative(t, "problem.capacity", { head: capacity[1] }) : null;
   });
@@ -232,7 +243,8 @@ function narrativeWarning(value: string, t: TFn): string | null {
     "Ordinary IRR uniqueness is unproven in this solver domain; use NPV and MIRR.": "irrUnproven",
     "Embedded future festival dates are projections requiring local confirmation; moon sighting can change the sale month near a month boundary. 2039 has both January and December occurrences.": "festivalProjected",
   };
-  if (fixed[value]) return narrative(t, fixed[value]);
+  const fixedKey = ownValue(fixed, value);
+  if (fixedKey) return narrative(t, fixedKey);
   const coverage = /^Festival calendar covers through (\d+); months beyond that carry no Bakrid uplift\.$/.exec(value);
   if (coverage) return narrative(t, "festivalCoverage", { year: coverage[1] });
   const source = /^Festival dates are explicit user overrides; source: (.+)$/.exec(value);
@@ -316,7 +328,10 @@ function narrativeParagraph(value: string, t: TFn): string | null {
       const active = /^ Every risk path also draws (.+?) events, so this distribution sits below the headline \(no-disaster\) figures — compare runs against each other, not against the deterministic base case\.$/.exec(match[8]);
       if (!active) return null;
       const keys: Readonly<Record<string, NarrativeKey>> = { "disease events": "event.disease", "drought events": "event.drought", "market-crash events": "event.market-crash" };
-      const items = active[1].split("/").map((event) => keys[event] ? narrative(t, keys[event]) : null);
+      const items = active[1].split("/").map((event) => {
+        const key = ownValue(keys, event);
+        return key ? narrative(t, key) : null;
+      });
       if (items.some((event) => event === null)) return null;
       events = narrative(t, "riskEvents", { events: items.join(" / ") });
     }
@@ -330,7 +345,7 @@ function narrativeParagraph(value: string, t: TFn): string | null {
     const entries = [...match[1].matchAll(/([a-z ]+) \(([^\n]+?) moves NPV by (-?₹[\d,.]+(?: (?:lakh|crore))?)\)/g)];
     if (!entries.length || match[1].replace(/([a-z ]+) \(([^\n]+?) moves NPV by (-?₹[\d,.]+(?: (?:lakh|crore))?)\)/g, "").replace(/,\s*/g, "")) return null;
     const items = entries.map((entry) => {
-      const parameter = narrativeParameters[entry[1].trim()];
+      const parameter = ownValue(narrativeParameters, entry[1].trim());
       if (!parameter) return null;
       // Backend sale-age labels use signed month(s), unlike price percentages.
       const months = /^([+-]\d+) month\(s\)$/.exec(entry[2]);
@@ -356,12 +371,13 @@ export function narrativeSectionText(section: ReportSection, t: TFn, language: L
   title: string; paragraphs: string[]; complete: boolean;
 } {
   if (language === "en") return { title: section.title, paragraphs: section.paragraphs, complete: true };
-  let complete = Boolean(narrativeTitles[section.key]);
+  const titleKey = ownValue(narrativeTitles, section.key);
+  let complete = Boolean(titleKey);
   const paragraphs = section.paragraphs.map((paragraph) => {
     const translated = narrativeParagraph(paragraph, t);
     if (translated !== null) return translated;
     complete = false;
     return [narrative(t, "unknown"), quantitativeContext(paragraph, t)].filter(Boolean).join(" ");
   });
-  return { title: narrative(t, narrativeTitles[section.key] ?? "title.unknown"), paragraphs, complete };
+  return { title: narrative(t, titleKey ?? "title.unknown"), paragraphs, complete };
 }

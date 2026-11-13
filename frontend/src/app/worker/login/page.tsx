@@ -595,7 +595,7 @@ export default function WorkerLoginPage() {
         )}
         {roster && <nav aria-label={t("worker.login.title")} className="flex gap-3">
           <Button variant="outline" className="h-11" disabled={rosterQuery.isFetching || rosterPages.farmId !== tabletFarmId || rosterPages.cursors.length <= 1}
-            onClick={() => setRosterPages((pages) => ({ farmId: tabletFarmId, cursors: pages.cursors.slice(0, -1) }))}>
+            onClick={() => setRosterPages((pages) => ({ farmId: tabletFarmId, cursors: pages.cursors.length > 1 ? pages.cursors.slice(0, -1) : pages.cursors }))}>
             {t("pagination.previous")}
           </Button>
           <Button variant="outline" className="h-11" disabled={rosterQuery.isFetching || roster.next_after_membership_id == null}

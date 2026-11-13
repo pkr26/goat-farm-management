@@ -303,6 +303,7 @@ function RemotePickerDialog({
   const lastPage = results.data?.pages.at(-1);
   const checkedCount = lastPage?.nextOffset ?? 0;
   const total = lastPage?.total ?? 0;
+  const hasRecordCounts = Number.isFinite(checkedCount) && Number.isFinite(total) && checkedCount >= 0 && total >= 0;
   const hasMore = Boolean(results.hasNextPage);
   // Placeholder pages belong to the previous debounced term. Also gate on the
   // raw input immediately so Load more cannot race a debounce that has not
@@ -450,7 +451,7 @@ function RemotePickerDialog({
             : results.data
               ? // Count what is actually selectable (static options included);
                 // "Checked X of Y" still describes the server records only.
-                `${t(displayedOptions.length === 1 ? "picker.remote.statusOptions_one" : "picker.remote.statusOptions_many", { count: displayedOptions.length })} ${t(total === 1 ? "picker.remote.statusChecked_one" : "picker.remote.statusChecked_many", { checked: checkedCount, total })} ${hasMore ? t("picker.remote.moreAvailable") : t("picker.remote.allChecked")}`
+                `${t(displayedOptions.length === 1 ? "picker.remote.statusOptions_one" : "picker.remote.statusOptions_many", { count: displayedOptions.length })}${hasRecordCounts ? ` ${t(total === 1 ? "picker.remote.statusChecked_one" : "picker.remote.statusChecked_many", { checked: checkedCount, total })} ${hasMore ? t("picker.remote.moreAvailable") : t("picker.remote.allChecked")}` : ""}`
               : t("picker.remote.resultsOnOpen")}
         </p>
         {hasMore && !awaitingCurrentTerm && (

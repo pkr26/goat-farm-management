@@ -62,6 +62,7 @@ export function HealthRoundProgress({ taskId, component, onComponentChange, onCo
       setReason("");
       onCohortChange();
       await query.refetch();
+      if (!mounted.current || !stillOwnsFarm()) return;
       toast.success(t("health.round.changed"));
     } catch (err) {
       if (stillOwnsFarm() && mounted.current) setError(err instanceof ApiError

@@ -30,7 +30,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { PermissionGate } from "@/components/permission-gate";
 import { StaleDataNotice } from "@/components/stale-data-notice";
-import { PaginationControls } from "@/components/pagination-controls";
+import { PaginationControls, sanitizeOffset } from "@/components/pagination-controls";
 import { InlineLoading, PageSkeleton } from "@/components/skeletons";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -84,20 +84,22 @@ type ShiftCell = { shift: string; kg: number; time: string };
  * garbage in a hand-edited or truncated link must not reach the API as a
  * 422; it falls back to "no filter" instead. */
 function urlDate(value: string | null): string {
-  return value !== null && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+  return value !== null && /^\d{4}-\d{2}-\d{2}$/.test(value) && formatDate(value, "en") !== "—" ? value : "";
 }
 
 function allocationShiftKey(bucket: string, recipe: string, shift: string): string {
-  return `${bucket}\u0000${recipe}\u0000${shift}`;
+  return JSON.stringify([bucket, recipe, shift]);
 }
 
 function planAllocationId(line: PlanLineOut): string {
-  return line.allocation_id ?? `${line.bucket}:${line.recipe_code}`;
+  // Dispensing identifies a physical ration by bucket and recipe, regardless
+  // of the external IDs assigned to its separate sex/age-band segments.
+  return JSON.stringify([line.bucket, line.recipe_code]);
 }
 
 function planLineId(line: PlanLineOut): string {
   return (
-    line.line_id ??
+    line.line_id ||
     `${planAllocationId(line)}:${line.segment ?? line.creep_band ?? line.note ?? line.heads}`
   );
 }
@@ -106,7 +108,7 @@ function segmentLabel(line: PlanLineOut, language: "en" | "te", t: TFn): string 
   if (line.segment === "FEMALE") return enumLabel("sex", "F", language);
   if (line.segment === "MALE") return enumLabel("sex", "M", language);
   if (line.segment === "CREEP_BAND") {
-    return line.creep_band ?? t("feeding.plan.segmentAll");
+    return line.creep_band || t("feeding.plan.segmentAll");
   }
   if (line.creep_band) return line.creep_band;
   return t("feeding.plan.segmentAll");
@@ -157,7 +159,7 @@ function planLineNotes(line: PlanLineOut, t: TFn): string[] {
       ? t("feeding.plan.scaledFromMean", { kg: formatPersistedKg(line.mean_weight_kg) })
       : null,
     line.note ?? null,
-  ].filter((note): note is string => note !== null);
+  ].filter((note): note is string => note !== null && note.trim() !== "");
 }
 
 
@@ -168,9 +170,9 @@ const buildSettingSchema = (t: TFn) =>
       .number()
       .positive(t("feeding.validation.kgPerHeadPositive"))
       .min(MIN_PERSISTED_KG, t("feeding.validation.kgMin"))
-      // Mirrors QuantityKgFloat (le=1_000_000, schemas/common.py): a fat-fingered
-      // quantity should fail inline instead of as an opaque server 422.
-      .max(1_000_000, t("feeding.validation.qtyMax")),
+      // FeedSettingIn caps a daily ration at 50 kg/head; dispensing uses
+      // the separate QuantityKgFloat ceiling below.
+      .max(50, t("simulation.input.atMost", { value: 50 })),
   });
 type SettingInput = z.input<ReturnType<typeof buildSettingSchema>>;
 type SettingValues = z.output<ReturnType<typeof buildSettingSchema>>;
@@ -263,6 +265,7 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
               type="number"
               step="0.1"
               min="0.1"
+              max="50"
               aria-invalid={Boolean(errors.daily_kg_per_head) || undefined}
               aria-describedby={
                 errors.daily_kg_per_head ? `kg-${line.bucket}-error` : undefined
@@ -392,15 +395,17 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
   const invalidHistoryRange = Boolean(dateFrom && dateTo && dateFrom > dateTo);
 
   function changeDateFrom(value: string) {
-    setDateFrom(value);
+    const normalized = urlDate(value);
+    setDateFrom(normalized);
     setHistoryOffset(0);
-    writeUrlState({ date_from: value || null, offset: null });
+    writeUrlState({ date_from: normalized || null, offset: null });
   }
 
   function changeDateTo(value: string) {
-    setDateTo(value);
+    const normalized = urlDate(value);
+    setDateTo(normalized);
     setHistoryOffset(0);
-    writeUrlState({ date_to: value || null, offset: null });
+    writeUrlState({ date_to: normalized || null, offset: null });
   }
 
   /** One-shot reset shared by the toolbar control and the empty-state CTA. */
@@ -413,8 +418,9 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
 
   const changeHistoryOffset = useCallback(
     (next: number) => {
-      setHistoryOffset(next);
-      writeUrlState({ offset: next || null });
+      const offset = Math.min(sanitizeOffset(next), MAX_PAGE_OFFSET);
+      setHistoryOffset(offset);
+      writeUrlState({ offset: offset || null });
     },
     [writeUrlState],
   );
@@ -922,7 +928,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                 <TableRow key={r.id}>
                   <TableCell>{enumLabel("shift", r.shift, language)}</TableCell>
                   <TableCell>{enumLabel("bucket", r.bucket, language)}</TableCell>
-                  <TableCell>{r.recipe_code ?? "—"}</TableCell>
+                  <TableCell>{r.recipe_code || "—"}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatPersistedKg(r.qty_kg)}
                   </TableCell>
@@ -1026,7 +1032,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {enumLabel("shift", record.shift, language)} ·{" "}
                       {enumLabel("bucket", record.bucket, language)} ·{" "}
-                      {record.recipe_code ?? "—"}
+                      {record.recipe_code || "—"}
                     </p>
                   </div>
                   <span className="tabular-nums font-medium">
@@ -1052,7 +1058,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                     <TableCell>{formatDate(record.date)}</TableCell>
                     <TableCell>{enumLabel("shift", record.shift, language)}</TableCell>
                     <TableCell>{enumLabel("bucket", record.bucket, language)}</TableCell>
-                    <TableCell>{record.recipe_code ?? "—"}</TableCell>
+                    <TableCell>{record.recipe_code || "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatPersistedKg(record.qty_kg)}
                     </TableCell>
@@ -1066,6 +1072,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
               limit={history.limit}
               offset={history.offset}
               onOffsetChange={changeHistoryOffset}
+              maxOffset={MAX_PAGE_OFFSET}
               label={t("feeding.history.paginationLabel")}
               disabled={historyQuery.isPlaceholderData}
             />

@@ -27,7 +27,8 @@ import { useLanguage, useT } from "@/lib/i18n";
 
 import { formatHead, formatPercent, formatRatio, humanize } from "./format-helpers";
 
-/** NPV distribution on the shared chart kit, with P5/P50/P95 markers. */
+/** NPV distribution on the shared chart kit, with P5/P50/P95 markers.
+ * Empty distributions have no most-frequent bin to announce. */
 export function MonteCarloHistogram({
   counts,
   edges,
@@ -43,7 +44,7 @@ export function MonteCarloHistogram({
 }) {
   const t = useT();
   const totalRuns = counts.reduce((sum, count) => sum + count, 0);
-  const max = Math.max(...counts, 1);
+  const max = Math.max(...counts, 0);
   const peakBin = counts.indexOf(max);
   const bins = counts.map((count, i) => ({
     label: `${formatMoney(edges[i])} – ${formatMoney(edges[i + 1])}`,
@@ -71,13 +72,17 @@ export function MonteCarloHistogram({
         display?: string;
         strong?: boolean;
       }[]}
-      ariaLabel={t("simulation.monteCarlo.histogramAria", {
-        runs: totalRuns,
-        bins: counts.length,
-        start: formatMoney(edges[peakBin]),
-        end: formatMoney(edges[peakBin + 1]),
-        count: max,
-      })}
+      ariaLabel={
+        totalRuns > 0
+          ? t("simulation.monteCarlo.histogramAria", {
+              runs: totalRuns,
+              bins: counts.length,
+              start: formatMoney(edges[peakBin]),
+              end: formatMoney(edges[peakBin + 1]),
+              count: max,
+            })
+          : t("common.noData")
+      }
     />
   );
 }
@@ -256,7 +261,8 @@ export function OptimizationResults({
               <TableRow key={`${label}:${optimizationCandidateIdentity(candidate)}`}>
                 <TableCell className="font-medium">{label}</TableCell>
                 <TableCell
-                  className={candidate.feasible ? "text-success" : "text-destructive"}
+                  data-tone={candidate.feasible ? "success" : "warning"}
+                  className="data-[tone=success]:text-success data-[tone=warning]:text-destructive"
                 >
                   {candidate.feasible
                     ? t("simulation.optimization.feasible")
@@ -294,12 +300,14 @@ export function OptimizationResults({
                   {formatRatio(candidate.min_dscr)}
                 </TableCell>
                 <TableCell
-                  className={`text-right tabular-nums ${candidate.minimum_cash_balance < 0 ? "text-destructive" : ""}`}
+                  data-tone={candidate.minimum_cash_balance < 0 ? "warning" : "neutral"}
+                  className="text-right tabular-nums data-[tone=warning]:text-destructive"
                 >
                   {formatMoney(candidate.minimum_cash_balance)}
                 </TableCell>
                 <TableCell
-                  className={`text-right tabular-nums ${candidate.funding_gap > 0 ? "text-destructive" : ""}`}
+                  data-tone={candidate.funding_gap > 0 ? "warning" : "neutral"}
+                  className="text-right tabular-nums data-[tone=warning]:text-destructive"
                 >
                   {formatMoney(candidate.funding_gap)}
                 </TableCell>
