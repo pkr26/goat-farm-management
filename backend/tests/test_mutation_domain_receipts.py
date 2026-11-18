@@ -101,6 +101,7 @@ def _case() -> tuple[dict[str, Any], Any]:
             "phase_timeout": 7200,
             "sample_cap": 60,
             "domain_selection": "all-coverers-or-declared-domain-suite-v1",
+            "database_cleanup": mutate_run.database_cleanup_configuration(),
         },
     }
     campaign = mutate_identity.digest_json(provenance)
@@ -154,6 +155,31 @@ def test_survival_requires_every_baseline_case_including_skips() -> None:
     record["pytest_receipt"]["reports"] = record["pytest_receipt"]["reports"][:-2]
     with pytest.raises(verifier.EvidenceError, match="omits baseline"):
         verifier.verify_definitive(record, context)
+
+
+@pytest.mark.parametrize("status", ["KILLED", "SURVIVED", "INFRA_ERROR", "NOT_COVERED"])
+@pytest.mark.parametrize("tamper", ["missing", "old_bounds"])
+def test_native_domain_cleanup_policy_is_required_even_for_unmeasured_rows(
+    tmp_path: Path, status: str, tamper: str
+) -> None:
+    record, context = _case()
+    record["status"] = status
+    if tamper == "missing":
+        record["provenance"]["config"].pop("database_cleanup")
+    else:
+        record["provenance"]["config"]["database_cleanup"]["drop_timeout_seconds"] = 45
+    record["campaign_id"] = mutate_identity.digest_json(record["provenance"])
+    context.campaign = record["campaign_id"]
+    if status in {"KILLED", "SURVIVED"}:
+        with pytest.raises(verifier.EvidenceError, match="database cleanup policy"):
+            verifier.verify_definitive(record, context)
+    path = tmp_path / "results.jsonl"
+    path.write_text(json.dumps(record) + "\n")
+    report, proof = verifier.stream_verify(path, context)
+    assert report["attempted"] == 1
+    assert report["statuses"] == {status: 1}
+    assert proof["verified_complete_latest_verdicts"] == 0
+    assert proof["error_count"] == 1
 
 
 @pytest.mark.parametrize(

@@ -318,7 +318,8 @@ async def test_batch_only_health_event_serializes_null_animal_id(
 
     listed = await client.get("/api/health/events", headers=headers)
     assert listed.status_code == 200, listed.text
-    row = next(item for item in listed.json()["events"] if item["id"] == event_id)
+    row = next((item for item in listed.json()["events"] if item["id"] == event_id), None)
+    assert row is not None
     assert row["animal_id"] is None
     assert row["animal_tag"] is None
 
@@ -444,8 +445,11 @@ async def test_batch_preview_targets_only_the_advertised_quarantine_set(
     ids = sorted(a["id"] for a in detail["animals"])
     await _release_one_from_quarantine(client, headers, ids[0])
 
-    options = (await client.get("/api/health/purchase-batches", headers=headers)).json()
-    advertised = next(b for b in options["batches"] if b["id"] == batch["id"])
+    options_response = await client.get("/api/health/purchase-batches", headers=headers)
+    assert options_response.status_code == 200, options_response.text
+    options = options_response.json()
+    advertised = next((b for b in options["batches"] if b["id"] == batch["id"]), None)
+    assert advertised is not None
     assert advertised["active_quarantine_animal_count"] == 2
 
     preview = await client.post(

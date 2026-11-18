@@ -89,6 +89,7 @@ async def test_pin_scope_survives_refresh_and_never_gains_other_farm_or_identity
         assert claims.family_id
         headers = {"Authorization": f"Bearer {access}", "X-Farm-Id": str(farm_id)}
         farms = await client.get("/api/auth/farms", headers=headers)
+        assert farms.status_code == 200, farms.text
         assert [row["id"] for row in farms.json()] == [farm_id]
         assert (await client.get("/api/auth/permissions", headers=headers)).json()[
             "is_owner"
@@ -234,14 +235,16 @@ async def test_roster_pagination_reaches_workers_beyond_first_hundred(
                 )
             )
         await db.commit()
-    page1 = (await client.get("/api/auth/worker-roster", params={"farm_id": farm_id})).json()
+    response1 = await client.get("/api/auth/worker-roster", params={"farm_id": farm_id})
+    assert response1.status_code == 200, response1.text
+    page1 = response1.json()
     assert len(page1["items"]) == 100
-    page2 = (
-        await client.get(
-            "/api/auth/worker-roster",
-            params={"farm_id": farm_id, "after_membership_id": page1["next_after_membership_id"]},
-        )
-    ).json()
+    response2 = await client.get(
+        "/api/auth/worker-roster",
+        params={"farm_id": farm_id, "after_membership_id": page1["next_after_membership_id"]},
+    )
+    assert response2.status_code == 200, response2.text
+    page2 = response2.json()
     assert len(page2["items"]) == 5
     assert page2["next_after_membership_id"] is None
     ids = [entry["membership_id"] for entry in page1["items"] + page2["items"]]

@@ -2503,7 +2503,37 @@ async def test_update_role_not_found(client: httpx.AsyncClient) -> None:
     role_b = await create_custom_role(client, owner_b, "Helper", [])
     rid_b = await role_id(client, owner_b, "VET")
 
-    for bad_rid in (999_999, role_b["id"], rid_b, -1):
+    # The real schema admits an explicit zero PK in retained/anomalous state.
+    # Zero remains an invalid public path identity even when such a row exists.
+    retained_name = "Retained reserved-zero role"
+    async with get_sessionmaker()() as db:
+        if await db.get(Role, 0) is not None:
+            raise RuntimeError("The isolated fixture already contains a zero-key role")
+        db.add(
+            Role(
+                id=0,
+                farm_id=int(owner_a["X-Farm-Id"]),
+                code=None,
+                name=retained_name,
+                permissions="[]",
+                revision=1,
+            )
+        )
+        await db.commit()
+    async with get_sessionmaker()() as db:
+        retained = await db.get(Role, 0)
+        if (
+            retained is None
+            or retained.farm_id != int(owner_a["X-Farm-Id"])
+            or retained.name != retained_name
+            or retained.code is not None
+            or retained.permissions != "[]"
+            or retained.revision != 1
+            or retained.deleted_at is not None
+        ):
+            raise RuntimeError("The actual retained zero-role fixture differs")
+
+    for bad_rid in (999_999, role_b["id"], rid_b, -1, 0):
         resp = await client.put(
             f"/api/team/roles/{bad_rid}",
             json={"name": "Hijack", "permissions": []},
@@ -2511,6 +2541,13 @@ async def test_update_role_not_found(client: httpx.AsyncClient) -> None:
         )
         assert resp.status_code == 404, f"role {bad_rid} → {resp.status_code}"
         assert resp.json()["detail"] == "Role not found"
+
+    async with get_sessionmaker()() as db:
+        persisted = await db.get(Role, 0)
+        if persisted is None:
+            raise RuntimeError("The actual retained zero-role fixture disappeared")
+        persisted_state = (persisted.name, persisted.permissions, persisted.revision)
+    assert persisted_state == (retained_name, "[]", 1)
 
 
 @pytest.mark.parametrize("rid", ["abc", "2.5"])

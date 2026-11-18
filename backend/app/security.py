@@ -69,6 +69,7 @@ LEGACY_PBKDF2_MAX_ITERATIONS = 1_000_000
 
 REQUIRED_JWT_CLAIMS = ("sub", "kind", "jti", "iat", "exp", "iss", "aud")
 RESERVED_JWT_CLAIMS = frozenset(REQUIRED_JWT_CLAIMS)
+JWT_CLOCK_SKEW_SECONDS = 60
 
 
 class PasswordWorkCapacityError(RuntimeError):
@@ -866,7 +867,7 @@ def _decode_payload_result(
                 algorithms=[s.jwt_algorithm],
                 audience=s.jwt_audience,
                 issuer=s.jwt_issuer,
-                leeway=60,
+                leeway=JWT_CLOCK_SKEW_SECONDS,
                 # Expiry is checked immediately below after every other
                 # signature/claim validation succeeds. Keeping the authentic
                 # expired state distinct prevents normal clients racing to
@@ -906,7 +907,7 @@ def _decode_payload_result(
         expires_at = int(payload["exp"])
     except (KeyError, TypeError, ValueError, OverflowError):
         return None, False
-    expired = expires_at <= datetime.now(UTC).timestamp() - 60
+    expired = expires_at <= datetime.now(UTC).timestamp() - JWT_CLOCK_SKEW_SECONDS
     return payload, expired
 
 

@@ -36,8 +36,15 @@ async def _batch_prices(
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    detail = (await client.get(f"/api/purchases/{resp.json()['id']}", headers=owner)).json()
-    prices = [Decimal(str(a["purchase_price"])) for a in detail["animals"]]
+    detail_response = await client.get(f"/api/purchases/{resp.json()['id']}", headers=owner)
+    assert detail_response.status_code == 200, "A priced purchase batch must be readable"
+    detail = detail_response.json()
+    animals = detail.get("animals")
+    assert isinstance(animals, list), "Purchase batch detail must declare an animals list"
+    assert len(animals) == count, "Purchase batch detail must include each priced animal"
+    for animal in animals:
+        assert "purchase_price" in animal, "Each priced purchase animal must declare purchase_price"
+    prices = [Decimal(str(a["purchase_price"])) for a in animals]
     assert len(prices) == count
     return prices
 

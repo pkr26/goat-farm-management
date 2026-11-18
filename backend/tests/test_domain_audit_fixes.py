@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 import pytest
 from sqlalchemy import select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 import app.api.animals as animals_api
 import app.services.tasks as task_service
@@ -672,20 +672,40 @@ async def test_kid_death_fails_fast_while_dam_retirement_owns_the_dam(
                 headers=owner,
             )
         )
-        await asyncio.wait_for(dam_locked.wait(), timeout=5)
-        conflict = await asyncio.wait_for(
-            kid_client.post(
-                f"/api/animals/{kid_id}/status",
-                json={"new_status": "DEAD"},
-                headers=owner,
-            ),
-            timeout=5,
+        conflict: httpx.Response | DBAPIError
+        try:
+            await asyncio.wait_for(dam_locked.wait(), timeout=5)
+            try:
+                conflict = await asyncio.wait_for(
+                    kid_client.post(
+                        f"/api/animals/{kid_id}/status",
+                        json={"new_status": "DEAD"},
+                        headers=owner,
+                    ),
+                    timeout=5,
+                )
+            except DBAPIError as exc:
+                if getattr(exc.orig, "sqlstate", None) != "55P03":
+                    raise
+                # This real NOWAIT conflict is the scheduled outcome whose
+                # public translation is under test. Other DB errors escape.
+                conflict = exc
+        finally:
+            release_dam.set()
+            try:
+                dam_response = await asyncio.wait_for(asyncio.shield(dam_request), timeout=5)
+            finally:
+                if not dam_request.done():
+                    dam_request.cancel()
+                    await asyncio.wait_for(
+                        asyncio.gather(dam_request, return_exceptions=True), timeout=5
+                    )
+        assert dam_response.status_code == 200, dam_response.text
+        assert isinstance(conflict, httpx.Response), (
+            "A controlled dam-row NOWAIT conflict must be translated to an HTTP response"
         )
         assert conflict.status_code == 409, conflict.text
         assert "retry" in conflict.json()["detail"].lower()
-        release_dam.set()
-        dam_response = await asyncio.wait_for(dam_request, timeout=5)
-        assert dam_response.status_code == 200, dam_response.text
 
         retry = await kid_client.post(
             f"/api/animals/{kid_id}/status",

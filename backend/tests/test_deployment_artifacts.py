@@ -1,8 +1,8 @@
 """Executable regression tests for deployment and disaster-recovery artifacts.
 
-PostgreSQL, GPG, AWS, and containers are never contacted.  Private mock
-executables exercise the shell scripts' real ordering, cleanup, argument, and
-failure behavior.
+Private mock executables exercise the shell scripts' real ordering, cleanup,
+argument, and failure behavior. The migration-timeout integration test alone
+uses an owned disposable PostgreSQL database and the real Alembic engine.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import base64
+import configparser
 import errno
 import hashlib
 import http.client
@@ -27,6 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 
 import pytest
 import yaml
@@ -64,7 +66,7 @@ SIGNER_B = "B" * 40
 
 @pytest.fixture(scope="session", autouse=True)
 def _database() -> None:
-    """Override the global integration fixture: these tests must never touch a DB."""
+    """Skip the shared schema; the migration probe owns its disposable database."""
 
 
 @pytest.fixture(autouse=True)
@@ -4391,8 +4393,60 @@ def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: 
     assert "get_migration_settings" in alembic_env
     assert "get_settings" not in alembic_env
 
-    database = f"{os.environ.get('GOATFARM_TEST_DB', 'goatfarm_test')}_migration_timeout"
-    _admin_sql(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+    # Keep the actual env.py/engine, but give Alembic a private revision graph
+    # ending in a controlled blocking statement rather than assuming any DDL
+    # in the production history happens to run longer than one millisecond.
+    versions = tmp_path / "versions"
+    versions.mkdir()
+    shutil.copy2(
+        REPO_ROOT / "backend/alembic/versions/ed5efe13a516_initial_schema.py",
+        versions / "ed5efe13a516_initial_schema.py",
+    )
+    (versions / "migration_timeout_probe.py").write_text(
+        """import os
+import sys
+
+from alembic import op
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+
+revision = "migration_timeout_probe"
+down_revision = "ed5efe13a516"
+branch_labels = None
+depends_on = None
+
+
+def upgrade():
+    connection = op.get_bind()
+    effective_ms = connection.scalar(text(
+        "SELECT (EXTRACT(EPOCH FROM current_setting('statement_timeout')::interval) "
+        "* 1000)::bigint"
+    ))
+    expected_ms = int(os.environ["GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS"])
+    assert effective_ms == expected_ms, (effective_ms, expected_ms)
+    print(f"timeout-probe-start:{effective_ms}", file=sys.stderr, flush=True)
+    try:
+        connection.execute(text("SELECT pg_sleep(1)"))
+    except DBAPIError as exc:
+        print(f"timeout-probe-canceled:{exc.orig.sqlstate}", file=sys.stderr, flush=True)
+        raise
+    print("timeout-probe-complete", file=sys.stderr, flush=True)
+
+
+def downgrade():
+    pass
+"""
+    )
+    config = configparser.ConfigParser(interpolation=None)
+    config.read(REPO_ROOT / "backend/alembic.ini")
+    config.set("alembic", "script_location", str(REPO_ROOT / "backend/alembic"))
+    config.set("alembic", "version_locations", str(versions))
+    config.set("alembic", "path_separator", "os")
+    private_config = tmp_path / "alembic.ini"
+    with private_config.open("w") as stream:
+        config.write(stream)
+
+    database = f"migration_timeout_{uuid4().hex}_test"
     _admin_sql(f'CREATE DATABASE "{database}"')
     try:
         env = os.environ.copy()
@@ -4402,6 +4456,7 @@ def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: 
         env["GOATFARM_DATABASE_URL"] = target_url
         env["GOATFARM_MIGRATION_DATABASE_URL"] = target_url
         env["GOATFARM_DB_STATEMENT_TIMEOUT_MS"] = "1"
+        env["GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS"] = "900000"
         allowed = subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "ed5efe13a516"],
             cwd=REPO_ROOT / "backend",
@@ -4414,10 +4469,18 @@ def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: 
         assert allowed.returncode == 0, allowed.stderr
 
         # ...and the migration-specific knob really is the one in force.
-        env["GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS"] = "1"
-        env["GOATFARM_MIGRATION_WRITES_QUIESCED"] = "true"
+        env["GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS"] = "200"
+        probe_command = [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            str(private_config),
+            "upgrade",
+            "migration_timeout_probe",
+        ]
         capped = subprocess.run(
-            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            probe_command,
             cwd=REPO_ROOT / "backend",
             env=env,
             capture_output=True,
@@ -4425,8 +4488,28 @@ def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: 
             check=False,
             timeout=120,
         )
-        assert capped.returncode != 0
+        assert capped.returncode != 0, capped.stdout + capped.stderr
+        assert "timeout-probe-start:200" in capped.stderr, capped.stderr
+        assert "timeout-probe-canceled:57014" in capped.stderr, capped.stderr
         assert "statement timeout" in capped.stderr
+        assert "timeout-probe-complete" not in capped.stderr
+
+        # The failed upgrade must not mark its revision applied. Retrying the
+        # same real probe with the migration-specific budget now completes,
+        # although the request-path setting remains one millisecond.
+        env["GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS"] = "5000"
+        completed = subprocess.run(
+            probe_command,
+            cwd=REPO_ROOT / "backend",
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        assert "timeout-probe-start:5000" in completed.stderr, completed.stderr
+        assert "timeout-probe-complete" in completed.stderr, completed.stderr
     finally:
         _admin_sql(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
 

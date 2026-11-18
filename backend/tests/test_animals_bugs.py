@@ -295,7 +295,16 @@ def test_unique_constraint_name_returns_none_for_unnamed_violation() -> None:
         'null value in column "sex" of relation "animals" violates not-null constraint',
         None,
     )
-    assert _unique_constraint_name(exc) is None
+    name: str | AttributeError | None
+    try:
+        name = _unique_constraint_name(exc)
+    except AttributeError as error:
+        if error.obj is not None or error.name not in {"__cause__", "__context__", "orig"}:
+            raise
+        name = error
+    assert name is None, (
+        f"An unnamed violation must stop cleanly at the end of its cause chain: {name!r}"
+    )
 
 
 def test_unique_constraint_name_reads_the_native_cause() -> None:

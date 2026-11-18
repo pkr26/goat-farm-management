@@ -1401,11 +1401,30 @@ async def test_busy_fast_path_does_not_leak_keyed_run_locks() -> None:
     async def never_runs() -> None:  # pragma: no cover - the 429 fires first
         raise AssertionError("operation must not run while capacity is busy")
 
-    async with _global_run_slots, _global_run_slots:  # occupy both slots
+    owned_leases = 0
+    try:
+        # Saturate the configured capacity rather than assuming its size.
+        # A smaller positive ceiling must still reach the real busy path.
+        try:
+            async with asyncio.timeout(5):
+                while not _global_run_slots.locked():
+                    await _global_run_slots.acquire()
+                    owned_leases += 1
+        except TimeoutError:
+            pytest.fail("Could not occupy the available capacity for the busy-path check")
         for key in keys:
             with pytest.raises(HTTPException) as exc_info:
                 await _with_run_limits(key, key, never_runs)
             assert exc_info.value.status_code == 429
+            assert _global_run_slots.locked(), "Busy rejection returned capacity owned by the test"
+    finally:
+        for _ in range(owned_leases):
+            try:
+                _global_run_slots.release()
+            except ValueError:
+                # An incorrect rejection may already have released a lease.
+                # Preserve the ownership assertion instead of masking it.
+                break
     assert not any(key in _farm_run_locks for key in keys)
     assert not any(key in _user_run_locks for key in keys)
 
@@ -1453,8 +1472,14 @@ async def test_cancelled_run_retains_capacity_until_native_worker_finishes(
         request.cancel()
         with pytest.raises(asyncio.CancelledError):
             await request
-        assert _farm_run_locks[farm_id].locked()
-        assert _user_run_locks[user_id].locked()
+        farm_lock = _farm_run_locks.get(farm_id)
+        user_lock = _user_run_locks.get(user_id)
+        assert farm_lock is not None and farm_lock.locked(), (
+            "Cancelled native work must retain its farm admission lease"
+        )
+        assert user_lock is not None and user_lock.locked(), (
+            "Cancelled native work must retain its user admission lease"
+        )
         assert _global_run_slots._value == 1
 
         async def must_not_run() -> None:  # pragma: no cover - busy guard fires
@@ -2053,3 +2078,498 @@ async def test_farm_calibration_labour_with_zero_attendant_units_preserves_the_w
     method = evidence["costs.labour_per_month"]["method"]
     assert "NOT spread onto a per-attendant wage" in method
     assert "implies 0 paid attendant units" in method
+
+
+async def test_daily_ops_defends_against_declared_nonfinite_worker_output(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Defensive worker-output fault contract, not public-input reachability.
+
+    An untouched real daily engine first serves the valid public request200.
+    The next real result is copied with one declared output float set to+Inf.
+    Native completion is drained before patch/client teardown and the422 oracle;
+    otherwise-unbounded native cleanup relies on the external phase budget.
+    """
+    import json
+    from typing import cast
+
+    from app.api import ops_simulation as daily_ops_api
+    from app.simulation.daily_ops import DailyOpsInput, DailyOpsResult
+    from app.simulation.daily_ops import run_daily_ops as actual_daily_run
+
+    transport = client._transport
+    if not isinstance(transport, httpx.ASGITransport):
+        raise RuntimeError("The owned browser requires the actual fixture ASGI app")
+
+    api_symbols = vars(daily_ops_api)
+    real_run = actual_daily_run
+    real_offload = run_limits._offload
+    real_finite_payload = run_limits._finite_payload
+    if (
+        api_symbols["run_daily_ops"] is not real_run
+        or api_symbols["_offload"] is not real_offload
+        or api_symbols["_finite_payload"] is not real_finite_payload
+    ):
+        raise RuntimeError("The actual API must retain its real typed engine/helper bindings")
+    requests: list[asyncio.Task[httpx.Response]] = []
+    native_completions: list[asyncio.Future[None]] = []
+    offload_calls = 0
+    wrapped_calls = 0
+    injections = 0
+    original_dump_finite = False
+    copied_dump_nonfinite = False
+    normal_succeeded = False
+    normal_status: int | None = None
+    fault_response: httpx.Response | None = None
+    document: dict[str, object] = {
+        "start_date": "2026-01-01",
+        "horizon_days": 7,
+        "seed": 2026,
+        "animals": [{"tag": "B1", "sex": "F", "bucket": "BREEDING", "age_months": 18}],
+        "params": {"conception_rate": 0.0, "adult_annual_mortality": 0.0},
+        "include_ledger": False,
+    }
+
+    async def observe_offload[ResultT](work: Callable[[], ResultT]) -> ResultT:
+        nonlocal offload_calls
+        completions = run_limits._native_run_completions.get()
+        if completions is None:
+            raise RuntimeError("Real run admission did not install its completion tracker")
+        before = len(completions)
+        offload_calls += 1
+        try:
+            return cast("ResultT", await real_offload(work))
+        finally:
+            added = completions[before:]
+            for completion in added:
+                if completion not in native_completions:
+                    native_completions.append(completion)
+            if len(added) != 1:
+                raise RuntimeError("The real offload must register one native completion")
+
+    def inject_one_output_float(
+        payload: DailyOpsInput, *, max_result_head_days: int | None = None
+    ) -> DailyOpsResult:
+        nonlocal wrapped_calls, injections, original_dump_finite, copied_dump_nonfinite
+        wrapped_calls += 1
+        if wrapped_calls != 1:
+            raise RuntimeError("The declared output fault must wrap one real engine call")
+        result = real_run(payload, max_result_head_days=max_result_head_days)
+        if not isinstance(result, DailyOpsResult) or not result.days or not result.days[0].feeding:
+            raise RuntimeError("The real daily result did not provide the declared feed leaf")
+        original_dump = result.model_dump()
+        original_dump_finite = real_finite_payload(original_dump)
+        if not original_dump_finite:
+            raise RuntimeError("The real engine result was nonfinite before fault injection")
+        day = result.days[0]
+        line = day.feeding[0]
+        original_value = line.morning_kg
+        if not isinstance(original_value, float) or not math.isfinite(original_value):
+            raise RuntimeError("The declared real feed leaf must initially be a finite float")
+        feeding = list(day.feeding)
+        feeding[0] = line.model_copy(update={"morning_kg": math.inf})
+        days = list(result.days)
+        days[0] = day.model_copy(update={"feeding": feeding})
+        changed = result.model_copy(update={"days": days})
+        diagnostic_dump = changed.model_dump()
+        copied_dump_nonfinite = not real_finite_payload(diagnostic_dump)
+        injected_value = diagnostic_dump["days"][0]["feeding"][0]["morning_kg"]
+        if (
+            not isinstance(injected_value, float)
+            or not math.isinf(injected_value)
+            or injected_value <= 0
+            or not copied_dump_nonfinite
+        ):
+            raise RuntimeError(
+                "The copied result did not contain the one declared positive infinity"
+            )
+        # Only this diagnostic dump is restored for comparison; the real model
+        # stays untouched and the returned copied model retains its declared fault.
+        diagnostic_dump["days"][0]["feeding"][0]["morning_kg"] = original_value
+        if diagnostic_dump != original_dump or result.model_dump() != original_dump:
+            raise RuntimeError("The output fault changed more than its declared real leaf")
+        injections += 1
+        return changed
+
+    async def finish_owned() -> None:
+        request_outcomes = await asyncio.gather(*requests, return_exceptions=True)
+        # Every observer finally has now registered its real native completion.
+        completions = tuple(native_completions)
+        native_outcomes = await asyncio.gather(*completions, return_exceptions=True)
+        for outcome in [*request_outcomes, *native_outcomes]:
+            if isinstance(outcome, BaseException):
+                raise RuntimeError("An owned request or real native completion failed") from outcome
+        if any(not completion.done() or completion.cancelled() for completion in completions):
+            raise RuntimeError("Real native completion was not successfully drained")
+
+    async def drain_owned() -> None:
+        cleanup = asyncio.create_task(finish_owned())
+        interrupted: asyncio.CancelledError | None = None
+        while not cleanup.done():
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError as error:
+                if cleanup.cancelled():
+                    raise RuntimeError("The owned drain task itself was cancelled") from error
+                interrupted = error
+        cleanup.result()
+        if interrupted is not None:
+            raise interrupted
+
+    with monkeypatch.context() as patches:
+        patches.setattr(daily_ops_api, "_offload", observe_offload)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=transport.app, raise_app_exceptions=True),
+            base_url=client.base_url,
+            event_hooks={"request": list(client.event_hooks["request"])},
+        ) as browser:
+            primary_error: BaseException | None = None
+            try:
+                try:
+                    headers = await owner_with_farm(
+                        browser, email="declared-output-fault@ops-sim.in"
+                    )
+                except AssertionError as error:
+                    raise RuntimeError("Genuine public owner/farm setup failed") from error
+
+                async def public_run() -> httpx.Response:
+                    request = asyncio.create_task(
+                        browser.post("/api/ops-sim/run", json=document, headers=headers)
+                    )
+                    requests.append(request)
+                    return await asyncio.shield(request)
+
+                if api_symbols["run_daily_ops"] is not real_run:
+                    raise RuntimeError("The normal public premise must use the untouched engine")
+                normal = await public_run()
+                normal_status = normal.status_code
+                if normal.status_code != 200:
+                    raise RuntimeError(
+                        "The untouched real daily engine did not serve the200 premise"
+                    )
+                normal_succeeded = True
+                patches.setattr(daily_ops_api, "run_daily_ops", inject_one_output_float)
+                fault_response = await public_run()
+            except BaseException as error:
+                primary_error = error
+                raise
+            finally:
+                try:
+                    await drain_owned()
+                except BaseException as cleanup_error:
+                    if primary_error is not None:
+                        raise BaseExceptionGroup(
+                            "Owned request and cleanup errors", [primary_error, cleanup_error]
+                        ) from None
+                    raise
+
+    if (
+        not normal_succeeded
+        or normal_status != 200
+        or not original_dump_finite
+        or not copied_dump_nonfinite
+        or wrapped_calls != 1
+        or injections != 1
+        or offload_calls != 2
+        or len(native_completions) != 2
+        or fault_response is None
+    ):
+        raise RuntimeError("The complete normal-and-declared-fault workflow was not observed")
+    if api_symbols["run_daily_ops"] is not real_run or api_symbols["_offload"] is not real_offload:
+        raise RuntimeError("The observed real API functions were not restored")
+    body = fault_response.json()
+    if (
+        not isinstance(body, dict)
+        or body.get("detail") != "These inputs produce non-finite results."
+    ):
+        raise RuntimeError("The actual response did not come from the nonfinite output policy")
+    observations = {
+        "contract": "declared_worker_output_fault",
+        "natural_input_reachability": False,
+        "normal_status": normal_status,
+        "fault_status": fault_response.status_code,
+        "second_real_engine_dump_finite": original_dump_finite,
+        "copied_real_model_dump_nonfinite": copied_dump_nonfinite,
+        "injected_leaf": "days[0].feeding[0].morning_kg",
+        "wrapped_real_engine_calls": wrapped_calls,
+        "injections": injections,
+        "offload_calls": offload_calls,
+        "real_native_completions": len(native_completions),
+        "real_native_completions_successful": all(
+            completion.done() and not completion.cancelled() for completion in native_completions
+        ),
+        "nonfinite_policy_detail_seen": body.get("detail")
+        == "These inputs produce non-finite results.",
+    }
+    with capsys.disabled():
+        print("OPS_DECLARED_WORKER_OUTPUT " + json.dumps(observations, sort_keys=True), flush=True)
+    assert fault_response.status_code == 422
+
+
+async def test_distinct_public_principals_share_native_simulation_capacity(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Two independent public jobs share native admission until real completion.
+
+    A transparent wrapper retains the first real result in its actual native
+    worker before production signals completion. It controls completion order,
+    preserves the real work/result, and never edits a semaphore or admission lease.
+    The gate has a local deadline; final native drain relies on the external phase
+    budget if real engine work itself does not finish.
+    """
+    import json
+    from typing import cast
+
+    transport = client._transport
+    if not isinstance(transport, httpx.ASGITransport):
+        raise RuntimeError("The owned browser requires the actual fixture ASGI app")
+    symbols = vars(simulation_api)
+    original_symbols = {
+        name: symbols[name]
+        for name in ("_run", "_run_validated", "_run_offloaded", "_run_for_farm", "_offload")
+    }
+    real_offload = run_limits._offload
+    real_finite_payload = run_limits._finite_payload
+    if original_symbols["_offload"] is not real_offload:
+        raise RuntimeError("The public simulation API must use its real production offload")
+
+    loop = asyncio.get_running_loop()
+    first_result_ready = asyncio.Event()
+    release_first = threading.Event()
+    state_lock = threading.Lock()
+    requests: list[asyncio.Task[httpx.Response]] = []
+    tracker_records: list[tuple[list[asyncio.Future[None]], int]] = []
+    native_completions: list[asyncio.Future[None]] = []
+    engine_results: dict[int, SimulationResult] = {}
+    offload_calls = 0
+    first_pending_before_second = False
+    first_pending_after_second = False
+    first_completion: asyncio.Future[None] | None = None
+    second_response: httpx.Response | None = None
+    first_request: asyncio.Task[httpx.Response] | None = None
+    owners: list[dict[str, str]] = []
+    farm_ids: list[int] = []
+    user_ids: list[int] = []
+    documents: list[dict[str, object]] = []
+
+    async def observe_offload[ResultT](work: Callable[[], ResultT]) -> ResultT:
+        nonlocal offload_calls
+        tracker = run_limits._native_run_completions.get()
+        if tracker is None:
+            raise RuntimeError("Real admission did not install its native completion tracker")
+        before = len(tracker)
+        tracker_records.append((tracker, before))
+        offload_calls += 1
+        job = offload_calls
+
+        def observed_work() -> ResultT:
+            result = work()
+            if not isinstance(result, SimulationResult):
+                raise RuntimeError("The unchanged real engine did not return SimulationResult")
+            if not real_finite_payload(result.model_dump()):
+                raise RuntimeError("The real engine result was not finite")
+            with state_lock:
+                if job in engine_results:
+                    raise RuntimeError("A real engine job was observed more than once")
+                engine_results[job] = result
+            if job == 1:
+                loop.call_soon_threadsafe(first_result_ready.set)
+                if not release_first.wait(timeout=30):
+                    raise RuntimeError("The owned native completion gate was not released")
+            return cast("ResultT", result)
+
+        # Production creates and resolves its own actual completion Future.
+        # The original callback is executed exactly once, with its result unchanged.
+        return cast("ResultT", await real_offload(observed_work))
+
+    async def finish_owned() -> None:
+        request_outcomes = await asyncio.gather(*requests, return_exceptions=True)
+        invariant_errors: list[BaseException] = []
+        for tracker, before in tracker_records:
+            added = tracker[before:]
+            if len(added) != 1:
+                invariant_errors.append(
+                    RuntimeError("Each real offload must register one production completion")
+                )
+            for completion in added:
+                if not isinstance(completion, asyncio.Future):
+                    invariant_errors.append(
+                        RuntimeError("A production tracker value was not a Future")
+                    )
+                    continue
+                if all(completion is not previous for previous in native_completions):
+                    native_completions.append(completion)
+        native_outcomes = await asyncio.gather(*native_completions, return_exceptions=True)
+        errors = invariant_errors + [
+            outcome
+            for outcome in [*request_outcomes, *native_outcomes]
+            if isinstance(outcome, BaseException)
+        ]
+        if errors:
+            raise BaseExceptionGroup("Owned HTTP or real native completion failed", errors)
+        if any(not item.done() or item.cancelled() for item in native_completions):
+            raise RuntimeError("A production native completion was not successfully drained")
+
+    async def drain_owned() -> None:
+        cleanup = asyncio.create_task(finish_owned())
+        interrupted: asyncio.CancelledError | None = None
+        while not cleanup.done():
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError as error:
+                if cleanup.cancelled():
+                    raise RuntimeError("The owned drain itself was cancelled") from error
+                interrupted = error
+        cleanup.result()
+        if interrupted is not None:
+            raise interrupted
+
+    with monkeypatch.context() as patches:
+        patches.setattr(simulation_api, "_offload", observe_offload)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=transport.app, raise_app_exceptions=True),
+            base_url=client.base_url,
+            event_hooks={"request": list(client.event_hooks["request"])},
+        ) as browser:
+            primary_error: BaseException | None = None
+            try:
+                for suffix in ("a", "b"):
+                    try:
+                        owner = await owner_with_farm(
+                            browser,
+                            email=f"native-capacity-{suffix}@public-sim.in",
+                            farm_name=f"Native capacity {suffix}",
+                        )
+                        assumptions = await default_assumptions(browser, owner)
+                    except AssertionError as error:
+                        raise RuntimeError("Genuine public owner/default setup failed") from error
+                    me = await browser.get("/api/auth/me", headers=owner)
+                    if me.status_code != 200:
+                        raise RuntimeError("The real public owner identity was not readable")
+                    identity = me.json()
+                    if not isinstance(identity, dict):
+                        raise RuntimeError("The real owner identity was not an object")
+                    user_id = identity.get("id")
+                    if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
+                        raise RuntimeError("The real public owner identity lacked a valid id")
+                    farm_id = int(owner["X-Farm-Id"])
+                    if farm_id <= 0:
+                        raise RuntimeError("The real public farm identity was not positive")
+                    meta = assumptions.get("meta")
+                    if not isinstance(meta, dict):
+                        raise RuntimeError("The actual default assumptions lacked meta")
+                    meta["horizon_months"] = 12
+                    owners.append(owner)
+                    user_ids.append(user_id)
+                    farm_ids.append(farm_id)
+                    documents.append({"assumptions": assumptions})
+                if len(set(user_ids)) != 2 or len(set(farm_ids)) != 2:
+                    raise RuntimeError("The real jobs require distinct users and farms")
+
+                first_request = asyncio.create_task(
+                    browser.post("/api/simulation/run", json=documents[0], headers=owners[0])
+                )
+                requests.append(first_request)
+                async with asyncio.timeout(15):
+                    await first_result_ready.wait()
+                if len(tracker_records) != 1:
+                    raise RuntimeError("The first real job did not own its unique tracker")
+                tracker, before = tracker_records[0]
+                added = tracker[before:]
+                if len(added) != 1:
+                    raise RuntimeError("The first real job lacked its production completion")
+                first_completion = added[0]
+                first_pending_before_second = (
+                    not first_completion.done()
+                    and not first_completion.cancelled()
+                    and not first_request.done()
+                    and not release_first.is_set()
+                )
+                if not first_pending_before_second:
+                    raise RuntimeError("The real first native job was not pending before B")
+
+                second_request = asyncio.create_task(
+                    browser.post("/api/simulation/run", json=documents[1], headers=owners[1])
+                )
+                requests.append(second_request)
+                async with asyncio.timeout(15):
+                    second_response = await asyncio.shield(second_request)
+                first_pending_after_second = (
+                    not first_completion.done()
+                    and not first_completion.cancelled()
+                    and not first_request.done()
+                    and not release_first.is_set()
+                )
+                if not first_pending_after_second:
+                    raise RuntimeError("The real first lease did not overlap B's response")
+                if second_response.status_code == 429:
+                    body = second_response.json()
+                    if (
+                        not isinstance(body, dict)
+                        or body.get("detail")
+                        != "Simulation capacity is busy; wait for the current run to finish."
+                        or not second_response.headers.get("Retry-After")
+                    ):
+                        raise RuntimeError("B was not rejected by the actual capacity policy")
+                elif second_response.status_code != 200:
+                    raise RuntimeError("B returned an unexpected real public response")
+            except BaseException as error:
+                primary_error = error
+                raise
+            finally:
+                release_first.set()
+                try:
+                    await drain_owned()
+                except BaseException as cleanup_error:
+                    if primary_error is not None:
+                        raise BaseExceptionGroup(
+                            "Public native workflow and cleanup failed",
+                            [primary_error, cleanup_error],
+                        ) from None
+                    raise
+
+    if first_request is None or first_completion is None or second_response is None:
+        raise RuntimeError("The complete two-job public workflow was not observed")
+    first_response = first_request.result()
+    if first_response.status_code != 200:
+        raise RuntimeError("The first genuine public native job did not finish successfully")
+    expected_jobs = 2 if second_response.status_code == 200 else 1
+    with state_lock:
+        observed_jobs = sorted(engine_results)
+    if (
+        offload_calls != expected_jobs
+        or len(native_completions) != expected_jobs
+        or observed_jobs != list(range(1, expected_jobs + 1))
+        or not first_pending_before_second
+        or not first_pending_after_second
+        or any(not completion.done() or completion.cancelled() for completion in native_completions)
+        or any(symbols[name] is not value for name, value in original_symbols.items())
+    ):
+        raise RuntimeError("The real engine, native completion, or restoration evidence differed")
+    observations = {
+        "contract": "two_public_principals_native_capacity",
+        "first_status": first_response.status_code,
+        "second_status": second_response.status_code,
+        "distinct_real_users": len(set(user_ids)) == 2,
+        "distinct_real_farms": len(set(farm_ids)) == 2,
+        "first_native_pending_before_second": first_pending_before_second,
+        "first_native_pending_after_second": first_pending_after_second,
+        "real_engine_jobs": len(observed_jobs),
+        "real_offload_calls": offload_calls,
+        "production_native_completions": len(native_completions),
+        "all_owned_HTTP_tasks_drained": all(request.done() for request in requests),
+        "all_production_completions_successful": all(
+            completion.done() and not completion.cancelled() for completion in native_completions
+        ),
+        "gate_position": "after_real_engine_before_production_native_finally",
+    }
+    with capsys.disabled():
+        print("PUBLIC_NATIVE_CAPACITY " + json.dumps(observations, sort_keys=True), flush=True)
+    assert second_response.status_code == 200, (
+        "A different farm and user must retain public simulation access while one real native job "
+        "owns its lease"
+    )

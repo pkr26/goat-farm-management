@@ -71,7 +71,8 @@ async def test_wrong_pin_timing_is_equalized_between_known_and_unknown_names(
     assert roster.status_code == 200, roster.text
     body = roster.json()
     entries = body["items"] if isinstance(body, dict) else body
-    entry = next(e for e in entries if e.get("display_name") == "Real Worker")
+    entry = next((e for e in entries if e.get("display_name") == "Real Worker"), None)
+    assert entry is not None, "The registered PIN worker must appear in the public roster"
     membership_id = entry["membership_id"]
 
     known_ms: list[float] = []

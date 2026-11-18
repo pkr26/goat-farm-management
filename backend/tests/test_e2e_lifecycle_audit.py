@@ -1291,8 +1291,12 @@ async def test_feeding_plan_and_dispense_follow_the_herd(client: httpx.AsyncClie
     )
     assert dispensed.status_code == 201, dispensed.text
 
-    records = (await client.get("/api/feeding/records", headers=headers)).json()
-    rows = records.get("records") or records
+    records_response = await client.get("/api/feeding/records", headers=headers)
+    assert records_response.status_code == 200, records_response.text
+    records = records_response.json()
+    assert isinstance(records, dict), records
+    rows = records.get("records")
+    assert isinstance(rows, list), records
     assert any(r["bucket"] == "BREEDING" and float(r["qty_kg"]) == 5.0 for r in rows), rows
 
     # Dispensing more than the finished stock is refused.
@@ -1382,7 +1386,9 @@ async def test_dashboard_lists_restricted_animals_farm_wide(client: httpx.AsyncC
     await place_hold(client, owner, doe1["id"])
     await place_hold(client, owner, doe2["id"])
 
-    summary = (await client.get("/api/dashboard", headers=owner)).json()
+    response = await client.get("/api/dashboard", headers=owner)
+    assert response.status_code == 200, response.text
+    summary = response.json()
     held = {r["animal"]["id"]: r for r in summary["restricted_animals"]}
     assert summary["restricted_animals_total"] == 2
     assert set(held) == {doe1["id"], doe2["id"]}

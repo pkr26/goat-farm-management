@@ -458,7 +458,7 @@ async def test_email_ceiling_caps_correct_password_until_window_recovers(
     get_settings.cache_clear()
     app: FastAPI = create_app()
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
     ) as proxied:
         # Fill the IP-agnostic per-email ceiling from rotating addresses. The
         # failure that exactly reaches the ceiling answers 429 (the bounded

@@ -203,6 +203,7 @@ class PreparedPinReset:
     reset preparation: everything expensive happens before any lock)."""
 
     membership_id: int
+    target_user_id: int
     pin_hash: str
     # Raw PIN only so execute_idempotent's SENSITIVE-operation HMAC can
     # fingerprint the request; nothing raw is persisted (services.idempotency).
@@ -413,7 +414,7 @@ async def _prepare_pin_reset(
     # Tenant ownership and existence only — a PIN may be set on any live
     # membership (unlike a password reset, which additionally requires this
     # farm to have provisioned the account).
-    await _get_membership(db, farm, membership_id)
+    target_user_id = (await _get_membership(db, farm, membership_id)).user_id
     actor_id = user.id
     actor_token_version = user.token_version
     actor_family_id = request.state.authenticated_family_id
@@ -421,6 +422,7 @@ async def _prepare_pin_reset(
     await db.rollback()
     return PreparedPinReset(
         membership_id=membership_id,
+        target_user_id=target_user_id,
         pin_hash=await _hash_team_password(payload.pin, actor_id=actor_id),
         raw_pin=payload.pin,
         actor_id=actor_id,
@@ -442,6 +444,7 @@ async def _reauthorize_prepared_owner(
     actor_token_version: int,
     actor_family_id: str,
     farm_id: int,
+    exclusive_actor: bool = False,
 ) -> tuple[User, Farm]:
     """Revalidate the exact owner snapshot after off-transaction preparation."""
     user = (
@@ -453,7 +456,7 @@ async def _reauthorize_prepared_owner(
                 User.deleted_at.is_(None),
             )
             .execution_options(populate_existing=True)
-            .with_for_update(read=True)
+            .with_for_update(read=not exclusive_actor)
         )
     ).scalar_one_or_none()
     if user is None:
@@ -690,7 +693,7 @@ async def _locked_membership(
     FOR NO KEY UPDATE membership lock → self-service guard → Membership→User
     pin → Membership→Role pin → peer-manager re-guard. change_role
     and set_worker_status repeat this sequence verbatim; reset_password runs
-    the owner-only variant (no self guard — an owner is never a member — and
+    the owner-only variant (password-reset eligibility excludes farm owners, and
     ``pin_user=False`` because it takes the stronger FOR UPDATE User row lock
     itself and must keep its own distinct 400 on a vanished account).
 
@@ -715,7 +718,7 @@ async def _locked_membership(
     # The role re-pin runs for owners too: the owner path skips the
     # peer-manager/scope guards but must still fail closed (404) on a
     # membership whose role was tombstoned instead of reactivating a zombie
-    # roster row. Owners hold no membership row themselves, so the
+    # roster row. Owner authorization holds no Membership lock, so the
     # Membership → User → Role order stays acyclic for them.
     await _pin_membership_role(db, farm, membership)
     _guard_peer_manager(membership, user, farm)
@@ -1274,7 +1277,7 @@ async def reset_password(
             farm_id=prepared.farm_id,
         )
         # Owner-only variant of the lifecycle lock bundle: no self-service guard
-        # (an owner is never a member) and no shared User pin — this route takes
+        # (password-reset eligibility excludes owners) and no shared User pin — this route takes
         # the stronger FOR UPDATE User row lock itself below, because it rewrites
         # that row, and must keep its own distinct 400 on a vanished account.
         membership = await _locked_membership(db, farm, user, membership_id, pin_user=False)
@@ -1356,12 +1359,18 @@ async def reset_pin(
         raise HTTPException(status_code=400, detail="Path and body disagree about the worker.")
 
     async def mutate() -> MembershipOut:
+        # Ownership transfer retains the successor's membership. When that
+        # owner rotates their own PIN, actor and target are the same User.
+        # Lock it exclusively before Membership so concurrent owner requests
+        # cannot hold SHARE while waiting for our Membership lock and block
+        # the later credential-update upgrade in the inverse direction.
         user, farm = await _reauthorize_prepared_owner(
             db,
             actor_id=prepared.actor_id,
             actor_token_version=prepared.actor_token_version,
             actor_family_id=prepared.actor_family_id,
             farm_id=prepared.farm_id,
+            exclusive_actor=prepared.target_user_id == prepared.actor_id,
         )
         membership = await _locked_membership(db, farm, user, prepared.membership_id)
         locked_user = (

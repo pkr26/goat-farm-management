@@ -38,8 +38,13 @@ def test_browser_origin_drops_default_ports_keeps_explicit() -> None:
     assert _browser_origin("http://[::1]:8080/x") == "http://[::1]:8080"
     assert _browser_origin("http://[::1]/x") == "http://[::1]"
     # Non-HTTP schemes and hostless URLs normalize to the empty origin.
-    assert _browser_origin("ftp://example.com/x") == ""
-    assert _browser_origin("file:///etc/passwd") == ""
+    for unsupported in ("ftp://example.com/x", "file:///etc/passwd"):
+        outcome: str | Exception
+        try:
+            outcome = _browser_origin(unsupported)
+        except Exception as exc:
+            outcome = exc
+        assert outcome == "", f"Unsupported browser origins must be refused safely: {outcome!r}"
 
 
 def test_invalid_token_rate_error_survives_clientless_request() -> None:

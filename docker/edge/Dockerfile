@@ -1,9 +1,10 @@
-# Immutable official base plus the first Alpine 3.24 package fixes for
-# CVE-2026-93990 and CVE-2026-103111. The derived edge is built, scanned,
+# Immutable official base plus reviewed Alpine 3.24 package fixes.
+# Refreshed against signed package indexes on 2026-11-13; built, scanned,
 # signed, and published with the two application images.
-FROM nginx:1.30.5-alpine3.24@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+FROM nginx:1.30.6-alpine3.24@sha256:901e593c95dc85f5a729f5765516321366ef4ac401821431d408897e95287d0a
 
 RUN apk add --no-cache --upgrade \
-      'libexpat=2.8.5-r0' \
+      'libexpat=2.10.0-r0' \
+      'libxslt=1.1.43-r4' \
       'pcre2=10.49-r0' \
     && apk cache clean

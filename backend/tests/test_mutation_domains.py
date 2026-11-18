@@ -177,6 +177,10 @@ def test_independent_baselines_are_concurrent_and_same_selection_is_coalesced(
         return "pass", selection[0], 0.0
 
     monkeypatch.setattr(runner, "run_pytest", run)
+    # This bare-object concurrency contract supplies synthetic process results;
+    # snapshot integrity is exercised by the real tiny-project runner contracts.
+    monkeypatch.setattr(runner, "_check_parent_snapshot", lambda: None)
+    monkeypatch.setattr(runner, "_check_clean_workspace", lambda: None)
     with ThreadPoolExecutor(max_workers=3) as pool:
         jobs = [
             pool.submit(runner.clean_baseline, "a", ["test_a"], 0),

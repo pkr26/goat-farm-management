@@ -352,8 +352,9 @@ def test_supported_deployment_and_release_artifacts_are_fail_closed() -> None:
     assert local["services"]["edge"]["build"]["dockerfile"] == "docker/edge/Dockerfile"
 
     edge_dockerfile = (REPO_ROOT / "docker" / "edge" / "Dockerfile").read_text()
-    assert "nginx:1.30.5-alpine3.24@sha256:" in edge_dockerfile
-    assert "libexpat=2.8.5-r0" in edge_dockerfile
+    assert "nginx:1.30.6-alpine3.24@sha256:" in edge_dockerfile
+    assert "libexpat=2.10.0-r0" in edge_dockerfile
+    assert "libxslt=1.1.43-r4" in edge_dockerfile
     assert "pcre2=10.49-r0" in edge_dockerfile
     security = (REPO_ROOT / ".github" / "workflows" / "security.yml").read_text()
     release = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()

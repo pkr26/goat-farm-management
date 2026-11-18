@@ -1030,7 +1030,20 @@ async def test_feed_dispense_does_not_cache_failure_then_deduplicates_stock_and_
 async def test_bulk_health_event_retries_preserve_the_reviewed_target_set_exactly_once(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import dis
+    from types import TracebackType
+
+    from sqlalchemy import inspect as inspect_orm
+    from sqlalchemy.exc import MissingGreenlet
+    from sqlalchemy.orm.state import InstanceState
+    from sqlalchemy.util._concurrency_py3k import await_only
+
+    from app.schemas.health import HealthEventIn
+
     owner = await owner_with_farm(client)
+    owned_farm_id = int(owner["X-Farm-Id"])
+    if owned_farm_id <= 0:
+        raise RuntimeError("The original public fixture did not create an owned farm")
     for index in range(2):
         animal = await client.post(
             "/api/animals",
@@ -1063,7 +1076,180 @@ async def test_bulk_health_event_retries_preserve_the_reviewed_target_set_exactl
 
     hold_winning_claim(monkeypatch, health_api)
     keyed = owner | {"Idempotency-Key": "bulk-health-concurrent"}
-    one, two = await concurrent_posts("/api/health/events", payload, keyed)
+
+    def recorded_replay_origin(error: BaseException) -> dict[str, object] | None:
+        message = (
+            "greenlet_spawn has not been called; can't call await_only() here. "
+            "Was IO attempted in an unexpected place?"
+        )
+        if type(error) is not MissingGreenlet or error.args != (message,) or error.code != "xd2s":
+            return None
+        trace = error.__traceback__
+        terminal: TracebackType | None = None
+        health_frames: list[TracebackType] = []
+        while trace is not None:
+            if trace.tb_frame.f_code is health_api.record_event.__code__:
+                health_frames.append(trace)
+            terminal = trace
+            trace = trace.tb_next
+        if (
+            terminal is None
+            or terminal.tb_frame.f_code is not await_only.__code__
+            or len(health_frames) != 1
+        ):
+            return None
+        origin = health_frames[0]
+        if origin.tb_lineno != 1365:
+            return None
+        instructions = list(dis.get_instructions(origin.tb_frame.f_code, adaptive=False))
+        at_failure = [
+            (index, instruction)
+            for index, instruction in enumerate(instructions)
+            if instruction.offset <= origin.tb_lasti < instruction.end_offset
+        ]
+        if len(at_failure) != 1 or at_failure[0][0] == 0:
+            return None
+        index, instruction = at_failure[0]
+        previous = instructions[index - 1]
+        positions = instruction.positions
+        if (
+            instruction.baseopname != "LOAD_ATTR"
+            or instruction.argval != "id"
+            or previous.baseopname != "LOAD_DEREF"
+            or previous.argval != "farm"
+            or positions is None
+            or tuple(positions) != (1365, 1365, 25, 32)
+        ):
+            return None
+        values = origin.tb_frame.f_locals
+        actual_farm = values.get("farm")
+        actual_payload = values.get("payload")
+        actual_response = values.get("response")
+        if (
+            type(actual_farm) is not Farm
+            or type(actual_payload) is not HealthEventIn
+            or not isinstance(actual_response, Response)
+        ):
+            return None
+        state = inspect_orm(actual_farm, raiseerr=False)
+        if (
+            not isinstance(state, InstanceState)
+            or state.class_ is not Farm
+            or state.mapper is not inspect_orm(Farm)
+            or state.object is not actual_farm
+            or state.identity != (owned_farm_id,)
+            or "id" not in state.expired_attributes
+            or actual_response.headers.get("Idempotency-Replayed") != "true"
+            or actual_payload.suspected_scheduled_disease is not True
+        ):
+            return None
+        # These are newly observed construction predicates, not values dumped
+        # by the earlier retained diagnostic. Never read the expired farm.id.
+        return {
+            "kind": "recorded_replayed_farm_id_missing_greenlet",
+            "exception_class": type(error).__module__ + "." + type(error).__qualname__,
+            "message_matches": error.args == (message,),
+            "code": error.code,
+            "terminal_await_only_code_identity": terminal.tb_frame.f_code is await_only.__code__,
+            "record_event_code_identity": origin.tb_frame.f_code
+            is health_api.record_event.__code__,
+            "api_line": origin.tb_lineno,
+            "opcode": instruction.baseopname,
+            "attribute": instruction.argval,
+            "base_opcode": previous.baseopname,
+            "base_operand": previous.argval,
+            "instruction_span": [instruction.offset, instruction.end_offset],
+            "traceback_lasti": origin.tb_lasti,
+            "positions": list(positions),
+            "canonical_mapped_farm": state.class_ is Farm and state.mapper is inspect_orm(Farm),
+            "owned_farm_identity": state.identity == (owned_farm_id,),
+            "id_expired": "id" in state.expired_attributes,
+            "replay_header": actual_response.headers.get("Idempotency-Replayed"),
+            "suspected": actual_payload.suspected_scheduled_disease,
+            "historical_local_values_claimed": False,
+        }
+
+    app = create_app()
+    outcomes: list[httpx.Response | BaseException] = []
+    async with (
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app, raise_app_exceptions=True),
+            base_url="http://test",
+        ) as first,
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app, raise_app_exceptions=True),
+            base_url="http://test",
+        ) as second,
+    ):
+        owned_requests = [
+            asyncio.create_task(first.post("/api/health/events", json=payload, headers=keyed)),
+            asyncio.create_task(second.post("/api/health/events", json=payload, headers=keyed)),
+        ]
+        joined = asyncio.gather(*owned_requests, return_exceptions=True)
+
+        async def drain_pair() -> list[httpx.Response | BaseException]:
+            return await joined
+
+        primary_error: BaseException | None = None
+        try:
+            outcomes = await asyncio.shield(joined)
+        except BaseException as error:
+            primary_error = error
+            raise
+        finally:
+            for request in owned_requests:
+                if not request.done() and not request.cancelling():
+                    request.cancel()
+            cleanup = asyncio.create_task(drain_pair())
+            interrupted: asyncio.CancelledError | None = None
+            try:
+                # An otherwise-unbounded request drain depends on the external
+                # phase/process budget; do not close clients while requests live.
+                while not cleanup.done():
+                    try:
+                        await asyncio.shield(cleanup)
+                    except asyncio.CancelledError as error:
+                        if cleanup.cancelled():
+                            raise RuntimeError(
+                                "The owned pair drain itself was cancelled"
+                            ) from error
+                        interrupted = error
+                outcomes = cleanup.result()
+                if interrupted is not None:
+                    raise interrupted
+            except BaseException as cleanup_error:
+                if primary_error is not None:
+                    raise BaseExceptionGroup(
+                        "Owned concurrent request and cleanup errors",
+                        [primary_error, cleanup_error],
+                    ) from None
+                raise
+
+    recognized: list[tuple[BaseException, dict[str, object]]] = []
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            evidence = recorded_replay_origin(outcome)
+            if evidence is None:
+                raise outcome
+            recognized.append((outcome, evidence))
+    if recognized:
+        winners = [outcome for outcome in outcomes if isinstance(outcome, httpx.Response)]
+        if (
+            len(recognized) != 1
+            or len(winners) != 1
+            or winners[0].status_code != 201
+            or winners[0].headers.get("Idempotency-Replayed", "") != ""
+        ):
+            raise RuntimeError(
+                "The recorded replay origin lacked its actual committed201 winner"
+            ) from (recognized[0][0])
+        print("HEALTH_REPLAY193_ORIGIN " + json.dumps(recognized[0][1], sort_keys=True), flush=True)
+        pytest.fail("A committed bulk-health replay must not load expired farm.id outside greenlet")
+    if len(outcomes) != 2:
+        raise RuntimeError("The owned concurrent pair did not return exactly two outcomes")
+    one, two = outcomes
+    if not isinstance(one, httpx.Response) or not isinstance(two, httpx.Response):
+        raise RuntimeError("The owned concurrent pair did not return actual HTTP responses")
     assert one.status_code == two.status_code == 201
     assert one.json() == two.json()
     assert sorted(response.headers.get("Idempotency-Replayed", "") for response in (one, two)) == [
@@ -1093,6 +1279,56 @@ async def test_bulk_health_event_retries_preserve_the_reviewed_target_set_exactl
             )
         ).scalar_one() == 1
     assert await idempotency_count() == 1
+
+
+async def test_public_bulk_health_replay_returns_the_committed_reviewed_event_set(
+    client: httpx.AsyncClient,
+) -> None:
+    """A real browser retry must return its already committed bulk event set."""
+    owner = await owner_with_farm(client)
+    animal_ids = []
+    for index in range(2):
+        animal = await client.post(
+            "/api/animals",
+            json={
+                "tag_number": f"HEALTH-REPLAY-{index}",
+                "sex": "F",
+                "source": "PURCHASED",
+                "current_bucket": "FOUNDATION",
+                "historical_import_reason": "Public health replay fixture",
+            },
+            headers=owner,
+        )
+        if animal.status_code != 201:
+            raise RuntimeError(f"public replay animal setup failed: {animal.status_code}")
+        animal_ids.append(animal.json()["id"])
+    preview = await client.post(
+        "/api/health/events/preview",
+        json={"scope": "bucket", "bucket": "FOUNDATION"},
+        headers=owner,
+    )
+    if preview.status_code != 200:
+        raise RuntimeError(f"public replay preview setup failed: {preview.status_code}")
+    target_ids = preview.json()["target_animal_ids"]
+    if not isinstance(target_ids, list) or sorted(target_ids) != sorted(animal_ids):
+        raise RuntimeError("public replay preview did not return exactly the two created animals")
+    payload: dict[str, object] = {
+        "scope": "bucket",
+        "bucket": "FOUNDATION",
+        "expected_animal_ids": target_ids,
+        "type": "TREATMENT",
+        "cost": 41.25,
+        "disease_target": "Retry-safe concern",
+        "suspected_scheduled_disease": True,
+    }
+    keyed = owner | {"Idempotency-Key": "public-bulk-health-sequential-replay"}
+    first = await client.post("/api/health/events", json=payload, headers=keyed)
+    if first.status_code != 201:
+        raise RuntimeError(f"public replay initial event setup failed: {first.status_code}")
+    replay = await client.post("/api/health/events", json=payload, headers=keyed)
+    assert replay.status_code == 201, replay.text
+    assert replay.json() == first.json()
+    assert replay.headers.get("Idempotency-Replayed") == "true"
 
 
 async def test_keys_are_isolated_by_actor_and_farm(client: httpx.AsyncClient) -> None:

@@ -2667,6 +2667,7 @@ async def test_account_export_is_machine_readable_and_tenant_minimal(
     body = resp.json()
     assert body["account"]["email"] == "exporter@farm.in"
     assert body["owned_farms"] == []
+    assert len(body["memberships"]) == 1
     assert body["memberships"] == [
         {
             "farm_id": int(owner["X-Farm-Id"]),

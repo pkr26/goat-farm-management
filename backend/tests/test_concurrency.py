@@ -17,9 +17,11 @@ import asyncio
 from datetime import date, timedelta
 from typing import Any
 
+import asyncpg
 import httpx
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
 from app.db import get_sessionmaker
@@ -234,15 +236,34 @@ async def test_concurrent_double_sale_books_one_income(client: httpx.AsyncClient
     owner = await owner_with_farm(client)
     aid = await make_animal(client, owner)
     payload = {"new_status": "SOLD", "date": iso(today()), "sale_price": 5000}
-    async with second_client() as other:
-        await warm(other, owner)
-        r1, r2 = await asyncio.gather(
-            client.post(f"/api/animals/{aid}/status", json=payload, headers=owner),
-            other.post(f"/api/animals/{aid}/status", json=payload, headers=owner),
+    async with second_client() as first, second_client() as second:
+        await asyncio.gather(warm(first, owner), warm(second, owner))
+        outcomes = await asyncio.gather(
+            first.post(f"/api/animals/{aid}/status", json=payload, headers=owner),
+            second.post(f"/api/animals/{aid}/status", json=payload, headers=owner),
+            return_exceptions=True,
         )
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            native = (
+                outcome.orig.__cause__
+                if isinstance(outcome, IntegrityError) and outcome.orig is not None
+                else None
+            )
+            if not (
+                isinstance(native, asyncpg.UniqueViolationError)
+                and native.sqlstate == "23505"
+                and native.constraint_name == "uq_transactions_active_source"
+            ):
+                raise outcome
+    assert all(isinstance(outcome, httpx.Response) for outcome in outcomes), (
+        "Both sale requests must return HTTP lifecycle outcomes; the controlled income uniqueness "
+        f"conflict must not escape the request: {outcomes!r}"
+    )
+    responses = [outcome for outcome in outcomes if isinstance(outcome, httpx.Response)]
     # One winner; the loser takes the row lock, re-reads SOLD and gets the
     # same 409 a sequential replay gets (wrong lifecycle state, A3).
-    assert sorted([r1.status_code, r2.status_code]) == [200, 409]
+    assert sorted(response.status_code for response in responses) == [200, 409]
     sales = [t for t in await transactions(client, owner) if t["category"] == "ANIMAL_SALE"]
     assert len(sales) == 1
     assert sales[0]["amount"] == 5000
@@ -329,6 +350,8 @@ async def test_double_breeding_blocked_insert_rejected_cleanly(
 # B4.3 — concurrent mixes can never draw the same stock twice
 # ---------------------------------------------------------------------------
 async def test_concurrent_mixes_never_oversell_stock(client: httpx.AsyncClient) -> None:
+    from sqlalchemy.dialects.postgresql.asyncpg import AsyncAdapt_asyncpg_dbapi
+
     owner = await owner_with_farm(client)
     for item in await inventory(client, owner):
         resp = await client.post(
@@ -344,10 +367,38 @@ async def test_concurrent_mixes_never_oversell_stock(client: httpx.AsyncClient) 
     payload = {"recipe_code": "FATTENING_50_50", "batch_kg": 200}
     async with second_client() as other:
         await warm(other, owner)
-        r1, r2 = await asyncio.gather(
-            client.post("/api/feeding/mix", json=payload, headers=owner),
-            other.post("/api/feeding/mix", json=payload, headers=owner),
-        )
+        pending_requests: list[asyncio.Task[httpx.Response]] = []
+        try:
+            pending_requests.append(
+                asyncio.create_task(client.post("/api/feeding/mix", json=payload, headers=owner))
+            )
+            pending_requests.append(
+                asyncio.create_task(other.post("/api/feeding/mix", json=payload, headers=owner))
+            )
+            outcomes = await asyncio.gather(*pending_requests, return_exceptions=True)
+        finally:
+            for pending in pending_requests:
+                if not pending.done():
+                    pending.cancel()
+            await asyncio.gather(*pending_requests, return_exceptions=True)
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            original_error = outcome.orig if isinstance(outcome, IntegrityError) else None
+            native = original_error.__cause__ if original_error is not None else None
+            if not (
+                type(outcome) is IntegrityError
+                and type(original_error) is AsyncAdapt_asyncpg_dbapi.IntegrityError
+                and outcome.__cause__ is original_error
+                and getattr(original_error, "sqlstate", None) == "23514"
+                and type(native) is asyncpg.CheckViolationError
+                and native.sqlstate == "23514"
+                and native.constraint_name == "ck_idempotency_success_status"
+            ):
+                raise outcome
+    assert all(isinstance(outcome, httpx.Response) for outcome in outcomes), (
+        "Both mix requests must return their declared HTTP outcomes"
+    )
+    r1, r2 = [outcome for outcome in outcomes if isinstance(outcome, httpx.Response)]
     # One winner; the loser re-reads the locked rows and gets the documented
     # shortage error.
     assert sorted([r1.status_code, r2.status_code]) == [200, 400]
@@ -364,6 +415,11 @@ async def test_concurrent_mixes_never_oversell_stock(client: httpx.AsyncClient) 
 async def test_concurrent_dry_roughage_dispenses_never_oversell_inventory(
     client: httpx.AsyncClient,
 ) -> None:
+    from types import CodeType
+
+    from app.api import feeding as feeding_api
+    from app.services.chronology import require_farm_not_future
+
     owner = await owner_with_farm(client)
     items = {row["ingredient"]: row for row in await inventory(client, owner)}
     stocked = await client.post(
@@ -383,18 +439,59 @@ async def test_concurrent_dry_roughage_dispenses_never_oversell_inventory(
         # The dispense route requires an Idempotency-Key (no DB natural key);
         # the two racers carry distinct keys — two genuinely separate
         # dispenses fighting over the last stock.
-        one, two = await asyncio.gather(
-            client.post(
-                "/api/feeding/dispense",
-                json=payload,
-                headers=owner | {"Idempotency-Key": "dispense-race-a"},
-            ),
-            other.post(
-                "/api/feeding/dispense",
-                json=payload,
-                headers=owner | {"Idempotency-Key": "dispense-race-b"},
-            ),
-        )
+        pending_requests: list[asyncio.Task[httpx.Response]] = []
+        try:
+            pending_requests.append(
+                asyncio.create_task(
+                    client.post(
+                        "/api/feeding/dispense",
+                        json=payload,
+                        headers=owner | {"Idempotency-Key": "dispense-race-a"},
+                    )
+                )
+            )
+            pending_requests.append(
+                asyncio.create_task(
+                    other.post(
+                        "/api/feeding/dispense",
+                        json=payload,
+                        headers=owner | {"Idempotency-Key": "dispense-race-b"},
+                    )
+                )
+            )
+            outcomes = await asyncio.gather(*pending_requests, return_exceptions=True)
+        finally:
+            for pending in pending_requests:
+                if not pending.done():
+                    pending.cancel()
+            await asyncio.gather(*pending_requests, return_exceptions=True)
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            frames: list[CodeType] = []
+            traceback = outcome.__traceback__
+            while traceback is not None:
+                frames.append(traceback.tb_frame.f_code)
+                traceback = traceback.tb_next
+            mutate_codes = [
+                code
+                for code in feeding_api.dispense.__code__.co_consts
+                if isinstance(code, CodeType) and code.co_name == "mutate"
+            ]
+            if not (
+                type(outcome) is TypeError
+                and outcome.args
+                == ("'>' not supported between instances of 'NoneType' and 'datetime.date'",)
+                and len(mutate_codes) == 1
+                and len(frames) >= 2
+                and frames[-1] is require_farm_not_future.__code__
+                and frames[-2] is mutate_codes[0]
+                and any(frame is feeding_api.dispense.__code__ for frame in frames)
+            ):
+                raise outcome
+    assert all(isinstance(outcome, httpx.Response) for outcome in outcomes), (
+        "Both dispense requests must return their declared HTTP outcomes"
+    )
+    one, two = [outcome for outcome in outcomes if isinstance(outcome, httpx.Response)]
 
     assert sorted([one.status_code, two.status_code]) == [201, 400]
     loser = one if one.status_code == 400 else two
@@ -862,43 +959,142 @@ async def test_kidding_locks_buck_and_doe_before_breeding_record(
     await holder.execute(
         select(BreedingRecord.id).where(BreedingRecord.id == breeding_id).with_for_update()
     )
+    import re
+
+    from sqlalchemy.dialects.postgresql.asyncpg import (
+        AsyncAdapt_asyncpg_connection,
+        AsyncAdapt_asyncpg_dbapi,
+    )
+    from sqlalchemy.exc import DBAPIError
+
+    expected_statement = (
+        "SELECT animals.id \nFROM animals \n"
+        "WHERE animals.farm_id = $1::INTEGER AND animals.id IN ($2::INTEGER, $3::INTEGER) "
+        "ORDER BY animals.id FOR UPDATE"
+    )
+
+    def recorded_rebreeding_deadlock(error: BaseException) -> bool:
+        # The retained native tail identifies this dialect chain and exact SQL.
+        # It does not retain an upper application frame; no such frame is assumed.
+        if type(error) is not DBAPIError:
+            return False
+        adapted = error.orig
+        if type(adapted) is not AsyncAdapt_asyncpg_dbapi.Error or error.__cause__ is not adapted:
+            return False
+        cause = adapted.__cause__
+        if type(cause) is not asyncpg.DeadlockDetectedError:
+            return False
+        if (
+            getattr(adapted, "sqlstate", None) != "40P01"
+            or getattr(adapted, "pgcode", None) != "40P01"
+            or cause.sqlstate != "40P01"
+            or cause.args != ("deadlock detected",)
+            or getattr(cause, "message", None) != "deadlock detected"
+            or error.statement != expected_statement
+            or error.params != (int(owner["X-Farm-Id"]), buck, doe)
+            or getattr(cause, "query", None) != expected_statement
+        ):
+            return False
+        trace = adapted.__traceback__
+        if trace is None:
+            return False
+        while trace.tb_next is not None:
+            trace = trace.tb_next
+        if trace.tb_frame.f_code is not AsyncAdapt_asyncpg_connection._handle_exception.__code__:
+            return False
+        detail = getattr(cause, "detail", None)
+        if not isinstance(detail, str):
+            return False
+        cycle = re.fullmatch(
+            r"Process ([1-9]\d*) waits for ShareLock on transaction ([1-9]\d*); "
+            r"blocked by process ([1-9]\d*)\.\n"
+            r"Process ([1-9]\d*) waits for ShareLock on transaction ([1-9]\d*); "
+            r"blocked by process ([1-9]\d*)\.",
+            detail,
+        )
+        return (
+            cycle is not None
+            and cycle[1] == cycle[6]
+            and cycle[3] == cycle[4]
+            and cycle[1] != cycle[4]
+            and cycle[2] != cycle[5]
+        )
+
     kidding_request: asyncio.Task[httpx.Response] | None = None
     rebreed_request: asyncio.Task[httpx.Response] | None = None
+    holder_cleanup_started = False
+
+    async def release_holder_and_drain() -> None:
+        nonlocal holder_cleanup_started
+        holder_cleanup_started = True
+        try:
+            await holder.rollback()
+        finally:
+            try:
+                await holder.close()
+            finally:
+                owned = [
+                    request for request in (kidding_request, rebreed_request) if request is not None
+                ]
+                for request in owned:
+                    if not request.done():
+                        request.cancel()
+                # Drain before the owned second client closes and before any
+                # business assertion. This finally drain has no intrinsic timeout;
+                # a future qualifier must retain the external574-second budget.
+                await asyncio.gather(*owned, return_exceptions=True)
+
     try:
         async with second_client() as other:
-            await warm(other, owner)
-            kidding_request = asyncio.create_task(
-                client.post(
-                    "/api/kidding",
-                    json={
-                        "breeding_record_id": breeding_id,
-                        "date": iso(today()),
-                        "ease": "NORMAL",
-                        "kids": [{"sex": "F"}],
-                    },
-                    headers=owner,
+            try:
+                await warm(other, owner)
+                kidding_request = asyncio.create_task(
+                    client.post(
+                        "/api/kidding",
+                        json={
+                            "breeding_record_id": breeding_id,
+                            "date": iso(today()),
+                            "ease": "NORMAL",
+                            "kids": [{"sex": "F"}],
+                        },
+                        headers=owner,
+                    )
                 )
-            )
-            await wait_until_blocked()  # parent locks acquired; waiting on breeding row
-            rebreed_request = asyncio.create_task(
-                other.post(
-                    "/api/breeding",
-                    json={"doe_id": doe, "buck_id": buck, "breeding_date": iso(today())},
-                    headers=owner,
+                await wait_until_blocked()  # parent locks acquired; waiting on breeding row
+                rebreed_request = asyncio.create_task(
+                    other.post(
+                        "/api/breeding",
+                        json={"doe_id": doe, "buck_id": buck, "breeding_date": iso(today())},
+                        headers=owner,
+                    )
                 )
-            )
-            await wait_for_blocked_sessions(2)
-            await holder.commit()
-            kidding_response, rebreed_response = await asyncio.wait_for(
-                asyncio.gather(kidding_request, rebreed_request),
-                timeout=10,
-            )
+                await wait_for_blocked_sessions(2)
+                await holder.commit()
+                outcomes = await asyncio.wait_for(
+                    asyncio.gather(kidding_request, rebreed_request, return_exceptions=True),
+                    timeout=10,
+                )
+            finally:
+                await release_holder_and_drain()
     finally:
-        await holder.rollback()
-        await holder.close()
-        for request in (kidding_request, rebreed_request):
-            if request is not None and not request.done():
-                request.cancel()
+        # Entering the second-client context can itself fail before its inner finally.
+        if not holder_cleanup_started:
+            await release_holder_and_drain()
+
+    for index, outcome in enumerate(outcomes):
+        if isinstance(outcome, BaseException) and (
+            index != 1 or not recorded_rebreeding_deadlock(outcome)
+        ):
+            raise outcome
+    assert not isinstance(outcomes[1], BaseException), (
+        "ordered kidding and rebreeding parent locks must prevent the recorded "
+        "40P01 two-transaction animal-lock deadlock"
+    )
+    kidding_response, rebreed_response = outcomes
+    if not isinstance(kidding_response, httpx.Response) or not isinstance(
+        rebreed_response, httpx.Response
+    ):
+        raise RuntimeError("reproductive locking requests returned an unknown outcome type")
 
     assert kidding_response.status_code == 201, kidding_response.text
     assert rebreed_response.status_code == 400, rebreed_response.text
@@ -1109,12 +1305,57 @@ async def test_health_form_double_complete_spawns_one_occurrence(
         "disease_target": "FMD",
         "task_id": task_id,
     }
+    import re
+
+    from app.api.health import _record_event_mutation
+    from app.services.health import target_matches_template
+
+    def missing_optional_template(error: BaseException) -> bool:
+        # The retained native traceback ends in these exact three code objects.
+        # A different TypeError, origin, argument or regex input stays an error.
+        if type(error) is not TypeError or error.args != (
+            "expected string or bytes-like object, got 'NoneType'",
+        ):
+            return False
+        frames = []
+        current = error.__traceback__
+        while current is not None:
+            frames.append(current.tb_frame)
+            current = current.tb_next
+        return (
+            len(frames) >= 3
+            and frames[-1].f_code is re.search.__code__
+            and frames[-2].f_code is target_matches_template.__code__
+            and frames[-3].f_code is _record_event_mutation.__code__
+            and frames[-1].f_locals.get("string") is None
+            and frames[-1].f_locals.get("pattern") == r"\(([^)]+)\)"
+            and frames[-2].f_locals.get("template_name") is None
+            and frames[-3].f_locals.get("template_name") is None
+        )
+
     async with second_client() as other:
         await warm(other, owner)
-        r1, r2 = await asyncio.gather(
-            client.post("/api/health/events", json=payload, headers=owner),
-            other.post("/api/health/events", json=payload, headers=owner),
+        requests = (
+            asyncio.create_task(client.post("/api/health/events", json=payload, headers=owner)),
+            asyncio.create_task(other.post("/api/health/events", json=payload, headers=owner)),
         )
+        try:
+            outcomes = await asyncio.gather(*requests, return_exceptions=True)
+        finally:
+            # Drain both owned requests before closing the second client or
+            # classifying outcomes. The external test budget bounds the run;
+            # this drain itself deliberately has no independent timeout.
+            await asyncio.gather(*requests, return_exceptions=True)
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException) and not missing_optional_template(outcome):
+            raise outcome
+    assert not any(isinstance(outcome, BaseException) for outcome in outcomes), (
+        "omitting the optional health schedule template must return the documented "
+        "201/409 responses, not the recorded None-template regex TypeError"
+    )
+    r1, r2 = outcomes
+    if not isinstance(r1, httpx.Response) or not isinstance(r2, httpx.Response):
+        raise RuntimeError("health form requests returned an unknown outcome type")
     # Strict task correlation permits exactly one event per duty.  The row
     # lock makes the losing request re-read DONE and return a conflict.
     assert sorted([r1.status_code, r2.status_code]) == [201, 409]

@@ -12,8 +12,17 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from mutate_identity import atomic_json, database_admin_sha256, input_identity, sha_bytes
+from mutate_identity import (
+    EXECUTION_MODE_POLICY,
+    atomic_json,
+    database_admin_sha256,
+    digest_json,
+    execution_modes,
+    input_identity,
+    sha_bytes,
+)
 from mutate_run import BACKEND, VENV_PY, snapshot_ignore
+from mutate_selection import collected_nodes
 
 
 def discover_test_modules(
@@ -86,13 +95,21 @@ def main() -> None:
         print(json.dumps({"selection": "all tests", "isolated": True, "writes": False}))
         return
     inputs = input_identity(BACKEND)
-    with tempfile.TemporaryDirectory(prefix="herdly-coverage-") as temporary:
+    expected_modes = execution_modes(BACKEND, inputs)
+    work_root = BACKEND / "mutation/campaigns/runtime"
+    work_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with tempfile.TemporaryDirectory(prefix="coverage-", dir=work_root) as temporary:
         root = Path(temporary) / "repo"
         shutil.copytree(BACKEND.parent, root, ignore=snapshot_ignore)
         workspace = (root / BACKEND.name).resolve()
         if input_identity(workspace) != inputs:
             raise SystemExit("source/tests changed during snapshot; no coverage published")
+        if execution_modes(workspace, inputs) != expected_modes:
+            raise SystemExit("execution permissions changed during snapshot; no coverage published")
         env = os.environ.copy()
+        # Ambient -k/-m filters cannot redefine the requested full suite. The
+        # repository's own pytest configuration remains source-bound.
+        env.pop("PYTEST_ADDOPTS", None)
         env.update(
             {
                 "GOATFARM_TEST_DB": f"herdly_cov_{uuid.uuid4().hex[:12]}_test",
@@ -107,11 +124,15 @@ def main() -> None:
         collection_inventory: dict[str, Any] | None = None
         baseline_databases = [env["GOATFARM_TEST_DB"]]
         if args.workers == 1:
+            inventory_path = workspace / ".coverage-collection.json"
+            env["MUTATION_COVERAGE_INVENTORY_PATH"] = str(inventory_path)
             result = subprocess.run(
                 [
                     str(VENV_PY),
                     "-m",
                     "pytest",
+                    "-p",
+                    "mutation.coverage_inventory",
                     "tests",
                     "--maxfail=1",
                     "--cov=app",
@@ -123,6 +144,14 @@ def main() -> None:
                 check=False,
             )
             passed = result.returncode == 0
+            if passed:
+                try:
+                    collection_inventory = json.loads(inventory_path.read_bytes())
+                    collected_nodes({"collection_inventory": collection_inventory})
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    raise SystemExit(
+                        "complete pytest inventory missing or malformed; no coverage published"
+                    ) from exc
         else:
             modules, collection_inventory = discover_test_modules(workspace, env)
             full_items = collection_inventory["items"]
@@ -212,8 +241,13 @@ def main() -> None:
                 )
         if not passed or not (workspace / ".coverage-mut").is_file():
             raise SystemExit("clean coverage baseline failed; no coverage published")
-        if input_identity(BACKEND) != inputs:
+        if input_identity(BACKEND) != inputs or input_identity(workspace) != inputs:
             raise SystemExit("source/tests changed during baseline; no coverage published")
+        if (
+            execution_modes(BACKEND, inputs) != expected_modes
+            or execution_modes(workspace, inputs) != expected_modes
+        ):
+            raise SystemExit("execution permissions changed during baseline; no coverage published")
         coverage_bytes = (workspace / ".coverage-mut").read_bytes()
         temporary_data = BACKEND / ".coverage-mut.tmp"
         temporary_data.write_bytes(coverage_bytes)
@@ -224,11 +258,14 @@ def main() -> None:
                 "schema": 2,
                 "source_root": str(workspace.resolve()),
                 "inputs": inputs,
+                "execution_mode_policy": EXECUTION_MODE_POLICY,
+                "execution_modes_sha256": digest_json(expected_modes),
                 "coverage_sha256": sha_bytes(coverage_bytes),
                 "test_database_admin_sha256": database_admin_sha256(env),
                 "baseline_exit_code": 0,
                 "selection": "all tests",
                 "baseline_workers": args.workers,
+                "pytest_addopts": "cleared",
                 "baseline_databases": baseline_databases,
                 **(
                     {"collection_inventory": collection_inventory}

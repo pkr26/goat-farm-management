@@ -757,7 +757,11 @@ async def test_imported_quarantine_animal_can_still_leave_quarantine(
     )
     assert batch.status_code == 201, batch.text
     detail = await client.get(f"/api/purchases/{batch.json()['id']}", headers=owner)
-    batch_animal = detail.json()["animals"][0]
+    assert detail.status_code == 200, "A created purchase batch must be readable"
+    batch_animals = detail.json().get("animals")
+    assert isinstance(batch_animals, list), "Purchase batch detail must declare an animals list"
+    assert len(batch_animals) == 1, "A one-animal purchase batch must return its owned animal"
+    batch_animal = batch_animals[0]
     blocked = await client.post(
         f"/api/animals/{batch_animal['id']}/move",
         json={"to_bucket": "FOUNDATION"},
@@ -3129,10 +3133,14 @@ async def test_animal_reads_redact_nested_fields_by_effective_permissions(
     mover_dashboard = await client.get("/api/dashboard", headers=mover)
     assert mover_dashboard.status_code == 200, mover_dashboard.text
     mover_suggestion = next(
-        row["animal"]
-        for row in mover_dashboard.json()["suggestions"]
-        if row["animal"]["id"] == suggestion["id"]
+        (
+            row["animal"]
+            for row in mover_dashboard.json()["suggestions"]
+            if row["animal"]["id"] == suggestion["id"]
+        ),
+        None,
     )
+    assert mover_suggestion is not None
     assert "purchase_price" not in mover_suggestion
     assert "seller_name" not in mover_suggestion
     assert "notes" not in mover_suggestion

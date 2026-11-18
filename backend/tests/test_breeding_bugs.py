@@ -192,6 +192,7 @@ async def test_selling_confirmed_pregnant_doe_auto_aborts(client: httpx.AsyncCli
     lst = await kidding_list(client, headers)
     assert any(r["id"] == br["id"] for r in lst["upcoming"])
     resp = await client.get("/api/dashboard", headers=headers)
+    assert resp.status_code == 200, resp.text
     assert any(r["id"] == br["id"] for r in resp.json()["kiddings_due"])
 
     await set_status(client, headers, doe["id"], "SOLD")
@@ -283,13 +284,15 @@ async def test_day100_move_task_steps_doe_up_to_pregnancy_late(
     # EKD = today + 10 → the day-100 duty (EKD − 50) is 40 days overdue and
     # the doe is still in PREGNANCY_EARLY.
     ekd = date.fromisoformat(br["expected_kidding_date"])
-    day100 = next(
+    day100_tasks = [
         t
         for t in await all_tasks(client, headers)
         if t["breeding_record_id"] == br["id"]
         and t["category"] == "BUCKET_MOVE"
         and t["due_date"] == iso(ekd - timedelta(days=50))
-    )
+    ]
+    assert day100_tasks, "The overdue queue must retain this pregnancy's day-100 move task"
+    day100 = day100_tasks[0]
     resp = await client.post(f"/api/tasks/{day100['id']}/complete", headers=headers)
     assert resp.status_code == 200, resp.text
     assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "PREGNANCY_LATE"

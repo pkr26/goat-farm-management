@@ -995,7 +995,9 @@ async def test_farms_ready_for_digest_respects_the_loop_batch_size() -> None:
                 farm_id=min(farm_ids),
                 recipient_id=settled_recipient.id,
                 alert_class="DAILY_DIGEST",
-                payload_hash=payload_hash("DAILY_DIGEST:digest:settled"),
+                payload_hash=payload_hash(
+                    f"DAILY_DIGEST:digest:{now.astimezone(ZoneInfo('Asia/Kolkata')).date()}"
+                ),
                 local_date=now.astimezone(ZoneInfo("Asia/Kolkata")).date(),
                 status="SENT",
             )
@@ -1257,6 +1259,76 @@ async def test_preferences_api_is_owner_only_and_persists(client: httpx.AsyncCli
     empty = await client.get(f"/api/team/workers/{membership_id}/notifications", headers=owner)
     assert empty.status_code == 200
     assert empty.json() is None
+
+    # This is a declared retained-state fixture, not a public-valid zero ID.
+    # The User is genuinely registered; only its membership's anomalous PK is
+    # inserted directly, with the actual positive owned role and normal FKs.
+    from app.models import FarmMembership, Role, User
+
+    retained_headers = await register(client, "notif-retained-zero@farm.in")
+    retained_me = await client.get("/api/auth/me", headers=retained_headers)
+    if retained_me.status_code != 200:
+        raise RuntimeError("The genuinely registered retained target was not readable")
+    retained_user_id = json_int(retained_me.json()["id"])
+    if retained_user_id <= 0 or membership_id <= 0:
+        raise RuntimeError("The actual public fixture identities must remain positive")
+    async with get_sessionmaker()() as db:
+        positive_member = await db.get(FarmMembership, membership_id)
+        if (
+            positive_member is None
+            or positive_member.farm_id != farm_id
+            or positive_member.role_id <= 0
+        ):
+            raise RuntimeError("The real positive notification target lost its owned role")
+        actual_role = await db.get(Role, positive_member.role_id)
+        actual_user = await db.get(User, retained_user_id)
+        if (
+            actual_role is None
+            or actual_role.farm_id != farm_id
+            or actual_role.deleted_at is not None
+            or actual_user is None
+            or actual_user.deleted_at is not None
+        ):
+            raise RuntimeError("The actual retained fixture user/role associations differ")
+        if await db.get(FarmMembership, 0) is not None:
+            raise RuntimeError("The isolated fixture already contains a zero-key membership")
+        retained_role_id = actual_role.id
+        db.add(
+            FarmMembership(
+                id=0,
+                user_id=retained_user_id,
+                farm_id=farm_id,
+                role_id=retained_role_id,
+                is_active=True,
+                account_provisioned_by_farm=False,
+            )
+        )
+        await db.commit()
+    async with get_sessionmaker()() as db:
+        retained_member = await db.get(FarmMembership, 0)
+        retained_recipient = (
+            await db.execute(
+                select(NotificationRecipient).where(
+                    NotificationRecipient.farm_id == farm_id,
+                    NotificationRecipient.membership_id == 0,
+                )
+            )
+        ).scalar_one_or_none()
+        if (
+            retained_member is None
+            or retained_member.user_id != retained_user_id
+            or retained_member.farm_id != farm_id
+            or retained_member.role_id != retained_role_id
+            or not retained_member.is_active
+            or retained_member.account_provisioned_by_farm
+            or retained_recipient is not None
+        ):
+            raise RuntimeError("The actual retained zero-membership fixture differs")
+    reserved = await client.get("/api/team/workers/0/notifications", headers=owner)
+    assert reserved.status_code == 404, (
+        "A retained zero membership must not become a valid public preferences identity"
+    )
+    assert reserved.json()["detail"] == "Membership not found"
 
     saved = await client.put(
         f"/api/team/workers/{membership_id}/notifications",

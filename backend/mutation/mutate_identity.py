@@ -3,9 +3,41 @@
 import hashlib
 import json
 import os
-from collections.abc import Mapping
+import stat
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
+
+EXECUTION_MODE_POLICY = "captured-file-permissions-v1"
+
+
+def execution_modes(backend: Path, inputs: dict[str, Any]) -> dict[str, dict[str, int | None]]:
+    """Capture permission bits for the exact source-bound input paths only."""
+    roots = {
+        "sources": backend,
+        "tests": backend,
+        "support": backend,
+        "repository_support": backend.parent,
+        "harness": backend / "mutation",
+        "locks": backend,
+    }
+    captured: dict[str, dict[str, int | None]] = {}
+    for group, root in roots.items():
+        captured[group] = {}
+        for relative in inputs.get(group, {}):
+            path = Path(relative)
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError("execution-mode input escapes its captured source root")
+            try:
+                information = (root / path).stat()
+            except FileNotFoundError:
+                mode = None
+            else:
+                mode = (
+                    stat.S_IMODE(information.st_mode) if stat.S_ISREG(information.st_mode) else None
+                )
+            captured[group][relative] = mode
+    return captured
 
 
 def read_artifact(path: Path, *, instruction: str) -> bytes:
@@ -104,25 +136,30 @@ def input_identity(backend: Path) -> dict[str, Any]:
     }
 
 
-def read_results(path: Path) -> list[dict[str, Any]]:
-    records = []
+def iter_results(path: Path) -> Iterator[dict[str, Any]]:
+    """Yield valid receipt objects without reading a campaign into memory."""
     if path.exists():
-        for line in path.read_text().splitlines():
-            try:
-                record = json.loads(line)
-                if (
-                    isinstance(record, dict)
-                    and isinstance(record.get("id"), str)
-                    and isinstance(record.get("status"), str)
-                ):
-                    records.append(record)
-            except (ValueError, TypeError):
-                continue
-    return records
+        with path.open() as stream:
+            for line in stream:
+                try:
+                    record = json.loads(line)
+                    if (
+                        isinstance(record, dict)
+                        and isinstance(record.get("id"), str)
+                        and isinstance(record.get("status"), str)
+                    ):
+                        yield record
+                except (ValueError, TypeError):
+                    continue
+
+
+def read_results(path: Path) -> list[dict[str, Any]]:
+    """Retain the eager API for consumers that explicitly need full receipts."""
+    return list(iter_results(path))
 
 
 def latest_compatible(
-    records: list[dict[str, Any]], campaign_id: str, manifest: dict[str, dict[str, Any]]
+    records: Iterable[dict[str, Any]], campaign_id: str, manifest: dict[str, dict[str, Any]]
 ) -> dict[str, dict[str, Any]]:
     latest = {}
     for record in records:

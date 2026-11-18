@@ -136,6 +136,7 @@ async def test_insurance_register_create_list_and_tenant_scoping(
     active = await list_policies(client, owner, status="active")
     assert active.json()["total"] == 2
     for_animal = await list_policies(client, owner, animal_id=animal["id"])
+    assert for_animal.status_code == 200, for_animal.text
     assert [p["policy_number"] for p in for_animal.json()["policies"]] == ["POL-100"]
     unknown = await list_policies(client, owner, animal_id=999_999_999)
     assert unknown.json()["total"] == 0
@@ -1233,6 +1234,7 @@ async def test_mortality_memo_values_deaths_at_the_realized_rate(
 
     summary = await get_finance(client, owner)
     memo = summary["mortality_loss"]
+    assert memo is not None
     assert memo["window_months"] == 12
     assert memo["head_count"] == 1
     # 30 kg (last recorded weight) × ₹500/kg (realized rate) = ₹15,000.

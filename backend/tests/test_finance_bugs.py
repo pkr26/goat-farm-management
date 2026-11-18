@@ -220,7 +220,9 @@ async def test_feed_restock_provenance_survives_an_audited_correction(
         headers=owner,
     )
     assert restock.status_code == 200, restock.text
-    (booked,) = (await client.get("/api/finance", headers=owner)).json()["transactions"]
+    booked_rows = (await client.get("/api/finance", headers=owner)).json()["transactions"]
+    assert len(booked_rows) == 1
+    (booked,) = booked_rows
     assert booked["source_type"] == "FEED_PURCHASE"
     assert booked["source_id"] == booked["id"]
     async with get_sessionmaker()() as db:
@@ -483,6 +485,22 @@ async def test_related_animal_helpers_reject_the_full_out_of_band_range(
             with pytest.raises(HTTPException) as exc:
                 await _resolve_related_animal(db, farm, out_of_band)
             assert exc.value.status_code == 400
-            with pytest.raises(HTTPException) as exc:
-                await _locked_source_animal(db, farm, out_of_band)
+            try:
+                with pytest.raises(HTTPException) as exc:
+                    await _locked_source_animal(db, farm, out_of_band)
+            except AttributeError as error:
+                traceback = error.__traceback__
+                while traceback is not None and traceback.tb_next is not None:
+                    traceback = traceback.tb_next
+                if not (
+                    type(error) is AttributeError
+                    and error.name == "farm_id"
+                    and error.obj is None
+                    and traceback is not None
+                    and traceback.tb_frame.f_code is _locked_source_animal.__code__
+                ):
+                    raise
+                pytest.fail(
+                    "A missing source animal must return HTTP 409 without a null dereference"
+                )
             assert exc.value.status_code == 409

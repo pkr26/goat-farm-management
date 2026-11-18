@@ -176,6 +176,9 @@ async def test_saved_plan_each_changed_document_advances_revision(
     assert response.status_code == 200, response.text
     saved = json_object(response.json())
     assert saved["revision"] == 2
+    assert saved["valid"] is True, (
+        "Updating a saved plan must preserve its valid normalized assumptions"
+    )
     assert saved["assumptions"]["meta"]["start_year_month"] == saved["start_year_month"]
     if field != "anchor":
         assert saved["start_year_month"] == "2026-01"

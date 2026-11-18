@@ -119,8 +119,10 @@ async def test_list_preserves_farm_filters_latest_evidence_and_review_kinds(
     assert body["total"] == 3
     rows = {r["id"]: r for r in body["images"]}
     assert set(rows) == set(keys[:3]) and keys[3] not in rows
-    assert rows[keys[0]]["latest_run"]["id"] == latest_id
-    assert rows[keys[0]]["latest_run"]["image_id"] == keys[0]
+    latest_run = rows[keys[0]].get("latest_run")
+    assert latest_run is not None, "A reviewed screening image must declare its latest run"
+    assert latest_run["id"] == latest_id
+    assert latest_run["image_id"] == keys[0]
     assert (rows[keys[0]]["pending_findings"], rows[keys[0]]["pending_healthy_controls"]) == (2, 1)
     assert rows[keys[0]]["error"] is None
     assert rows[keys[1]]["latest_run"] is None
@@ -347,6 +349,8 @@ async def test_image_read_coexists_with_an_independent_native_shared_retention_l
         try:
             deadline = asyncio.get_running_loop().time() + 30
             while not request.done():
+                # Refresh this transaction's activity snapshot before each real poll.
+                await observer.execute(text("SELECT pg_stat_clear_snapshot()"))
                 blocked = list(
                     (
                         await observer.execute(

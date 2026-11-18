@@ -101,6 +101,10 @@ async def test_outbox_preserves_pre_migration_delivery_claims_across_midnight(
 async def test_ownership_transfer_does_not_deadlock_with_reciprocal_roster_edit(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import json
+
+    from sqlalchemy.exc import DBAPIError
+
     owner_a = await owner_with_farm(client, email="transfer-lock-a@farm.in")
     owner_b = await owner_with_farm(client, email="transfer-lock-b@farm.in")
     async with get_sessionmaker()() as db:
@@ -153,39 +157,149 @@ async def test_ownership_transfer_does_not_deadlock_with_reciprocal_roster_edit(
 
     monkeypatch.setattr(team_api, "_pin_membership_user", paused_pin)
     monkeypatch.setattr(auth_api, "_require_authenticated_generation", notify_transfer_lock)
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app()), base_url="http://test"
-    ) as contender:
-        roster = asyncio.create_task(
-            contender.put(
-                f"/api/team/workers/{member_a_id}/status",
-                headers=owner_b,
-                json={"is_active": False},
-            )
-        )
-        transfer: asyncio.Task[httpx.Response] | None = None
-        try:
-            await asyncio.wait_for(roster_locked.wait(), timeout=5)
-            transfer = asyncio.create_task(
-                client.post(
-                    f"/api/auth/farms/{owner_a['X-Farm-Id']}/transfer-ownership",
-                    headers=owner_a,
-                    json={"membership_id": member_b_id, "current_password": OWNER_PW},
+    actor_outcomes: list[httpx.Response | BaseException] = []
+    setup_error: BaseException | None = None
+    cleanup_error: BaseException | None = None
+    context_error: BaseException | None = None
+    application = create_app()
+    reciprocal_started = False
+    try:
+        async with (
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=application, raise_app_exceptions=True),
+                base_url="http://test",
+            ) as contender,
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=application, raise_app_exceptions=True),
+                base_url="http://test",
+            ) as transfer_browser,
+        ):
+            roster = asyncio.create_task(
+                contender.put(
+                    f"/api/team/workers/{member_a_id}/status",
+                    headers=owner_b,
+                    json={"is_active": False},
                 )
             )
-            await asyncio.wait_for(transfer_locked.wait(), timeout=5)
-            resume_roster.set()
-            responses = await asyncio.wait_for(asyncio.gather(roster, transfer), timeout=10)
-        finally:
-            resume_roster.set()
-            if not roster.done():
-                roster.cancel()
-            if transfer is not None and not transfer.done():
-                transfer.cancel()
-            pending = [roster] if transfer is None else [roster, transfer]
-            await asyncio.gather(*pending, return_exceptions=True)
-    assert [response.status_code for response in responses] == [200, 409]
-    assert "retry" in responses[1].json()["detail"]
+            owned_requests = [roster]
+            owned_observers: list[asyncio.Task[bool]] = []
+            try:
+                roster_ready = asyncio.create_task(roster_locked.wait())
+                owned_observers.append(roster_ready)
+                done, _ = await asyncio.wait(
+                    {roster_ready, roster}, timeout=5, return_when=asyncio.FIRST_COMPLETED
+                )
+                if roster in done:
+                    # No transfer has started. This real owner status request
+                    # is uncontested; observe its public result and retain the
+                    # later state/retry checks, without claiming a race ran.
+                    await roster
+                elif roster_ready in done:
+                    await roster_ready
+                    transfer = asyncio.create_task(
+                        transfer_browser.post(
+                            f"/api/auth/farms/{owner_a['X-Farm-Id']}/transfer-ownership",
+                            headers=owner_a,
+                            json={"membership_id": member_b_id, "current_password": OWNER_PW},
+                        )
+                    )
+                    owned_requests.append(transfer)
+                    reciprocal_started = True
+                    transfer_ready = asyncio.create_task(transfer_locked.wait())
+                    owned_observers.append(transfer_ready)
+                    done, _ = await asyncio.wait(
+                        {transfer_ready, transfer}, timeout=5, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    if transfer in done:
+                        await transfer
+                    elif transfer_ready in done:
+                        await transfer_ready
+                    else:
+                        raise TimeoutError("The owned transfer did not finish or acquire its lock")
+                else:
+                    raise TimeoutError(
+                        "The owned roster request did not finish or acquire its lock"
+                    )
+            except BaseException as exc:
+                setup_error = exc
+            finally:
+                resume_roster.set()
+                for observer in owned_observers:
+                    if not observer.done():
+                        observer.cancel()
+                pending = set(owned_requests)
+                try:
+                    _, pending = await asyncio.wait(owned_requests, timeout=10)
+                except BaseException as exc:
+                    cleanup_error = exc
+                finally:
+                    # This also runs if the test itself is cancelled during
+                    # its first drain. Cancel every actor still parked.
+                    unfinished = [request for request in pending if not request.done()]
+                    if unfinished:
+                        for request in unfinished:
+                            request.cancel()
+                        try:
+                            _, pending = await asyncio.wait(unfinished, timeout=10)
+                        except BaseException as exc:
+                            cleanup_error = exc
+                        if cleanup_error is None:
+                            cleanup_error = TimeoutError(
+                                "Owned reciprocal requests did not finish after their gate opened"
+                            )
+                try:
+                    # Observe every real actor before closing either client.
+                    # This final cancellation drain is locally unbounded; the
+                    # external phase budget remains the hard bound.
+                    actor_outcomes = list(
+                        await asyncio.gather(*owned_requests, return_exceptions=True)
+                    )
+                    await asyncio.gather(*owned_observers, return_exceptions=True)
+                except BaseException as exc:
+                    cleanup_error = exc
+    except BaseException as exc:
+        context_error = exc
+
+    # The actual server deadlock is a business progress violation. Unknown
+    # service/connection/programming faults must remain nonassertion errors,
+    # including an AssertionError raised inside either application request.
+    deadlocks = []
+    unknown_errors = []
+    responses = []
+    for outcome in actor_outcomes:
+        if isinstance(outcome, BaseException):
+            if (
+                isinstance(outcome, DBAPIError)
+                and getattr(outcome.orig, "sqlstate", None) == "40P01"
+            ):
+                deadlocks.append(outcome)
+            else:
+                unknown_errors.append(outcome)
+        else:
+            responses.append(outcome)
+    for error in [*unknown_errors, context_error, cleanup_error, setup_error]:
+        if error is not None:
+            raise RuntimeError("The owned reciprocal request schedule failed") from error
+    assert not deadlocks, "Ownership transfer must not deadlock with reciprocal roster edits"
+    print(
+        "RECIPROCAL_ROSTER_SCHEDULE "
+        + json.dumps(
+            {
+                "reciprocal_started": reciprocal_started,
+                "actual_request_count": len(actor_outcomes),
+                "actual_statuses": [response.status_code for response in responses],
+                "owned_observers_drained": all(observer.done() for observer in owned_observers),
+            },
+            sort_keys=True,
+        )
+    )
+    if reciprocal_started:
+        assert [response.status_code for response in responses] == [200, 409]
+        assert "retry" in responses[1].json()["detail"]
+    else:
+        assert [response.status_code for response in responses] == [200], (
+            "An uncontested owner roster edit must succeed before ownership transfer starts"
+        )
     async with get_sessionmaker()() as db:
         farm = await db.get(Farm, int(owner_a["X-Farm-Id"]))
         actor = await db.get(User, users[0].id)

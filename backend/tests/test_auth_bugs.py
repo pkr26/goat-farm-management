@@ -205,7 +205,43 @@ async def test_cookie_origin_guard_uses_origin_not_root_path() -> None:
     transport = httpx.ASGITransport(app=create_app(), root_path="/mounted")
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as mounted:
         await register(mounted, "root-path-origin@farm.in")
-        response = await mounted.post("/api/auth/refresh", headers={"Origin": "http://test"})
+        response: httpx.Response | ValueError | TypeError
+        try:
+            response = await mounted.post("/api/auth/refresh", headers={"Origin": "http://test"})
+        except ValueError as exc:
+            # Only this session-rotation invariant from the genuine server
+            # cookie is an outcome of this contract; unrelated errors escape.
+            trace = exc.__traceback__
+            while trace is not None:
+                if trace.tb_frame.f_code is auth_api._make_refresh_session_slot.__code__:
+                    break
+                trace = trace.tb_next
+            if (
+                type(exc) is not ValueError
+                or exc.args != ("Refresh rotation must preserve its presented session",)
+                or trace is None
+            ):
+                raise
+            response = exc
+        except TypeError as exc:
+            # An untouched server-issued session has no consumption timestamp.
+            # Keep only this endpoint's exact invalid subtraction as an outcome;
+            # errors from dependencies or unrelated operations still escape.
+            trace = exc.__traceback__
+            while trace is not None and trace.tb_next is not None:
+                trace = trace.tb_next
+            if (
+                type(exc) is not TypeError
+                or exc.args
+                != ("unsupported operand type(s) for -: 'datetime.datetime' and 'NoneType'",)
+                or trace is None
+                or trace.tb_frame.f_code is not auth_api.refresh.__code__
+            ):
+                raise
+            response = exc
+    assert isinstance(response, httpx.Response), (
+        "A same-origin mounted refresh using its server-issued cookie must return an HTTP response"
+    )
     assert response.status_code == 200, response.text
 
 
@@ -242,15 +278,19 @@ async def test_benign_login_rehash_race_does_not_401_account_password_flows(
 
     started = asyncio.Event()
     release = asyncio.Event()
+    gate_owned = False
 
     async def stalled_verify(password: str, stored: str) -> tuple[bool, bool]:
-        started.set()
-        await release.wait()
+        nonlocal gate_owned
+        if not gate_owned:
+            gate_owned = True
+            started.set()
+            await release.wait()
         return await real_verify_password_async(password, stored)
 
-    # change-password/delete-account verify via verify_password_async; the
-    # concurrent login below uses verify_password_with_work_async and is
-    # unaffected by the stall.
+    # Hold only the intended confirmation. A concurrent login may also
+    # re-verify after its locked reload; that work must remain independent
+    # of the gate this test releases after the login finishes.
     monkeypatch.setattr(auth_api, "verify_password_async", stalled_verify)
 
     if operation == "change-password":
@@ -263,24 +303,45 @@ async def test_benign_login_rehash_race_does_not_401_account_password_flows(
         method, path = "DELETE", "/api/auth/account"
         payload = {"current_password": OWNER_PW}
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app()),
-        base_url="http://test",
-    ) as contender:
+    async with (
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=create_app(), raise_app_exceptions=True),
+            base_url="http://test",
+        ) as contender,
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=create_app(), raise_app_exceptions=True),
+            base_url="http://test",
+        ) as relogin_browser,
+    ):
         attempt = asyncio.create_task(
             contender.request(method, path, json=payload, headers=headers)
         )
+        owned_requests = [attempt]
         try:
             await asyncio.wait_for(started.wait(), timeout=2)
-            relogin = await client.post(
-                "/api/auth/login", json={"email": email, "password": OWNER_PW}
+            relogin_request = asyncio.create_task(
+                relogin_browser.post("/api/auth/login", json={"email": email, "password": OWNER_PW})
             )
+            owned_requests.append(relogin_request)
+            relogin = await asyncio.wait_for(asyncio.shield(relogin_request), timeout=30)
             assert relogin.status_code == 200, relogin.text
             # The race is real: the login upgraded the stored hash bytes.
             assert not (await user_password_hash(user_id)).startswith("pbkdf2_sha256$")
         finally:
             release.set()
-        response = await attempt
+            _, pending = await asyncio.wait(owned_requests, timeout=30)
+            if pending:
+                for owned_request in pending:
+                    owned_request.cancel()
+                await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=10)
+                raise TimeoutError("Owned auth requests did not finish after releasing their gate")
+            outcomes = await asyncio.gather(*owned_requests, return_exceptions=True)
+            for outcome in outcomes:
+                if isinstance(outcome, BaseException):
+                    raise RuntimeError(
+                        "An owned auth request failed during the rehash race"
+                    ) from outcome
+        response = attempt.result()
 
     if operation == "change-password":
         assert response.status_code == 200, response.text

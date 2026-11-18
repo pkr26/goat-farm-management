@@ -415,7 +415,11 @@ async def test_feeding_garbage_inputs(client: httpx.AsyncClient) -> None:
         headers=owner,
     )
     assert resp.status_code == 422
-    item_id = (await inventory(client, owner))[0]["id"]
+    inventory_response = await client.get("/api/feeding/inventory", headers=owner)
+    assert inventory_response.status_code == 200, inventory_response.text
+    inventory_rows = json_objects(inventory_response.json())
+    assert inventory_rows, inventory_rows
+    item_id = inventory_rows[0]["id"]
     resp = await client.post(
         f"/api/feeding/inventory/{item_id}/add",
         json={"qty_kg": 10, "price_per_kg": "abc"},
@@ -762,13 +766,15 @@ async def test_health_form_rejects_a_done_task_id(client: httpx.AsyncClient) -> 
     )
     assert resp.status_code == 201, resp.text
     batch_id = resp.json()["id"]
-    vaccine = next(
+    vaccines = [
         task
         for task in all_tasks(await task_tabs(client, owner))
         if task["category"] == "VACCINE"
         and task["purchase_batch_id"] == batch_id
         and task["due_date"] <= iso(today())
-    )
+    ]
+    assert vaccines, "The owned purchase batch must retain a due vaccine task"
+    vaccine = vaccines[0]
     task_id = vaccine["id"]
     preview = await client.post(
         "/api/health/events/preview",
@@ -796,6 +802,7 @@ async def test_health_form_rejects_a_done_task_id(client: httpx.AsyncClient) -> 
     assert resp.status_code == 409, resp.text
     tabs = await task_tabs(client, owner)
     done = find_tasks(tabs, id=task_id)
+    assert len(done) == 1, "Rejected health replay must retain the completed owned vaccine task"
     assert done[0]["status"] == "DONE"
     assert done[0]["completed_at"] == completed_at
     assert len(all_tasks(tabs)) == len(all_tasks(tabs_after_first))
@@ -1117,6 +1124,7 @@ async def test_health_nonfinite_cost_future_date_and_smuggled_task(
     assert resp.status_code == 409, resp.text
     assert len(await health_events(client, owner)) == 0
     task = find_tasks(await task_tabs(client, owner), id=task_id)
+    assert len(task) == 1, "Rejected health smuggling must retain the owned non-health task"
     assert task[0]["status"] == "PENDING"
 
 
@@ -1218,16 +1226,21 @@ async def test_self_verification_blocked_for_worker(client: httpx.AsyncClient) -
         },
         headers=owner,
     )
+    assert resp.status_code == 201, "Role-assigned cleaning task creation must return 201"
     task_id = resp.json()["id"]
     worker = await worker_headers(client, "mgr@farm.in", "mgrpass123", owner)
     resp = await client.post(f"/api/tasks/{task_id}/complete", headers=worker)
     assert resp.status_code == 200, resp.text
     resp = await client.post(f"/api/tasks/{task_id}/verify", headers=worker)
     assert resp.status_code == 409  # two-person rule enforced
-    assert find_tasks(await task_tabs(client, owner), id=task_id)[0]["status"] == "DONE"
+    task = find_tasks(await task_tabs(client, owner), id=task_id)
+    assert len(task) == 1, "Rejected self-verification must retain the owned completed task"
+    assert task[0]["status"] == "DONE"
     resp = await client.post(f"/api/tasks/{task_id}/verify", headers=owner)
     assert resp.status_code == 200, resp.text
-    assert find_tasks(await task_tabs(client, owner), id=task_id)[0]["status"] == "VERIFIED"
+    task = find_tasks(await task_tabs(client, owner), id=task_id)
+    assert len(task) == 1, "Owner verification must retain the owned task in completed history"
+    assert task[0]["status"] == "VERIFIED"
 
 
 async def test_finance_and_feed_nonfinite_rejected(client: httpx.AsyncClient) -> None:
@@ -1343,7 +1356,11 @@ async def test_team_takeover_and_escalation_guards(client: httpx.AsyncClient) ->
         headers=worker,
     )
     assert resp.status_code == 403, resp.text
-    roles = (await client.get("/api/team", headers=owner_a)).json()["roles"]
+    team_response = await client.get("/api/team", headers=owner_a)
+    assert team_response.status_code == 200, (
+        "Owner team roster reads must succeed after a rejected role escalation"
+    )
+    roles = team_response.json()["roles"]
     mgr_role = next(r for r in roles if r["id"] == mgr_role_id)
     assert mgr_role["permissions"] == ["team.manage"]
     # …and can't deactivate himself; preset roles can't be deleted.

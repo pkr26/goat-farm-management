@@ -1896,30 +1896,68 @@ async def test_target_role_promotion_is_revalidated_under_share_lock(
                 headers=manager,
             )
         )
-        promote: asyncio.Task[httpx.Response] | None = None
+        entered = asyncio.create_task(entered_revalidation.wait())
+        owned_requests = [toggle]
+        early_response: httpx.Response | None = None
+        schedule_error: BaseException | None = None
         try:
-            await asyncio.wait_for(entered_revalidation.wait(), timeout=5)
-            promote = asyncio.create_task(
-                owner_client.put(
-                    f"/api/team/roles/{target_role}",
-                    json={
-                        "name": "Promoted Manager",
-                        "permissions": ["team.manage", "animals.view"],
-                    },
-                    headers=owner,
-                )
+            done, _ = await asyncio.wait(
+                {entered, toggle}, timeout=5, return_when=asyncio.FIRST_COMPLETED
             )
-            async with asyncio.timeout(10):
-                promote_response = await promote
-            release_revalidation.set()
-            async with asyncio.timeout(10):
-                toggle_response = await toggle
+            if toggle in done:
+                # No promotion has happened: this real delegated manager may
+                # change the status of this ordinary worker. An early public
+                # denial must be observed instead of hidden by a gate timeout.
+                early_response = await toggle
+            elif entered in done:
+                await entered
+                promote = asyncio.create_task(
+                    owner_client.put(
+                        f"/api/team/roles/{target_role}",
+                        json={
+                            "name": "Promoted Manager",
+                            "permissions": ["team.manage", "animals.view"],
+                        },
+                        headers=owner,
+                    )
+                )
+                owned_requests.append(promote)
+                async with asyncio.timeout(10):
+                    promote_response = await promote
+                release_revalidation.set()
+                async with asyncio.timeout(10):
+                    toggle_response = await toggle
+            else:
+                raise TimeoutError("The owned status request did not finish or reach revalidation")
+        except BaseException as exc:
+            schedule_error = exc
         finally:
             release_revalidation.set()
-            if not toggle.done():
-                toggle.cancel()
-            if promote is not None and not promote.done():
-                promote.cancel()
+            if not entered.done():
+                entered.cancel()
+            pending = set(owned_requests)
+            try:
+                _, pending = await asyncio.wait(owned_requests, timeout=10)
+            finally:
+                for request in pending:
+                    if not request.done():
+                        request.cancel()
+                # Finish every actual owned HTTP task and the gate observer
+                # before either client closes. The post-cancellation gather
+                # has no local deadline; the external phase budget still applies.
+                request_outcomes = await asyncio.gather(*owned_requests, return_exceptions=True)
+                await asyncio.gather(entered, return_exceptions=True)
+
+        for outcome in request_outcomes:
+            if isinstance(outcome, BaseException):
+                raise RuntimeError("An owned role-revalidation request failed") from outcome
+        if schedule_error is not None:
+            raise RuntimeError("The owned role-revalidation schedule failed") from schedule_error
+        if early_response is not None:
+            assert early_response.status_code == 200, (
+                "A delegated manager may change an ordinary worker before role promotion"
+            )
+            raise RuntimeError("The status request finished before the role-promotion gate")
 
     assert promote_response.status_code == 200, promote_response.text
     assert toggle_response.status_code == 403, toggle_response.text

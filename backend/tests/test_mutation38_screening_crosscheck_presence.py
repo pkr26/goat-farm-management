@@ -71,13 +71,15 @@ async def test_actual_successful_cross_check_retains_a_visible_scoreboard_row(
         assert runs[0].run_status == ("ERROR" if cross_check_error else "OK")
     response = await client.get("/api/screening/stats", headers=owner)
     assert response.status_code == 200, response.text
-    by_name = {row["provider"]: row for row in response.json()["providers"]}
+    provider_rows = response.json().get("providers")
+    assert isinstance(provider_rows, list), "Screening statistics must declare its provider list"
+    by_name = {row["provider"]: row for row in provider_rows}
+    assert primary.name in by_name, "Screening statistics must retain the actual primary provider"
     assert (
         by_name[primary.name]["cross_checks"]
         == by_name[primary.name]["cross_check_agreements"]
         == 0
     )
-    assert primary.name in by_name
     if cross_check_error:
         assert checker.name not in by_name
     else:

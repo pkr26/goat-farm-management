@@ -390,6 +390,19 @@ async def test_deactivated_viewer_membership_reduces_to_personal(
         personal_duty = await _make_task(
             db, farm_id, assigned_role_id=role.id, assigned_user_id=worker.id, status="PENDING"
         )
+        viewer_membership = await _viewer_membership(db, farm_id, worker.id)
+        assert viewer_membership is None, "Inactive membership must supply no active role context"
+        role_visibility: bool | AttributeError
+        try:
+            role_visibility = await visible_to(db, role_duty, worker, farm, viewer_membership)
+        except AttributeError as exc:
+            if exc.name != "role_id" or exc.obj is not None:
+                raise
+            role_visibility = exc
+        assert role_visibility is False, (
+            "An inactive viewer must receive a boolean denial for role duties, "
+            "rather than an absent-membership attribute failure"
+        )
         await _assert_engines_agree(
             db,
             task=role_duty,

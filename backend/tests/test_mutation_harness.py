@@ -6,7 +6,9 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +22,9 @@ import mutate_gen  # type: ignore[import-not-found]  # noqa: E402
 import mutate_report  # type: ignore[import-not-found]  # noqa: E402
 import mutate_run  # type: ignore[import-not-found]  # noqa: E402
 from mutate_identity import (  # type: ignore[import-not-found]  # noqa: E402
+    EXECUTION_MODE_POLICY,
     digest_json,
+    execution_modes,
     input_identity,
     latest_compatible,
     sha_file,
@@ -44,6 +48,7 @@ def _clean_tables() -> None:
 
 
 def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, list[dict[str, Any]]]:
+    monkeypatch.delenv("MUTATION_WORK_ROOT", raising=False)
     backend = tmp_path / "project" / "backend"
     (backend / "app").mkdir(parents=True)
     (backend / "tests").mkdir()
@@ -79,13 +84,26 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, lis
     (backend / "mutation/manifest.json").write_text(json.dumps(mutants))
     shutil.copyfile(MUTATION / "pytest_receipt.py", backend / "mutation/pytest_receipt.py")
     (backend / ".coverage-mut").write_bytes(b"fixture coverage: parsed by fixture contexts")
+    inputs = input_identity(backend)
     (backend / ".coverage-mut.provenance.json").write_text(
         json.dumps(
             {
-                "inputs": input_identity(backend),
+                "inputs": inputs,
+                "execution_mode_policy": EXECUTION_MODE_POLICY,
+                "execution_modes_sha256": digest_json(execution_modes(backend, inputs)),
                 "coverage_sha256": sha_file(backend / ".coverage-mut"),
                 "baseline_exit_code": 0,
                 "test_database_admin_sha256": mutate_run.database_admin_sha256(),
+                "collection_inventory": {
+                    "exit_code": 0,
+                    "items": [
+                        {
+                            "nodeid": f"tests/test_{name}.py::test_value",
+                            "file": f"tests/test_{name}.py",
+                        }
+                        for name in ("alpha", "beta")
+                    ],
+                },
             }
         )
     )
@@ -260,6 +278,19 @@ def test_coverage_publication_hashes_its_baseline_instead_of_live_replacement(
 
     def passing_baseline(*args: Any, **kwargs: Any) -> SimpleNamespace:
         (kwargs["cwd"] / ".coverage-mut").write_bytes(baseline_bytes)
+        Path(kwargs["env"]["MUTATION_COVERAGE_INVENTORY_PATH"]).write_text(
+            json.dumps(
+                {
+                    "exit_code": 0,
+                    "items": [
+                        {
+                            "nodeid": "tests/test_alpha.py::test_value",
+                            "file": "tests/test_alpha.py",
+                        }
+                    ],
+                }
+            )
+        )
         return SimpleNamespace(returncode=0)
 
     original_replace = Path.replace
@@ -355,6 +386,24 @@ def test_coverage_rejects_changed_repository_contract_and_deployment_inputs(
         mutate_run.Runner(1, None)
 
 
+@contextmanager
+def _database_contract_cleanup(database: str) -> Iterator[None]:
+    """Preserve both failures, keeping any cleanup failure inconclusive."""
+    try:
+        yield
+    except Exception as primary:
+        try:
+            mutate_run.drop_attempt_database(database)
+        except Exception as secondary:
+            raise RuntimeError(
+                f"database contract failed: {type(primary).__name__}: {primary}; "
+                f"final cleanup also failed: {type(secondary).__name__}: {secondary}"
+            ) from primary
+        raise
+    else:
+        mutate_run.drop_attempt_database(database)
+
+
 def test_killed_pytest_attempt_reaps_its_real_disposable_database(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -384,31 +433,45 @@ def test_killed_pytest_attempt_reaps_its_real_disposable_database(
     runner.phase_timeout = 5
     runner.local = __import__("threading").local()
     runner.local.workspace = backend
-    status, _, _ = runner.run_pytest(["tests/test_hang.py"], 0)
-    assert marker.is_file(), "child must create a real database before the timeout"
+    status, output, _ = runner.run_pytest(["tests/test_hang.py"], 0)
+    if not marker.is_file():
+        raise RuntimeError(
+            "child did not prepare its real database before the deadline: "
+            f"{runner.local.phase_diagnostics}; {output[-2000:]}"
+        )
     database = marker.read_text()
 
     async def remains() -> bool:
         connection = await asyncpg.connect(
-            os.environ.get("MUTATION_TEST_ADMIN_URL", "postgresql://localhost:5432/postgres")
+            os.environ.get("MUTATION_TEST_ADMIN_URL", "postgresql://localhost:5432/postgres"),
+            timeout=5,
         )
         try:
             return bool(
-                await connection.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", database)
+                await connection.fetchval(
+                    "SELECT 1 FROM pg_database WHERE datname = $1", database, timeout=5
+                )
             )
         finally:
-            await connection.close()
+            await connection.close(timeout=5)
 
-    try:
+    with _database_contract_cleanup(database):
+        if status == "infra":
+            raise RuntimeError(
+                f"nested attempt infrastructure failed: {runner.local.phase_diagnostics}; "
+                f"{output[-2000:]}"
+            )
         assert status == "timeout"
         assert not asyncio.run(remains())
-    finally:
-        mutate_run.drop_attempt_database(database)
 
 
-def test_attempt_database_cleanup_rejects_unowned_names() -> None:
+@pytest.mark.parametrize(
+    "database",
+    ["goatfarm", "herdly_mut_aaaaaaaaaa_bbbbbbbb_test;DROP DATABASE postgres", "postgres"],
+)
+def test_attempt_database_cleanup_rejects_unowned_names(database: str) -> None:
     with pytest.raises(ValueError, match="namespace"):
-        mutate_run.drop_attempt_database("goatfarm")
+        mutate_run.drop_attempt_database(database)
 
 
 @pytest.mark.parametrize("admin_endpoint", [None, "postgresql://localhost:5437/postgres"])
@@ -439,7 +502,105 @@ def test_attempt_database_cleanup_bounds_connect_drop_and_close(
 
     monkeypatch.setattr(mutate_run.asyncpg, "connect", connect)
     mutate_run.drop_attempt_database("herdly_mut_aaaaaaaaaa_bbbbbbbb_test")
-    assert calls == [("connect", 5), ("drop", 45), ("close", 5)]
+    assert calls == [("connect", 5), ("drop", 300), ("close", 5)]
+
+
+@pytest.mark.parametrize("stage", ["connect", "drop", "close"])
+def test_database_cleanup_exhaustion_preserves_stage_and_bound(
+    monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
+    calls: list[str] = []
+    failure = TimeoutError(f"controlled {stage} exhaustion")
+
+    class Connection:
+        async def execute(self, sql: str, **kwargs: int) -> None:
+            calls.append("drop")
+            assert kwargs["timeout"] == 300
+            if stage == "drop":
+                raise failure
+
+        async def close(self, **kwargs: int) -> None:
+            calls.append("close")
+            assert kwargs["timeout"] == 5
+            if stage == "close":
+                raise failure
+
+    async def connect(dsn: str, **kwargs: int) -> Connection:
+        calls.append("connect")
+        assert kwargs["timeout"] == 5
+        if stage == "connect":
+            raise failure
+        return Connection()
+
+    monkeypatch.setattr(mutate_run.asyncpg, "connect", connect)
+    with pytest.raises(mutate_run.DatabaseCleanupError) as caught:
+        mutate_run.drop_attempt_database("herdly_mut_aaaaaaaaaa_bbbbbbbb_test")
+    error = caught.value
+    assert error.__cause__ is failure
+    assert error.diagnostics["stage"] == stage
+    assert error.diagnostics["stage_timeout_seconds"] == (300 if stage == "drop" else 5)
+    assert error.diagnostics["error_type"] == "TimeoutError"
+    assert error.diagnostics["elapsed_seconds"] >= error.diagnostics["stage_elapsed_seconds"] >= 0
+    assert calls == (["connect"] if stage == "connect" else ["connect", "drop", "close"])
+
+
+def test_database_cleanup_close_failure_keeps_primary_drop_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary = TimeoutError("checkpoint wait exhausted")
+
+    class Connection:
+        async def execute(self, sql: str, **kwargs: int) -> None:
+            raise primary
+
+        async def close(self, **kwargs: int) -> None:
+            raise OSError("close failed too")
+
+    async def connect(dsn: str, **kwargs: int) -> Connection:
+        return Connection()
+
+    monkeypatch.setattr(mutate_run.asyncpg, "connect", connect)
+    with pytest.raises(mutate_run.DatabaseCleanupError) as caught:
+        mutate_run.drop_attempt_database("herdly_mut_aaaaaaaaaa_bbbbbbbb_test")
+    assert caught.value.__cause__ is primary
+    assert caught.value.diagnostics["stage"] == "drop"
+    assert caught.value.diagnostics["error_type"] == "TimeoutError"
+    assert caught.value.diagnostics["secondary_close_error"]["error_type"] == "OSError"
+
+
+@pytest.mark.parametrize("primary", [AssertionError("original assertion"), RuntimeError("service")])
+def test_database_contract_final_cleanup_preserves_primary_without_false_assertion_kill(
+    monkeypatch: pytest.MonkeyPatch, primary: Exception
+) -> None:
+    def failed_cleanup(database: str) -> None:
+        raise TimeoutError("secondary cleanup exhaustion")
+
+    monkeypatch.setattr(mutate_run, "drop_attempt_database", failed_cleanup)
+    with (
+        pytest.raises(RuntimeError) as caught,
+        _database_contract_cleanup("herdly_mut_aaaaaaaaaa_bbbbbbbb_test"),
+    ):
+        raise primary
+    assert caught.value.__cause__ is primary
+    assert str(primary) in str(caught.value)
+    assert "secondary cleanup exhaustion" in str(caught.value)
+    assert not isinstance(caught.value, AssertionError)
+
+
+def test_campaign_identity_binds_bounded_database_cleanup_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _project(tmp_path, monkeypatch)
+    runner = mutate_run.Runner(1, None)
+    try:
+        assert runner.identity["config"]["database_cleanup"] == {
+            "policy": "bounded-owned-database-drop-v2",
+            "connect_timeout_seconds": 5,
+            "drop_timeout_seconds": 300,
+            "close_timeout_seconds": 5,
+        }
+    finally:
+        runner.close()
 
 
 def test_cleanup_failure_cannot_credit_a_real_assertion_kill(
@@ -452,7 +613,17 @@ def test_cleanup_failure_cannot_credit_a_real_assertion_kill(
         nonlocal calls
         calls += 1
         if calls == 2:
-            raise TimeoutError("controlled cleanup failure after assertion failure")
+            raise mutate_run.DatabaseCleanupError(
+                {
+                    "database": database,
+                    **mutate_run.database_cleanup_configuration(),
+                    "stage": "drop",
+                    "stage_timeout_seconds": 300,
+                    "stage_elapsed_seconds": 300.0,
+                    "elapsed_seconds": 300.1,
+                    "error_type": "TimeoutError",
+                }
+            )
 
     monkeypatch.setattr(mutate_run, "drop_attempt_database", fail_mutant_cleanup)
     runner = mutate_run.Runner(1, None)
@@ -465,6 +636,8 @@ def test_cleanup_failure_cannot_credit_a_real_assertion_kill(
         assert record["status"] == "INFRA_ERROR"
         assert calls == 2
         assert "cleanup failed" in record["fail"]
+        assert record["infrastructure"]["database_cleanup"]["stage"] == "drop"
+        assert record["infrastructure"]["database_cleanup"]["stage_timeout_seconds"] == 300
     finally:
         runner.close()
 
@@ -763,6 +936,20 @@ def test_coverage_records_the_endpoint_used_by_its_passing_subprocess(
     def passing_baseline(*args: Any, **kwargs: Any) -> SimpleNamespace:
         assert mutate_run.database_admin_sha256(kwargs["env"]) == expected
         (kwargs["cwd"] / ".coverage-mut").write_bytes(b"passing coverage")
+        Path(kwargs["env"]["MUTATION_COVERAGE_INVENTORY_PATH"]).write_text(
+            json.dumps(
+                {
+                    "exit_code": 0,
+                    "items": [
+                        {
+                            "nodeid": "tests/test_alpha.py::test_value",
+                            "file": "tests/test_alpha.py",
+                        },
+                        {"nodeid": "tests/test_beta.py::test_value", "file": "tests/test_beta.py"},
+                    ],
+                }
+            )
+        )
         # The collector must bind the captured child environment, even if
         # the current parent environment changes before publication.
         monkeypatch.setenv("MUTATION_TEST_ADMIN_URL", "postgresql://localhost:6543/postgres")

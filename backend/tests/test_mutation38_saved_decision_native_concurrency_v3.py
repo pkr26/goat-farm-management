@@ -297,7 +297,9 @@ async def test_retained_plan_list_accepts_jsonb_valid_legacy_target_validation_f
         await db.commit()
     response = await client.get(_path("plan"), headers=headers)
     assert response.status_code == 200, response.text
-    assert response.json()["items"][0]["valid"] is False
+    items = response.json()["items"]
+    assert len(items) == 1, "The default page must include its one retained plan"
+    assert items[0]["valid"] is False
 
 
 @pytest.mark.parametrize("kind", ["plan", "scenario"])

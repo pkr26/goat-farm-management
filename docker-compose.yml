@@ -51,7 +51,7 @@ services:
           create_host_path: false
 
   db:
-    image: goatfarm-postgres:16-security-20261004
+    image: goatfarm-postgres:16-security-20261113
     build:
       context: .
       dockerfile: docker/postgres/Dockerfile

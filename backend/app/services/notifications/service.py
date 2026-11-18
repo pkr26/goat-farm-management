@@ -602,7 +602,10 @@ async def farms_ready_for_digest(
     (farm, recipient, class, payload, local day): a farm is done for the day
     only when every digest-deliverable recipient — opted in, membership
     active, account not tombstoned, the exact set ``run_digest_for_farm``
-    would attempt — holds a settled row for its local today. One recipient's
+    would attempt — holds a settled row for its local today's digest payload.
+    A digest that waited for admission across midnight can carry yesterday's
+    content while correctly recording today's delivery date; that old payload
+    must not settle today's distinct duties. One recipient's
     settled row no longer settles the whole farm, so a crash after recipient
     1 of 5 leaves the farm ready for the remaining four, whose dedupe slots
     are still unclaimed and therefore re-enter safely. A farm with no deliverable recipients has no
@@ -632,12 +635,24 @@ async def farms_ready_for_digest(
     digest_minute_of_day = (
         settings.notifications_digest_hour * 60 + settings.notifications_digest_minute
     )
+    # Match payload_hash("DAILY_DIGEST:digest:" + local_date.isoformat()).
+    # Explicit date formatting is independent of the connection's DateStyle.
+    current_digest_hash = func.encode(
+        func.sha256(
+            func.convert_to(
+                literal("DAILY_DIGEST:digest:") + func.to_char(local_date, "YYYY-MM-DD"),
+                "UTF8",
+            )
+        ),
+        "hex",
+    )
     settled_for_recipient = (
         select(NotificationLog.id)
         .where(
             NotificationLog.farm_id == Farm.id,
             NotificationLog.recipient_id == NotificationRecipient.id,
             NotificationLog.alert_class == "DAILY_DIGEST",
+            NotificationLog.payload_hash == current_digest_hash,
             NotificationLog.local_date == local_date,
             NotificationLog.status != "SKIPPED_QUIET",
         )

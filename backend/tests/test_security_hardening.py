@@ -594,7 +594,9 @@ async def test_cancelled_invalid_login_still_enters_failure_budget(
         request.cancel()
         with pytest.raises(asyncio.CancelledError):
             await request
-        assert len(auth_limiter._hits[("login", f"127.0.0.1|{email}")]) == 1
+        recorded = auth_limiter._hits.get(("login", f"127.0.0.1|{email}"))
+        assert recorded is not None, "An admitted, canceled invalid login must retain its failure"
+        assert len(recorded) == 1
     finally:
         release.set()
 
@@ -2060,7 +2062,7 @@ async def test_change_password_per_account_ceiling_across_rotating_ips(
     get_settings.cache_clear()
     app = create_app()
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
     ) as proxied:
         created = await proxied.post(
             "/api/auth/register",

@@ -1150,6 +1150,8 @@ async def test_event_completes_linked_vaccine_task(client: httpx.AsyncClient) ->
     detail = await get_batch(client, headers, detail["batch"]["id"])
     done = next(t for t in detail["tasks"] if t["id"] == ppr_task["id"])
     assert done["status"] == "DONE"
+    assert "completed_by_id" in done, "A completed vaccine task must declare completed_by_id"
+    assert "completed_at" in done, "A completed vaccine task must declare completed_at"
     assert done["completed_by_id"] is not None
     assert done["completed_at"] is not None
 

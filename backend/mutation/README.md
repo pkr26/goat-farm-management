@@ -28,16 +28,41 @@ For a new campaign on a stable checkout:
    allow the usual integration-suite runtime.
 3. Preview with `python mutation/mutate_run.py --dry-run`, then execute with
    `python mutation/mutate_run.py --full --workers 2`. Full mode runs every
-   selected coverer. Default mode samples and records that limit explicitly.
+   measured coverer of the precise replaced statement for function edits.
+   Statement bounds are validated against captured source; multiline opening
+   parentheses and short-circuited expressions cannot hide their other coverers.
+   Import-time edits, including class
+   fields, run the complete concrete pytest inventory from the passing coverage
+   baseline, even when import-time lines have no per-test context. Direct
+   importers and measured coverers run first without dropping any case.
+   Default mode samples and records that limit explicitly.
 4. Preview compatible results with `python mutation/mutate_report.py --dry-run`.
    Generate a report only when ready to record the fresh campaign.
+5. Independently verify a fresh full generic campaign with
+   `python mutation/verify_generic_receipts.py --campaign ID --require-complete --require-measured`.
+   Repeat `--results PATH` in chronological order when receipts span files.
+   The default outputs are `mutation/campaigns/generic-report.json` and
+   `mutation/campaigns/generic-verification.json`. This verifier requires the
+   current complete-selection policy; historical sampled campaigns cannot be certified.
 
 Each attempt gets a private source snapshot, process session and database
 namespace. The parent reaps that exact database after process exit, including
 timeouts where pytest cannot run fixture teardown. Cleanup allows PostgreSQL
-45 seconds to finish an in-progress checkpoint; a cleanup failure remains an
+300 seconds to finish an in-progress checkpoint; a cleanup failure remains an
 infrastructure result and cannot count as a kill. Neither the runner nor
 verification helpers rewrite live app files.
+By default, coverage collection and mutation execution keep temporary workspaces in
+the excluded `mutation/campaigns/runtime` directory, outside operating-system
+temporary cleanup paths.
+The default per-phase budget is `max(300, 120 + 2 * concrete_test_count)` seconds.
+Counts expand file/class/parameter-family selectors against the captured passing
+collection and deduplicate overlaps. The budget is fixed before execution and is
+identical for a clean baseline and its mutant; observed mutant speed cannot
+extend it. `--timeout 7200` selects an absolute 7,200-second budget instead.
+The selection and timeout policy versions are part of the campaign identity.
+Collection and execution clear ambient `PYTEST_ADDOPTS` so a shell-level
+`-k`/`-m` filter cannot silently narrow a full campaign. Repository pytest
+configuration remains captured in the source identity.
 The exact selection must pass unmutated under identical resource limits before
 its mutant runs. Structured pytest receipts distinguish assertion failures
 from setup, collection, usage, internal, no-test and transport errors. Only

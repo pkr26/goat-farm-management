@@ -28,24 +28,28 @@ async def test_skip_queued_behind_a_real_public_completion_preserves_done_attrib
     permit_completion_commit = asyncio.Event()
     completion_pid = 0
     skip_pid = 0
-    skip_entered_task_read = asyncio.Event()
+    skip_entered_transition = asyncio.Event()
     original_completion = complete_task
-    original_task_read = tasks_api._get_task
+    original_transition_lock = tasks_api._lock_farm_for_recurring_transition
 
-    async def observe_factual_task_read(
-        db: AsyncSession, farm: Farm, key: int, *, for_update: bool = False
-    ) -> Task:
+    async def observe_factual_transition(db: AsyncSession, farm: Farm, key: int) -> None:
         nonlocal skip_pid
         if key == task_id and completion_prepared.is_set():
-            # Record the actual competing request connection immediately before
-            # its genuine read; preserve the callee and its caller-selected lock.
+            # Observe the real competing connection before its first transition
+            # lock. Either a Task-row wait or a genuine earlier queue wait may
+            # order these requests; the final public/audit oracle is unchanged.
+            if farm.id != int(owner["X-Farm-Id"]) or skip_pid != 0:
+                raise RuntimeError("Competing transition did not identify the single owned skip")
             pid = await db.scalar(text("SELECT pg_backend_pid()"))
-            assert isinstance(pid, int)
+            if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+                raise RuntimeError("Competing transition did not expose its real backend PID")
             skip_pid = pid
-            skip_entered_task_read.set()
-        return await original_task_read(db, farm, key, for_update=for_update)
+            skip_entered_transition.set()
+        await original_transition_lock(db, farm, key)
 
-    monkeypatch.setattr(tasks_api, "_get_task", observe_factual_task_read)
+    monkeypatch.setattr(
+        tasks_api, "_lock_farm_for_recurring_transition", observe_factual_transition
+    )
 
     async def pause_factual_completion(
         db: AsyncSession,
@@ -64,7 +68,8 @@ async def test_skip_queued_behind_a_real_public_completion_preserves_done_attrib
             # has performed its actual DONE mutation and flushed its audit.
             # Pause only its commit boundary; never replace domain behavior.
             pid = await db.scalar(text("SELECT pg_backend_pid()"))
-            assert isinstance(pid, int)
+            if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+                raise RuntimeError("Factual completion did not expose its real backend PID")
             completion_pid = pid
             completion_prepared.set()
             await permit_completion_commit.wait()
@@ -96,21 +101,30 @@ async def test_skip_queued_behind_a_real_public_completion_preserves_done_attrib
                     json={"reason": "Competing standdown must not replace actual completion"},
                 )
             )
-            await asyncio.wait_for(skip_entered_task_read.wait(), timeout=15)
+            await asyncio.wait_for(skip_entered_transition.wait(), timeout=15)
+            if skip_pid == completion_pid:
+                raise RuntimeError("Competing requests did not retain independent real connections")
             deadline = asyncio.get_running_loop().time() + 15
             async with get_sessionmaker()() as observer:
                 while True:
+                    if skip.done():
+                        raise RuntimeError("The owned skip ended before exposing its actual wait")
                     # pg_blocking_pids reads the actual live lock manager state.
                     # Restrict the witness to this request's known connection;
-                    # another waiter in the database cannot satisfy the oracle.
+                    # another waiter cannot satisfy it. Release the writer for
+                    # either genuine lock path; do not assert mutex topology.
                     blockers = await observer.scalar(
                         text("SELECT pg_blocking_pids(:reader)"), {"reader": skip_pid}
                     )
-                    if isinstance(blockers, list) and completion_pid in blockers:
+                    if not isinstance(blockers, list) or any(
+                        not isinstance(pid, int) or isinstance(pid, bool) for pid in blockers
+                    ):
+                        raise RuntimeError("PostgreSQL did not return the actual blocking PID list")
+                    if completion_pid in blockers:
                         break
                     if asyncio.get_running_loop().time() >= deadline:
                         raise TimeoutError(
-                            "The competing skip never exposed its actual completion-row wait"
+                            "The competing skip never exposed its actual owned-transaction wait"
                         )
                     await asyncio.sleep(0.01)
             permit_completion_commit.set()

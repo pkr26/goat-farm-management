@@ -1,38 +1,16 @@
-# Trivy exceptions scoped ONLY to upstream gosu embedded in the local PostgreSQL image.
-# Derived local service: goatfarm-postgres:16-security-20261004
-# Upstream base: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+# Trivy review record scoped ONLY to the local PostgreSQL image.
+# Derived local service: goatfarm-postgres:16-security-20261113
+# Upstream base: postgres:16@sha256:63e83b5a3dc36a917dccb76fe1bd2ac51f1ec9c1deb47ff20d4f04233bf6eae9
 # Same PostgreSQL 16 / Debian trixie / glibc line; no collation-family change.
 #
-# The refreshed image and exact-SHA256 Debian package remediation remove all
-# previously excepted distro CVEs. These EXISTING Go stdlib exceptions remain
-# confined to the upstream gosu privilege-drop helper (Go 1.24.6), not the
-# PostgreSQL server. They are unchanged in scope; no new advisory is waived.
-# Backend/frontend/edge scans never load this file. Raw unfiltered scans and
-# SBOMs retain these records for review; a green scoped gate is not zero CVEs.
+# No active CVE exceptions. The previous gosu Go standard-library exceptions
+# were removed after rebuilding checksum-pinned gosu 1.20 with pinned Go 1.27.4.
+# Reviewed, exact-hash Debian package pins also remediate zlib, PCRE and OpenSSL.
+# Both amd64 and arm64 derived images passed fresh fixable HIGH/CRITICAL gates
+# without a CVE ignore file. Unfiltered scans and SPDX SBOMs retain unfixed
+# findings; passing the configured gate does not claim zero vulnerabilities.
+# Backend/frontend/edge scans never load this file.
 #
-# On each weekly scan, re-check the upstream digest/gosu rebuild and remove
-# resolved entries. The existing 30-day freshness gate remains mandatory.
-# refreshed: 2026-10-04
-#
-CVE-2025-61726
-CVE-2025-61729
-CVE-2025-68121
-CVE-2026-25679
-CVE-2026-27145
-CVE-2026-32280
-CVE-2026-32281
-CVE-2026-32283
-CVE-2026-33811
-CVE-2026-33814
-CVE-2026-33818
-CVE-2026-39820
-CVE-2026-39821
-CVE-2026-39822
-CVE-2026-39836
-CVE-2026-42499
-CVE-2026-42504
-CVE-2026-56853
-CVE-2026-56858
-CVE-2026-56859
-CVE-2026-56860
-CVE-2026-56862
+# Re-check upstream digests, package pins and both architectures weekly.
+# The existing 30-day freshness gate remains mandatory, including this empty list.
+# refreshed: 2026-11-13

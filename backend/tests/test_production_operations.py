@@ -170,7 +170,8 @@ async def test_private_metrics_authentication_and_collection_are_independent(
     try:
         app = create_app()
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
+            transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://test",
         ) as client:
             assert (await client.get("/metrics")).status_code == 401
             assert (

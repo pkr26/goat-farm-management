@@ -138,7 +138,7 @@ jobs:
       # Immutable upstream/package inputs are in docker/postgres/Dockerfile.
       # The edge is a first-party source build below so fixes do not wait for
       # an upstream nginx image rebuild.
-      COMPOSE_POSTGRES_IMAGE: goatfarm-postgres:16-security-20261004
+      COMPOSE_POSTGRES_IMAGE: goatfarm-postgres:16-security-20261113
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -227,9 +227,9 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-          # Only existing upstream gosu Go exceptions apply to this derived
-          # image. All distro package exceptions were removed after exact-hash
-          # remediation. The freshness deadline and scope remain enforced;
+          # The reviewed PostgreSQL list currently has no CVE exceptions:
+          # gosu is rebuilt with patched Go and distro fixes use exact hashes.
+          # The freshness deadline and PostgreSQL-only scope remain enforced;
           # backend/frontend/edge scans never load this file.
           trivyignores: .trivyignore.compose-images
           # Debian's ssl-cert package ships a build-time-generated self-signed

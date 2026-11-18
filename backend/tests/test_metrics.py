@@ -162,7 +162,7 @@ async def test_auth_rate_limit_429_increments_scope_counter() -> None:
 
     app = create_app()
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
     ) as probe:
         before = _samples(metrics.render())
         prior = (

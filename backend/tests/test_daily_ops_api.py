@@ -4,6 +4,7 @@ Contract, RBAC, the goat-only guard, herd-coherence rejections and the
 opt-in Markdown ledger — mirroring the planner API suite's shape.
 """
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -229,12 +230,29 @@ async def test_run_limiter_429_while_run_in_flight(client: httpx.AsyncClient) ->
     farm_id = int(headers["X-Farm-Id"])
     lock = _farm_run_lock(farm_id)
     await lock.acquire()
+    request = asyncio.create_task(
+        client.post("/api/ops-sim/run", json=_run_document(), headers=headers)
+    )
     try:
-        resp = await client.post("/api/ops-sim/run", json=_run_document(), headers=headers)
+        completed, _ = await asyncio.wait({request}, timeout=10)
+        assert request in completed, "Busy-farm admission must return without waiting for its lock"
+        error: Exception | None = None
+        resp = None
+        try:
+            resp = await request
+        except Exception as exc:
+            error = exc
+        assert error is None, f"Busy-farm admission must return an HTTP rejection: {error!r}"
+        assert resp is not None
         assert resp.status_code == 429, resp.text
         assert "busy" in resp.json()["detail"]
+        assert lock.locked(), "Busy-farm rejection released a lock owned by another run"
     finally:
-        lock.release()
+        if not request.done():
+            request.cancel()
+        await asyncio.gather(request, return_exceptions=True)
+        if lock.locked():
+            lock.release()
     resp = await client.post("/api/ops-sim/run", json=_run_document(), headers=headers)
     assert resp.status_code == 200, resp.text
 

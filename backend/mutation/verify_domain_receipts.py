@@ -8,6 +8,8 @@ family selections are expanded against their exact passing baseline inventory.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import itertools
 import json
 import re
 import sys
@@ -44,6 +46,10 @@ class Context:
     database_hash: str
     expected_selection: Callable[[dict[str, Any]], list[str]]
     source_bytes: Callable[[str], bytes] | None = None
+    profile: str = "domain"
+    policy_check: Callable[[dict[str, Any]], None] | None = None
+    provenance_check: Callable[[dict[str, Any]], None] | None = None
+    execution_modes_sha256: str | None = None
 
 
 def capture_context(campaign: str) -> Context:
@@ -157,27 +163,50 @@ def inventory(receipt: Any, *, clean: bool) -> tuple[set[str], dict[str, dict[st
     return nodes, phases
 
 
+def check_native_domain_cleanup(provenance: dict[str, Any]) -> None:
+    """Bind native domain rows, including inconclusive rows, to cleanup bounds."""
+    config = provenance.get("config")
+    if not isinstance(config, dict):
+        raise EvidenceError("missing native domain execution policy")
+    # Bootstrap has its own existing proof contract; leave it unchanged.
+    if config.get("bootstrap") is not None:
+        return
+    if config.get("database_cleanup") != mutate_run.database_cleanup_configuration():
+        raise EvidenceError("not the current bounded native domain database cleanup policy")
+
+
 def verify_definitive(record: dict[str, Any], context: Context) -> dict[str, Any]:
     """Validate an observed KILLED/SURVIVED label without changing its semantics."""
     import bootstrap_policy
 
     if record.get("status_policy") == bootstrap_policy.POLICY:
+        if context.profile != "domain":
+            raise EvidenceError("generic bootstrap evidence requires its own verified policy")
         try:
             return bootstrap_policy.verify(record, context)
         except (KeyError, TypeError, AttributeError) as exc:
             raise EvidenceError(f"malformed bootstrap evidence: {exc}") from exc
-    if record.get("provenance", {}).get("config", {}).get("bootstrap") is not None:
+    provenance = record.get("provenance")
+    if not isinstance(provenance, dict) or not isinstance(provenance.get("config"), dict):
+        raise EvidenceError("missing provenance or execution policy")
+    if provenance["config"].get("bootstrap") is not None:
         raise EvidenceError("bootstrap campaign cannot use legacy single-phase evidence")
+    if context.profile == "domain":
+        check_native_domain_cleanup(provenance)
     selection = record.get("selection")
     baseline = record.get("baseline")
-    config = record["provenance"].get("config", {})
+    config = provenance["config"]
     if (
         record["provenance"].get("schema") != 2
         or record.get("status_policy") != "assertions-only-timeouts-inconclusive"
         or record.get("selection_mode") != "complete"
         or config.get("full") is not True
-        or config.get("domain_selection") != "all-coverers-or-declared-domain-suite-v1"
         or config.get("test_database_admin_sha256") != context.database_hash
+    ):
+        raise EvidenceError(f"not the current complete {context.profile}/assertions-only policy")
+    if (
+        context.policy_check is None
+        and config.get("domain_selection") != "all-coverers-or-declared-domain-suite-v1"
     ):
         raise EvidenceError("not the current complete domain/assertions-only policy")
     if (
@@ -194,10 +223,17 @@ def verify_definitive(record: dict[str, Any], context: Context) -> dict[str, Any
     digest = digest_json(selection)
     if not (record.get("selection_sha256") == digest == baseline.get("selection_sha256")):
         raise EvidenceError("baseline and mutant exact ordered selection hashes disagree")
+    if context.policy_check is not None:
+        context.policy_check(record)
     baseline_receipt = baseline.get("pytest_receipt")
-    expected_selection = context.expected_selection(context.manifest[record["id"]])
+    try:
+        expected_selection = context.expected_selection(context.manifest[record["id"]])
+    except (ValueError, TypeError, KeyError) as exc:
+        raise EvidenceError("cannot independently recompute the complete selection") from exc
     if selection != expected_selection:
-        raise EvidenceError("selection omits or reorders independently recomputed domain coverers")
+        raise EvidenceError(
+            f"selection omits or reorders independently recomputed {context.profile} coverers"
+        )
     if not isinstance(baseline_receipt, dict):
         raise EvidenceError("missing baseline structured pytest receipt")
     baseline_nodes, _ = inventory(baseline_receipt, clean=True)
@@ -233,7 +269,9 @@ def verify_definitive(record: dict[str, Any], context: Context) -> dict[str, Any
     }
 
 
-def stream_verify(path: Path, context: Context) -> tuple[dict[str, Any], dict[str, Any]]:
+def stream_verify(
+    path: Path | list[Path], context: Context
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Retain only compact latest results; provenance cache is limited to four."""
     provenance_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
     latest: dict[str, dict[str, Any]] = {}
@@ -246,8 +284,10 @@ def stream_verify(path: Path, context: Context) -> tuple[dict[str, Any], dict[st
         if len(errors) < 100:
             errors.append(message)
 
-    with path.open() as handle:
-        for number, line in enumerate(handle, 1):
+    paths = [path] if isinstance(path, Path) else path
+    with contextlib.ExitStack() as opened:
+        lines = itertools.chain.from_iterable(opened.enter_context(item.open()) for item in paths)
+        for number, line in enumerate(lines, 1):
             if not line.strip():
                 continue
             try:
@@ -319,6 +359,21 @@ def stream_verify(path: Path, context: Context) -> tuple[dict[str, Any], dict[st
             if mutant is None or record.get("mutant_digest") != digest_json(mutant):
                 error(f"line {number}: unknown or changed manifest mutant")
                 continue
+            if context.profile == "domain" or context.provenance_check is not None:
+                try:
+                    if context.profile == "domain":
+                        check_native_domain_cleanup(provenance)
+                    if context.provenance_check is not None:
+                        context.provenance_check(provenance)
+                except EvidenceError as exc:
+                    latest[record["id"]] = {
+                        "id": record["id"],
+                        "status": record["status"],
+                        "verified": False,
+                        "error": str(exc),
+                    }
+                    error(f"line {number}: {exc}")
+                    continue
             if any(
                 record.get(key) != mutant.get(key)
                 for key in (
@@ -352,11 +407,30 @@ def stream_verify(path: Path, context: Context) -> tuple[dict[str, Any], dict[st
                 error(f"line {number}: unknown status {record['status']!r}")
             latest[record["id"]] = row
     rows = []
-    for domain, name in enumerate(mutate_domains.NAMES, 1):
-        targets = {mid for mid, mutant in context.manifest.items() if mutant["domain"] == domain}
+    if context.profile == "domain":
+        groups = [
+            (
+                domain,
+                name,
+                {mid for mid, mutant in context.manifest.items() if mutant["domain"] == domain},
+            )
+            for domain, name in enumerate(mutate_domains.NAMES, 1)
+        ]
+    elif context.profile == "generic":
+        groups = [
+            (
+                file,
+                file,
+                {mid for mid, mutant in context.manifest.items() if mutant["file"] == file},
+            )
+            for file in sorted({mutant["file"] for mutant in context.manifest.values()})
+        ]
+    else:
+        raise EvidenceError("unsupported independent verification profile")
+    for group_id, name, targets in groups:
         rows.append(
             {
-                "id": domain,
+                "id": group_id,
                 "name": name,
                 "targets": len(targets),
                 "missing": len(targets - latest.keys()),
@@ -370,13 +444,14 @@ def stream_verify(path: Path, context: Context) -> tuple[dict[str, Any], dict[st
         "total": len(context.manifest),
         "attempted": len(latest),
         "statuses": dict(Counter(row["status"] for row in latest.values())),
-        "campaigns": rows,
+        "campaigns" if context.profile == "domain" else "files": rows,
         "incompatible_historical_attempts": total - compatible,
     }
     definitive = [row for row in latest.values() if row["verified"]]
     killed = sum(row["status"] == "KILLED" for row in definitive)
     verification = {
-        "scope": "Independent streaming validation of unchanged official domain receipts.",
+        "scope": "Independent streaming validation of unchanged official "
+        f"{context.profile} receipts.",
         "campaign_id": context.campaign,
         "consumer_sha256": sha_file(Path(__file__)),
         "producer_policy_sha256": context.inputs.get("harness", {}).get("mutate_run.py"),
@@ -402,6 +477,9 @@ def stream_verify(path: Path, context: Context) -> tuple[dict[str, Any], dict[st
         "independent_selection_policy": (
             "Exact ordered DomainRunner.select_tests against captured, hashed "
             "coverage/provenance bytes; no Runner initialization."
+            if context.profile == "domain"
+            else "Exact ordered GenericSelection against captured, hashed coverage/provenance "
+            "and passing concrete collection inventory; no Runner initialization."
         ),
         "limitation": (
             "The original producer records total collection count and executed node IDs, "

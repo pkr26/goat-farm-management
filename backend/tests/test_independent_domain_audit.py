@@ -190,7 +190,10 @@ async def test_quality_verdict_order_agrees_between_list_filter_and_detail(
     filtered = await client.get(f"/api/screening/images?status={expected}", headers=owner)
     assert detail.status_code == listing.status_code == filtered.status_code == 200
     assert detail.json()["status"] == expected
-    assert listing.json()["images"][0]["status"] == expected
+    listed_images = listing.json().get("images")
+    assert isinstance(listed_images, list), "Screening image list must declare its images list"
+    assert len(listed_images) == 1, "Screening image list must retain the owned image"
+    assert listed_images[0]["status"] == expected
     assert filtered.json()["total"] == 1
 
 

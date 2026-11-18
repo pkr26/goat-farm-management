@@ -90,6 +90,7 @@ from ..schemas.common import (
     standing_quota,
 )
 from ..security import (
+    JWT_CLOCK_SKEW_SECONDS,
     LEGACY_PBKDF2_PREFIX,
     PASSWORD_SESSION_SCOPE,
     TOTP_CHALLENGE_TTL_SECONDS,
@@ -2536,11 +2537,16 @@ async def _consume_mfa_jti(db: AsyncSession, jti: str, expires_at: datetime) -> 
     one session inserts, the others block on the unique jti until that
     transaction commits (then see the conflict) or rolls back (then claim it
     themselves). The opportunistic expired-row sweep shares the statement's
-    transaction, keeping the table bounded by one TTL window of successful
-    exchanges; it is rolled back with the claim on the replay path, which is
-    harmless — the next consume anywhere sweeps again.
+    transaction, keeping the table bounded by the token TTL plus its accepted
+    clock-skew window. A spent proof must remain recorded while the decoder
+    still accepts that signed token. The sweep is rolled back with the claim
+    on the replay path; the next consume anywhere sweeps again.
     """
-    await db.execute(delete(ConsumedMfaChallenge).where(ConsumedMfaChallenge.expires_at < utcnow()))
+    await db.execute(
+        delete(ConsumedMfaChallenge).where(
+            ConsumedMfaChallenge.expires_at < utcnow() - timedelta(seconds=JWT_CLOCK_SKEW_SECONDS)
+        )
+    )
     claimed = (
         await db.execute(
             pg_insert(ConsumedMfaChallenge)
@@ -3339,6 +3345,13 @@ async def totp_challenge(
         await db.rollback()
         note_transient_security_signal("auth.totp.challenge_failed")
         raise generic
+    # The claim can wait on another transaction's cleanup. Validate after that
+    # await as well, so a proof that expired while waiting cannot mint a session.
+    current_body, expired_now = _decode_payload_result(payload.mfa_token, "mfa")
+    if current_body is None or expired_now:
+        await db.rollback()
+        note_transient_security_signal("auth.totp.challenge_failed")
+        raise generic
     if decrypted.needs_rewrap:
         user.totp_secret_enc = encrypt_totp_secret(decrypted.secret)
     out = await _issue_tokens(db, user, response, transient=tablet_setup)
@@ -3350,8 +3363,8 @@ async def totp_challenge(
 
 def _mfa_token_expiry(token: str, generic: HTTPException) -> datetime:
     """Expiry of a decoded mfa token (already structurally verified)."""
-    body, _expired = _decode_payload_result(token, "mfa")
-    if body is None:
+    body, expired = _decode_payload_result(token, "mfa")
+    if body is None or expired:
         raise generic
     exp = body.get("exp")
     if not isinstance(exp, (int, float)):

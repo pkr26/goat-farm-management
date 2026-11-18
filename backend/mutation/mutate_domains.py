@@ -13,7 +13,7 @@ import ast
 import hashlib
 import json
 import os
-from collections import Counter
+from collections import Counter, OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -22,12 +22,11 @@ from mutate_identity import (
     atomic_json,
     digest_json,
     input_identity,
-    latest_compatible,
-    read_results,
+    iter_results,
     sha_file,
 )
 from mutate_run import BACKEND as BACKEND
-from mutate_run import MUTDIR, Runner
+from mutate_run import MUTDIR, Runner, compatible_statuses, compatible_terminal_ids
 
 NAMES = [
     "Animal registration, identity and weighing",
@@ -623,17 +622,15 @@ def generate(spec_paths: list[str]) -> None:
 
 
 class DomainRunner(Runner):
-    def __init__(self, workers: int, max_seconds: float | None, *, phase_timeout: float = 600):
+    def __init__(
+        self, workers: int, max_seconds: float | None, *, phase_timeout: float | None = None
+    ):
         super().__init__(workers, max_seconds, phase_timeout=phase_timeout)
         self.identity["config"]["domain_selection"] = "all-coverers-or-declared-domain-suite-v1"
         self.campaign_id = digest_json(self.identity)
-        self.done_ids = {
-            mid
-            for mid, record in latest_compatible(
-                read_results(self.results_path), self.campaign_id, self.manifest
-            ).items()
-            if record.get("status") in {"KILLED", "SURVIVED", "INVALID"}
-        }
+        self.done_ids = compatible_terminal_ids(
+            self.results_path, self.campaign_id, self.manifest, self.identity
+        )
 
     def select_tests(self, m: dict[str, Any]) -> tuple[list[str], bool]:
         selection = sorted(self.ctx.get(m["file"], {}).get(m["line"], set()))
@@ -649,30 +646,74 @@ class DomainRunner(Runner):
 
 def summarize() -> None:
     manifest = {m["id"]: m for m in json.loads((MUTDIR / "manifest.json").read_text())}
-    all_records = read_results(MUTDIR / "results.jsonl")
+    results_path = MUTDIR / "results.jsonl"
+    before = results_path.stat() if results_path.exists() else None
     inputs = input_identity(BACKEND)
     artifacts = {
         "manifest_sha256": sha_file(MUTDIR / "manifest.json"),
         "coverage_sha256": sha_file(BACKEND / ".coverage-mut"),
         "coverage_provenance_sha256": sha_file(BACKEND / ".coverage-mut.provenance.json"),
     }
-    records = [
-        record
-        for record in all_records
-        if record.get("provenance")
-        and record.get("campaign_id") == digest_json(record["provenance"])
-        and all(record["provenance"].get(key) == value for key, value in inputs.items())
-        and all(record["provenance"].get(key) == value for key, value in artifacts.items())
-    ]
-    campaign_ids = list(
-        dict.fromkeys(str(r["campaign_id"]) for r in records if r.get("campaign_id"))
-    )
-    campaign = campaign_ids[-1] if campaign_ids else "unmeasured"
-    latest = latest_compatible(records, campaign, manifest)
+    # The first pass chooses the most recently introduced current campaign;
+    # the second folds only
+    # compact statuses for it. Interleaved campaigns retain their full latest
+    # history without keeping repeated provenance and pytest inventories in RAM.
+    validity: OrderedDict[str, tuple[dict[str, Any], bool]] = OrderedDict()
+
+    def current(record: dict[str, Any]) -> bool:
+        provenance, cid = record.get("provenance"), record.get("campaign_id")
+        if not isinstance(provenance, dict) or not isinstance(cid, str):
+            return False
+        cached = validity.get(cid)
+        if cached is not None and cached[0] == provenance:
+            validity.move_to_end(cid)
+            return cached[1]
+        valid = bool(provenance) and (
+            cid == digest_json(provenance)
+            and all(provenance.get(key) == value for key, value in inputs.items())
+            and all(provenance.get(key) == value for key, value in artifacts.items())
+        )
+        validity[cid] = (provenance, valid)
+        validity.move_to_end(cid)
+        while len(validity) > 8:
+            validity.popitem(last=False)
+        return valid
+
+    campaign = "unmeasured"
+    seen_campaigns: set[str] = set()
+    total_records = compatible_records = 0
+    for record in iter_results(results_path):
+        total_records += 1
+        if current(record):
+            compatible_records += 1
+            cid = record["campaign_id"]
+            if cid not in seen_campaigns:
+                seen_campaigns.add(cid)
+                campaign = cid
+    fingerprints = {mid: digest_json(mutant) for mid, mutant in manifest.items()}
+    latest: dict[str, str] = {}
+    for record in iter_results(results_path):
+        mid = record["id"]
+        if (
+            record.get("campaign_id") == campaign
+            and mid in fingerprints
+            and record.get("mutant_digest") == fingerprints[mid]
+        ):
+            latest[mid] = record["status"] if current(record) else "UNVERIFIED"
+    after = results_path.stat() if results_path.exists() else None
+    if (before is None) != (after is None) or (
+        before is not None
+        and after is not None
+        and (before.st_ino, before.st_size, before.st_mtime_ns)
+        != (after.st_ino, after.st_size, after.st_mtime_ns)
+    ):
+        raise ValueError(
+            "mutation receipts changed during reporting; retry after the writer finishes"
+        )
     rows = []
     for domain, name in enumerate(NAMES, 1):
         targets = {mid for mid, m in manifest.items() if m["domain"] == domain}
-        statuses = Counter(latest[mid]["status"] for mid in targets if mid in latest)
+        statuses = Counter(latest[mid] for mid in targets if mid in latest)
         rows.append(
             {
                 "id": domain,
@@ -686,9 +727,9 @@ def summarize() -> None:
         "campaign_id": campaign,
         "total": len(manifest),
         "attempted": len(latest),
-        "statuses": dict(Counter(r["status"] for r in latest.values())),
+        "statuses": dict(Counter(latest.values())),
         "campaigns": rows,
-        "incompatible_historical_attempts": len(all_records) - len(records),
+        "incompatible_historical_attempts": total_records - compatible_records,
     }
     atomic_json(MUTDIR / "domain-report.json", report)
     print(json.dumps(report, indent=2))
@@ -700,7 +741,12 @@ def main() -> None:
     parser.add_argument("--specs", nargs="*", default=[str(MUTDIR / "domain_specs.json")])
     parser.add_argument("--domains", default=",".join(str(i) for i in range(1, 39)))
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--timeout", type=float, default=600)
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="absolute phase timeout; default uses captured selection size",
+    )
     parser.add_argument("--status", nargs="*", default=[])
     parser.add_argument("--semantic-only", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -730,8 +776,12 @@ def main() -> None:
         os.environ["MUTATE_FULL_PHASE"] = "1"
         runner = DomainRunner(args.workers, None, phase_timeout=args.timeout)
         try:
-            latest = latest_compatible(
-                read_results(runner.results_path), runner.campaign_id, runner.manifest
+            latest = (
+                compatible_statuses(
+                    runner.results_path, runner.campaign_id, runner.manifest, runner.identity
+                )
+                if args.status
+                else {}
             )
             todo = [
                 m
@@ -739,7 +789,7 @@ def main() -> None:
                 if m["domain"] in domains
                 and (not args.semantic_only or m["kind"] == "semantic")
                 and (
-                    (args.status and latest.get(m["id"], {}).get("status") in args.status)
+                    (args.status and latest.get(m["id"]) in args.status)
                     or (not args.status and m["id"] not in runner.done_ids)
                 )
             ]

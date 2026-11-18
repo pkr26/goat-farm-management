@@ -305,7 +305,11 @@ async def test_account_tombstone_serializes_before_roster_mutation(
     client: httpx.AsyncClient,
     lifecycle: str,
 ) -> None:
-    """Roster edits pin Membership -> target User and reject a tombstone."""
+    """Roster edits revalidate a target deleted after the real Membership read."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.api import team as team_api
+
     owner = await owner_with_farm(
         client,
         email=f"{lifecycle}-tombstone-owner@farm.in",
@@ -336,27 +340,41 @@ async def test_account_tombstone_serializes_before_roster_mutation(
         payload = {"role_id": replacement_role_id}
         expected_role_id = membership["role_id"]
 
-    holder = get_sessionmaker()()
-    await holder.execute(select(User.id).where(User.id == worker_id).with_for_update())
-    async with (
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=create_app()), base_url="http://test"
-        ) as delete_client,
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=create_app()), base_url="http://test"
-        ) as roster_client,
-    ):
-        deletion = asyncio.create_task(
-            delete_client.request(
-                "DELETE",
-                "/api/auth/account",
-                json={"current_password": WORKER_PASSWORD + "!r1"},
-                headers=worker_headers,
-            )
+    entered, resume = asyncio.Event(), asyncio.Event()
+    real_membership = team_api._get_membership
+
+    async def after_real_membership_read(
+        db: AsyncSession,
+        farm: Farm,
+        target_id: int,
+        *,
+        for_update: bool = False,
+        no_key_update: bool = False,
+    ) -> FarmMembership:
+        membership_row = await real_membership(
+            db, farm, target_id, for_update=for_update, no_key_update=no_key_update
         )
-        roster = None
-        try:
-            await _wait_for_lock_waiters(1)
+        if for_update and target_id == membership["id"]:
+            # The real query has locked Membership and loaded the live User.
+            # Public deletion intentionally does not lock retained Memberships.
+            entered.set()
+            await resume.wait()
+        return membership_row
+
+    early_response: httpx.Response | None = None
+    deletion_response: httpx.Response | None = None
+    roster_response: httpx.Response | None = None
+    schedule_error: BaseException | None = None
+    with pytest.MonkeyPatch.context() as patches:
+        patches.setattr(team_api, "_get_membership", after_real_membership_read)
+        async with (
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=create_app()), base_url="http://test"
+            ) as delete_client,
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=create_app()), base_url="http://test"
+            ) as roster_client,
+        ):
             roster = asyncio.create_task(
                 roster_client.request(
                     "PUT" if lifecycle == "status" else "POST",
@@ -365,23 +383,72 @@ async def test_account_tombstone_serializes_before_roster_mutation(
                     headers=owner,
                 )
             )
-            await _wait_for_lock_waiters(2)
-            await holder.rollback()
-            async with asyncio.timeout(10):
-                deletion_response, roster_response = await asyncio.gather(deletion, roster)
-        finally:
-            await holder.rollback()
-            await holder.close()
-            if not deletion.done():
-                deletion.cancel()
-            if roster is not None and not roster.done():
-                roster.cancel()
+            observed = asyncio.create_task(entered.wait())
+            owned_requests = [roster]
+            try:
+                done, _ = await asyncio.wait(
+                    {observed, roster}, timeout=5, return_when=asyncio.FIRST_COMPLETED
+                )
+                if roster in done:
+                    early_response = await roster
+                elif observed in done:
+                    await observed
+                    deletion = asyncio.create_task(
+                        delete_client.request(
+                            "DELETE",
+                            "/api/auth/account",
+                            json={"current_password": WORKER_PASSWORD + "!r1"},
+                            headers=worker_headers,
+                        )
+                    )
+                    owned_requests.append(deletion)
+                    async with asyncio.timeout(15):
+                        deletion_response = await deletion
+                    resume.set()
+                    async with asyncio.timeout(10):
+                        roster_response = await roster
+                else:
+                    raise TimeoutError("The owned roster request did not finish or reach its read")
+            except BaseException as exc:
+                schedule_error = exc
+            finally:
+                resume.set()
+                if not observed.done():
+                    observed.cancel()
+                pending = set(owned_requests)
+                try:
+                    _, pending = await asyncio.wait(owned_requests, timeout=10)
+                finally:
+                    for request in pending:
+                        if not request.done():
+                            request.cancel()
+                    # Drain every actual actor before clients and patch close.
+                    # The final cancellation gather has no local bound; the
+                    # external phase budget remains the hard bound.
+                    outcomes = await asyncio.gather(*owned_requests, return_exceptions=True)
+                    await asyncio.gather(observed, return_exceptions=True)
 
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            raise RuntimeError("An owned deletion/roster request failed") from outcome
+    if schedule_error is not None:
+        raise RuntimeError("The owned deletion/roster schedule failed") from schedule_error
+    if early_response is not None:
+        assert early_response.status_code == 200, (
+            "An owner may change a live worker before account deletion"
+        )
+        raise RuntimeError("The real Membership read/deletion interleaving was not witnessed")
+    if deletion_response is None or roster_response is None:
+        raise RuntimeError("The owned deletion/roster responses are incomplete")
     assert deletion_response.status_code == 204, deletion_response.text
-    assert roster_response.status_code == 404, roster_response.text
+    assert roster_response.status_code == 404, (
+        "A roster mutation must reject a worker whose account deletion already completed"
+    )
     assert roster_response.json()["detail"] == "Membership not found"
     async with get_sessionmaker()() as db:
         stored = await db.get(FarmMembership, membership["id"])
+        account = await db.get(User, worker_id)
+    assert account is not None and account.deleted_at is not None
     assert stored is not None
     assert stored.role_id == expected_role_id
     expected_active = lifecycle != "status"

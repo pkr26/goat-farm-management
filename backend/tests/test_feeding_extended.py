@@ -1780,11 +1780,18 @@ async def test_dispense_requires_finished_stock_and_consumes_it(
     await mix_ready(client, headers, "CREEP", batch_kg=10.0)
     ready = await client.get("/api/feeding/finished-stock", headers=headers)
     assert ready.status_code == 200, ready.text
-    assert ready.json()[0]["qty_on_hand"] == pytest.approx(10.0)
+    ready_rows = ready.json()
+    assert isinstance(ready_rows, list), ready_rows
+    assert ready_rows, ready_rows
+    assert ready_rows[0]["qty_on_hand"] == pytest.approx(10.0)
     accepted = await dispense(client, headers, recipe_code="CREEP", qty_kg=3.25)
     assert accepted.status_code == 201, accepted.text
     remaining = await client.get("/api/feeding/finished-stock", headers=headers)
-    assert remaining.json()[0]["qty_on_hand"] == pytest.approx(6.75)
+    assert remaining.status_code == 200, remaining.text
+    remaining_rows = remaining.json()
+    assert isinstance(remaining_rows, list), remaining_rows
+    assert remaining_rows, remaining_rows
+    assert remaining_rows[0]["qty_on_hand"] == pytest.approx(6.75)
 
 
 async def test_dispense_exact_fit_after_fractional_mix_accumulation(

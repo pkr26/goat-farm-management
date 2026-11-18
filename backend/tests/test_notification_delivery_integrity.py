@@ -158,13 +158,17 @@ async def test_delivery_concurrency_is_bounded_per_farm_and_releases_caller_sess
                 assert farm is not None
                 deliveries.append((farm_id, recipient.id, phone, midday(farm)))
 
-    class SlowProvider(RecordingProvider):
+    release_by_phone = {phone: asyncio.Event() for _, _, phone, _ in deliveries}
+    ready_by_phone = {phone: asyncio.Event() for _, _, phone, _ in deliveries}
+
+    class ControlledProvider(RecordingProvider):
         def __init__(self) -> None:
             super().__init__()
             self.active = 0
             self.max_active = 0
             self.active_by_farm: dict[int, int] = {}
-            self.two_farms_active = asyncio.Event()
+            self.entries_by_farm: dict[int, int] = {}
+            self.entered: asyncio.Queue[str] = asyncio.Queue()
 
         async def send_sms(self, phone: str, message: str) -> DeliveryResult:
             caller_db = session_by_phone[phone]
@@ -173,18 +177,18 @@ async def test_delivery_concurrency_is_bounded_per_farm_and_releases_caller_sess
             self.active += 1
             self.max_active = max(self.max_active, self.active)
             self.active_by_farm[farm_id] = self.active_by_farm.get(farm_id, 0) + 1
-            assert self.active_by_farm[farm_id] == 1
-            if sum(count > 0 for count in self.active_by_farm.values()) == 2:
-                self.two_farms_active.set()
             try:
-                await asyncio.wait_for(self.two_farms_active.wait(), timeout=0.5)
-                await asyncio.sleep(0.03)
+                assert self.active_by_farm[farm_id] == 1
+                assert self.active <= 2
+                self.entries_by_farm[farm_id] = self.entries_by_farm.get(farm_id, 0) + 1
+                self.entered.put_nowait(phone)
+                await release_by_phone[phone].wait()
                 return await super().send_sms(phone, message)
             finally:
                 self.active -= 1
                 self.active_by_farm[farm_id] -= 1
 
-    provider = SlowProvider()
+    provider = ControlledProvider()
     settings = Settings(
         environment="development",
         notifications_enabled=True,
@@ -201,6 +205,7 @@ async def test_delivery_concurrency_is_bounded_per_farm_and_releases_caller_sess
             assert recipient is not None
             session_by_phone[phone] = db
             farm_by_phone[phone] = farm_id
+            ready_by_phone[phone].set()
             return await service.send_notification(
                 db,
                 settings,
@@ -213,12 +218,77 @@ async def test_delivery_concurrency_is_bounded_per_farm_and_releases_caller_sess
                 now_local=local_now,
             )
 
-    started = asyncio.get_running_loop().time()
-    outcomes = await asyncio.gather(*(deliver(*delivery) for delivery in deliveries))
-    elapsed = asyncio.get_running_loop().time() - started
+    tasks: list[asyncio.Task[service.SendOutcome]] = []
+
+    def propagate_delivery_failures() -> None:
+        for task in tasks:
+            if task.done() and not task.cancelled():
+                task.result()
+
+    async def start(delivery: tuple[int, int, str, datetime]) -> None:
+        tasks.append(asyncio.create_task(deliver(*delivery)))
+        try:
+            await asyncio.wait_for(ready_by_phone[delivery[2]].wait(), timeout=10)
+        except TimeoutError:
+            propagate_delivery_failures()
+            raise AssertionError("Delivery did not reach its admission boundary") from None
+
+    async def next_entry() -> str:
+        try:
+            # This bounds a deadlocked test. Success depends on controlled
+            # overlap and counts, never on provider throughput or elapsed time.
+            phone = await asyncio.wait_for(provider.entered.get(), timeout=10)
+            propagate_delivery_failures()
+            return phone
+        except TimeoutError:
+            propagate_delivery_failures()
+            raise AssertionError(
+                "An independently admitted farm did not enter the provider"
+            ) from None
+
+    first, same_farm, other_farm, other_peer = deliveries
+    try:
+        await start(first)
+        assert await next_entry() == first[2]
+        # Queue another send from the busy farm before allowing a different
+        # farm to contend. A same-farm waiter must not consume the other
+        # global slot and prevent that tenant from reaching the provider.
+        await start(same_farm)
+        await start(other_farm)
+        assert await next_entry() == other_farm[2]
+        await start(other_peer)
+        assert provider.entries_by_farm == {first[0]: 1, other_farm[0]: 1}
+        assert provider.active_by_farm == {first[0]: 1, other_farm[0]: 1}
+        assert provider.active == 2
+        assert provider.sent == []
+
+        # Release one farm at a time. Its queued peer must enter while the
+        # other farm's original call remains held at the real provider seam.
+        release_by_phone[first[2]].set()
+        assert await next_entry() == same_farm[2]
+        assert provider.entries_by_farm == {first[0]: 2, other_farm[0]: 1}
+        assert provider.active_by_farm == {first[0]: 1, other_farm[0]: 1}
+        release_by_phone[other_farm[2]].set()
+        assert await next_entry() == other_peer[2]
+        assert provider.entries_by_farm == {first[0]: 2, other_farm[0]: 2}
+        assert provider.active_by_farm == {first[0]: 1, other_farm[0]: 1}
+
+        release_by_phone[same_farm[2]].set()
+        release_by_phone[other_peer[2]].set()
+        outcomes = await asyncio.gather(*tasks)
+    finally:
+        for release in release_by_phone.values():
+            release.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
     assert all(outcome.status == "SENT" for outcome in outcomes)
     assert provider.max_active == 2
-    assert elapsed < 0.3, "four 30ms sends should run in two cross-farm waves, not serially"
+    assert provider.active == 0
+    assert all(count == 0 for count in provider.active_by_farm.values())
+    assert {phone for phone, _ in provider.sent} == set(release_by_phone)
+    assert len(provider.sent) == len(deliveries)
 
 
 async def test_notification_classes_are_scheduled_independently(
