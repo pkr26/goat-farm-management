@@ -1,10 +1,13 @@
 # Herdly implementation plan: above 90 in every audit area
 
+> Evidence paths under `audit_reports/` refer to bundles removed from the
+> working tree; retrieve them from git history (`git log --diff-filter=D -- audit_reports`).
+
 Created: 3 October 2026. Baseline commit: b285645b2a93709aa7294fc4698ee0f25839b13e.
 
 **Objective:** fix every finding in the October audit and earn a fresh score of at least **91/100 in each of the ten areas**. The working targets below are 92–95. They are targets, not scores already achieved or a guarantee of clinical accuracy.
 
-**Current status:** the independent audit of `fee30d5` reviewed all **83 original claims** and repaired **22 additional defects**. Current validation covers **5,166 unique backend passes with four skips**, **5,281 frontend passes** and **145 fresh Chromium/mobile/WebKit checks**, plus build, lint, strict typing and unchanged coverage floors. Backend combined coverage is **92.7538%**. The total reconciles a complete-suite snapshot and a later 212-case migration/screening sweep for the new f9 lock; [the independent report](../../audit_reports/independent-last-commit-2026-10-03/report.md) states exact source boundaries. Original Linux Firefox receipts were checked for integrity, without a fresh Firefox run. These fixes passed local verification; Git history records publication. The f9 migration is tested but has not upgraded the existing application database. **70/100 remains the historical baseline**, and the 91+ targets require fresh measurement and assessment.
+**Current status:** the independent audit of `fee30d5` reviewed all **83 original claims** and repaired **22 additional defects**. Current validation covers **5,166 unique backend passes with four skips**, **5,281 frontend passes** and **145 fresh Chromium/mobile/WebKit checks**, plus build, lint, strict typing and unchanged coverage floors. Backend combined coverage is **92.7538%**. The total reconciles a complete-suite snapshot and a later 212-case migration/screening sweep for the new f9 lock; the independent report (`audit_reports/independent-last-commit-2026-10-03/report.md`) states exact source boundaries. Original Linux Firefox receipts were checked for integrity, without a fresh Firefox run. These fixes passed local verification; Git history records publication. The f9 migration is tested but has not upgraded the existing application database. **70/100 remains the historical baseline**, and the 91+ targets require fresh measurement and assessment.
 
 The user has requested the fixes. Work should proceed through the batches below without repeatedly asking for permission for ordinary local implementation, tests or reversible changes. Missing staging access, representative data and independent reviewers should be recorded against the affected validation task while independent engineering continues.
 
@@ -25,7 +28,7 @@ The current modular FastAPI/PostgreSQL and Next.js application will be retained.
 
 The October audit accounted for 1,343 tracked files and fully reviewed all authored application, migration, operational, configuration and mutation-harness source. It recorded 4,978 backend tests passing with four skipped, 5,082 frontend tests passing, and 45 browser checks passing with six failures. Build, application typing and lint passed. Dependency scans failed. Historical mutation percentages have measurement limitations.
 
-The [October audit](../../audit_reports/2026-10-03/00-report.md), [coverage method](../../audit_reports/2026-10-03/02-coverage-method.md) and [file ledger](../../audit_reports/2026-10-03/01-file-coverage.csv) are the evidence baseline. Earlier audit scores are historical; they do not supersede the newly reproduced defects.
+The October audit (`audit_reports/2026-10-03/00-report.md`), coverage method (`audit_reports/2026-10-03/02-coverage-method.md`) and file ledger (`audit_reports/2026-10-03/01-file-coverage.csv`) are the evidence baseline. Earlier audit scores are historical; they do not supersede the newly reproduced defects.
 
 The older [project playbook](AUDIT_AND_IMPLEMENTATION_PLAYBOOK.md) describes an owner-operated system for roughly 20 farms. Use this as a working product assumption, not a measured capacity claim. Before performance testing, record the actual intended animals per farm, daily records/photos, concurrent workers, device classes, network conditions and history size. Check maintenance fairness above its current 1,000-farm boundary as a regression even if the deployment is smaller.
 
@@ -162,11 +165,11 @@ B2, B3 and B4 can overlap once their shared contracts are agreed. Independent wo
 
 ## 5. Complete finding-to-fix ledger
 
-The rows below preserve the intended fixes and acceptance criteria. Current implementation, evidence and dispositions live in the [finding ledger](../../audit_reports/implementation-2026-10-03/finding-ledger.md). The changes have passed local verification; Git history records publication, and deployment validation remains separate. A required gate is complete only when its receipt passes; broad suite totals do not substitute for missing direct proof.
+The rows below preserve the intended fixes and acceptance criteria. Current implementation, evidence and dispositions live in the finding ledger (`audit_reports/implementation-2026-10-03/finding-ledger.md`). The changes have passed local verification; Git history records publication, and deployment validation remains separate. A required gate is complete only when its receipt passes; broad suite totals do not substitute for missing direct proof.
 
 ### Frontend and worker state
 
-Source: [frontend review](../../audit_reports/2026-10-03/03-frontend.md).
+Source: frontend review (`audit_reports/2026-10-03/03-frontend.md`).
 
 | Finding | Batch | Concrete fix | Required proof |
 | --- | --- | --- | --- |
@@ -184,7 +187,7 @@ Source: [frontend review](../../audit_reports/2026-10-03/03-frontend.md).
 | FE12 | B5 | Show refresh failure and stale timestamps separately from an empty owner dataset | Failed refresh preserves labeled old data and offers recovery |
 | FE13 | B5 | Route photo upload through the shared timeout/cancellation compatibility policy | Upload works when native timeout support is absent; timeout/abort remains visible |
 
-Source: [domain page review](../../audit_reports/2026-10-03/04-frontend-domain-pages.md).
+Source: domain page review (`audit_reports/2026-10-03/04-frontend-domain-pages.md`).
 
 | Finding | Batch | Concrete fix | Required proof |
 | --- | --- | --- | --- |
@@ -195,7 +198,7 @@ Source: [domain page review](../../audit_reports/2026-10-03/04-frontend-domain-p
 
 ### Backend, clinical and decision correctness
 
-Sources: [backend domain review](../../audit_reports/2026-10-03/05-backend-domain.md), [extended review](../../audit_reports/2026-10-03/06-backend-domain-extension.md).
+Sources: backend domain review (`audit_reports/2026-10-03/05-backend-domain.md`), extended review (`audit_reports/2026-10-03/06-backend-domain-extension.md`).
 
 | Finding | Batch | Concrete fix | Required proof |
 | --- | --- | --- | --- |
@@ -223,7 +226,7 @@ Sources: [backend domain review](../../audit_reports/2026-10-03/05-backend-domai
 
 ### Database and operational scripts
 
-Source: [database review](../../audit_reports/2026-10-03/07-database.md).
+Source: database review (`audit_reports/2026-10-03/07-database.md`).
 
 | Finding | Batch | Concrete fix | Required proof |
 | --- | --- | --- | --- |
@@ -239,7 +242,7 @@ Source: [database review](../../audit_reports/2026-10-03/07-database.md).
 
 ### Authentication, privacy and platform
 
-Source: [platform review](../../audit_reports/2026-10-03/08-platform-security.md). PL numbers correspond to its section numbers.
+Source: platform review (`audit_reports/2026-10-03/08-platform-security.md`). PL numbers correspond to its section numbers.
 
 | Finding | Batch | Concrete fix | Required proof |
 | --- | --- | --- | --- |
@@ -259,7 +262,7 @@ Source: [platform review](../../audit_reports/2026-10-03/08-platform-security.md
 
 ### Test measurement tools
 
-Source: [mutation method review](../../audit_reports/2026-10-03/09-mutation-method.md).
+Source: mutation method review (`audit_reports/2026-10-03/09-mutation-method.md`).
 
 | Finding | Batch | Concrete fix | Required proof |
 | --- | --- | --- | --- |
@@ -389,6 +392,6 @@ The final assessment must answer three questions with evidence: **Was every audi
 
 ### Implementation update — 3 October 2026
 
-The independent audit reviewed all 71 original finding IDs and 12 additional issues, then repaired 22 residual application/verification defects. The new forward migration reaches `f9a3b7c1d5e2`, preserving all 101 audited migration modules and known legacy review facts. A complete corrected-source suite passed 5,165 tests with four skips; subsequent migration lock hardening passed the 212-case affected sweep. Deduplicated current coverage accounts for 5,166 passes and four skips across all 5,170 collected cases, with 92.7538% combined app coverage. Frontend passed 5,281 tests, 96.61% line and 92.09% branch coverage, build and static gates. Fresh Chromium/mobile74 and WebKit71 checks passed; original Linux Firefox71 receipts remain historical evidence. The [independent report](../../audit_reports/independent-last-commit-2026-10-03/report.md) and [implementation status](IMPLEMENTATION_STATUS.md) record validation limits and the separate deployment state.
+The independent audit reviewed all 71 original finding IDs and 12 additional issues, then repaired 22 residual application/verification defects. The new forward migration reaches `f9a3b7c1d5e2`, preserving all 101 audited migration modules and known legacy review facts. A complete corrected-source suite passed 5,165 tests with four skips; subsequent migration lock hardening passed the 212-case affected sweep. Deduplicated current coverage accounts for 5,166 passes and four skips across all 5,170 collected cases, with 92.7538% combined app coverage. Frontend passed 5,281 tests, 96.61% line and 92.09% branch coverage, build and static gates. Fresh Chromium/mobile74 and WebKit71 checks passed; original Linux Firefox71 receipts remain historical evidence. The independent report (`audit_reports/independent-last-commit-2026-10-03/report.md`) and [implementation status](IMPLEMENTATION_STATUS.md) record validation limits and the separate deployment state.
 
 The wider B5 product ideas—guided basic planning, tag scanning, deeper page decomposition and observed task simplification—are follow-up improvements, not implemented fixes. Fresh full mutation campaigns, supported-load/soak measurements, manual accessibility/Telugu review, real-photo/domain evaluation, provider receipts and full staging recovery remain necessary for the target assessment.

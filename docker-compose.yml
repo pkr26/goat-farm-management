@@ -457,6 +457,11 @@ services:
       # interpolated; without this entry the in-container default silently
       # reads loopback and the public-bind warning can never fire.
       GOATFARM_EDGE_BIND_HOST: ${GOATFARM_EDGE_BIND_HOST:-127.0.0.1}
+      # The documented opt-out for a non-loopback development bind
+      # (.env.example, docs/deployment.md). Compose only interpolates .env
+      # values into declared entries, so without this forward the entrypoint
+      # guard could never see the operator's setting.
+      GOATFARM_ALLOW_DEV_PUBLIC_BIND: ${GOATFARM_ALLOW_DEV_PUBLIC_BIND:-false}
       # Keep every config value substituted by edge-entrypoint.sh in the
       # container environment. Rendering this directly through Compose would
       # bypass the runtime syntax validator on a malformed size value.

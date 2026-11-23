@@ -43,7 +43,3 @@ docker-compose.production.yml
 docker-compose.override.yml
 .github
 audit_reports
-coverage
-frontend/coverage
-frontend/test-results
-frontend/reports

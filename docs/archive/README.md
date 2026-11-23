@@ -14,10 +14,12 @@ guides for today's commands and behavior.
 | [Mutation testing report](MUTATION_TESTING_REPORT.md) | Historical campaigns; see current harness documentation before measuring |
 | [Frontend campaign](frontend-mutation/CAMPAIGN.md) and [equivalence notes](frontend-mutation/EQUIVALENTS.md) | Earlier frontend mutation investigation and survivor triage |
 
-Detailed evidence remains in [audit_reports](../../audit_reports/README.md) and
-[the October audit](AUDIT_2026-10-01/00-MASTER.md). Existing evidence bundles are
-retained intact because their manifests bind the recorded files and source
-hashes. Historical source paths refer to the checkout at the time of the run.
+Detailed evidence lives in git history and in
+[the October audit](AUDIT_2026-10-01/00-MASTER.md). The `audit_reports/`
+evidence bundles were removed from the working tree; retrieve them from the
+commit that removed them (`git log --diff-filter=D -- audit_reports` and
+`git show <that-commit>^:audit_reports/README.md`). Their manifests bind the
+recorded files and source hashes of the checkout at the time of the run.
 
 Generated mutation manifests, coverage maps, attempts, and reports are local
 outputs. Regenerate them for the current source rather than relying on old

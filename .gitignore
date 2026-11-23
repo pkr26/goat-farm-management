@@ -19,6 +19,9 @@ build/
 # Generated test, coverage, and mutation outputs
 # Raw audit evidence stays local; maintained summaries belong in docs/.
 /audit_reports/
+backend/mutants/
+frontend/reports/
+.stryker-tmp*/
 coverage/
 htmlcov/
 .coverage*

@@ -1,10 +1,13 @@
 # Herdly improvement implementation status
 
-Updated 3 October 2026. The independent audit of `fee30d5` reviewed all **83 original tracked claims** and repaired **22 additional defects**. Current validation covers **5,166 unique backend passes with four documented skips**, **5,281 frontend passes** and **145 fresh Chromium/mobile/WebKit checks**, with the production build, typing, lint and existing coverage floors passing. Backend coverage is **92.7538% combined**. The backend total reconciles a complete 5,169-case snapshot with a later 212-case migration/screening sweep after hardening the new f9 lock. [The independent report](../../audit_reports/independent-last-commit-2026-10-03/report.md) records exact source boundaries and all corrections.
+> Evidence paths under `audit_reports/` refer to bundles removed from the
+> working tree; retrieve them from git history (`git log --diff-filter=D -- audit_reports`).
+
+Updated 3 October 2026. The independent audit of `fee30d5` reviewed all **83 original tracked claims** and repaired **22 additional defects**. Current validation covers **5,166 unique backend passes with four documented skips**, **5,281 frontend passes** and **145 fresh Chromium/mobile/WebKit checks**, with the production build, typing, lint and existing coverage floors passing. Backend coverage is **92.7538% combined**. The backend total reconciles a complete 5,169-case snapshot with a later 212-case migration/screening sweep after hardening the new f9 lock. The independent report (`audit_reports/independent-last-commit-2026-10-03/report.md`) records exact source boundaries and all corrections.
 
 These audit changes passed local verification; Git history records publication. Validation used isolated synthetic databases; the new f9 migration has not been applied to the existing application database. The original 216-check matrix remains preserved historical evidence, including Linux Firefox; Firefox was not rerun in this independent audit. No release or production-data operation occurred.
 
-The [improvement plan](APP_IMPROVEMENT_PLAN.md) defines the 91+ targets and acceptance criteria. The [83-finding ledger](../../audit_reports/implementation-2026-10-03/finding-ledger.md) maps each finding to source and regression evidence. The [70/100 baseline audit](../../audit_reports/2026-10-03/00-report.md) remains unchanged; that historical score does not rate the modified application. **A fresh above-90 score has not been assigned.**
+The [improvement plan](APP_IMPROVEMENT_PLAN.md) defines the 91+ targets and acceptance criteria. The 83-finding ledger (`audit_reports/implementation-2026-10-03/finding-ledger.md`) maps each finding to source and regression evidence. The 70/100 baseline audit (`audit_reports/2026-10-03/00-report.md`) remains unchanged; that historical score does not rate the modified application. **A fresh above-90 score has not been assigned.**
 
 ## What changed
 
@@ -23,18 +26,18 @@ The [improvement plan](APP_IMPROVEMENT_PLAN.md) defines the 91+ targets and acce
 
 | Gate | Result | Receipt |
 | --- | --- | --- |
-| Complete backend collection | 5,124 passed, 4 skipped; zero failures/errors; every one of 5,128 collected cases accounted for across disjoint isolated databases | [Final backend](../../audit_reports/implementation-2026-10-03/final-backend/README.md) |
-| Backend coverage | 92.7189% combined, enforcing the unchanged 92% floor; 94.5437% line / 85.9931% branch | [Coverage and source verification](../../audit_reports/implementation-2026-10-03/final-backend/summary.json) |
-| Complete frontend suite | 326 files / 5,269 tests passed; all existing global and scoped floors passed | [Frontend receipt](../../audit_reports/implementation-2026-10-03/final-verification/frontend-coverage-receipt.json) |
-| Frontend coverage | 94.30% statement / 91.98% branch / 94.33% function / 96.47% line | [Coverage log](../../audit_reports/implementation-2026-10-03/final-verification/frontend-coverage.log) |
-| Production build, frontend lint and TypeScript | Passed on unchanged production source; full lint/types also pass after the E2E-only assertions | [Build](../../audit_reports/implementation-2026-10-03/final-verification/frontend-build.log), [lint](../../audit_reports/implementation-2026-10-03/final-verification/frontend-lint.log), [types](../../audit_reports/implementation-2026-10-03/final-verification/frontend-typecheck.log) |
-| Chromium + mobile | 74 passed, zero retries/failures/skips | [Browser receipt](../../audit_reports/implementation-2026-10-03/final-verification/chromium-receipt.json) |
-| WebKit | 71 passed, zero retries/failures/skips | [Browser receipt](../../audit_reports/implementation-2026-10-03/final-verification/webkit-receipt.json) |
-| Firefox (Linux Firefox 153.0) | 71 passed, zero retries/failures/skips; native macOS launcher remains limited | [Browser receipt](../../audit_reports/implementation-2026-10-03/final-verification/firefox-receipt.json) |
-| Backend static/dependency lock gates | Nine commands passed; Ruff checks 404 files; strict typing zero; sole final migration head | [Static manifest](../../audit_reports/implementation-2026-10-03/final-static/manifest.json) |
-| Populated historical upgrade | 55 checks passed; all original fixture facts preserved; invalid preflights fully roll back | [Migration rehearsal](../../audit_reports/implementation-2026-10-03/populated-migration-rehearsal-f8/README.md) |
-| Local synthetic PostgreSQL restore | 49 tables / 2,458 rows; exact snapshot counts and row digests match; model parity and constraints pass | [Recovery rehearsal](../../audit_reports/implementation-2026-10-03/final-recovery/README.md) |
-| Sampled production visual review | 10 before + 4 inspected corrected screenshots; Telugu headings and ownership-selector width/prompt corrected | [Review](../../audit_reports/implementation-2026-10-03/visual-review/review.md) |
+| Complete backend collection | 5,124 passed, 4 skipped; zero failures/errors; every one of 5,128 collected cases accounted for across disjoint isolated databases | Final backend (`audit_reports/implementation-2026-10-03/final-backend/README.md`) |
+| Backend coverage | 92.7189% combined, enforcing the unchanged 92% floor; 94.5437% line / 85.9931% branch | Coverage and source verification (`audit_reports/implementation-2026-10-03/final-backend/summary.json`) |
+| Complete frontend suite | 326 files / 5,269 tests passed; all existing global and scoped floors passed | Frontend receipt (`audit_reports/implementation-2026-10-03/final-verification/frontend-coverage-receipt.json`) |
+| Frontend coverage | 94.30% statement / 91.98% branch / 94.33% function / 96.47% line | Coverage log (`audit_reports/implementation-2026-10-03/final-verification/frontend-coverage.log`) |
+| Production build, frontend lint and TypeScript | Passed on unchanged production source; full lint/types also pass after the E2E-only assertions | Build (`audit_reports/implementation-2026-10-03/final-verification/frontend-build.log`), lint (`audit_reports/implementation-2026-10-03/final-verification/frontend-lint.log`), types (`audit_reports/implementation-2026-10-03/final-verification/frontend-typecheck.log`) |
+| Chromium + mobile | 74 passed, zero retries/failures/skips | Browser receipt (`audit_reports/implementation-2026-10-03/final-verification/chromium-receipt.json`) |
+| WebKit | 71 passed, zero retries/failures/skips | Browser receipt (`audit_reports/implementation-2026-10-03/final-verification/webkit-receipt.json`) |
+| Firefox (Linux Firefox 153.0) | 71 passed, zero retries/failures/skips; native macOS launcher remains limited | Browser receipt (`audit_reports/implementation-2026-10-03/final-verification/firefox-receipt.json`) |
+| Backend static/dependency lock gates | Nine commands passed; Ruff checks 404 files; strict typing zero; sole final migration head | Static manifest (`audit_reports/implementation-2026-10-03/final-static/manifest.json`) |
+| Populated historical upgrade | 55 checks passed; all original fixture facts preserved; invalid preflights fully roll back | Migration rehearsal (`audit_reports/implementation-2026-10-03/populated-migration-rehearsal-f8/README.md`) |
+| Local synthetic PostgreSQL restore | 49 tables / 2,458 rows; exact snapshot counts and row digests match; model parity and constraints pass | Recovery rehearsal (`audit_reports/implementation-2026-10-03/final-recovery/README.md`) |
+| Sampled production visual review | 10 before + 4 inspected corrected screenshots; Telugu headings and ownership-selector width/prompt corrected | Review (`audit_reports/implementation-2026-10-03/visual-review/review.md`) |
 
 Coverage percentages measure test execution, not application quality. Skips, advisory mitigation, unsupported operations and untested deployment/field conditions are explicitly recorded in the receipts.
 
@@ -48,4 +51,4 @@ Coverage percentages measure test execution, not application quality. Skips, adv
 6. Evaluate the broader product improvements in the plan: guided basic planning, tag scanning, deeper page decomposition and observed task simplification.
 7. Re-audit all ten areas using current implementation and these receipts. Above-90 targets remain unassessed until the necessary evidence exists.
 
-The original committed matrix was **Chromium/mobile 74 + Linux Firefox 71 + WebKit 71 = 216 passed**, with zero failures, skips or retries. Its source hashes and counts were independently reconciled. [The current independent report](../../audit_reports/independent-last-commit-2026-10-03/report.md) supplies fresh results, fixes and limits; [the original verification index](../../audit_reports/implementation-2026-10-03/final-verification/README.md) preserves the earlier receipts. Current local verification does not establish deployment or field readiness.
+The original committed matrix was **Chromium/mobile 74 + Linux Firefox 71 + WebKit 71 = 216 passed**, with zero failures, skips or retries. Its source hashes and counts were independently reconciled. The current independent report (`audit_reports/independent-last-commit-2026-10-03/report.md`) supplies fresh results, fixes and limits; the original verification index (`audit_reports/implementation-2026-10-03/final-verification/README.md`) preserves the earlier receipts. Current local verification does not establish deployment or field readiness.

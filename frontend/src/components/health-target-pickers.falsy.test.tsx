@@ -9,13 +9,11 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { HealthAnimalPicker, HealthPurchaseBatchPicker } from "@/components/health-target-pickers";
 import { Label } from "@/components/ui/label";
 import { server } from "@/test/msw-server";
-
-vi.mock("@/hooks/use-farm-type", () => ({ useFarmType: () => "GOAT" }));
 
 function Providers({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>;

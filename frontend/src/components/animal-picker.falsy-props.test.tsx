@@ -10,14 +10,12 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { AnimalOut, AnimalOutCurrentBucket } from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
 import { Label } from "@/components/ui/label";
 import { server } from "@/test/msw-server";
-
-vi.mock("@/hooks/use-farm-type", () => ({ useFarmType: () => "GOAT" }));
 
 function animal(id: number): AnimalOut {
   return {
