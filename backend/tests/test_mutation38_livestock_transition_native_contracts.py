@@ -121,27 +121,56 @@ def test_native_breeding_guard_accepts_the_literal_doe_and_sire_weight_floors(
     animal = _doe()
     animal.sex = sex
     animal.current_bucket = "FOUNDATION"
+    # The rest-and-flush window gates only a doe leaving RESTING: a proven but
+    # long-elapsed RESTING date must gate nothing here, and an unproven (None)
+    # one must leave the window unevaluated rather than dated against.
     assert (
         bucket_transition_error(
-            animal, "BREEDING", reference_date=date(2026, 10, 6), facts=(weight, False)
+            animal,
+            "BREEDING",
+            reference_date=date(2026, 10, 6),
+            facts=(weight, False),
+            resting_since=date(2026, 9, 1),
         )
         is None
     )
+    try:
+        unproven = bucket_transition_error(
+            animal, "BREEDING", reference_date=date(2026, 10, 6), facts=(weight, False)
+        )
+    except TypeError as error:
+        pytest.fail(f"An unproven rest window must stay unevaluated: {error}")
+    assert unproven is None
 
 
 def test_same_day_rest_guard_reports_zero_completed_days_and_exact_earliest_date() -> None:
     doe = _doe()
     doe.current_bucket = "RESTING"
-    error = bucket_transition_error(
-        doe,
-        "BREEDING",
-        reference_date=date(2026, 10, 6),
-        facts=(26.0, False),
-        resting_since=date(2026, 10, 6),
-    )
-    assert error == (
+
+    def rejection(resting_since: date) -> str | None:
+        try:
+            return bucket_transition_error(
+                doe,
+                "BREEDING",
+                reference_date=date(2026, 10, 6),
+                facts=(26.0, False),
+                resting_since=resting_since,
+            )
+        except TypeError as error:
+            # A degraded elapsed-day count adds the two dates instead of
+            # subtracting them; keep the rejection text attributable rather
+            # than letting the arithmetic error escape the guard.
+            pytest.fail(f"The rest-and-flush rejection must stay formattable: {error}")
+
+    assert rejection(date(2026, 10, 6)) == (
         "NATIVE-TRANSITION has been in RESTING for 0 of the 10-day rest-and-flush window "
         "before re-entering BREEDING — earliest re-entry is 2026-10-16"
+    )
+    # A partly served window must report the days actually completed, so the
+    # reported count cannot be a constant that the same-day case alone pins.
+    assert rejection(date(2026, 10, 3)) == (
+        "NATIVE-TRANSITION has been in RESTING for 3 of the 10-day rest-and-flush window "
+        "before re-entering BREEDING — earliest re-entry is 2026-10-13"
     )
 
 

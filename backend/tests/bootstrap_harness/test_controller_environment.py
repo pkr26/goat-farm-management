@@ -74,7 +74,9 @@ def test_child_pytest_isolates_controller_flags_and_preserves_parent_policy(
     monkeypatch.setenv("CONTROLLER_TEST_SENTINEL", "preserved")
     instance: Any = object.__new__(producer.Runner)
     instance.run_id = uuid4().hex
-    instance.phase_timeout = 30
+    # A cold child pytest must still fit the budget while the full suite is
+    # sharded across workers; 300s is the runner's own documented floor.
+    instance.phase_timeout = 300
     instance.local = threading.local()
     instance.local.workspace = workspace
     instance.full_phase = True

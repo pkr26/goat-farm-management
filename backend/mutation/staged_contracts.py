@@ -1545,6 +1545,11 @@ FUNCTION_ORACLES = {
     ),
     ("app/models/animals.py", "last_bucket_move"): (
         (
+            "tests/test_mutation38_livestock_model_bucket_assigned_identi"
+            "ty_tie.py::test_same_instant_move_tie_resolves_to_the_higher"
+            "_assigned_id_not_the_first_row"
+        ),
+        (
             "tests/test_mutation38_livestock_model_bucket_history.py::tes"
             "t_last_move_prefers_an_assigned_identity_until_a_pending_mov"
             "e_is_flushed"
@@ -1556,6 +1561,11 @@ FUNCTION_ORACLES = {
         ),
     ),
     ("app/models/animals.py", "latest_weight"): (
+        (
+            "tests/test_mutation38_livestock_model_latest_weight_identit"
+            "y_tie.py::test_same_day_weight_tie_resolves_to_the_higher_a"
+            "ssigned_id_not_the_first_row"
+        ),
         (
             "tests/test_mutation38_livestock_model_weight_order.py::test_"
             "latest_weight_keeps_assigned_identity_ahead_of_an_unflushed_"

@@ -94,7 +94,14 @@ async def test_last_move_prefers_an_assigned_identity_until_a_pending_move_is_fl
         pending.moved_at = initial.moved_at
         animal.bucket_moves.insert(0, pending)
         assert pending.id is None
-        assert animal.last_bucket_move is initial
+        # Pending moves have no assigned identity. A degraded tie-break makes
+        # max() compare None against an int; surface that as an assertion so
+        # the failure stays attributable to this contract.
+        try:
+            latest = animal.last_bucket_move
+        except TypeError as error:
+            pytest.fail(f"A same-instant pending move must stay orderable: {error}")
+        assert latest is initial
         await db.flush()
         assert pending.id is not None and pending.id > initial.id
         assert animal.last_bucket_move is pending

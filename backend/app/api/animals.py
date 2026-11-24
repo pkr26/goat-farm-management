@@ -161,7 +161,7 @@ async def _animal_out(
     )
 
 
-_QUARANTINE_TITLE_PREFIX = re.compile(r"^\[[^\]]*\]\s*")
+_QUARANTINE_TITLE_PREFIX = re.compile(r"\A\[[^\]]*\]\s*")
 
 
 def _quarantine_title_phrase(title: str) -> str:
@@ -175,7 +175,10 @@ def _quarantine_title_phrase(title: str) -> str:
     without weakening it: due dates, categories, count and all completion
     metadata must still match exactly.
     """
-    return _QUARANTINE_TITLE_PREFIX.sub("", title, count=1)
+    # ``\A`` holds only at the absolute string start under every flag, and the
+    # pattern is at least two characters wide, so scanning resumes past the
+    # replacement where it can never hold again: at most one match per title.
+    return _QUARANTINE_TITLE_PREFIX.sub("", title)
 
 
 async def _lock_pristine_batch_protocol_for_quarantine_reentry(
@@ -477,7 +480,12 @@ async def create_animal(
                 if payload.sex == "M"
                 else profile.min_breeding_weight_kg
             )
-            if age_months is None or age_months < min_age or (payload.weight_kg or 0) < min_weight:
+            if (
+                age_months is None
+                or age_months < min_age
+                or payload.weight_kg is None
+                or payload.weight_kg < min_weight
+            ):
                 raise HTTPException(
                     status_code=422,
                     detail=(

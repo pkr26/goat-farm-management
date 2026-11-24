@@ -163,6 +163,20 @@ def excluded_node_ids(tree: ast.AST) -> set[int]:
         if isinstance(node, ast.AnnAssign):
             mark(node.annotation)
             continue
+        # ``X | None`` is only ever a type union: bitwise-or against None
+        # raises, so such a site can only produce a mutant that fails to
+        # import and can never reach an assertion. Aliases written before
+        # PEP 695 are plain assignments, which ast.TypeAlias does not cover.
+        if (
+            isinstance(node, ast.BinOp)
+            and isinstance(node.op, (ast.BitOr, ast.BitAnd))
+            and any(
+                isinstance(side, ast.Constant) and side.value is None
+                for side in (node.left, node.right)
+            )
+        ):
+            bad.add(id(node))
+            continue
         if isinstance(node, (*STMT_PARENTS, ast.Lambda)):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 for dec in node.decorator_list:

@@ -1,6 +1,7 @@
 """Model weight recency follows measurement date and assigned entry identity."""
 
 import httpx
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -85,9 +86,14 @@ async def test_latest_weight_keeps_assigned_identity_ahead_of_an_unflushed_same_
         # Pending measurements have no assigned entry identity. The public
         # model helper and its existing as-of twin prefer an assigned record
         # until the new row is flushed and receives its real sequence ID.
-        assert animal.latest_weight is persisted
-        assert animal.latest_weight_kg == 27.5
-        assert animal.latest_weight_kg_on(measurement_date) == 27.5
+        try:
+            assert animal.latest_weight is persisted
+            assert animal.latest_weight_kg == 27.5
+            assert animal.latest_weight_kg_on(measurement_date) == 27.5
+        except TypeError as error:
+            # A degraded tie-break makes max() compare an int against None.
+            # Surface it as an assertion so the failure stays attributable.
+            pytest.fail(f"Same-day readings must stay orderable: {error}")
         await db.flush()
         assert pending.id is not None
         assert pending.id > persisted.id

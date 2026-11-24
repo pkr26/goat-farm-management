@@ -158,6 +158,12 @@ async def test_deleted_membership_cleanup_is_exactly_batched() -> None:
 
     async with get_sessionmaker()() as db:
         await db.execute(text("SET LOCAL enable_seqscan = off"))
+        # Plan choice is only stable against statistics describing the rows
+        # this test just created. TRUNCATE between tests leaves pg_statistic
+        # populated from earlier, larger fixtures, so without this the index
+        # the plan picks depends on which tests ran before it in this database.
+        await db.execute(text("ANALYZE users"))
+        await db.execute(text("ANALYZE farm_memberships"))
         plan = "\n".join(
             row[0]
             for row in (

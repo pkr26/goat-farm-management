@@ -205,6 +205,8 @@ def contract_oracles(file: str, tree: ast.Module, line: int) -> list[str]:
     mappings = {
         ("app/api/animals.py", "create_animal"): (
             "tests/test_mutation38_livestock_birth_date_precedence.py",
+            "tests/test_mutation38_livestock_nonpositive_entry_weight.py",
+            "tests/test_mutation38_livestock_sire_age_floor.py",
             "tests/test_mutation38_livestock_purchase_entry_dates.py",
             "tests/test_mutation38_livestock_birth_weight_messages.py",
             "tests/test_mutation38_livestock_individual_purchase_graph.py",
